@@ -1,9 +1,9 @@
-// Exporte — derselbe Baum, drei Zielgruppen.
+// Exports — the same tree, three audiences.
 //
-//  · fachlich    für Stakeholder: nur Ablauf, Beschreibungen, offene Punkte
-//  · orchescala  für die Umsetzung (und für KI): Topics, Services, Mappings,
-//                Fehler, Mocks — vollständig und eindeutig
-//  · json        die Spezifikation selbst (Sicherung / Weiterverarbeitung)
+//  · fachlich    for stakeholders: only flow, descriptions, open points
+//  · orchescala  for the implementation (and for AI): topics, services, mappings,
+//                errors, mocks — complete and unambiguous
+//  · json        the specification itself (backup / further processing)
 
 import { overallStatus } from './status.ts';
 import type { AppliedPattern, Branch, EngineId, ErrorHandling, Mapping, Model, ProcessSpec, ServiceDef, Status, Step } from './types.ts';
@@ -64,10 +64,10 @@ function statusTag(s: Status): string {
 }
 
 // ── Pattern ──────────────────────────────────────────────────────────────────
-// Ein Pattern steht als **ein** Eintrag am Schritt — Name und Werte. Was es
-// ins Diagramm bringt (Timer, Link, gemeinsamer Block), ist Verdrahtung und
-// erscheint nicht als eigene Schritte: fachlich gar nicht, im
-// Orchescala-Export im Überblick markiert.
+// A pattern appears as **one** entry at the step — name and values. What it
+// brings into the diagram (timer, link, shared block) is wiring and
+// does not appear as separate steps: not at all in the business export, in the
+// Orchescala export marked in the overview.
 type PatternNames = (id: string) => string;
 const patternNames = (model: Model | null): PatternNames => id => model?.patterns?.find(p => p.id === id)?.name ?? id;
 function patternText(ps: AppliedPattern[] | undefined, name: PatternNames, code = false): string {
@@ -77,16 +77,16 @@ function patternText(ps: AppliedPattern[] | undefined, name: PatternNames, code 
   }).join(' · ');
 }
 
-// ── Fachlicher Export ────────────────────────────────────────────────────────
+// ── Business export ──────────────────────────────────────────────────────────
 /**
- * Die Schritte einer Ebene — eigene Blöcke (zweiter Start, Link-Ziel) in
- * einer Klammer wie im Baum: eine Überschrift, die Schritte darunter eine
- * Stufe eingerückt. Ein Ereignis-Subprozess steht als solcher da.
+ * The steps of a level — separate blocks (second start, link target) in
+ * a bracket as in the tree: a heading, the steps below indented by one
+ * level. An event subprocess is shown as such.
  */
 function fachlichSteps(spec: ProcessSpec, steps: Step[], depth: number, out: string[], pn: PatternNames) {
   for (const g of blockGroups(steps)) {
     if (!g.head) { fachlichStepsFlat(spec, g.steps, depth, out, pn); continue; }
-    // der gemeinsame Block eines Patterns ist Verdrahtung — er steht beim Pattern am Schritt
+    // a pattern's shared block is wiring — it is listed with the pattern at the step
     if (g.head.pattern) continue;
     out.push(`${bullet(depth)} *Eigener Block — ${blockStart(g.head)}*`);
     fachlichStepsFlat(spec, g.steps, depth + 1, out, pn);
@@ -127,8 +127,8 @@ const openThreads = (spec: ProcessSpec, target: string) =>
   threadsUnder(spec, target).filter(t => !t.resolved).length;
 
 /**
- * Offene Kommentar-Fäden zu einem Element samt seiner Teile, als Zeilen —
- * ein Teil (Mapping-Zeile, Feld …) steht in Klammern davor.
+ * Open comment threads on an element including its parts, as lines —
+ * a part (mapping row, field …) is shown in brackets in front.
  */
 function kommentarZeilen(spec: ProcessSpec, target: string, einzug: string): string[] {
   const out: string[] = [];
@@ -167,11 +167,11 @@ function exportFachlich(spec: ProcessSpec, model: Model | null): string {
   return out.join('\n');
 }
 
-// ── Orchescala-Export ────────────────────────────────────────────────────────
-// Bewusst flach und explizit: jeder Schritt bekommt einen Abschnitt mit
-// stabiler ID, damit eine KI daraus direkt Worker, Domain und Simulation
-// ableiten kann, ohne im Baum navigieren zu müssen. Der Baum steht davor
-// als Überblick.
+// ── Orchescala export ────────────────────────────────────────────────────────
+// Deliberately flat and explicit: every step gets a section with a
+// stable ID, so that an AI can derive worker, domain and simulation directly
+// from it without having to navigate the tree. The tree comes first
+// as an overview.
 function outline(steps: Step[], depth: number, out: string[]) {
   for (const g of blockGroups(steps)) {
     if (!g.head) { outlineFlat(g.steps, depth, out); continue; }
@@ -230,9 +230,9 @@ function table(rows: string[][], head: string[]): string[] {
 function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
   const pn = patternNames(model);
   const byId = new Map((model?.services ?? []).map(s => [s.id, s] as [string, ServiceDef]));
-  // Ausdrücke so, wie die Engine sie braucht: FEEL bleibt für Camunda 8,
-  // wird für Camunda 7 zu JUEL — was sich nicht übersetzen lässt, steht
-  // markiert als FEEL da, mit dem Grund.
+  // Expressions as the engine needs them: FEEL stays for Camunda 8,
+  // becomes JUEL for Camunda 7 — whatever cannot be translated is
+  // marked as FEEL, with the reason.
   const ausdruck = (e: string): string => {
     const r = engineExpression(e, spec.engine);
     return r.issue ? `\`${r.text}\` ⚠ *FEEL, nicht nach JUEL übersetzbar: ${r.issue}*` : `\`${r.text}\``;
@@ -263,7 +263,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
   if (spec.types?.length) {
     out.push('## Datenmodell', '');
     out.push('```scala', scalaBundle(spec, model), '```', '');
-    // Offene Fragen am Datentyp gehören zum Datenmodell, nicht ans Ende
+    // Open questions on the data type belong to the data model, not at the end
     for (const t of spec.types) {
       const zeilen = kommentarZeilen(spec, typeTarget(t.id), '');
       if (zeilen.length) out.push(`**Offen zu \`${t.name}\`**`, '', ...zeilen, '');
@@ -320,8 +320,8 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
               : `Korrelationsschlüssel \`${corr.expression}\` — gesendet mit \`${corr.param}\`.`, '');
       out.push('```http', messageRequest(s, corr, spec), '```', '');
     }
-    // Abgewählte Zeilen kommen in diesem Prozess nicht vor — sie stehen nicht
-    // im Vertrag, werden aber gezählt, damit klar ist, was der Service könnte.
+    // Deselected rows do not occur in this process — they are not
+    // in the contract, but are counted so it is clear what the service could do.
     const used = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => !m.disabled);
     const off = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => m.disabled);
     if (used(s.inputs).length) {
@@ -360,7 +360,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
     if (zeilen.length) out.push('**Offene Kommentare**', '', ...zeilen, '');
   }
 
-  // Pattern: was sie tun und wo die Doku steht — die Vorlage für die Umsetzung
+  // Patterns: what they do and where the docs are — the template for the implementation
   const verwendet = new Map<string, string[]>();
   for (const p of spec.patterns ?? []) verwendet.set(p.id, [...(verwendet.get(p.id) ?? []), 'Prozess']);
   for (const { step } of flatten(spec.steps, null)) {
@@ -387,17 +387,17 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
   return out.join('\n');
 }
 
-// ── öffentliche API ──────────────────────────────────────────────────────────
-/** Das Diagramm mit den Mappings und Bedingungen der Spezifikation — samt dem, was nicht übersetzbar war. */
+// ── public API ───────────────────────────────────────────────────────────────
+/** The diagram with the mappings and conditions of the specification — including what could not be translated. */
 export function exportBpmn(spec: ProcessSpec, bpmn: string, model: Model | null = null): WriteResult {
   if (!bpmn) return { xml: '<!-- Zu dieser Spezifikation liegt (noch) kein Diagramm vor. -->', issues: [] };
   return writeBpmn(bpmn, spec, model);
 }
 
 /**
- * Das Diagramm für eine Engine: die eigene wie es ist, die andere on the fly
- * umgewandelt — die Spezifikation bleibt, wie sie ist. Dasselbe für den
- * BPMN-Export und den Helper-Befehl.
+ * The diagram for an engine: its own as it is, the other converted on the fly
+ * — the specification stays as it is. The same for the
+ * BPMN export and the helper command.
  */
 export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7', model: Model | null = null): WriteResult {
   const written = exportBpmn(spec, bpmn, model);
@@ -414,19 +414,19 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
   return exportOrchescala(spec, model);
 }
 
-// ── Für den Helper ───────────────────────────────────────────────────────────
-/** Eine Tabelle einer DMN Decision für den Helper */
+// ── For the helper ───────────────────────────────────────────────────────────
+/** A table of a DMN decision for the helper */
 export interface HelperDmn { file: string; xml: string }
 
 /**
- * Der Befehl, der im Projekt den Prozess anlegt — BPMN und Scala-Klassen in
- * **einem** Argument: `orchspec:` + base64url(gzip(JSON)). So braucht der
- * Helper weder Dateien noch eine Anmeldung an SharePoint; `v` erlaubt, das
- * Format später zu ändern (der Helper lehnt eine unbekannte Version ab).
+ * The command that creates the process in the project — BPMN and Scala classes in
+ * **one** argument: `orchspec:` + base64url(gzip(JSON)). That way the
+ * helper needs neither files nor a SharePoint sign-in; `v` allows the
+ * format to change later (the helper rejects an unknown version).
  *
- * Das BPMN ist dasselbe wie im BPMN-Export für die gewählte Engine. Dazu die
- * Tabellen der DMN Decisions (`dmns`: Dateiname im Projekt und XML) — der
- * Helper legt sie neben das BPMN (`src/main/resources/camunda[8]`).
+ * The BPMN is the same as in the BPMN export for the chosen engine. Plus the
+ * tables of the DMN decisions (`dmns`: file name in the project and XML) — the
+ * helper puts them next to the BPMN (`src/main/resources/camunda[8]`).
  */
 export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId, dmns: HelperDmn[] = []): string {
   const payload = JSON.stringify({
@@ -438,16 +438,16 @@ export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '',
   const zipped = gzipSync(strToU8(payload), { level: 9 });
   let binary = '';
   for (let i = 0; i < zipped.length; i += 0x8000) binary += String.fromCharCode(...zipped.subarray(i, i + 0x8000));
-  // base64url ohne «=»: braucht in der Shell keine Anführungszeichen
+  // base64url without «=»: needs no quotes in the shell
   const b64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `./helper.scala processFromSpec orchspec:${b64}`;
 }
 
 /**
- * `projekt-prozessVersion` ohne die Firma, z. B. `savings-openSavingsV1.bpmn`
- * für `globex-savings-openSavingsV1` — aus der aktuellen Prozess-ID, nicht aus
- * dem Slug; ändert sich Projekt oder Version, folgt der Name. Die beiden
- * Markdown-Exporte tragen die Art als Zusatz.
+ * `projekt-prozessVersion` without the company, e.g. `savings-openSavingsV1.bpmn`
+ * for `globex-savings-openSavingsV1` — from the current process ID, not from
+ * the slug; if project or version change, the name follows. The two
+ * Markdown exports carry the kind as a suffix.
  */
 export function exportFileName(spec: ProcessSpec, kind: ExportKind): string {
   const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(spec.processId?.trim() ?? '');

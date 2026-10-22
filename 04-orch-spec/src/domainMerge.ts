@@ -1,23 +1,23 @@
-// Datenmodell mit der Domain abgleichen — beim «Mit BPMN abgleichen».
+// Sync the data model with the domain — on «Mit BPMN abgleichen».
 //
-// Beim Anlegen entsteht das Datenmodell aus der Domain (`enrichSpec`). Beim
-// Abgleich gibt es schon eines: gepflegt, kommentiert, mit Status. Darum wird
-// hier nicht ersetzt, sondern **zusammengeführt** — wie beim Ablauf:
+// On creation the data model is built from the domain (`enrichSpec`). On
+// sync there already is one: maintained, commented, with status. That is why
+// it is not replaced here but **merged** — as with the flow:
 //
-//  · Die **Struktur** kommt aus der Domain: Felder, Typen, Optional/Seq/Map,
-//    Einschränkung, Werte der Auswahlen; Name und Schlüssel der Interaktionen.
-//  · Was die Spezifikation festlegt, **bleibt**: Beschreibungen, Beispiele —
-//    Vorgaben nicht: die gelten aus der Domain, denn bei der Umsetzung werden
-//    sie dort angepasst — und vor allem die
-//    **IDs** von Typen, Feldern und Interaktionen. An ihnen hängen die
-//    Kommentare (`type:<id>#field:<id>`, `ia:<id>`) und die Verweise.
-//  · Was die Domain nicht (mehr) kennt, bleibt stehen und wird gemeldet —
-//    entfernt nur auf Wunsch (`removeStale`), und auch dann nur, was schon
-//    einmal umgesetzt war; ein Entwurf ist der Domain voraus, nicht veraltet.
+//  · The **structure** comes from the domain: fields, types, Optional/Seq/Map,
+//    constraint, values of the selections; name and key of the interactions.
+//  · What the specification defines **stays**: descriptions, examples —
+//    not defaults: those apply from the domain, because on implementation
+//    they are adjusted there — and above all the
+//    **IDs** of types, fields and interactions. The
+//    comments (`type:<id>#field:<id>`, `ia:<id>`) and the references hang on them.
+//  · What the domain does not know (any more) stays and is reported —
+//    removed only on request (`removeStale`), and even then only what had
+//    already been implemented once; a draft is ahead of the domain, not stale.
 //
-// Zugeordnet wird ohne Raten: die Prozess-Klassen über ihre Rolle (In, Out,
-// InitIn, InConfig), die In/Out einer Interaktion über den Schritt im
-// Ablauf, alles andere über den Namen.
+// Matching is done without guessing: the process classes by their role (In, Out,
+// InitIn, InConfig), the In/Out of an interaction by the step in the
+// flow, everything else by name.
 
 import type { EnumValue, Field, Interaction, ProcessSpec, Status, TypeDef } from './types';
 import { settle, type MergeStatus } from './bpmn';
@@ -25,36 +25,36 @@ import { settle, type MergeStatus } from './bpmn';
 export interface DomainMergeReport {
   added: string[];
   changed: string[];
-  /** was die Domain nicht (mehr) kennt — entfernt oder nur gemeldet, je nach `removeStale` */
+  /** what the domain does not know (any more) — removed or only reported, depending on `removeStale` */
   stale: string[];
-  /** als Entwurf vorbereitete Interaktionen (Schritte ohne Domain-Objekt) */
+  /** interactions prepared as a draft (steps without a domain object) */
   prepared: string[];
-  /** standen auf «Angepasst», stimmen mit der Domain überein — bekommen den gewählten Status */
+  /** were on «Angepasst», match the domain — get the chosen status */
   confirmed: string[];
   kept: number;
 }
 
 export interface DomainMergeOptions {
   status: MergeStatus;
-  /** Was die Domain nicht (mehr) kennt und schon umgesetzt war, entfernen */
+  /** Remove what the domain does not know (any more) and had already been implemented */
   removeStale?: boolean;
-  /** Schritte ohne Interaktion als Entwurf vorbereiten (wie beim Anlegen) */
+  /** Prepare steps without interaction as a draft (as on creation) */
   prepare?: boolean;
 }
 
-/** Vorbereitet beim Import — kein Domain-Objekt dahinter. */
+/** Prepared on import — no domain object behind it. */
 const isPrepared = (x: { status?: Status }) => x.status === 'draft';
-/** schon einmal umgesetzt — fehlt es in der Domain, ist es entfallen */
+/** already implemented once — if it is missing in the domain, it has been dropped */
 const wasImplemented = (x: { status?: Status }) => x.status === 'implemented' || x.status === 'accepted' || x.status === 'changed';
 
 const ROLES = ['root', 'processOut', 'initIn', 'inConfig'] as const;
 const roleOf = (t: TypeDef) => ROLES.find(r => !!t[r]);
 
 /**
- * `previous` ist die Spezifikation nach dem Abgleich des Ablaufs (mit ihrem
- * bisherigen Datenmodell), `fresh` dieselbe, angereichert aus der Domain
- * (`enrichSpec`) — oder `null` ohne Domain: dann werden höchstens die
- * fehlenden Interaktionen vorbereitet (`preparedOnly`).
+ * `previous` is the specification after the sync of the flow (with its
+ * previous data model), `fresh` the same one, enriched from the domain
+ * (`enrichSpec`) — or `null` without a domain: then at most the
+ * missing interactions are prepared (`preparedOnly`).
  */
 export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: DomainMergeOptions): { spec: ProcessSpec; report: DomainMergeReport } {
   const report: DomainMergeReport = { added: [], changed: [], stale: [], prepared: [], confirmed: [], kept: 0 };
@@ -63,25 +63,25 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
   const pById = new Map(pTypes.map(t => [t.id, t]));
   const fById = new Map((fresh.types ?? []).map(t => [t.id, t]));
 
-  // ── Interaktionen: über den Schritt ──────────────────────────────────────
+  // ── Interactions: via the step ──────────────────────────────────────
   const pByStep = new Map(pIas.map(i => [i.stepId, i]));
   const dropTypes = new Set<string>();
   const freshIas: Interaction[] = [];
   for (const ia of fresh.interactions ?? []) {
     const prev = pByStep.get(ia.stepId);
-    // vorbereitet, obwohl die Spezifikation schon eine hat (oder es nicht soll):
-    // die der Spezifikation gilt
+    // prepared although the specification already has one (or should not):
+    // the one of the specification applies
     if (isPrepared(ia) && (prev || !opts.prepare)) {
       for (const id of [ia.inTypeId, ia.outTypeId]) if (id) dropTypes.add(id);
       continue;
     }
     freshIas.push(ia);
   }
-  // Zwei Schritte können sich ein vorbereitetes Objekt teilen — dessen Typen
-  // bleiben, solange eine der Interaktionen bleibt
+  // Two steps can share a prepared object — its types
+  // stay as long as one of the interactions stays
   for (const ia of freshIas) for (const id of [ia.inTypeId, ia.outTypeId]) if (id) dropTypes.delete(id);
 
-  // ── Typen zuordnen: frische ID → bisherige ID ───────────────────────────
+  // ── Match types: fresh ID → previous ID ───────────────────────────
   const pair = new Map<string, string>();
   const paired = new Set<string>();
   const link = (f: string | undefined, p: string | undefined) => {
@@ -103,8 +103,8 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
   }
   const mapType = (type: string) => pair.get(type) ?? type;
 
-  // ── Interaktionen zusammenführen ─────────────────────────────────────────
-  const iaIds = new Map<string, string>(); // frische Interaktions-ID → bisherige
+  // ── Merge interactions ─────────────────────────────────────────
+  const iaIds = new Map<string, string>(); // fresh interaction ID → previous one
   const interactions: Interaction[] = [];
   const touched = new Set<string>();
   for (const f of freshIas) {
@@ -127,7 +127,7 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
       ...rest,
       kind: f.kind, name: f.name, key: f.key,
       ...(prev.descr || f.descr ? { descr: prev.descr || f.descr } : {}),
-      // der Ausdruck gehört zum Text, der gilt
+      // the expression belongs to the text that applies
       descrExpr: prev.descr ? prev.descrExpr : f.descrExpr,
       descrImports: prev.descr ? prev.descrImports : f.descrImports,
       ...(inTypeId ? { inTypeId } : {}),
@@ -138,11 +138,11 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     else if (settle(prev.status, opts.status) !== prev.status) report.confirmed.push(f.name);
     else report.kept++;
   }
-  // die übrigen der Spezifikation bleiben — auch ohne Schritt im Ablauf
-  // (der Klassenbauer markiert sie und bietet das Entfernen an)
+  // the remaining ones of the specification stay — even without a step in the flow
+  // (the class builder marks them and offers to remove them)
   for (const ia of pIas) if (!touched.has(ia.id)) interactions.push(ia);
 
-  // ── Typen zusammenführen ─────────────────────────────────────────────────
+  // ── Merge types ─────────────────────────────────────────────────
   const types: TypeDef[] = [];
   const fromFresh = new Set<string>();
   for (const f of fresh.types ?? []) {
@@ -169,8 +169,8 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     else if (m.type.status !== prev.status) report.confirmed.push(f.name);
     else report.kept++;
   }
-  // was die Domain nicht kennt: bleibt — ausser es war umgesetzt, wird nicht
-  // mehr gebraucht und soll weg
+  // what the domain does not know: stays — unless it was implemented, is no longer
+  // needed and should go
   const rest = pTypes.filter(t => !fromFresh.has(t.id));
   const used = new Set<string>();
   const use = (fs: Field[] | undefined) => { for (const x of fs ?? []) used.add(x.type); };
@@ -186,14 +186,14 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     types.push(t);
   }
 
-  // die Bezeichnung je Sprache gehört der Domain
+  // the label per language belongs to the domain
   const processLabels = fresh.processLabels ?? previous.processLabels;
-  // die Ausgangslage gehört der Spezifikation — nur eine leere kommt aus der Domain (`descr`)
+  // the starting situation belongs to the specification — only an empty one comes from the domain (`descr`)
   const description = previous.description?.trim() ? previous.description : fresh.description?.trim() ? fresh.description : previous.description;
   return { spec: { ...previous, types, interactions, ...(processLabels ? { processLabels } : {}), ...(description ? { description } : {}) }, report };
 }
 
-/** Typverweise in Feldern (und Fällen) auf die bisherigen IDs umbiegen. */
+/** Redirect type references in fields (and cases) to the previous IDs. */
 function remap(t: TypeDef, mapType: (id: string) => string): TypeDef {
   const fields = (fs: Field[] | undefined) => fs?.map(f => ({ ...f, type: mapType(f.type) }));
   return {
@@ -203,15 +203,15 @@ function remap(t: TypeDef, mapType: (id: string) => string): TypeDef {
   };
 }
 
-/** Was die Struktur eines Feldes ausmacht — Text und Beispiel gehören der Spezifikation. */
+/** What makes up the structure of a field — text and example belong to the specification. */
 const fieldSig = (f: Field) =>
   JSON.stringify([f.type, !!f.optional, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '', f.default ?? '']);
 
 /**
- * Felder nach Namen: die Domain bestimmt, welche es gibt und wie sie aussehen
- * — auch die Vorgabe: hat sie keine (mehr), fällt die alte weg; bei der
- * Umsetzung wird sie in der Domain angepasst, dort gilt sie. ID, Beschreibung
- * und Beispiel kommen aus der Spezifikation.
+ * Fields by name: the domain determines which exist and what they look like
+ * — the default too: if it has none (any more), the old one is dropped; on
+ * implementation it is adjusted in the domain, that is where it applies. ID, description
+ * and example come from the specification.
  */
 function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, where: string, stale: string[], removeStale: boolean, wasImpl: boolean): { fields: Field[]; changed: boolean } {
   const before = new Map((prev ?? []).filter(f => f.name).map(f => [f.name, f]));
@@ -220,7 +220,7 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
     const p = before.get(f.name);
     if (!p) { changed = true; return f; }
     before.delete(f.name);
-    // die Beschreibung der Spezifikation geht vor — samt ihrem Ausdruck (`clientKeyDescr`)
+    // the description of the specification takes precedence — including its expression (`clientKeyDescr`)
     const described = p.description ? p : f;
     const merged: Field = {
       ...f,
@@ -229,15 +229,15 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
       ...(described.descriptionExpr ? { descriptionExpr: described.descriptionExpr } : {}),
       ...(described.descriptionExpr && described.descriptionImports ? { descriptionImports: described.descriptionImports } : {}),
       ...(p.example || f.example ? { example: p.example || f.example } : {}),
-      // die Imports gehören zum Beispiel, das gilt
+      // the imports belong to the example that applies
       exampleImports: p.example ? p.exampleImports : f.exampleImports,
       ...(f.default ? { default: f.default } : {}),
     };
     if (fieldSig(merged) !== fieldSig(p)) changed = true;
     return merged;
   });
-  // nur in der Spezifikation: gemeldet; entfernt nur, wenn der Typ schon
-  // umgesetzt war und es gewünscht ist — unfertige Felder bleiben ohnehin
+  // only in the specification: reported; removed only if the type had already
+  // been implemented and it is requested — unfinished fields stay anyway
   for (const p of prev ?? []) {
     if (!p.name) { fields.push(p); continue; }
     if (!before.has(p.name)) continue;
@@ -262,8 +262,8 @@ function mergeType(prev: TypeDef, fresh: TypeDef, stale: string[], removeStale: 
       before.delete(v.name);
       const fs = mergeFields(p.fields, v.fields, `${v.name}.`, stale, removeStale, wasImpl);
       changed ||= fs.changed;
-      // nur umgestellt im Code — auch das ist eine Änderung (die Reihenfolge der Parameter); eine
-      // Spezifikation ohne `order` (von vorher) kennt sie nicht — das allein ist keine Änderung
+      // only reordered in the code — that is a change too (the order of the parameters); a
+      // specification without `order` (from before) does not know it — that alone is not a change
       changed ||= !!p.order && JSON.stringify(p.order) !== JSON.stringify(v.order ?? null);
       return {
         ...v,

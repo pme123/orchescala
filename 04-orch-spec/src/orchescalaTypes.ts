@@ -1,6 +1,6 @@
-// Typen aus `orchescala.domain`, die jede Spezifikation kennt — auch ohne
-// Katalog. Sie stehen im Orchescala-Quelltext (01-domain), nicht in den
-// Projekten, und kommen deshalb mit keinem Katalog-Aufbau herein.
+// Types from `orchescala.domain` that every specification knows — even without a
+// catalog. They live in the Orchescala source (01-domain), not in the
+// projects, and therefore never come in with a catalog build.
 
 import type { DomainType } from './types';
 
@@ -13,13 +13,13 @@ export const ORCHESCALA_TYPES: DomainType[] = [
     importPath: 'orchescala.domain.ProcessStatus',
     descr: 'Status, mit dem ein Prozess endet — als fester Fall im Out: `processStatus: ProcessStatus.succeeded.type = ProcessStatus.succeeded`.',
     values: ['succeeded', 'notSucceeded', 'output-mocked', 'failed', 'notValid', 'canceled'],
-    // `notSucceeded` hat in orchescala.domain keine Givens für den Singleton-Typ
+    // `notSucceeded` has no givens for the singleton type in orchescala.domain
     fixedCases: ['succeeded', 'output-mocked', 'failed', 'notValid', 'canceled'],
     generated: true,
   },
   {
-    // wer einen Prozess gestartet bzw. eine Aufgabe erledigt hat — setzt der Gateway aus dem
-    // Token (signiert, `_identityCorrelation`); ein Teilprozess bekommt sie als Eingabe
+    // who started a process or completed a task — set by the gateway from the
+    // token (signed, `_identityCorrelation`); a subprocess gets it as input
     id: 'orchescala.domain.IdentityCorrelation',
     name: 'IdentityCorrelation',
     pkg: 'orchescala.domain',
@@ -41,8 +41,8 @@ export const ORCHESCALA_TYPES: DomainType[] = [
 const withBuiltIn = new WeakMap<DomainType[], DomainType[]>();
 
 /**
- * Die eingebauten Typen dazu — ausser ein Katalog bringt sie schon mit. Je
- * Katalog einmal gerechnet: das läuft bei jeder Typ-Auflösung.
+ * The built-in types on top — unless a catalog already brings them. Computed
+ * once per catalog: this runs on every type resolution.
  */
 export function withOrchescalaTypes(types: DomainType[] | undefined): DomainType[] {
   if (!types) return ORCHESCALA_TYPES;
@@ -54,15 +54,15 @@ export function withOrchescalaTypes(types: DomainType[] | undefined): DomainType
   return all;
 }
 
-/** Ein Katalog, nach ID, Name und letztem Namensteil nachschlagbar. */
+/** A catalog that can be looked up by ID, name and last name segment. */
 export interface CatalogIndex {
   all: DomainType[];
   byId: Map<string, DomainType>;
-  /** `GetAccount.Out` → die Typen mit genau diesem Namen, in Katalog-Reihenfolge */
+  /** `GetAccount.Out` → the types with exactly this name, in catalog order */
   byName: Map<string, DomainType[]>;
-  /** `Out` → die Typen, deren Name so endet (`GetAccount.Out`), in Katalog-Reihenfolge */
+  /** `Out` → the types whose name ends like this (`GetAccount.Out`), in catalog order */
   byLast: Map<string, DomainType[]>;
-  /** Typen mit Besitzer (Prozess- bzw. Worker-Objekt) nach `processName`, `topicName` und Besitzer */
+  /** Types with an owner (process or worker object) by `processName`, `topicName` and owner */
   byProcess: Map<string, DomainType[]>;
   byTopic: Map<string, DomainType[]>;
   byOwner: Map<string, DomainType[]>;
@@ -70,7 +70,7 @@ export interface CatalogIndex {
 
 const indexes = new WeakMap<DomainType[], CatalogIndex>();
 
-/** Der Index eines Katalogs (samt den eingebauten Typen) — je Katalog einmal gebaut. */
+/** The index of a catalog (including the built-in types) — built once per catalog. */
 export function catalogIndex(types: DomainType[] | undefined): CatalogIndex {
   const all = withOrchescalaTypes(types);
   const known = indexes.get(all);

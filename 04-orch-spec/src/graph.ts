@@ -1,6 +1,6 @@
-// SharePoint-Ordner über Microsoft Graph (delegiert, Token aus der
-// Entra-Anmeldung). Konflikterkennung über ETags (If-Match → 412),
-// Anlegen ohne Überschreiben über conflictBehavior=fail (→ 409).
+// SharePoint folder via Microsoft Graph (delegated, token from the
+// Entra sign-in). Conflict detection via ETags (If-Match → 412),
+// creating without overwriting via conflictBehavior=fail (→ 409).
 import type { DeleteResult, FileInfo, ReadResult, StorageBackend, WriteResult } from './backend';
 
 export const GRAPH_SCOPES = ['Files.ReadWrite.All'];
@@ -17,7 +17,7 @@ export type TokenProvider = () => Promise<string>;
 
 const enc = encodeURIComponent;
 
-// Freigabelink → Graph-Sharing-Token («u!» + base64url)
+// sharing link → Graph sharing token («u!» + base64url)
 function shareId(link: string): string {
   const b64 = btoa(unescape(encodeURIComponent(link.trim())))
     .replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
@@ -31,7 +31,7 @@ async function graphFetch(getToken: TokenProvider, base: string, path: string, i
   return fetch(`${base}${path}`, { ...init, headers });
 }
 
-// Ordner aus einem SharePoint-/OneDrive-Link auflösen
+// resolve a folder from a SharePoint/OneDrive link
 export async function resolveFolderLink(getToken: TokenProvider, link: string, base = DEFAULT_BASE): Promise<SharePointFolder> {
   const res = await graphFetch(getToken, base, `/shares/${shareId(link)}/driveItem?$select=id,name,webUrl,folder,parentReference`);
   if (res.status === 403) throw new Error('Kein Zugriff auf diesen Ordner (SharePoint-Berechtigung prüfen).');
@@ -61,7 +61,7 @@ export class GraphBackend implements StorageBackend {
     if (!meta.ok) throw new Error(`Lesen fehlgeschlagen (HTTP ${meta.status}).`);
     const m = await meta.json();
     const url = m['@microsoft.graph.downloadUrl'];
-    // Download-URL ist vorauthentifiziert (ohne Authorization-Header laden)
+    // the download URL is pre-authenticated (load without Authorization header)
     const body = url
       ? await fetch(url)
       : await this.f(`${this.itemPath(path)}:/content`);
@@ -131,8 +131,8 @@ export class GraphBackend implements StorageBackend {
     }
   }
 
-  // Löschen in SharePoint ist ein Verschieben in den Papierkorb der Site —
-  // dort lässt sich eine Datei bei Bedarf wiederherstellen.
+  // Deleting in SharePoint is a move to the site's recycle bin —
+  // there a file can be restored if needed.
   async delete(path: string, opts: { ifMatch?: string } = {}): Promise<DeleteResult> {
     let res: Response;
     try {

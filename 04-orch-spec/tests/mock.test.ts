@@ -1,6 +1,6 @@
-// Der Mock eines Schritts zeigt auf ein Feld im InConfig (`getPoasMock`). Liest das
-// BPMN eine allgemeine Variable (`_outputMock`), gibt es dieses Feld nicht — das
-// InConfig bekommt das Feld aus dem Schrittnamen, das BPMN liest dann dieses.
+// The mock of a step points to a field in the InConfig (`getPoasMock`). If the
+// BPMN reads a general variable (`_outputMock`), that field does not exist — the
+// InConfig gets the field from the step name, the BPMN then reads that one.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mockFieldOf, mockRef } from '../src/bpmn';

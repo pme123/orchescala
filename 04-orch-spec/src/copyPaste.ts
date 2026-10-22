@@ -1,28 +1,28 @@
-// Kopieren und Einfügen: was mit den Elementen in eine andere Spezifikation
-// (oder dieselbe) wandert — ohne Oberfläche, damit es sich prüfen lässt.
+// Copy and paste: what moves with the elements into another specification
+// (or the same one) — without UI, so that it can be tested.
 //
-// Regeln:
-//  · Alles Eingefügte ist **Entwurf** — im Ziel ist es noch nicht umgesetzt.
-//  · Klassen kommen **immer als Kopie**, auch die, auf die verwiesen wird; bei
-//    gleichem Namen mit Zähler (`Address2`). Neue IDs für Klassen, Felder und
-//    Interaktionen — Kommentare der Quelle kommen nicht mit.
-//  · Verweise in den Katalog (`dom:…`, `svc:…`) und einfache Typen bleiben.
-//  · Im Diagramm vergibt bpmn-js die IDs; `overlayPasted` hängt danach die
-//    Angaben der Quelle an die neuen Schritte (siehe clipboard.ts).
+// Rules:
+//  · Everything pasted is a **draft** — in the target it is not implemented yet.
+//  · Classes always come **as a copy**, including the referenced ones; with
+//    the same name with a counter (`Address2`). New IDs for classes, fields and
+//    interactions — comments of the source do not come along.
+//  · References into the catalog (`dom:…`, `svc:…`) and simple types stay.
+//  · In the diagram bpmn-js assigns the IDs; `overlayPasted` then attaches the
+//    details of the source to the new steps (see clipboard.ts).
 import type { Field, Interaction, ProcessSpec, Step, TypeDef } from './types.ts';
 import { allSteps } from './bpmn.ts';
 import { uid } from './util.ts';
 import type { ClipSource, DiagramSpec, PastedElements } from './clipboard.ts';
 
-// ── Datenmodell ──────────────────────────────────────────────────────────────
+// ── Data model ───────────────────────────────────────────────────────────────
 
-/** Alle Felder einer Klasse — bei einer Auswahl auch die der Fälle */
+/** All fields of a class — for a choice also those of the cases */
 const fieldsOf = (t: TypeDef): Field[] => [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])];
 
 /**
- * Die eigenen Klassen ab `rootIds` samt allen eigenen Klassen, auf die ihre
- * Felder (auch in den Fällen einer Auswahl) verweisen — in Reihenfolge des
- * Fundes, die Wurzeln zuerst.
+ * The own classes from `rootIds` including all own classes their
+ * fields (also in the cases of a choice) refer to — in the order they are
+ * found, the roots first.
  */
 export function typeClosure(types: TypeDef[] | undefined, rootIds: string[]): TypeDef[] {
   const byId = new Map((types ?? []).map(t => [t.id, t]));
@@ -40,7 +40,7 @@ export function typeClosure(types: TypeDef[] | undefined, rootIds: string[]): Ty
   return out;
 }
 
-/** `Address` → `Address2`, `Address2` → `Address3` — bis der Name frei ist */
+/** `Address` → `Address2`, `Address2` → `Address3` — until the name is free */
 export function uniqueName(base: string, taken: Set<string>): string {
   if (!taken.has(base)) return base;
   const m = /^(.*\D)(\d+)$/.exec(base);
@@ -50,7 +50,7 @@ export function uniqueName(base: string, taken: Set<string>): string {
   return `${stem}${n}`;
 }
 
-/** Ein Feld mit neuer ID; der Typ zeigt auf die Kopie, wo es eine gibt. */
+/** A field with a new ID; the type points to the copy where there is one. */
 const copyField = (f: Field, idMap: Map<string, string>): Field => ({
   ...f,
   id: uid('f'),
@@ -58,10 +58,10 @@ const copyField = (f: Field, idMap: Map<string, string>): Field => ({
 });
 
 /**
- * Klassen als Kopien für das Ziel `target`: neue IDs, eindeutige Namen,
- * Entwurf, ohne die Rollen der Quelle (Prozess-In/Out, InitIn, InConfig …).
- * `interactions`: Klassen dieser Interaktionen bleiben deren In/Out — unter
- * dem neuen Namen der Interaktion (`<Name>.In`).
+ * Classes as copies for the target `target`: new IDs, unique names,
+ * draft, without the roles of the source (process In/Out, InitIn, InConfig …).
+ * `interactions`: classes of these interactions stay their In/Out — under
+ * the new name of the interaction (`<Name>.In`).
  */
 export function pasteTypes(
   target: TypeDef[] | undefined,
@@ -93,17 +93,17 @@ export function pasteTypes(
   return { types: out, idMap };
 }
 
-/** Eine kopierte Klasse einfügen — gibt die neuen Klassen und die ID der eingefügten zurück. */
+/** Paste a copied class — returns the new classes and the ID of the pasted one. */
 export function pasteType(spec: ProcessSpec, clip: { typeId: string; types: TypeDef[] }): { types: TypeDef[]; id: string } {
   const { types, idMap } = pasteTypes(spec.types, clip.types);
   return { types: [...(spec.types ?? []), ...types], id: idMap.get(clip.typeId)! };
 }
 
 /**
- * Ein kopiertes Feld an die Klasse `typeId` hängen — bei einer Auswahl an den
- * Fall Nummer `valueIndex`, ohne an die gemeinsamen Felder. Der Name wird in der
- * Klasse eindeutig (`street2`); Klassen, auf die das Feld verweist, kommen als
- * Kopie mit. `null`, wenn es die Klasse nicht gibt.
+ * Attach a copied field to the class `typeId` — for a choice to
+ * case number `valueIndex`, not to the shared fields. The name becomes unique in the
+ * class (`street2`); classes the field refers to come along as a
+ * copy. `null` if the class does not exist.
  */
 export function pasteField(
   spec: ProcessSpec,
@@ -116,7 +116,7 @@ export function pasteField(
   const value = valueIndex !== undefined ? t.values?.[valueIndex] : undefined;
   if (valueIndex !== undefined && !value) return null;
   const { types: added, idMap } = pasteTypes(spec.types, clip.types);
-  // Fall einer Auswahl: auch die gemeinsamen Felder zählen — sonst gäbe es den Namen doppelt
+  // Case of a choice: the shared fields count too — otherwise the name would exist twice
   const siblings = value ? [...(t.fields ?? []), ...(value.fields ?? [])] : (t.fields ?? []);
   const field = { ...copyField(clip.field, idMap), name: uniqueName(clip.field.name, new Set(siblings.map(f => f.name))) };
   const next: TypeDef = value
@@ -125,9 +125,9 @@ export function pasteField(
   return { types: [...(spec.types ?? []).map(x => (x.id === typeId ? next : x)), ...added], fieldId: field.id };
 }
 
-// ── Diagramm ─────────────────────────────────────────────────────────────────
+// ── Diagram ──────────────────────────────────────────────────────────────────
 
-/** Ein Schritt ohne seine verschachtelten Schritte — die kommen als eigene Einträge */
+/** A step without its nested steps — those come as separate entries */
 const flat = (s: Step): Step => {
   const { children: _children, ...rest } = s;
   return {
@@ -137,7 +137,7 @@ const flat = (s: Step): Step => {
   };
 };
 
-/** Der Spezifikationsanteil der im Modeler kopierten Elemente `ids` */
+/** The specification part of the elements `ids` copied in the Modeler */
 export function collectDiagram(spec: ProcessSpec, ids: string[], source: ClipSource): DiagramSpec {
   const wanted = new Set(ids);
   const steps = Object.fromEntries(allSteps(spec.steps).filter(s => wanted.has(s.id)).map(s => [s.id, flat(s)]));
@@ -147,12 +147,12 @@ export function collectDiagram(spec: ProcessSpec, ids: string[], source: ClipSou
 }
 
 /**
- * Was die Spezifikation festlegt und nicht (verlässlich) im BPMN steht: es
- * gilt, wie es in der Quelle war — auch leer.
+ * What the specification defines and is not (reliably) in the BPMN: it
+ * applies as it was in the source — even if empty.
  */
 const SPEC_KEYS = ['description', 'serviceId', 'topic', 'calledProcess', 'inputs', 'outputs',
   'inVariant', 'outVariant', 'mock', 'mockKind'] as const;
-/** Was auch im BPMN steht: aus der Quelle, wo sie es hat — sonst wie im Diagramm. */
+/** What is also in the BPMN: from the source where it has it — otherwise as in the diagram. */
 const BPMN_KEYS = ['candidateGroups', 'candidateUsers', 'assignee', 'regexHandledErrors',
   'resultVariable', 'outputVariables', 'manualOutMapping', 'decisionResult'] as const;
 
@@ -168,7 +168,7 @@ function mapSteps(steps: Step[], f: (s: Step) => Step): Step[] {
   });
 }
 
-/** Die Angaben des Quellschritts `src` auf den eingefügten Schritt `s` legen. */
+/** Put the details of the source step `src` onto the pasted step `s`. */
 function overlayStep(s: Step, src: Step, oldIdOf: Map<string, string>): Step {
   const next: Step = { ...s, status: 'draft' };
   for (const k of SPEC_KEYS) {
@@ -176,15 +176,15 @@ function overlayStep(s: Step, src: Step, oldIdOf: Map<string, string>): Step {
     else next[k] = src[k] as never;
   }
   for (const k of BPMN_KEYS) if (src[k] !== undefined) next[k] = src[k] as never;
-  // Zweige: Bezeichnung und Bedingung über den Fluss, aus dem der neue kopiert ist
+  // Branches: label and condition via the flow the new one is copied from
   if (s.branches && src.branches) {
     next.branches = s.branches.map(b => {
       const o = src.branches!.find(x => x.id === oldIdOf.get(b.id));
       return o ? { ...b, label: o.label || b.label, ...(o.condition !== undefined ? { condition: o.condition } : {}) } : b;
     });
   }
-  // Fehler: Bezeichnungen nach Code; behandelte Fehler ohne Boundary-Event
-  // stehen sonst nur in `_handledErrors` — beim Wechsel der Engine fehlt das
+  // Errors: labels by code; handled errors without a boundary event
+  // are otherwise only in `_handledErrors` — that would be lost when switching the engine
   if (src.errors?.length) {
     const own = (s.errors ?? []).map(e => {
       const o = src.errors!.find(x => x.code === e.code);
@@ -197,9 +197,9 @@ function overlayStep(s: Step, src: Step, oldIdOf: Map<string, string>): Step {
 }
 
 /**
- * Nach dem Einfügen im Modeler: die neuen Schritte (`pasted.ids`: alte → neue
- * ID) bekommen die Angaben der Quelle, ihre Interaktionen kommen samt
- * In/Out-Klassen als Kopie dazu. `placed`: die neuen IDs der Schritte mit Quelle.
+ * After pasting in the Modeler: the new steps (`pasted.ids`: old → new
+ * ID) get the details of the source, their interactions are added as a copy including
+ * In/Out classes. `placed`: the new IDs of the steps with a source.
  */
 export function overlayPasted(spec: ProcessSpec, pasted: PastedElements): { spec: ProcessSpec; placed: Array<[string, string]> } {
   const src = pasted.spec;
@@ -216,7 +216,7 @@ export function overlayPasted(spec: ProcessSpec, pasted: PastedElements): { spec
     return from ? overlayStep(s, from, oldIdOf) : s;
   });
 
-  // Interaktionen der eingefügten Schritte — mit neuem, eindeutigem Namen
+  // Interactions of the pasted steps — with a new, unique name
   const iaNames = new Set((spec.interactions ?? []).map(i => i.name));
   const iaMap = new Map<string, { id: string; name: string }>();
   const interactions: Interaction[] = [];
@@ -227,7 +227,7 @@ export function overlayPasted(spec: ProcessSpec, pasted: PastedElements): { spec
     iaNames.add(name);
     const id = uid('ia');
     iaMap.set(ia.id, { id, name });
-    // `descrExpr` und `pkg` gehören zur Domain der Quelle — die Kopie ist neu
+    // `descrExpr` and `pkg` belong to the domain of the source — the copy is new
     const { descrExpr: _expr, descrImports: _imports, pkg: _pkg, inTypeId: _in, outTypeId: _out, ...rest } = ia;
     interactions.push({ ...rest, id, name, stepId, key: ia.key === ia.stepId ? stepId : ia.key, status: 'draft' });
   }
@@ -237,8 +237,8 @@ export function overlayPasted(spec: ProcessSpec, pasted: PastedElements): { spec
     const orig = src.interactions.find(i => iaMap.get(i.id)?.id === ia.id)!;
     if (orig.inTypeId && idMap.has(orig.inTypeId)) ia.inTypeId = idMap.get(orig.inTypeId);
     if (orig.outTypeId && idMap.has(orig.outTypeId)) ia.outTypeId = idMap.get(orig.outTypeId);
-    // ein Alias auf eine mitkopierte Interaktion folgt ihr; einer auf eine
-    // andere der Quelle fällt weg (ihre Felder kamen als Kopie mit), einer auf die Domain bleibt
+    // an alias to an interaction copied along follows it; one to another
+    // of the source is dropped (its fields came along as a copy), one to the domain stays
     for (const key of ['inAlias', 'outAlias'] as const) {
       const ref = ia[key];
       if (!ref || ref.startsWith('dom:')) continue;

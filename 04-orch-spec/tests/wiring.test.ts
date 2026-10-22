@@ -1,6 +1,6 @@
-// «Einmalige Ausführung»: ein Ereignis-Subprozess fängt die Start-Nachricht des
-// Prozesses selbst (messageName = Prozess-ID) — ihr In ist das In des Prozesses,
-// kein eigenes Objekt. Ältere Importe bereiteten dafür eine Interaktion vor.
+// «Einmalige Ausführung»: an event subprocess catches the start message of the
+// process itself (messageName = process ID) — its In is the In of the process,
+// not an own object. Older imports prepared an interaction for it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { missingInteractions, wiringSteps, withoutWiringInteractions } from '../src/interactions';
@@ -28,7 +28,7 @@ test('a prepared interaction there goes, with its classes', () => {
   const healed = withoutWiringInteractions(spec);
   assert.deepEqual(healed.interactions, []);
   assert.deepEqual(healed.types, []);
-  // eine schon gepflegte (nicht Entwurf) bleibt
+  // one that is already maintained (not a draft) stays
   const kept = withoutWiringInteractions({ ...spec, interactions: [{ ...spec.interactions![0], status: 'implemented' }] });
   assert.equal(kept.interactions?.length, 1);
 });
@@ -39,7 +39,7 @@ test('a wiring step has no «no interaction» warning', async () => {
   const bare = { ...spec, interactions: [], types: [] };
   const findings = collectFindings(bare, null, allSteps(bare.steps));
   assert.ok(!findings.get('Compensate')?.warnings.some(w => w.startsWith('Noch keine Interaktion')));
-  // eine eigene Nachricht ausserhalb eines Patterns braucht weiterhin ein Objekt
+  // an own message outside a pattern still needs an object
   const own = { ...bare, steps: [...bare.steps, { id: 'Own', kind: 'event', name: 'own', status: 'accepted', eventKind: 'message', messageName: 'acme-product-lilaSetV2-done' }] } as unknown as ProcessSpec;
   assert.ok(collectFindings(own, null, allSteps(own.steps)).get('Own')?.warnings.some(w => w.startsWith('Noch keine Interaktion')));
 });

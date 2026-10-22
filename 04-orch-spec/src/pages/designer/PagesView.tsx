@@ -1,4 +1,4 @@
-// Die Seiten der App (E15) - eine Seite je Datei in `pages/`, die Einstellungen der App in `pages/app.json`.
+// The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
 import { AlertTriangle, AppWindow, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { usePermissions } from '../../auth';
@@ -48,7 +48,7 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         onSave={async (app) => {
           const r = await savePagesApp(app, pagesApp?.version ?? null);
           if (r.status === 'saved') setAppOpen(false);
-          // die Eingaben bleiben hier stehen - erst kopieren, dann neu laden, sonst sind sie weg
+          // the inputs stay here - copy first, then reload, otherwise they are gone
           return r.status === 'saved' ? null : r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – deine Eingaben bleiben hier stehen; die andere Fassung zeigt erst ein Neuladen der Seite.' : r.message;
         }}
         onClose={() => setAppOpen(false)} />}
@@ -57,13 +57,13 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
         onClose={() => setCreating(false)} />}
 
       {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
-      {/* z.B. nach dem Löschen der Startseite - die App fände für / keine Seite */}
+      {/* e.g. after deleting the start page - the app would find no page for / */}
       {pagesApp?.data.home && !pages.some((p) => p.data.path === pagesApp.data.home) && (
         <p className="mb-2 flex items-center gap-1.5 text-[11px] text-amber-600">
           <AlertTriangle size={11} /> Die Startseite «/{pagesApp.data.home}» gibt es nicht (mehr) – unter «App» eine andere wählen.
         </p>
       )}
-      {/* da, aber nicht lesbar: sonst sähe man sie nicht - und «Neu» mit demselben Namen scheiterte rätselhaft */}
+      {/* there, but not readable: otherwise you would not see it - and «Neu» with the same name would fail mysteriously */}
       {pagesUnreadable.length > 0 && (
         <div className={`mb-3 rounded border p-2.5 space-y-1 ${isDark ? 'border-rose-500/30 bg-rose-500/10' : 'border-rose-300 bg-rose-50'}`}>
           {pagesUnreadable.map((u) => (
@@ -134,7 +134,7 @@ function NewPage({ existing, onCreate, onClose }: {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const slug = slugOf(path || title);
-  // pages/app.json sind die Einstellungen der App - kein Name für eine Seite
+  // pages/app.json holds the app settings - not a name for a page
   const taken = existing.includes(slug) || slug === 'app';
   return (
     <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
@@ -148,7 +148,7 @@ function NewPage({ existing, onCreate, onClose }: {
         <span className={`text-[10px] font-mono ${taken ? 'text-rose-500' : c.muted}`}>pages/{slug}.json{slug === 'app' ? ' – reserviert für die Einstellungen der App' : taken ? ' – gibt es schon' : ''}</span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
-        {/* ein Pfad nur aus Zeichen wie / oder ä gibt keinen Dateinamen; ein Doppelklick legt nicht zweimal an */}
+        {/* a path made only of characters like / or ä gives no file name; a double click does not create twice */}
         <button disabled={!title.trim() || !path.trim() || !slug || taken || busy}
           onClick={async () => {
             setBusy(true);
@@ -198,7 +198,7 @@ function AppSettings({ app, pages, canEdit, onSave, onClose }: {
         <button onClick={onClose} className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Schliessen</button>
         {canEdit && (
           <button onClick={async () => {
-            // dieselbe Prüfung wie beim Lesen - eine falsche Form käme sonst in app.json und bräche die App
+            // the same check as on reading - a wrong shape would otherwise end up in app.json and break the app
             const problem = appProblem(draft);
             setError(problem ? `So nicht speicherbar: ${problem}` : await onSave(draft));
           }} className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>

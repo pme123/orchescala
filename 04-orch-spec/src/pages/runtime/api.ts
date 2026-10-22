@@ -3,19 +3,19 @@ import { ApiError, type Gateway } from './gatewayTypes';
 
 export { ApiError, type Gateway };
 
-/** Woher das Token kommt - im Test von aussen. */
+/** Where the token comes from - from outside in tests. */
 export type TokenSource = {
   accessToken: () => Promise<string>;
   renewToken: () => Promise<string | null>;
   reauthenticate: () => Promise<never>;
 };
 
-/** Wie lange ein Aufruf höchstens dauert - länger als der Gateway selbst wartet (callTimeout). */
+/** How long a call may take at most - longer than the gateway itself waits (callTimeout). */
 const CALL_TIMEOUT_MS = 60_000;
-/** Die Netzfehler von fetch (Chrome, Firefox, Safari) - ein anderer TypeError ist ein Fehler der Seite. */
+/** The network errors of fetch (Chrome, Firefox, Safari) - any other TypeError is an error of the page. */
 const NETWORK_ERROR = /failed to fetch|networkerror|load failed|network connection was lost/i;
 
-/** POST an den Gateway – öffentlich ohne Token, sonst mit dem Token des Benutzers. */
+/** POST to the gateway – public without a token, otherwise with the user's token. */
 export function post(path: string, body: unknown, isPublic: boolean): Promise<unknown> {
   return postWith({ accessToken, renewToken, reauthenticate }, path, body, isPublic);
 }
@@ -26,22 +26,22 @@ export async function postWith(
   const send = (token?: string) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
-    // ein Gateway, der nicht antwortet, hielte die Seite sonst für immer «busy»
+    // a gateway that does not respond would otherwise keep the page «busy» forever
     return fetch(path, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) })
       .catch((e: unknown) => {
         if (e instanceof DOMException && e.name === 'TimeoutError') throw new ApiError(504, 'Keine Antwort vom Gateway');
-        // die Verbindung brach ab (fetch: TypeError) - vielleicht erst, nachdem der Aufruf ankam: wie
-        // keine Antwort, ob es geklappt hat, ist offen (errorText 504) - nicht «später noch einmal»
+        // the connection dropped (fetch: TypeError) - perhaps only after the call arrived: like
+        // no response, whether it worked is unknown (errorText 504) - not «später noch einmal»
         if (e instanceof TypeError && NETWORK_ERROR.test(e.message)) throw new ApiError(504, `Keine Verbindung zum Gateway: ${e.message}`);
         throw e;
       });
   };
   let response = await send(isPublic ? undefined : await accessToken());
   if (response.status === 401 && !isPublic) {
-    // ein Token, das eben abgelaufen ist (oder eine schiefe Uhr): still erneuern und noch einmal -
-    // erst dann zur Anmeldung (sie verliert, was auf der Seite eingegeben ist). Noch einmal senden
-    // ist sicher, weil der Gateway das Token prüft, bevor er etwas tut: ein 401 heisst «nicht
-    // ausgeführt» (ein Proxy dazwischen, der nach dem Ausführen 401 sagt, bräche das)
+    // a token that has just expired (or a skewed clock): renew silently and try again -
+    // only then go to sign-in (it loses what was entered on the page). Sending again
+    // is safe because the gateway checks the token before it does anything: a 401 means «not
+    // executed» (a proxy in between that answers 401 after executing would break this)
     const renewed = await renewToken();
     if (renewed) response = await send(renewed);
     if (response.status === 401) return reauthenticate();
@@ -53,15 +53,15 @@ export async function postWith(
       const json = JSON.parse(text);
       message = json.errorMsg ?? json.message ?? text;
     } catch {
-      // kein JSON
+      // not JSON
     }
     throw new ApiError(response.status, message);
   }
   if (response.status === 204) return null;
   const text = await response.text();
   if (!text) return null;
-  // geklappt ist es auch mit einer Antwort, die kein JSON ist (z.B. eine ID als Text) - kein Fehler
-  // daraus machen: ein zweiter Klick startete den Prozess sonst noch einmal
+  // it also succeeded with a response that is not JSON (e.g. an ID as text) - don't make an error
+  // of it: a second click would otherwise start the process again
   try {
     return JSON.parse(text);
   } catch {

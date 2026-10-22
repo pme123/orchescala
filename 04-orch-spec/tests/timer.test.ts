@@ -1,4 +1,4 @@
-// Der Timer eines Ereignisses: welche Variable er liest — sie ist eine Konstante im InConfig.
+// The timer of an event: which variable it reads — it is a constant in the InConfig.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -89,7 +89,7 @@ const c8 = (duration: string) => c7(duration)
 test('import from Camunda 8: =timerX is the same variable', () => {
   const s = imported(c8('=timerEscalationCancel'));
   assert.deepEqual(wait(s).timer, { kind: 'duration', expression: '= timerEscalationCancel' });
-  // unverändert bleibt das Diagramm, wie es ist
+  // unchanged, the diagram stays as it is
   assert.match(writeBpmn(c8('=timerEscalationCancel'), { ...s, engine: 'c8' }).xml, />=timerEscalationCancel</);
 });
 
@@ -149,7 +149,7 @@ test('sync of an older spec without timer: the diagram brings it (keepSpecOwned)
   assert.equal(wait(merged).timer?.expression, '= timerEscalationCancel');
 });
 
-// ── Timer an Boundary-Events ────────────────────────────────────────────────
+// ── Timers on boundary events ───────────────────────────────────────────────
 const approve = (s: ProcessSpec): Step => allSteps(s.steps).find(x => x.id === 'ApproveTask')!;
 const inform = (s: ProcessSpec) => approve(s).errors!.find(e => e.code === 'inform')!;
 const withInform = (xml: string, expr: string) => xml.replace('${timerEscalationInform}', expr);
@@ -166,7 +166,7 @@ test('boundary merge: the default stays for the same variable - not for another 
   assert.equal(inform(mergeSpec(imported(xml), prev, imported(xml)).spec).timer?.default, 'P3D');
   const renamed = mergeSpec(imported(withInform(xml, '${timerOther}')), prev, imported(xml)).spec;
   assert.deepEqual(inform(renamed).timer, { kind: 'duration', expression: '= timerOther' });
-  // eine andere Art (Zeitpunkt statt Dauer) hat ihre eigene Vorgabe
+  // another kind (point in time instead of duration) has its own default
   const date = mergeSpec(imported(xml.replace(/timeDuration xsi:type="bpmn:tFormalExpression">\$\{timerEscalationInform\}<\/bpmn:timeDuration/,
     'timeDate xsi:type="bpmn:tFormalExpression">${timerEscalationInform}</bpmn:timeDate')), prev, imported(xml)).spec;
   assert.equal(inform(date).timer?.kind, 'date');
@@ -178,7 +178,7 @@ test('boundary merge: an edit in the spec stays while the diagram has not change
   const prev = imported(xml);
   inform(prev).timer = { kind: 'duration', expression: '= timerInformLater', default: 'P2D' };
   assert.deepEqual(inform(mergeSpec(imported(xml), prev, imported(xml)).spec).timer, inform(prev).timer);
-  // hat das Diagramm ihn geändert, gilt das Diagramm
+  // if the diagram has changed it, the diagram applies
   const changed = mergeSpec(imported(withInform(xml, '${timerOther}')), prev, imported(xml)).spec;
   assert.equal(inform(changed).timer?.expression, '= timerOther');
 });
@@ -199,14 +199,14 @@ test('boundary export: a changed timer is written per engine - unchanged and fix
   inform(s).timer = { kind: 'duration', expression: '= timerInformLater', default: 'P2D' };
   const out = writeBpmn(xml, s).xml;
   assert.match(out, /<bpmn:timeDuration xsi:type="bpmn:tFormalExpression">\$\{timerInformLater\}<\/bpmn:timeDuration>/);
-  // der Timer des Ereignisses bleibt dabei unberührt
+  // the event's timer stays untouched
   assert.match(out, />P7D<\/bpmn:timeDuration>/);
   assert.match(writeBpmn(xml, { ...s, engine: 'c8' }).xml, /<bpmn:timeDuration xsi:type="bpmn:tFormalExpression">=timerInformLater<\/bpmn:timeDuration>/);
-  // ein fester Wert bleibt Text, eine andere Art ein anderes Element
+  // a fixed value stays text, another kind a different element
   inform(s).timer = { kind: 'cycle', expression: 'R3/PT1H' };
   assert.match(writeBpmn(xml, s).xml, /<bpmn:timeCycle xsi:type="bpmn:tFormalExpression">R3\/PT1H<\/bpmn:timeCycle>\s*<\/bpmn:timerEventDefinition>\s*<\/bpmn:boundaryEvent>/);
   assert.match(writeBpmn(xml, { ...s, engine: 'c8' }).xml, />R3\/PT1H<\/bpmn:timeCycle>/);
-  // unverändert bleibt das Diagramm, wie es ist — auch in der Schreibweise von Camunda 8
+  // unchanged, the diagram stays as it is — also in the notation of Camunda 8
   assert.match(writeBpmn(xml, imported(xml)).xml, />\$\{timerEscalationInform\}</);
   assert.match(writeBpmn(c8('P7D'), { ...imported(c8('P7D')), engine: 'c8' }).xml, />=timerEscalationInform</);
 });
@@ -260,12 +260,12 @@ test('boundary: two timer boundaries with the same code stay two entries - and t
   assert.deepEqual(informs.map(e => [e.boundaryId, e.timer?.expression]),
     [['InformBoundary', '= timerEscalationInform'], ['InformAgainBoundary', '= timerInformAgain']]);
   assert.ok(messages(s).some(m => m.includes('«inform» kommt doppelt vor')), messages(s).join(' / '));
-  // jeder Timer geht in sein Element
+  // every timer goes into its element
   informs[1].timer = { kind: 'duration', expression: '= timerInformLater' };
   const out = writeBpmn(xml, s).xml;
   assert.match(out, /\$\{timerEscalationInform\}/);
   assert.match(out, /id="InformAgainBoundary"[^]*?\$\{timerInformLater\}/);
-  // eine ältere Spezifikation ohne IDs bekommt sie der Reihe nach
+  // an older specification without IDs gets them in order
   const old = imported(xml);
   for (const e of approve(old).errors!) delete e.boundaryId;
   assert.deepEqual(approve(syncTimers(old, imported(xml))!).errors!.filter(e => e.code === 'inform').map(e => e.boundaryId),
@@ -340,7 +340,7 @@ test('without boundary ids, same-code timer boundaries match in order - on expor
   informs[1].timer = { kind: 'duration', expression: '= timerSecond' };
   assert.match(writeBpmn(xml, s).xml, /id="InformBoundary"[^]*?\$\{timerFirst\}[^]*?id="InformAgainBoundary"[^]*?\$\{timerSecond\}/);
   assert.match(writeBpmn(xml, { ...s, engine: 'c8' }).xml, /id="InformBoundary"[^]*?>=timerFirst<[^]*?id="InformAgainBoundary"[^]*?>=timerSecond</);
-  // eine Spezifikation von vor den IDs: jede Vorgabe bleibt an ihrem Timer
+  // a specification from before the IDs: each default stays with its timer
   const prev = imported(xml);
   for (const e of approve(prev).errors!) delete e.boundaryId;
   const [a, b] = approve(prev).errors!.filter(e => e.code === 'inform');
@@ -373,11 +373,11 @@ test('mixed ids: an entry with the id keeps its element, the one without takes t
   const informs = approve(s).errors!.filter(e => e.code === 'inform');
   delete informs[1].boundaryId;
   informs[1].timer = { kind: 'duration', expression: '= timerSecond' };
-  // die Reihenfolge darf die Zuordnung nicht verschieben: der ohne ID steht vorne
+  // the order must not shift the mapping: the one without an ID comes first
   approve(s).errors = [informs[1], informs[0], ...approve(s).errors!.filter(e => e.code !== 'inform')];
   const out = writeBpmn(xml, s).xml;
   assert.match(out, /id="InformBoundary"[^]*?\$\{timerEscalationInform\}[^]*?id="InformAgainBoundary"[^]*?\$\{timerSecond\}/);
-  // beim Öffnen bekommt er die ID des übrigen
+  // on opening it gets the ID of the remaining one
   const healed = syncTimers(s, imported(xml))!;
   assert.deepEqual(approve(healed).errors!.filter(e => e.code === 'inform').map(e => e.boundaryId), ['InformAgainBoundary', 'InformBoundary']);
 });
@@ -389,11 +389,11 @@ test('without ids: one of two same-code timers removed in the diagram - no defau
   const [a, b] = approve(prev).errors!.filter(e => e.code === 'inform');
   a.timer = { ...a.timer!, default: 'P1D' };
   b.timer = { ...b.timer!, default: 'P2D' };
-  // im Diagramm bleibt nur das zweite (timerInformAgain)
+  // only the second one (timerInformAgain) remains in the diagram
   const one = two.replace(/<bpmn:boundaryEvent id="InformBoundary"[^]*?<\/bpmn:boundaryEvent>/, '');
   const merged = approve(mergeSpec(imported(one), prev).spec).errors!.filter(e => e.code === 'inform');
   assert.deepEqual(merged.map(e => [e.timer?.expression, e.timer?.default]), [['= timerInformAgain', undefined]]);
-  // und der Export sagt, dass er nicht weiss, wohin — statt zu raten
+  // and the export says it doesn't know where to — instead of guessing
   const s = imported(two);
   for (const e of approve(s).errors!) delete e.boundaryId;
   approve(s).errors = approve(s).errors!.filter(e => e.timer?.expression !== '= timerEscalationInform');
@@ -428,7 +428,7 @@ test('without id: an error boundary with the same name does not make the timer a
   const r = writeBpmn(xml, s);
   assert.match(r.xml, /id="InformBoundary"[^]*?\$\{timerInformLater\}/);
   assert.deepEqual(r.issues.filter(i => i.where === 'Timer «inform»'), []);
-  // ohne Timer-Element im Diagramm: gemeldet, nicht geraten
+  // without a timer element in the diagram: reported, not guessed
   const none = writeBpmn(xml.replace(/<bpmn:timerEventDefinition id="t1">[^]*?<\/bpmn:timerEventDefinition>/, '<bpmn:messageEventDefinition id="m1"/>'), s);
   assert.ok(none.issues.some(i => i.where === 'Timer «inform»' && i.text.startsWith('kein Timer-Boundary-Event')), JSON.stringify(none.issues));
 });

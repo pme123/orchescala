@@ -1,5 +1,5 @@
-// Eine DMN Decision im Ablauf: sie liest ihr `In` direkt aus den Prozessvariablen
-// und schreibt ihr Ergebnis in **eine** Variable (`resultVariable`) — ohne Mapping.
+// A DMN decision in the flow: it reads its `In` directly from the process variables
+// and writes its result into **one** variable (`resultVariable`) — without mapping.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -12,7 +12,7 @@ import type { DecisionResult, ProcessSpec, Step } from '../src/types';
 
 const PID = 'acme-demo-checkV1';
 
-/** Start → Entscheidung (resultVariable `rules`) → «ok?» → Ende */
+/** Start → decision (resultVariable `rules`) → «ok?» → end */
 const bpmn = (condition: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="d" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="${PID}" name="${PID}" isExecutable="true">
@@ -34,7 +34,7 @@ const bpmn = (condition: string) => `<?xml version="1.0" encoding="UTF-8"?>
   </bpmn:process>
 </bpmn:definitions>`;
 
-/** Die Spezifikation mit der Decision als Interaktion: In `topic`, Out `ok` (und `limit`). */
+/** The specification with the decision as an interaction: In `topic`, Out `ok` (and `limit`). */
 function spec(condition = '${rules.ok}', form: DecisionResult = 'singleResult', outFields = ['ok', 'limit']): ProcessSpec {
   const s = importBpmn(bpmn(condition), 'check.bpmn').spec;
   const types = [
@@ -74,17 +74,17 @@ test('a wrong field of the resultVariable is reported', () => {
 test('the resultVariable has the shape of the result form', () => {
   const rules = (form: DecisionResult, outFields?: string[]) =>
     processVariables(spec('${rules.ok}', form, outFields), null).find(v => v.name === 'rules');
-  // ein Objekt mit den Feldern des Out
+  // an object with the fields of the Out
   assert.deepEqual(rules('singleResult')?.children?.map(c => c.name), ['ok', 'limit']);
-  // eine Liste davon
+  // a list of them
   const list = rules('resultList');
   assert.equal(list?.type, 'list');
   assert.deepEqual(list?.children?.map(c => c.name), ['ok', 'limit']);
-  // ein einfacher Wert: das eine Feld des Out
+  // a simple value: the one field of the Out
   const entry = rules('singleEntry', ['ok']);
   assert.ok(entry && !['any', 'list', 'context'].includes(entry.type), `singleEntry: ${entry?.type}`);
   assert.equal(entry?.children, undefined);
-  // eine Liste einfacher Werte
+  // a list of simple values
   assert.equal(rules('collectEntries', ['ok'])?.type, 'list');
 });
 

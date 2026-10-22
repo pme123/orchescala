@@ -1,6 +1,6 @@
-// Eine DMN Decision im Paket des Prozesses, deren decisionRef nicht mit der
-// Prozess-ID beginnt (`valiant-bpmn-map-actions` in `valiant-bpmn-sendProcessEvent`):
-// sie gehört trotzdem zum Prozess — beim Abgleich wird sie dem Schritt zugeordnet.
+// A DMN decision in the package of the process whose decisionRef does not start
+// with the process ID (`valiant-bpmn-map-actions` in `valiant-bpmn-sendProcessEvent`):
+// it still belongs to the process — the sync matches it to the step.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';

@@ -1,6 +1,6 @@
-// Ein Decoder wählt den Fall eines `In` selbst: aus `useCase` direkt oder aus
-// `clientType` (+ `isUpdate`) — er setzt `useCase` dann selbst. Eine der Weichen
-// genügt; mit `clientType` ist die Ausprägung erst zur Laufzeit bekannt.
+// A decoder chooses the case of an `In` itself: from `useCase` directly or from
+// `clientType` (+ `isUpdate`) — it then sets `useCase` itself. One of the switches
+// is enough; with `clientType` the variant is only known at runtime.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
@@ -80,7 +80,7 @@ test('clientType instead of useCase: the case is chosen at runtime - no useCase,
   const chosen = chosenVariant(s, 'inputs', variantsOf(s, spec(s), model, 'inputs', null));
   assert.equal(chosen.name, ALL_VARIANTS);
   assert.equal(chosen.runtime, 'clientType');
-  // `name` ist Pflicht in den Fällen — welcher es wird, entscheidet der Decoder
+  // `name` is mandatory in the cases — which one it becomes is decided by the decoder
   assert.deepEqual(messages(s).filter(m => /Pflicht|Ausprägung/.test(m)), []);
   assert.deepEqual(missingRequiredInputs(s, spec(s), model), []);
 });
@@ -94,7 +94,7 @@ test('useCase and clientType: the decoder asks clientType first - still at runti
 test('neither useCase nor clientType: one of them is missing', () => {
   const s = step([row('clientKey'), row('useCase', true), row('clientType', true)]);
   assert.ok(messages(s).some(m => m.includes('«useCase» oder «clientType» fehlt')), messages(s).join(' / '));
-  // ohne Zeile: das gemeinsame Feld kommt dazu
+  // without a row: the shared field is added
   assert.deepEqual(missingRequiredInputs(step([row('clientKey')]), spec(step([])), model), ['useCase']);
 });
 

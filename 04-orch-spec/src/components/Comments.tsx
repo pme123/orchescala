@@ -1,15 +1,15 @@
-// Kommentare wie im arch-review: eine Sprechblase je Stelle, ein seitliches
-// Panel mit dem Faden der aktiven Stelle, eine Übersicht über alle Stellen mit
-// Kommentaren und eine Schrittfolge («Weiter»/«Zurück» durch alle Stellen mit
-// offenen — auf Wunsch auch erledigten — Kommentaren).
+// Comments as in arch-review: a speech bubble per location, a side
+// panel with the thread of the active location, an overview of all locations with
+// comments and a step sequence («Weiter»/«Zurück» through all locations with
+// open — optionally also resolved — comments).
 //
-// Die Daten liegen in der Spezifikation (`spec.comments`); die Prozess-Ansicht
-// hält das Panel und reicht über den Kontext hinunter, was eine Sprechblase
-// braucht. Ohne Kontext (andere Ansichten) zeigen die Sprechblasen nichts.
+// The data lives in the specification (`spec.comments`); the process view
+// holds the panel and passes down via the context what a speech bubble
+// needs. Without a context (other views) the speech bubbles show nothing.
 //
-// «@» erwähnt jemanden; mit aktiver Teams-Benachrichtigung bekommen Erwähnte
-// und — bei Antworten — wer den Faden angefangen hat, eine Chat-Nachricht
-// (siehe useTeamsNotify).
+// «@» mentions someone; with Teams notification enabled, those mentioned
+// and — for replies — whoever started the thread get a chat message
+// (see useTeamsNotify).
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AtSign, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, MessageSquare, RotateCcw, Send, Smile, SmilePlus, Trash2, X } from 'lucide-react';
@@ -22,11 +22,11 @@ import type { CommentThread, DirectoryUser, ProcessSpec } from '../types';
 import { PanelWidthHandle, cls } from '../ui';
 import { useConfirm } from './Confirm';
 
-// ── Kontext ──────────────────────────────────────────────────────────────────
+// ── Context ──────────────────────────────────────────────────────────────────
 interface CommentsCtx {
   exact: Map<string, Counts>;
   under: Map<string, Counts>;
-  /** die Stelle, deren Faden im Panel offen ist */
+  /** the location whose thread is open in the panel */
   active: string | null;
   open: (target: string, aggregate?: boolean) => void;
   isDark: boolean;
@@ -36,20 +36,20 @@ export const CommentsContext = createContext<CommentsCtx | null>(null);
 
 const NONE: Counts = { open: 0, resolved: 0 };
 
-/** Die Stelle, deren Faden gerade im Panel offen ist — oder null. */
+/** The location whose thread is currently open in the panel — or null. */
 export const useActiveComment = (): string | null => useContext(CommentsContext)?.active ?? null;
 
 /**
- * Sprechblase an einer Stelle: die Zahl offener Kommentare; nur erledigte →
- * gedämpftes Häkchen; aktiv (im Panel geöffnet) → hervorgehoben. Ohne
- * Kommentare leise — mit `quiet` erst beim Überfahren der Zeile (`group`).
+ * Speech bubble at a location: the number of open comments; only resolved →
+ * muted check mark; active (opened in the panel) → highlighted. Without
+ * comments subdued — with `quiet` only on hovering the row (`group`).
  *
- * `aggregate` zählt die Teile des Elements mit (im Baum: der Schritt samt
- * Mapping, Zweigen …, die man dort nicht sieht).
+ * `aggregate` also counts the parts of the element (in the tree: the step with its
+ * mapping, branches …, which are not visible there).
  */
 export function CommentBubble({ target, aggregate, quiet, title, inButton }: {
   target: string; aggregate?: boolean; quiet?: boolean; title?: string;
-  /** steht in einem Button (Listenzeile) — dann kein verschachtelter Button */
+  /** sits inside a button (list row) — then no nested button */
   inButton?: boolean;
 }) {
   const ctx = useContext(CommentsContext);
@@ -77,9 +77,9 @@ export function CommentBubble({ target, aggregate, quiet, title, inButton }: {
     : <button type="button" data-ctarget={target} onClick={onClick} title={tip} className={className}>{inhalt}</button>;
 }
 
-// ── Kürzel ───────────────────────────────────────────────────────────────────
-// Wie im arch-review: 1 Buchstabe Vorname + 1 Nachname; ist das Kürzel schon
-// vergeben, kommt ein Buchstabe vom Nachnamen dazu (PM › PME › PMEN …).
+// ── Initials ─────────────────────────────────────────────────────────────────
+// As in arch-review: 1 letter of the first name + 1 of the last name; if the initials
+// are already taken, another letter of the last name is added (PM › PME › PMEN …).
 function nameParts(name: string): string[] {
   let n = name.trim().replace(/\([^)]*\)/g, ' ');
   if (n.includes('@')) n = n.split('@')[0];
@@ -97,7 +97,7 @@ function initialsLevel(name: string, level: number): string {
   return want > max ? `${raw.toUpperCase()}${want - max + 1}` : raw.toUpperCase();
 }
 
-/** Eindeutige Kürzel: wer zuerst kommt, behält das kurze. */
+/** Unique initials: whoever comes first keeps the short ones. */
 function assignInitials(names: string[]): Map<string, string> {
   const out = new Map<string, string>();
   const taken = new Set<string>();
@@ -112,7 +112,7 @@ function assignInitials(names: string[]): Map<string, string> {
   return out;
 }
 
-/** Kürzel als Chip, mit mailto-Link, wenn eine E-Mail bekannt ist. */
+/** Initials as a chip, with a mailto link if an e-mail is known. */
 function AuthorChip({ name, email, initials, isDark }: { name: string; email?: string; initials: string; isDark: boolean }) {
   const className = `inline-flex items-center justify-center min-w-[26px] h-5 px-1.5 rounded-full text-[10px] font-bold tracking-wide border flex-shrink-0 ${
     isDark ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' : 'bg-blue-50 text-blue-700 border-blue-300'}`;
@@ -122,16 +122,16 @@ function AuthorChip({ name, email, initials, isDark }: { name: string; email?: s
     : <span title={title} className={className}>{initials}</span>;
 }
 
-// ── @-Erwähnungen ────────────────────────────────────────────────────────────
-// «@» im Text öffnet eine Auswahl: zuerst die im Ordner bekannten Personen
-// (users.json, Kommentar-Autoren), dann Treffer aus Entra (Graph-Suche,
-// entprellt). Die Auswahl fügt «@Name » ein und merkt sich die Person; beim
-// Senden zählen nur Erwähnungen, deren «@Name» noch im Text steht.
+// ── @ mentions ───────────────────────────────────────────────────────────────
+// «@» in the text opens a picker: first the people known in the folder
+// (users.json, comment authors), then matches from Entra (Graph search,
+// debounced). The picker inserts «@Name » and remembers the person; on
+// sending, only mentions whose «@Name» is still in the text count.
 const MENTION_RE = /(^|[\s(«"'])@([^\s@]{0,40})$/;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Erwähnungen im Text hervorheben (mailto-Link). */
+/** Highlight mentions in the text (mailto link). */
 function renderWithMentions(text: string, mentions: DirectoryUser[] | undefined, isDark: boolean): React.ReactNode {
   const names = (mentions ?? []).map(m => m.name).filter(Boolean).sort((a, b) => b.length - a.length);
   if (!names.length) return text;
@@ -155,12 +155,12 @@ function renderWithMentions(text: string, mentions: DirectoryUser[] | undefined,
 }
 
 /**
- * Knopf mit dem Emoji-Raster; schliesst bei Auswahl, Klick daneben, Esc oder
- * Scrollen. Das Raster hängt am body (Portal), fest am Fenster — unter dem
- * Knopf bzw. darüber, wenn darunter kein Platz ist: die Aktionen der Karte
- * sind nur beim Überfahren sichtbar, und der Faden scrollt — beides würde es
- * sonst ausblenden bzw. abschneiden. mousedown ohne Fokuswechsel: ein
- * Eingabefeld behält Fokus und Cursor.
+ * Button with the emoji grid; closes on selection, click outside, Esc or
+ * scrolling. The grid hangs on the body (portal), fixed to the window — below the
+ * button, or above it if there is no room below: the card's actions
+ * are only visible on hover, and the thread scrolls — either would otherwise
+ * hide or clip it. mousedown without focus change: an
+ * input field keeps focus and cursor.
  */
 function EmojiPicker({ isDark, title, icon, buttonClass, onPick }: {
   isDark: boolean; title: string; icon: React.ReactNode; buttonClass: (open: boolean) => string; onPick: (emoji: string) => void;
@@ -229,7 +229,7 @@ function MentionTextarea(p: {
   const [remote, setRemote] = useState<DirectoryUser[]>([]);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [sel, setSel] = useState(0);
-  const remoteOff = useRef(false); // Suche einmal gescheitert → in dieser Sitzung nicht mehr versuchen
+  const remoteOff = useRef(false); // search failed once → don't try again in this session
 
   const detect = () => {
     const el = ref.current;
@@ -241,7 +241,7 @@ function MentionTextarea(p: {
     setMenu(prev => (prev && prev.query === query && prev.caret === caret) ? prev : { query, start: caret - query.length - 1, caret });
   };
 
-  // Entra-Suche entprellt
+  // Entra search debounced
   const searchRef = useRef(p);
   searchRef.current = p;
   useEffect(() => {
@@ -261,7 +261,7 @@ function MentionTextarea(p: {
   }, [menu?.query]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const q = (menu?.query ?? '').toLowerCase();
-  // Rang: Name beginnt mit … › ein Wort beginnt mit … › kommt vor (Name/E-Mail)
+  // Rank: name starts with … › a word starts with … › occurs (name/e-mail)
   const rank = (u: DirectoryUser) => {
     const n = u.name.toLowerCase();
     if (!q || n.startsWith(q)) return 0;
@@ -294,7 +294,7 @@ function MentionTextarea(p: {
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMenu(null); }
   };
 
-  // Emoji an der Cursor-Position einfügen (bzw. statt der Markierung)
+  // insert the emoji at the cursor position (or in place of the selection)
   const insertEmoji = (emoji: string) => {
     const el = ref.current;
     const start = el?.selectionStart ?? p.value.length;
@@ -336,14 +336,14 @@ function MentionTextarea(p: {
   );
 }
 
-// ── Stelle ───────────────────────────────────────────────────────────────────
-/** Die Stelle als Text — Element, bei einem Teil «Element · Teil». */
+// ── Location ─────────────────────────────────────────────────────────────────
+/** The location as text — element, for a part «Element · Teil». */
 const placeText = (t: CommentTargetInfo) => (t.part ? `${t.element ?? t.label} · ${t.part}` : t.element ?? t.label);
 
 /**
- * Kommentare und Verlauf als schwebende Karte rechts, wie im arch-review:
- * abgerundet, mit Schatten, nur so hoch wie der Inhalt (höchstens die
- * Spalte); bei schmalem Fenster über der rechten Spalte statt daneben.
+ * Comments and history as a floating card on the right, as in arch-review:
+ * rounded, with a shadow, only as tall as the content (at most the
+ * column); in a narrow window over the right column instead of next to it.
  */
 export const floatingCard = (isDark: boolean, overlay: boolean) =>
   `flex-shrink-0 flex flex-col min-h-0 self-start max-h-[calc(100%-1.5rem)] rounded-xl border shadow-lg ${
@@ -351,8 +351,8 @@ export const floatingCard = (isDark: boolean, overlay: boolean) =>
     overlay ? 'absolute right-3 top-3 z-30 shadow-2xl max-w-[85vw]' : 'relative m-3 max-w-[45vw]'}`;
 
 /**
- * Reaktionen unter einem Beitrag: je Emoji ein Chip mit Anzahl (eigene
- * hervorgehoben, Namen im Tooltip); Klick setzt bzw. nimmt die eigene zurück.
+ * Reactions below a post: one chip with a count per emoji (your own
+ * highlighted, names in the tooltip); a click sets or removes your own.
  */
 function ReactionChips({ reactions, me, isDark, onToggle }: {
   reactions: Record<string, { name: string; email?: string }[]> | undefined;
@@ -372,7 +372,7 @@ function ReactionChips({ reactions, me, isDark, onToggle }: {
               mine
                 ? (isDark ? 'border-blue-500/50 bg-blue-500/15 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800')
                 : (isDark ? 'border-white/15 text-white/70 hover:border-white/30' : 'border-black/15 text-black/70 hover:border-black/30')}`}>
-            {/* Farb-Emojis übernehmen die Transparenz der Textfarbe — deshalb voll deckend */}
+            {/* colour emojis take on the transparency of the text colour — hence fully opaque */}
             <span className={isDark ? 'text-white' : 'text-black'}>{emoji}</span><span className="text-[10px] tabular-nums">{list.length}</span>
           </button>
         );
@@ -381,7 +381,7 @@ function ReactionChips({ reactions, me, isDark, onToggle }: {
   );
 }
 
-/** Zähler wie die Sprechblase an der Stelle: blau für offene, grauer Haken für erledigte. */
+/** Counter like the speech bubble at the location: blue for open, grey check mark for resolved. */
 function CountChip({ open, resolved, showResolved, isDark }: { open: number; resolved: number; showResolved: boolean; isDark: boolean }) {
   if (open > 0) {
     return (
@@ -404,9 +404,9 @@ function CountChip({ open, resolved, showResolved, isDark }: { open: number; res
 interface PanelProps {
   spec: ProcessSpec;
   isDark: boolean;
-  /** alle Stellen, Reihenfolge = Schrittfolge */
+  /** all locations, order = step sequence */
   targets: CommentTargetInfo[];
-  /** null = Übersicht */
+  /** null = overview */
   active: string | null;
   showResolved: boolean;
   onToggleResolved: (v: boolean) => void;
@@ -415,16 +415,16 @@ interface PanelProps {
   canEdit: boolean;
   author: CommentAuthor;
   onChange: (spec: ProcessSpec) => void;
-  /** Personen für «@»: users.json, Kommentar-Autoren, ich */
+  /** People for «@»: users.json, comment authors, me */
   users: DirectoryUser[];
   searchUsers: (q: string) => Promise<DirectorySearchResult>;
   onDirectoryProblem: (r: Extract<DirectorySearchResult, { ok: false }>) => void;
-  /** Teams-Benachrichtigungen aktiv (Admin) — dann bekommen Beiträge Empfänger */
+  /** Teams notifications enabled (admin) — then posts get recipients */
   teamsEnabled: boolean;
-  /** Breite in px, an der Trennlinie ziehbar */
+  /** width in px, draggable at the divider */
   width: number;
   onWidth: (w: number) => void;
-  /** schmales Fenster: über der rechten Spalte statt daneben */
+  /** narrow window: over the right column instead of next to it */
   overlay: boolean;
 }
 
@@ -444,19 +444,19 @@ export function CommentsPanel(p: PanelProps) {
   const [replyDraft, setReplyDraft] = useState('');
   const [replyMentions, setReplyMentions] = useState<DirectoryUser[]>([]);
   const draftRef = useRef<HTMLTextAreaElement>(null);
-  /** erledigte Fäden, die jemand aufgeklappt hat — sonst stehen sie auf einer Zeile */
+  /** resolved threads someone has expanded — otherwise they take up one line */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpanded = (id: string) => setExpanded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const addMention = (set: React.Dispatch<React.SetStateAction<DirectoryUser[]>>) => (u: DirectoryUser) =>
     set(prev => (prev.some(x => x.email.toLowerCase() === u.email.toLowerCase()) ? prev : [...prev, u]));
-  // nur Erwähnungen, deren «@Name» noch im Text steht
+  // only mentions whose «@Name» is still in the text
   const effectiveMentions = (text: string, ms: DirectoryUser[]) =>
     ms.filter(m => text.includes(`@${m.name}`)).map(({ name, email }) => ({ name, email }));
 
   const comments = useMemo(() => spec.comments ?? [], [spec.comments]);
 
-  // Stellen, die es nicht (mehr) gibt, stehen hinten unter «Ohne Stelle» —
-  // was besprochen wurde, soll gelesen und abgehakt werden, nicht verschwinden
+  // locations that don't exist (any more) are listed at the end under «Ohne Stelle» —
+  // what was discussed should be read and checked off, not disappear
   const targets = useMemo(() => {
     const known = new Set(p.targets.map(t => t.key));
     const place = new Map(comments.filter(t => t.place).map(t => [t.target, t.place!]));
@@ -482,16 +482,16 @@ export function CommentsPanel(p: PanelProps) {
   }, [comments, p.users, p.author.name]);
   const initialsFor = (name: string) => initials.get(name.trim().toLowerCase()) ?? initialsLevel(name, 0);
 
-  // Stellenwechsel: Entwürfe verwerfen, neues Kommentarfeld fokussieren
+  // change of location: discard drafts, focus the new comment field
   useEffect(() => {
     setDraft(''); setDraftMentions([]); setReplyTo(null); setReplyDraft(''); setReplyMentions([]);
   }, [active]);
   useEffect(() => {
-    // preventScroll: sonst bricht das Fokussieren den Scroll zur Stelle ab
+    // preventScroll: otherwise focusing aborts the scroll to the location
     if (active && p.canEdit) window.setTimeout(() => draftRef.current?.focus({ preventScroll: true }), 50);
   }, [active, p.canEdit]);
 
-  // Esc schliesst (ausser beim Tippen in einem Feld)
+  // Esc closes (except while typing in a field)
   const onClose = p.onClose;
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -504,7 +504,7 @@ export function CommentsPanel(p: PanelProps) {
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  // Schrittfolge: Stellen mit (offenen bzw. allen) Kommentaren, in Reihenfolge
+  // step sequence: locations with (open or all) comments, in order
   const visible = (key: string) => { const x = countOf(key); return x.open > 0 || (showResolved && x.resolved > 0); };
   const steps = targets.filter(t => visible(t.key));
   const totalOpen = comments.filter(t => !t.resolved).length;
@@ -512,15 +512,15 @@ export function CommentsPanel(p: PanelProps) {
   const rank = new Map(targets.map((t, i) => [t.key, i]));
   const pos = active ? rank.get(active) ?? -1 : -1;
   const stepIndex = active ? steps.findIndex(t => t.key === active) : -1;
-  // läuft rund: nach der letzten Stelle kommt wieder die erste
+  // wraps around: after the last location comes the first again
   const prev = [...steps].reverse().find(t => (rank.get(t.key) ?? 0) < pos) ?? steps[steps.length - 1];
   const next = steps.find(t => (rank.get(t.key) ?? 0) > pos) ?? steps[0];
   const canStep = steps.length > 1 || (steps.length === 1 && stepIndex < 0);
 
   /**
-   * Wer benachrichtigt wird: die Erwähnten und — bei einer Antwort — wer den
-   * Faden angefangen hat; ohne mich selbst. Nur mit aktiven Benachrichtigungen
-   * und eigener E-Mail (angemeldet) — sonst kann niemand senden.
+   * Who is notified: those mentioned and — for a reply — whoever started the
+   * thread; excluding myself. Only with notifications enabled
+   * and my own e-mail (signed in) — otherwise nobody can send.
    */
   const recipients = (mentions: DirectoryUser[], faden?: CommentThread): string[] => {
     const me = p.author.email?.toLowerCase();
@@ -562,7 +562,7 @@ export function CommentsPanel(p: PanelProps) {
           <div className="flex items-center gap-2 text-[10px]">
             <span className={`truncate font-semibold ${isDark ? 'text-white/85' : 'text-black/85'}`} title={e.email ? `${e.author} · ${e.email}` : e.author}>{e.author}</span>
             <span className={`flex-shrink-0 ${c.muted}`} title={whenFull(e.at)}>{whenLabel(e.at)}</span>
-            {/* Teams-Benachrichtigung: gesendet / noch ausstehend */}
+            {/* Teams notification: sent / still pending */}
             {(e.notified?.length ?? 0) > 0 && (
               <span title={`Teams-Nachricht gesendet an ${e.notified!.join(', ')}`} className="flex-shrink-0">
                 <Send size={9} className={isDark ? 'text-emerald-400/80' : 'text-emerald-600'} />
@@ -608,7 +608,7 @@ export function CommentsPanel(p: PanelProps) {
     );
   };
 
-  /** Ein erledigter Faden auf einer Zeile — Klick klappt ihn auf. */
+  /** A resolved thread on one line — a click expands it. */
   const resolvedRow = (faden: CommentThread) => {
     const first = faden.entries[0];
     const n = faden.entries.length - 1;
@@ -625,7 +625,7 @@ export function CommentsPanel(p: PanelProps) {
     );
   };
 
-  /** Ein Faden: erster Beitrag, Antworten eingerückt, Antwortfeld darunter — ohne Rahmen, wie im arch-review. */
+  /** A thread: first post, replies indented, reply field below — without a border, as in arch-review. */
   const threadCard = (faden: CommentThread) => {
     if (faden.resolved && !expanded.has(faden.id)) return <div key={faden.id}>{resolvedRow(faden)}</div>;
     return (
@@ -674,7 +674,7 @@ export function CommentsPanel(p: PanelProps) {
     );
   };
 
-  // Übersicht: alle Stellen mit Kommentaren, gruppiert nach Bereich
+  // overview: all locations with comments, grouped by area
   const overview = () => {
     if (steps.length === 0) {
       return (
@@ -698,7 +698,7 @@ export function CommentsPanel(p: PanelProps) {
             <div className="space-y-0.5">
               {g.items.map(t => {
                 const x = countOf(t.key);
-                // der jüngste Beitrag an dieser Stelle — wer zuletzt etwas gesagt hat, und was
+                // the latest post at this location — who said something last, and what
                 const letzter = comments.filter(f => f.target === t.key && (showResolved || !f.resolved))
                   .flatMap(f => f.entries).sort((a, b) => b.at.localeCompare(a.at))[0];
                 return (
@@ -732,7 +732,7 @@ export function CommentsPanel(p: PanelProps) {
   return (
     <aside style={{ width: p.width }} className={`${floatingCard(isDark, p.overlay)}`}>
       <PanelWidthHandle isDark={isDark} width={p.width} onWidth={p.onWidth} min={300} max={640} />
-      {/* Kopf */}
+      {/* Header */}
       <div className={`px-3 py-2 border-b ${c.border} flex items-center gap-1.5`}>
         {active ? (
           <button type="button" onClick={() => p.onSelect(null)} title="Übersicht aller Kommentare" className={iconBtn}>
@@ -791,12 +791,12 @@ export function CommentsPanel(p: PanelProps) {
         </div>
       )}
 
-      {/* Inhalt */}
+      {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
         {active ? thread(active) : overview()}
       </div>
 
-      {/* Neuer Kommentar */}
+      {/* New comment */}
       {active && p.canEdit && activeInfo?.group !== ORPHAN_GROUP && (
         <div className={`px-3 py-2 border-t ${c.border} space-y-1.5`}>
           <MentionTextarea {...mentionProps} textareaRef={draftRef} value={draft} onChange={setDraft} onMention={addMention(setDraftMentions)}

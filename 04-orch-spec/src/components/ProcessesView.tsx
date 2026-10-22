@@ -1,25 +1,25 @@
-// Übersicht aller Spezifikationen im geteilten Ordner.
+// Overview of all specifications in the shared folder.
 //
-// Zwei Wege zu einer neuen Spezifikation:
+// Two ways to a new specification:
 //
-//  · **Aus BPMN** — die Struktur kommt aus der Implementation, die Prosa
-//    schreibt man danach. Über die Prozess-ID findet die App die Domain
-//    (Katalog, gemerkte Projekt-Ordner, sonst Rückfrage) und ergänzt
-//    Datenmodell und Interaktionen (siehe `projectImport.ts`).
-//  · **Neu** — der Prozess startet mit der **Vorlage** (Admin → Vorlage für
-//    neue Prozesse; ohne eigene gilt die eingebaute). Aus ihr entstehen
-//    Diagramm und Ablaufbaum in einem Zug — mit der neuen Prozess-ID, denn
-//    daran hängen Topics, Domain-Zuordnung und Dateiname.
+//  · **From BPMN** — the structure comes from the implementation, the prose
+//    is written afterwards. Via the process ID the app finds the domain
+//    (catalog, remembered project folders, otherwise it asks) and adds
+//    data model and interactions (see `projectImport.ts`).
+//  · **New** — the process starts with the **template** (Admin → Vorlage für
+//    neue Prozesse; without a custom one the built-in one applies). From it
+//    diagram and flow tree are created in one go — with the new process ID, because
+//    topics, domain mapping and file name depend on it.
 //
-// **Löschen** gibt es nur hier, nicht in der Prozessansicht — dort speichert
-// die App automatisch, und ein Autosave nach dem Löschen legte die Datei
-// gleich wieder an. Erlaubt ist es nur mit Admin-Rolle oder ohne
-// Anmeldepflicht (`canDelete`); vorher wird gefragt, denn weg ist weg:
-// Spezifikation **und** BPMN.
+// **Deleting** exists only here, not in the process view — there the app
+// saves automatically, and an autosave after deleting would recreate the file
+// right away. It is only allowed with the admin role or without
+// mandatory login (`canDelete`); it asks first, because gone is gone:
+// specification **and** BPMN.
 //
-// **Epics** (Admin → Epics) filtern die Liste: ein Klick zeigt nur die
-// Prozesse dieses Epics. Der Filter bleibt im Browser gemerkt — wer an einem
-// Change arbeitet, kommt aus dem Prozess in dieselbe Auswahl zurück.
+// **Epics** (Admin → Epics) filter the list: a click shows only the
+// processes of this epic. The filter stays remembered in the browser — whoever works on a
+// change comes back from the process to the same selection.
 import { overallStatus } from '../status';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowUpDown, FileCode2, Flag, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
@@ -38,7 +38,7 @@ import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
 import { withProjectDmns } from '../dmnProject';
 
-/** Balkenfarbe je Status — kräftig, weil der Balken keine Schrift trägt. */
+/** Bar colour per status — strong, because the bar carries no text. */
 const BAR: Record<Status, string> = {
   draft: 'bg-neutral-400/60', review: 'bg-amber-400', final: 'bg-blue-400',
   implemented: 'bg-emerald-400', accepted: 'bg-emerald-600', changed: 'bg-rose-400',
@@ -46,7 +46,7 @@ const BAR: Record<Status, string> = {
 
 const EPIC_FILTER_KEY = 'orch-spec.epicFilter';
 
-/** «heute», «gestern», «vor 3 Tagen» … aus dem ISO-Zeitpunkt. */
+/** «heute», «gestern», «vor 3 Tagen» … from the ISO timestamp. */
 function relativeTime(iso: string | undefined): string {
   if (!iso) return '';
   const t = Date.parse(iso);
@@ -67,20 +67,20 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const fileRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
-  // Import aus BPMN: gelesen, Domain gesucht — vor dem Anlegen sieht man, was entsteht
+  // Import from BPMN: read, domain searched — before creating, you see what will be created
   const [pending, setPending] = useState<{
     spec: ProcessSpec; xml: string; stepCount: number;
     enriched: Enriched | null; source: string | null;
-    /** ohne Domain: die vorbereiteten Interaktionen (Entwurf mit In/Out) */
+    /** without a domain: the prepared interactions (draft with In/Out) */
     bare: { spec: ProcessSpec; prepared: string[] };
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  /** Status des neuen Prozesses — aus der Implementation gelesen ist «Umgesetzt» die Vorgabe */
+  /** Status of the new process — read from the implementation, «Umgesetzt» is the default */
   const [createStatus, setCreateStatus] = useState<Status>('implemented');
-  /** Spezifikation, deren Löschen gerade bestätigt werden soll */
+  /** Specification whose deletion is about to be confirmed */
   const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // Liste: Suche, Status-Filter, Sortierung
+  // List: search, status filter, sorting
   const [listQuery, setListQuery] = useState('');
   const [listStatus, setListStatus] = useState<Status | null>(null);
   const [sortBy, setSortBy] = useState<'title' | 'updated'>('title');
@@ -91,15 +91,15 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     try {
       if (listEpic) localStorage.setItem(EPIC_FILTER_KEY, listEpic);
       else localStorage.removeItem(EPIC_FILTER_KEY);
-    } catch { /* ohne Speicher gilt der Filter nur bis zum Verlassen */ }
+    } catch { /* without storage the filter only applies until leaving */ }
   }, [listEpic]);
-  // Epics im Filter: alle offenen, dazu abgeschlossene, solange ein Prozess sie trägt
+  // Epics in the filter: all open ones, plus closed ones as long as a process carries them
   const epicFilter = useMemo(() => (model?.epics ?? [])
     .map(e => ({ ...e, n: specs.filter(s => s.data.epics?.includes(e.id)).length }))
     .filter(e => !e.closed || e.n > 0), [model, specs]);
-  // ein gemerktes Epic, das es nicht mehr gibt, filtert nicht ins Leere
+  // a remembered epic that no longer exists does not filter into nothing
   const activeEpic = listEpic && epicFilter.some(e => e.id === listEpic) ? listEpic : null;
-  // Je Prozess: Status-Zähler und Befunde — einmal je Stand der Liste
+  // Per process: status counters and findings — once per state of the list
   const summaries = useMemo(() => new Map(specs.map(({ slug, data }) => {
     const counts = statusCounts(data);
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -108,7 +108,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       const f = collectFindings(data, model, allSteps(data.steps));
       findings = f.size;
       errors = [...f.values()].filter(x => x.errors.length).length;
-    } catch { /* eine defekte Spezifikation darf die Liste nicht blockieren */ }
+    } catch { /* a broken specification must not block the list */ }
     const comments = (data.comments ?? []).filter(t => !t.resolved).length;
     return [slug, { counts, total, findings, errors, comments }];
   })), [specs, model]);
@@ -122,7 +122,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       ? [...list].sort((a, b) => (b.data.updatedAt ?? '').localeCompare(a.data.updatedAt ?? ''))
       : list;
   }, [specs, listQuery, listStatus, activeEpic, sortBy, model]);
-  // Gruppen je Projekt, in der Reihenfolge ihres ersten Prozesses
+  // Groups per project, in the order of their first process
   const groups = useMemo(() => {
     const map = new Map<string, typeof visible>();
     for (const item of visible) {
@@ -139,12 +139,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const [project, setProject] = useState('');
   const [version, setVersion] = useState('1');
   const [engine, setEngine] = useState<EngineId>(DEFAULT_ENGINE);
-  // `company-project-processVversion` — so heissen die Prozesse im Haus, und
-  // genau diese Teile trägt die Vorlage an ihren Platzhalter-Stellen.
+  // `company-project-processVversion` — that is how the processes are named in-house, and
+  // the template carries exactly these parts at its placeholder positions.
   const processId = [company.trim(), project.trim(), name.trim() && `${name.trim()}V${version.trim() || '1'}`]
     .filter(Boolean).join('-');
-  // Auswahl statt Raten: alle Firmen und Projekte, die Katalog und
-  // vorhandene Spezifikationen kennen — Freitext bleibt für Neues möglich.
+  // Choice instead of guessing: all companies and projects that the catalog and
+  // existing specifications know — free text stays possible for new ones.
   const prefixes = useMemo(() => knownPrefixes(model, specs.map(s => s.data.project)), [model, specs]);
   const companies = useMemo(() => [...new Set(prefixes.map(p => splitPrefix(p).company))], [prefixes]);
   const projectOptions = useMemo(() => {
@@ -152,8 +152,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     const passend = firma ? prefixes.filter(p => p.startsWith(`${firma}-`)) : prefixes;
     return [...new Set(passend.map(p => (firma ? p.slice(firma.length + 1) : splitPrefix(p).project)))].filter(Boolean);
   }, [prefixes, company]);
-  // Firma und Projekt sind bei allen Prozessen eines Hauses dieselben — der
-  // zuletzt angelegte ist deshalb der beste Vorschlag.
+  // Company and project are the same for all processes of a house — the
+  // one created last is therefore the best suggestion.
   const letztes = useMemo(() => {
     const voriges = specs.map(s => s.data.project).filter(Boolean).slice(-1)[0] ?? '';
     const [firma, ...rest] = voriges.split('-');
@@ -163,12 +163,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   const fromBpmn = async (file: File) => {
     setError('');
     try {
-      // Prozess-ID nach dem Pool (bzw. dem Prozessnamen), bevor die Domain
-      // über sie gesucht wird und sie den Dateinamen bestimmt — siehe poolIds.ts
+      // Process ID after the pool (or the process name), before the domain
+      // is searched via it and it determines the file name — see poolIds.ts
       const text = alignPoolIds(await file.text()).xml;
       const { spec, stepCount, unreachable } = importBpmn(text, file.name, { patterns: model?.patterns });
       if (unreachable.length) console.warn('[orch-spec] nicht erreichbare BPMN-Elemente:', unreachable);
-      // Über die Prozess-ID die Domain suchen: Katalog, dann gemerkte Ordner
+      // Search the domain via the process ID: catalog, then remembered folders
       setBusy('Domain wird gesucht …');
       const hit = spec.processId ? await findDomain(spec.processId, model, setBusy) : null;
       setBusy(null);
@@ -180,7 +180,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-  /** Domain aus einem gewählten Ordner oder ZIP nachreichen. */
+  /** Supply the domain later from a chosen folder or ZIP. */
   const domainFrom = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string) => {
     if (!pending) return;
     try {
@@ -202,19 +202,19 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   };
   const pickDomainZip = (file: File) =>
     domainFrom(async () => readProjectZip(new Uint8Array(await file.arrayBuffer())), file.name);
-  /** Anlegen — mit Domain, wenn eine da ist, sonst nur die Struktur. */
+  /** Create — with domain, if there is one, otherwise only the structure. */
   const createPending = async () => {
     if (!pending) return;
-    // alle Felder der Services als Zeilen — Pflicht-Eingaben und gebrauchte Ausgaben angehakt
+    // all fields of the services as rows — mandatory inputs and used outputs checked
     const rows = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
-    // die Tabellen der zugeordneten Decisions gleich aus dem Projekt — am Schritt dann bearbeitbar
+    // the tables of the matched decisions right from the project — editable at the step then
     setBusy('DMN-Tabellen werden gesucht …');
     const { spec } = await withProjectDmns(rows, model, saveDmn, setBusy);
     setBusy(null);
     const res = await createSpec(spec);
     if (!res.ok) { setError(res.message); return; }
-    // Das BPMN bleibt neben der Spezifikation liegen — damit lässt es sich
-    // in der Prozessansicht direkt bearbeiten.
+    // The BPMN stays next to the specification — so it can be
+    // edited directly in the process view.
     const w = await saveBpmn(spec.slug, pending.xml);
     if (!w.ok) setError(w.message);
     console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
@@ -222,8 +222,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     onOpen(spec.slug);
   };
 
-  // Aus der Vorlage entsteht beides: das Diagramm und der Baum daraus. So
-  // fängt ein neuer Prozess dort an, wo im Haus alle anfangen.
+  // Both come from the template: the diagram and the tree from it. So
+  // a new process starts where everyone in-house starts.
   const createFromTemplate = async () => {
     if (!name.trim()) { setError('Bitte einen Prozessnamen angeben.'); return; }
     if (specs.some(s => s.data.processId === processId || s.slug === slugify(processId))) {
@@ -234,8 +234,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     try {
       const xml = applyTemplate(await loadTemplate(engine), { processId, title: title || processId });
       const { spec } = importBpmn(xml, `${slugify(processId)}.bpmn`, { patterns: model?.patterns });
-      // Der Ablauf kommt aus der Vorlage, ist aber noch nicht umgesetzt —
-      // und zwar auf allen Ebenen: Unterschritte, Zweige und Fehlerpfade.
+      // The flow comes from the template, but is not implemented yet —
+      // on all levels: sub-steps, branches and error paths.
       const neu = { ...withStatus(spec, 'draft'), title: title || processId, engine };
       const res = await createSpec(neu);
       if (!res.ok) { setError(res.message); return; }
@@ -404,8 +404,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-40 ${c.btnPrimary}`}>Anlegen</button>
           </div>
           <div className="flex items-center gap-1.5 mt-1.5">
-            {/* Firma und Projekt mit den bekannten Werten aus Katalog und
-                Spezifikationen als Auswahl — tippen für neue bleibt möglich */}
+            {/* Company and project with the known values from catalog and
+                specifications as a choice — typing new ones stays possible */}
             {([['company', company, setCompany, 'company', 'w-28', 'firmen-liste'],
                ['project', project, setProject, 'project', 'w-28', 'projekte-liste'],
                ['process', name, setName, 'process', 'flex-1', undefined]] as const).map(([id, wert, setzen, platzhalter, breite, liste]) => (
@@ -424,7 +424,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             <input value={version} onChange={e => setVersion(e.target.value)} placeholder="1"
               className={`w-12 text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
           </div>
-          {/* Die bereitgestellten Vorlagen — je Engine eine. */}
+          {/* The provided templates — one per engine. */}
           <div className="flex items-center gap-1.5 mt-2">
             {ENGINES.map(e => (
               <button key={e.id} onClick={() => setEngine(e.id)}
@@ -445,7 +445,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         </div>
       )}
 
-      {/* Kopf der Liste: Suche, Status-Filter, Sortierung */}
+      {/* Head of the list: search, status filter, sorting */}
       {specs.length > 0 && (
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <div className={`flex items-center gap-1 px-2 py-1 rounded border ${c.border2} min-w-[16rem]`}>
@@ -502,7 +502,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       ) : (
         <div className="space-y-4">
           {groups.map(([project, items]) => (
-            // Je Projekt eine Klammer wie im Ablauf: Kopf und Linie links — nur, wenn es mehr als eines gibt
+            // One bracket per project as in the flow: head and line on the left — only if there is more than one
             <div key={project} className={groups.length > 1 ? `pl-3 border-l-2 ${isDark ? 'border-slate-500/40' : 'border-slate-300'}` : ''}>
               {groups.length > 1 && (
                 <div className="flex items-baseline gap-2 mb-1.5 px-1">
@@ -528,7 +528,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                             </div>
                           )}
                         </div>
-                        {/* Fortschritt: ein Balken in Statusfarben, die Zahlen im Tooltip */}
+                        {/* Progress: a bar in status colours, the numbers in the tooltip */}
                         <div className="hidden sm:flex flex-col items-end gap-1 w-40 flex-shrink-0">
                           <div className="flex w-full h-1.5 rounded overflow-hidden" title={STATUSES.filter(st => sum.counts[st] > 0).map(st => `${sum.counts[st]} × ${STATUS_META[st].label}`).join('\n')}>
                             {STATUSES.filter(st => sum.counts[st] > 0).map(st => (
@@ -544,7 +544,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                               : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50')}`}>
                           {engine}
                         </span>
-                        {/* offene Kommentare — Klärungsbedarf, ohne den Prozess zu öffnen */}
+                        {/* open comments — need for clarification, without opening the process */}
                         {sum.comments > 0 ? (
                           <span title={`${sum.comments} offene${sum.comments === 1 ? 'r Kommentar' : ' Kommentare'}`}
                             className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${
@@ -567,7 +567,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                         )}
                         <StatusChip status={overallStatus(data)} isDark={isDark} title="Der kleinste Status der Schritte und Klassen" />
                       </button>
-                      {/* Löschen — nur Admin (oder ohne Anmeldepflicht) */}
+                      {/* Delete — admin only (or without mandatory login) */}
                       {canDelete && (
                         <button onClick={() => { setError(''); setToDelete({ slug, title: data.title || slug }); }}
                           title="Spezifikation löschen (Admin)"

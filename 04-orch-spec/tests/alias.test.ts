@@ -1,6 +1,6 @@
-// In bzw. Out als anderer Typ (`type In = OrderCardUT.In`) und abweichende
-// Werte im Beispiel der Interaktion (`OrderCardUT.In.example.copy(…)`):
-// der Import behält beides, der Export schreibt es wieder so.
+// In or Out as another type (`type In = OrderCardUT.In`) and differing
+// values in the example of the interaction (`OrderCardUT.In.example.copy(…)`):
+// the import keeps both, the export writes it that way again.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -104,11 +104,11 @@ test('import keeps the alias and the deviating values - export writes them again
   const ias = r.spec.interactions ?? [];
   const order = ias.find(i => i.name === 'OrderCardUT')!;
   const post = ias.find(i => i.name === 'PostProcessCardUT')!;
-  // das In von OrderCardUT — dieselben Felder, keine Kopie
+  // the In of OrderCardUT — the same fields, no copy
   assert.equal(post.inAlias, `${order.id}.In`);
   assert.equal(post.inTypeId, order.inTypeId);
   assert.deepEqual(post.inExample, { clientKeyIsIdentityOk: 'false' });
-  // das Out liegt in einem anderen Projekt: ein Verweis auf die Domain
+  // the Out lives in another project: a reference to the domain
   assert.equal(post.outAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.Out');
 
   const file = scalaFiles(r.spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/PostProcessCardUT.scala'));

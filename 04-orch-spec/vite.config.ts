@@ -4,9 +4,9 @@ import fs from 'fs';
 import path from 'path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 
-// Nur im Dev-Server: `sample-data/` unter /sample-data ausliefern, damit die
-// App mit `?demo` sofort mit echten Daten startet (ohne Ordnerauswahl).
-// Verzeichnisse antworten mit der Dateiliste als JSON.
+// Dev server only: serve `sample-data/` under /sample-data, so that the
+// app starts right away with real data via `?demo` (without choosing a folder).
+// Directories respond with the file list as JSON.
 function sampleData(): Plugin {
   const root = path.resolve(__dirname, 'sample-data');
   return {
@@ -27,11 +27,11 @@ function sampleData(): Plugin {
   };
 }
 
-// Nur im Dev-Server: der mitgelieferte Katalog. Im Build legt ihn der Helper
-// neben die App (`spec/catalog.generated.json` der Doku-Site); im Dev-Server
-// fehlt er — ohne ihn fehlen alle Service- und Firmentypen. Er kommt aus
-// `public/` oder aus `ORCH_SPEC_CATALOG` (Datei oder Site-Ordner, z. B. in
-// `.env.local`). Fehlt er, antwortet der Server 404 statt mit der index.html.
+// Dev server only: the bundled catalog. In the build the helper puts it
+// next to the app (`spec/catalog.generated.json` of the docs site); in the dev server
+// it is missing — without it all service and company types are missing. It comes from
+// `public/` or from `ORCH_SPEC_CATALOG` (file or site folder, e.g. in
+// `.env.local`). If it is missing, the server responds 404 instead of with the index.html.
 function devCatalog(catalogEnv: string | undefined): Plugin {
   const inPublic = path.resolve(__dirname, 'public', 'catalog.generated.json');
   const fromEnv = (): string | null => {
@@ -55,7 +55,7 @@ function devCatalog(catalogEnv: string | undefined): Plugin {
         if (!file || !fs.existsSync(file)) { res.statusCode = 404; return res.end(); }
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache');
-        res.end(fs.readFileSync(file)); // bei jedem Abruf frisch — ein neues publishDocs gilt nach einem Reload
+        res.end(fs.readFileSync(file)); // fresh on every request — a new publishDocs applies after a reload
       });
     },
   };
@@ -68,18 +68,18 @@ export default defineConfig(({ mode }) => ({
     alias: { '@': path.resolve(__dirname, '.') },
   },
   server: {
-    // sample-data kann als geteilter Ordner gewählt werden — Schreibzugriffe
-    // der App dürfen keinen Dev-Server-Reload auslösen
+    // sample-data can be chosen as a shared folder — the app's write accesses
+    // must not trigger a dev server reload
     watch: { ignored: ['**/sample-data/**'] },
   },
   build: {
-    // Der Modeler (bpmn-js) ist gross, wird aber nur geladen, wenn jemand das
-    // Diagramm aufklappt — die Warnung dazu ist hier kein Signal. Der Haupt-Chunk
-    // lag schon knapp unter 700 kB; die Seiten (Designer, Renderer) sind ein eigener
-    // Chunk, im Haupt-Chunk bleibt nur ihre Ablage im Store.
+    // The modeler (bpmn-js) is large, but is only loaded when someone expands the
+    // diagram — the warning about it is no signal here. The main chunk
+    // was already just under 700 kB; the pages (designer, renderer) are a separate
+    // chunk, only their storage in the store stays in the main chunk.
     chunkSizeWarningLimit: 720,
-    // Die Bibliotheken bekommen eigene Chunks: sie ändern sich nur mit einem
-    // Update und bleiben so über Releases der App im Browser-Cache.
+    // The libraries get their own chunks: they only change with an
+    // update and thus stay in the browser cache across releases of the app.
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -90,10 +90,10 @@ export default defineConfig(({ mode }) => ({
           if (pkg === 'feelin' || pkg.startsWith('@lezer') || pkg === 'lezer-feel') return 'feel';
           if (pkg === 'lucide-react') return 'icons';
           if (['marked', 'js-yaml', 'fflate'].includes(pkg)) return 'text';
-          // der DMN-Editor (dmn-js) kommt erst, wenn eine Tabelle aufgeht — als ein
-          // Chunk wäre er über der Grenze. Nur die Tabellen-Ansicht bekommt einen
-          // eigenen; den Rest teilt Rollup selbst auf. Mehr feste Zuordnungen
-          // (DRD, gemeinsame Teile) lassen die Chunks im Kreis voneinander abhängen.
+          // the DMN editor (dmn-js) only comes when a table opens — as one
+          // chunk it would be over the limit. Only the table view gets its
+          // own; Rollup splits the rest itself. More fixed assignments
+          // (DRD, shared parts) make the chunks depend on each other in a cycle.
           if (pkg === 'dmn-js-decision-table') return 'dmn-table';
           return undefined;
         },

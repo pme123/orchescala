@@ -1,5 +1,5 @@
-// Ein Typ-Alias mit Union-Typ (`type ReceivingSystems = Option[String] | Seq[ReceivingSystem]`)
-// im Begleitobjekt: die App bildet ihn nicht ab — das Feld behält den Alias, wörtlich.
+// A type alias with a union type (`type ReceivingSystems = Option[String] | Seq[ReceivingSystem]`)
+// in the companion object: the app does not model it — the field keeps the alias, verbatim.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -73,7 +73,7 @@ test('typeShape: a union is no wrapper - Option[…] only when its bracket close
   assert.deepEqual(typeShape('Option[Seq[String]]'), { base: 'String', optional: true, collection: true, map: false });
   assert.ok(isCompoundType('Option[String] | Seq[X]'));
   assert.ok(isCompoundType('A & B'));
-  // `:|` bindet stärker: ohne Klammern ist es eine Union bzw. ein Schnitt-Typ, mit Klammern ein Refinement
+  // `:|` binds tighter: without parentheses it is a union or an intersection type, with parentheses a refinement
   assert.ok(isCompoundType('String :| ValidUUID | Long'));
   assert.ok(isCompoundType('Int :| Greater[0] & Less[10]'));
   assert.ok(!isCompoundType('Int :| (Greater[0] & Less[10])'));
@@ -90,7 +90,7 @@ test('import: a field typed with a union alias keeps the alias - fully qualified
   assert.equal(field.type, 'SendEvent.In.ReceivingSystems');
   assert.ok(!field.optional && !field.collection);
   assert.ok(isScalaTypeExpression(field.type));
-  // die übrigen Felder wie bisher
+  // the other fields as before
   const tags = (r.spec.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'tags')!;
   assert.deepEqual([tags.type, tags.optional, tags.collection], ['String', true, true]);
 });
@@ -118,9 +118,9 @@ test('import: other aliases in the companion still resolve to their target - an 
   const { field } = imported();
   assert.deepEqual([field('id').type, field('id').constraint], ['String', 'MinLength[1]']);
   assert.deepEqual([field('range').type, field('range').constraint], ['Int', '(Greater[0] & Less[10])']);
-  // String :| ValidUUID | Long — eine Union: der Alias bleibt, ohne Einschränkung (kein .refineUnsafe im Beispiel)
+  // String :| ValidUUID | Long — a union: the alias stays, without refinement (no .refineUnsafe in the example)
   assert.deepEqual([field('pid').type, field('pid').constraint], ['SendEvent.In.ProcessInstanceId', undefined]);
-  // ein Kommentar hinter dem Alias zählt nicht — `| b` darin macht keine Union
+  // a comment after the alias does not count — `| b` in it does not make a union
   assert.equal(field('commented').type, 'String');
   assert.equal(field('both').type, 'SendEvent.In.Both');
 });

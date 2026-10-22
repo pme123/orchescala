@@ -1,5 +1,5 @@
-// Camunda 7 → 8: ein Listener, der nur eine Variable setzt, wird ein Output-Mapping —
-// am Element, wo es greift, sonst an einem None-Throw-Event davor oder danach.
+// Camunda 7 → 8: a listener that only sets a variable becomes an output mapping —
+// on the element where it applies, otherwise on a none throw event before or after it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -14,7 +14,7 @@ installXmlNamespaces();
 const listener = (name: string, value: string, event = 'start') =>
   `<bpmn:extensionElements><camunda:executionListener expression="\${execution.setVariable(&#34;${name}&#34;, ${value})}" event="${event}" /></bpmn:extensionElements>`;
 
-/** start → (body) → end, mit Diagramm für den ersten und letzten Fluss */
+/** start → (body) → end, with a diagram for the first and the last flow */
 const c7 = (body: string, flows: string, di = '') => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="d" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:error id="err" name="failed" errorCode="failed" />

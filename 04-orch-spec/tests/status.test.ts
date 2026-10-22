@@ -1,5 +1,5 @@
-// Der Status der Spezifikation ist der kleinste ihrer Teile — Reihenfolge
-// Entwurf → In Prüfung → Final → Angepasst → Umgesetzt → Abgenommen.
+// The status of the specification is the lowest of its parts — order
+// draft → review → final → changed → implemented → accepted.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { overallStatus } from '../src/status';
@@ -42,7 +42,7 @@ test('a step carries the status of its interaction and its classes - the overall
   const parts = statusParts(spec);
   assert.deepEqual(parts.draft, { steps: 1, model: [] });
   assert.deepEqual(parts.accepted, { steps: 2, model: [] });
-  // eine Klasse ohne Schritt zählt fürs Datenmodell
+  // a class without a step counts for the data model
   assert.deepEqual(parts.review, { steps: 0, model: ['Address'] });
 });
 
@@ -58,11 +58,11 @@ test('the start carries the classes of the process; a new step status applies to
     ],
     interactions: [{ id: 'ia', name: 'Merge', kind: 'customTask', stepId: 'task', inTypeId: 't-ia-in', outTypeId: 't-ia-out', status: 'changed' }],
   } as unknown as ProcessSpec;
-  // der Start zeigt die Klasse des Prozesses, die tiefer steht
+  // the start shows the process's class, which is lower
   assert.deepEqual(dataBelow(spec.steps[0], spec), { status: 'changed', typeId: 't-in', label: 'In' });
   assert.deepEqual(dataBelow(spec.steps[1], spec), { status: 'changed', typeId: 't-ia-in', label: 'Merge' });
   assert.deepEqual(statusParts(spec).changed, { steps: 2, model: [] });
-  // «Abgenommen» am Schritt: Interaktion, In und Out ziehen mit — am Start die Klassen des Prozesses
+  // «Abgenommen» on the step: interaction, In and Out follow — at the start the classes of the process
   const next = withDataStatus(spec, new Set(['task', 'Start']), 'accepted');
   assert.equal(overallStatus(next), 'accepted');
   assert.equal(dataBelow(next.steps[1], next), null);

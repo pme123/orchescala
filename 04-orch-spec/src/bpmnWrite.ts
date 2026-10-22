@@ -1,22 +1,22 @@
-// Spezifikation → BPMN: Mappings und Bedingungen ins Diagramm schreiben.
+// Specification → BPMN: write mappings and conditions into the diagram.
 //
-// Die Mappings leben in der Spezifikation (als FEEL), das Diagramm kennt sie
-// erst beim **Export**. Dann schreibt die App sie in die Form der Engine:
+// The mappings live in the specification (as FEEL); the diagram only learns
+// about them on **export**. Then the app writes them in the form of the engine:
 //
 //   Camunda 8   <zeebe:ioMapping>
 //                 <zeebe:input  source="=client.name" target="name" />
 //                 <zeebe:output source="=accountId"   target="accountId" />
 //   Camunda 7   <camunda:inputOutput>
 //                 <camunda:inputParameter name="name">${client.name}</camunda:inputParameter>
-//               bzw. am Teilprozess <camunda:in source="client.name" target="name" />
+//               or on the subprocess <camunda:in source="client.name" target="name" />
 //
-// Bedingungen an Zweigen ebenso: `= amount > 3` wird zu `=amount > 3` bzw.
-// `${amount > 3}`. FEEL, das kein JUEL-Gegenstück hat, bleibt im Text stehen
-// und wird gemeldet — lieber sichtbar falsch als still verloren.
+// Conditions on branches likewise: `= amount > 3` becomes `=amount > 3` or
+// `${amount > 3}`. FEEL that has no JUEL counterpart stays in the text
+// and is reported — better visibly wrong than silently lost.
 //
-// Nur Schritte, die in der Spezifikation Mapping-Zeilen haben, werden
-// angefasst; abgewählte Zeilen kommen nicht ins BPMN. Steuerparameter
-// (`_handledErrors`, `_outputMock` …) bleiben, wie sie im Diagramm stehen.
+// Only steps that have mapping rows in the specification are
+// touched; deselected rows do not go into the BPMN. Control parameters
+// (`_handledErrors`, `_outputMock` …) stay as they are in the diagram.
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels';
@@ -35,7 +35,7 @@ const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 
 export interface WriteIssue {
   stepId: string;
-  /** wo: `Eingabe name`, `Ausgabe name`, `Zweig label` */
+  /** where: `Eingabe name`, `Ausgabe name`, `Zweig label` */
   where: string;
   text: string;
 }
@@ -52,19 +52,19 @@ const firstNamed = (el: Element, name: string): Element | null => kids(el).find(
 const attr = (el: Element, name: string): string | undefined =>
   el.getAttribute(name) ?? el.getAttribute(`camunda:${name}`) ?? el.getAttribute(`zeebe:${name}`) ?? undefined;
 
-/** Skript, Liste oder Map — Werte, die die Spezifikation nur beschreibt, nicht schreibt */
+/** script, list or map — values the specification only describes, does not write */
 const isComplex = (p: Element): boolean => !!(firstNamed(p, 'script') || firstNamed(p, 'list') || firstNamed(p, 'map'));
 /**
- * Ein Mapping-Wert, der ein Skript beschreibt (`«groovy» …`) — bleibt, wie er im
- * BPMN steht. Auch eingepackt als FEEL-Text (`= "«Groovy» …"`, aus älteren Ständen):
- * sonst ersetzte der Export das Skript durch diesen Text.
+ * A mapping value that describes a script (`«groovy» …`) — stays as it is in the
+ * BPMN. Also when wrapped as FEEL text (`= "«Groovy» …"`, from older states):
+ * otherwise the export would replace the script with this text.
  */
 const isScript = (m: Mapping): boolean => /^(=\s*")?«/.test(m.expression.trimStart());
 /**
- * Steht die Zeile unverändert im BPMN? Dann bleibt das Element wörtlich —
- * mit `#{…}`, Spin-Aufrufen (`.prop("x").value()`) oder Skript, die der Weg
- * über FEEL nicht eins zu eins zurückbringt. Nur was jemand geändert hat,
- * wird neu geschrieben.
+ * Is the row unchanged in the BPMN? Then the element stays literally as it is —
+ * with `#{…}`, Spin calls (`.prop("x").value()`) or script, which the round trip
+ * via FEEL does not bring back one to one. Only what someone changed
+ * is written anew.
  */
 const unchanged = (p: Element, m: Mapping, opts: JuelOptions = juelOpts): boolean => {
   if (paramExpression(p).trim() !== m.expression.trim()) return false;
@@ -74,10 +74,10 @@ const unchanged = (p: Element, m: Mapping, opts: JuelOptions = juelOpts): boolea
 
 const SPIN_ENDING = /\.(?:stringValue|numberValue|boolValue|value|elementList)\(\)/g;
 /**
- * Ein Spin-Pfad, dem nur das Ende fehlt (`….prop("clientKey")` statt
- * `….prop("clientKey").numberValue()`) — geschrieben, als der Typ noch nicht
- * bekannt war. Sonst gleich, also neu schreiben; was jemand von Hand anders
- * geschrieben hat, bleibt.
+ * A Spin path that only lacks its end (`….prop("clientKey")` instead of
+ * `….prop("clientKey").numberValue()`) — written when the type was not yet
+ * known. Otherwise equal, so write it anew; whatever someone wrote differently
+ * by hand stays.
  */
 function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOpts): boolean {
   const body = feelBody(expression);
@@ -91,10 +91,10 @@ function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOp
 }
 
 /**
- * JUEL aus einem älteren Stand, das einen Pfad wie ein Java-Feld liest
- * (`${a.b.c}`, `execution.getVariable("a").b`). In Camunda 7 ist `a` JSON
- * (Spin) — das geht nur mit `prop("b")`, also wird der Text neu geschrieben.
- * Ausser `execution.…` und dem Ergebnis einer DMN Decision (eine Map).
+ * JUEL from an older state that reads a path like a Java field
+ * (`${a.b.c}`, `execution.getVariable("a").b`). In Camunda 7 `a` is JSON
+ * (Spin) — that only works with `prop("b")`, so the text is written anew.
+ * Except `execution.…` and the result of a DMN decision (a map).
  */
 function bareJsonPath(text: string): boolean {
   if (!isJuel(text)) return false;
@@ -108,25 +108,25 @@ function bareJsonPath(text: string): boolean {
 }
 
 /**
- * Mappings und Bedingungen der Spezifikation ins BPMN schreiben. Das XML
- * bleibt sonst unverändert (Layout, IDs, alles andere).
+ * Write mappings and conditions of the specification into the BPMN. Otherwise
+ * the XML stays unchanged (layout, IDs, everything else).
  */
 /**
- * Wie FEEL für Camunda 7 übersetzt wird — gesetzt für die Dauer von
- * `writeBpmn`: die optionalen Prozessvariablen (In, InitIn …) liest JUEL mit
- * `execution.getVariable("x")`, sonst wirft es, wenn sie fehlen.
+ * How FEEL is translated for Camunda 7 — set for the duration of
+ * `writeBpmn`: JUEL reads the optional process variables (In, InitIn …) with
+ * `execution.getVariable("x")`, otherwise it throws when they are missing.
  */
 let juelOpts: JuelOptions = {};
 /**
- * Für die Ausgaben eines Schritts: der Ausdruck liest das Ergebnis des
- * Services (`= debitCardDetail.basicData.clientKey`) — dessen Felder
- * bestimmen, wie ein Spin-Pfad endet, nicht die Prozessvariablen allein.
+ * For the outputs of a step: the expression reads the result of the
+ * service (`= debitCardDetail.basicData.clientKey`) — its fields
+ * determine how a Spin path ends, not the process variables alone.
  */
 let outputOpts: (stepId: string) => JuelOptions = () => juelOpts;
 /**
- * Für Eingaben, Bedingungen und Zuständigkeit eines Schritts: die Prozessvariablen —
- * in einer Mehrfachausführung samt Element (`newDebitMastercard`), sonst endete
- * dessen Pfad ohne `boolValue()` & Co. (wie in den Befunden, siehe withMultiInstance)
+ * For inputs, conditions and assignment of a step: the process variables —
+ * in a multi-instance including the element (`newDebitMastercard`), otherwise
+ * its path would end without `boolValue()` & co. (as in the findings, see withMultiInstance)
  */
 let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
 
@@ -169,8 +169,8 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
   const prefix = defs.prefix ? `${defs.prefix}:` : '';
   const bpmnEl = (name: string) => doc.createElementNS(BPMN_NS, `${prefix}${name}`);
 
-  // Namensräume der Engine sicherstellen — als echte Deklaration, sonst
-  // wiederholt der Serializer sie an jedem neuen Element
+  // Ensure the namespaces of the engine — as a real declaration, otherwise
+  // the serializer repeats them on every new element
   const declare = (prefix: string, uri: string) => {
     if (!defs.hasAttribute(`xmlns:${prefix}`)) defs.setAttributeNS(XMLNS_NS, `xmlns:${prefix}`, uri);
   };
@@ -178,7 +178,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
   if (engine === 'c7') declare('camunda', CAMUNDA_NS);
   declare('xsi', XSI_NS);
 
-  // alle Elemente mit ID
+  // all elements with an ID
   const byId = new Map<string, Element>();
   const visit = (el: Element) => {
     const id = el.getAttribute('id');
@@ -197,19 +197,19 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
   };
 
   const active = (ms: Mapping[] | undefined) => (ms ?? []).filter(m => !m.disabled && m.name.trim());
-  /** Service aus dem BPMN — er behält, wie er seine Ausgaben zurückgibt (`_manualOutMapping`) */
+  /** service from the BPMN — it keeps how it returns its outputs (`_manualOutMapping`) */
   const fromBpmn = (s: Step) => s.kind === 'service' && s.manualOutMapping !== undefined;
   /**
-   * Eine Ausgabe des Services wird beim Service aus dem BPMN kein
-   * Output-Parameter — der Worker setzt sie selbst bzw. sie bleibt lokal wie
-   * bisher. Nur eine neu angehakte bei manuellem Mapping wird gemappt.
+   * For a service from the BPMN, an output of the service does not become an
+   * output parameter — the worker sets it itself, or it stays local as
+   * before. Only a newly ticked one with manual mapping is mapped.
    */
   const writtenOutputs = (s: Step, before: ElementState | null) => active(s.outputs).filter(m => !fromBpmn(s) || !serviceRow(s, m, before)
     || (!!s.manualOutMapping && !(s.outputVariables ?? []).includes(m.name.trim())));
   /**
-   * Eine Ausgabe des Services unter ihrem Namen: `fromService` — oder, in einer
-   * Spezifikation ohne diese Markierung, `x = x` mit x in `_outputVariables`, für
-   * das das Diagramm keinen Output-Parameter hat (das stand nie als Mapping da).
+   * An output of the service under its own name: `fromService` — or, in a
+   * specification without this marker, `x = x` with x in `_outputVariables`, for
+   * which the diagram has no output parameter (it was never there as a mapping).
    */
   const serviceRow = (s: Step, m: Mapping, before: ElementState | null) => !!m.fromService
     || (m.expression.trim().replace(/^=\s*/, '') === m.name.trim() && (s.outputVariables ?? []).includes(m.name.trim())
@@ -217,17 +217,17 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
   for (const step0 of allSteps(spec.steps)) {
     const el = byId.get(step0.id);
-    // Was das Diagramm schon sagt, gilt, wo die Spezifikation es (noch) nicht weiss —
-    // eine ältere kennt weder die Art des Services noch seine Mock-Variable
+    // What the diagram already says applies where the specification does not know it (yet) —
+    // an older one knows neither the kind of the service nor its mock variable
     const before = el ? elementState(el) : null;
-    // jeder Service im Diagramm hat seit dem Import eine Art — fehlt sie, ist die
-    // Spezifikation älter, und es gilt das Diagramm (ohne `_manualOutMapping`: nicht manuell)
-    // Ein Service mit eigenen Ausgaben, aber weder `_manualOutMapping` noch
-    // `_outputVariables` im Diagramm (neu gezeichnet oder so importiert): er
-    // wird wie ein in der Spezifikation angelegter geschrieben (manuell
-    // gemappt). Sonst schriebe der Worker sein ganzes Out als Prozessvariablen —
-    // und überschriebe z. B. ein `accountKey` des Prozesses. Ein eigener Worker
-    // (Topic beginnt mit der Prozess-ID) gibt sein Out dagegen absichtlich zurück.
+    // every service in the diagram has a kind since the import — if it is missing, the
+    // specification is older and the diagram applies (without `_manualOutMapping`: not manual)
+    // A service with outputs of its own, but neither `_manualOutMapping` nor
+    // `_outputVariables` in the diagram (newly drawn or imported like that): it
+    // is written like one created in the specification (manually
+    // mapped). Otherwise the worker would write its whole Out as process variables —
+    // and overwrite e.g. an `accountKey` of the process. A custom worker
+    // (topic starts with the process ID), on the other hand, returns its Out on purpose.
     const ownWorker = !!step0.topic && !!spec.processId && step0.topic.startsWith(spec.processId);
     const mappedLater = step0.kind === 'service' && !!before && before.manual === undefined && !before.hasOutputVariables
       && !isInitWorker(step0, spec.processId) && !ownWorker
@@ -257,20 +257,20 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
     if (el) writeBoundaryTimers(doc, byId, engine, step, issues);
-    // Signal bzw. Nachricht der Ereignisse am Rand — in ihr Boundary-Event
+    // Signal or message of the boundary events — into their boundary event
     for (const e of step.errors ?? []) {
       const b = isEventBoundary(e) && e.boundaryId && !e.pattern ? byId.get(e.boundaryId) : undefined;
       if (b) writeMessage(doc, b, engine, { id: e.boundaryId!, messageName: e.messageName, correlationKey: e.correlationKey });
     }
 
-    // Der Init-Worker gibt das InitIn zurück — ohne Filter und ohne Mapping
+    // The init worker returns the InitIn — without filter and without mapping
     if (el && step.kind === 'service' && isInitWorker(step, spec.processId)) {
       setControl(doc, ensureExt(el), engine, '_manualOutMapping', undefined);
       setControl(doc, ensureExt(el), engine, '_outputVariables', undefined);
     } else if (el && fromBpmn(step)) {
-      // Service aus dem BPMN: `_manualOutMapping` bleibt, wie es ist. `_outputVariables`
-      // nur, wenn sich die angehakten Ausgaben geändert haben — die importierte
-      // Liste ohne die abgewählten, mit den neu angehakten; fehlte sie (= alles), bleibt sie weg
+      // Service from the BPMN: `_manualOutMapping` stays as it is. `_outputVariables`
+      // only if the ticked outputs have changed — the imported
+      // list without the deselected ones, with the newly ticked ones; if it was missing (= everything), it stays absent
       if (step.outputVariables !== undefined) {
         const rows = (step.outputs ?? []).filter(m => serviceRow(step, m, before));
         const off = new Set(rows.filter(m => m.disabled).map(m => m.name.trim()));
@@ -283,26 +283,26 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
         }
       }
     } else if (el && step.kind === 'service') {
-      // Service: die Ausgaben werden von Hand gemappt, und der Worker weiss, welche Variablen es braucht
+      // Service: the outputs are mapped by hand, and the worker knows which variables it needs
       const vars: string[] = [];
       for (const m of active(step.outputs)) {
         for (const v of referencedVariables(importExpression(m.expression))) if (!vars.includes(v)) vars.push(v);
       }
-      // ohne Variablen: `NONE`, und die Ausgaben gehen nicht von Hand
+      // without variables: `NONE`, and the outputs are not mapped by hand
       const list = vars.length ? vars.join(', ') : 'NONE';
       setControl(doc, ensureExt(el), engine, '_manualOutMapping', !vars.length ? undefined : engine === 'c8' ? '=true' : '#{true}');
       setControl(doc, ensureExt(el), engine, '_outputVariables', engine === 'c8' ? `=${feelString(list)}` : list);
     }
 
-    // Mocks: der gewählte `_output…Mock` zeigt aufs Feld im InConfig. Die
-    // Mock-Steuerung des Prozesses geht immer mit — das Feld kann leer sein
+    // Mocks: the chosen `_output…Mock` points to the field in the InConfig. The
+    // mock control of the process always goes along — the field may be empty
     if (el && (step.kind === 'service' || step.kind === 'call') && !isInitWorker(step, spec.processId)) {
       const ext = ensureExt(el);
       const call = step.kind === 'call';
       const kind = step.mockKind === 'service' && !isServiceWorker(step) ? undefined : step.mockKind;
       const pass = (name: string) => (engine === 'c8' ? `=${name}` : `#{execution.getVariable('${name}')}`);
-      // die Variable, die das BPMN schon nennt (`getPoasMock`) — sonst die aus dem Schrittnamen
-      // steht schon dieselbe Variable da (`source="getPoasMock"`), bleibt es, wie es ist
+      // the variable the BPMN already names (`getPoasMock`) — otherwise the one from the step name
+      // if the same variable is already there (`source="getPoasMock"`), it stays as it is
       const mockControl = (name: '_outputMock' | '_outputServiceMock', on: boolean) => {
         const was = before?.inputs.get(name);
         if (on && was !== undefined && mockRef(was) === mockFieldOf(step)) return;
@@ -310,35 +310,35 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
       };
       mockControl('_outputMock', kind === 'output');
       mockControl('_outputServiceMock', kind === 'service');
-      // Die Steuerung des Prozesses (Mocks; wer ihn gestartet hat — der Teilprozess
-      // prüft dieselbe Identität) braucht nur ein Teilprozess, der die Variablen
-      // nicht ohnehin sieht: in C7 immer (`camunda:in`), in C8 nur mit
-      // `propagateAllParentVariables="false"`. Ein Worker liest sie selbst.
-      // Eine blosse Weitergabe fällt sonst weg — ein fester Wert (`= true`) bleibt.
+      // The control of the process (mocks; who started it — the subprocess
+      // checks the same identity) is only needed by a subprocess that does not see the
+      // variables anyway: in C7 always (`camunda:in`), in C8 only with
+      // `propagateAllParentVariables="false"`. A worker reads them itself.
+      // A mere pass-through is dropped otherwise — a fixed value (`= true`) stays.
       const calledEl = firstNamed(ext, 'calledElement');
       const needsPass = call && (engine === 'c7' || calledEl?.getAttribute('propagateAllParentVariables') === 'false');
       for (const name of ['_servicesMocked', '_mockedWorkers', '_identityCorrelation']) {
         if (needsPass) setControl(doc, ext, engine, name, pass(name), call);
         else if (isPassThrough(before?.inputs.get(name), name)) setControl(doc, ext, engine, name, undefined, call);
       }
-      // Der alte Weg zur Identität (veraltet, aber BPF/MAP starten noch ohne
-      // `_identityCorrelation`): ohne ihn liefe ein C7-Teilprozess mit dem
-      // technischen Benutzer. Fehlt die Variable, bleibt sie dort leer. Sonst unangetastet.
+      // The old way to the identity (deprecated, but BPF/MAP still start without
+      // `_identityCorrelation`): without it a C7 subprocess would run with the
+      // technical user. If the variable is missing, it stays empty there. Otherwise untouched.
       if (call && engine === 'c7') setControl(doc, ext, engine, 'impersonateUserId', pass('impersonateUserId'), call);
     }
 
-    // Bedingungen an den Zweigen — nur FEEL; ein alter JUEL-Text bleibt, wie er ist
+    // Conditions on the branches — FEEL only; an old JUEL text stays as it is
     for (const b of step.branches ?? []) {
       if (b.isDefault || !b.condition) continue;
       const body = feelBody(b.condition);
       if (body == null) continue;
       const flow = byId.get(b.id);
       if (!flow || local(flow) !== 'sequenceFlow') continue;
-      // unverändert seit dem Import → der alte Text bleibt wörtlich — in
-      // Camunda 8 nur, wenn er schon null-sicher ist (siehe nullSafeCondition).
-      // Und nur, wenn er schon in der Form der Engine steht: ein `= …` im
-      // Diagramm von Camunda 7 ist kein Ausdruck, sondern ein fester Text
-      // (die Bedingung ergäbe einen String) — der wird übersetzt
+      // unchanged since the import → the old text stays literally — in
+      // Camunda 8 only if it is already null-safe (see nullSafeCondition).
+      // And only if it is already in the form of the engine: a `= …` in a
+      // Camunda 7 diagram is not an expression but a fixed text
+      // (the condition would yield a string) — that one is translated
       const before = firstNamed(flow, 'conditionExpression');
       const old = before?.textContent ?? '';
       const safe = engine !== 'c8' || stripNullSafe(old) !== old || /^=\s*(true|false)\s*$/.test(old.trim());
@@ -352,9 +352,9 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
         else { text = b.condition; translated = false; }
       }
       if (before && safe && inEngineForm && stripNullSafe(importExpression(old)).trim() === b.condition.trim()) {
-        // derselbe Ausdruck — er bleibt, wie er dasteht; ausser er unterscheidet
-        // sich nur darin, welche Variable fehlen darf (`execution.getVariable`):
-        // das folgt dem heutigen Datenmodell
+        // the same expression — it stays as it is; unless it differs
+        // only in which variable may be missing (`execution.getVariable`):
+        // that follows today's data model
         const bare = (t: string) => t.replace(/execution\.getVariable\(\s*["']([A-Za-z_]\w*)["']\s*\)/g, '$1').replace(/\s+/g, '');
         if (engine === 'c8' || !translated || old.trim() === text || (bare(old) !== bare(text) && !bareJsonPath(old) && !lacksEnding(old, b.condition, inputOpts(step.id)))) continue;
       } else if (!translated) {
@@ -370,52 +370,52 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
     }
   }
 
-  // Der Business Key geht an jeden Teilprozess — auch ohne Mapping-Zeilen
+  // The business key goes to every subprocess — even without mapping rows
   for (const el of byId.values()) {
     if (local(el) === 'callActivity') ensureBusinessKey(doc, ensureExt(el), engine);
   }
 
-  // Was der Linter des Modelers beanstandet und sich aus dem Diagramm selbst ergibt
+  // What the Modeler's linter complains about and follows from the diagram itself
   tidyGlobals(defs, issues);
-  // die Formen je Element — einmal für das Benennen; es entfernt nur Labels, keine Formen
+  // the shapes per element — once for the naming; it removes only labels, no shapes
   const shapes = shapesOf(defs);
   nameBoundaryEvents(defs, spec, shapes);
   nameSteps(byId, spec, shapes);
   checkStartMessage(defs, spec, issues);
 
-  // Die Steuerparameter (`_…`) stehen immer am Schluss — Eingaben bleiben vor Ausgaben
+  // The control parameters (`_…`) always come last — inputs stay before outputs
   for (const el of byId.values()) {
     const ext = firstNamed(el, 'extensionElements');
     if (ext) controlsLast(ext);
   }
 
-  // die Reihenfolge des Schemas — sonst lehnt Camunda 7 das Deployment ab
+  // the order of the schema — otherwise Camunda 7 rejects the deployment
   orderBpmn(doc);
   let out = new XMLSerializer().serializeToString(doc);
-  // Die XML-Deklaration soll bleiben — und auf einer eigenen Zeile stehen
+  // The XML declaration should stay — and be on a line of its own
   const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   out = out.replace(/^(<\?xml[^>]*\?>)(?!\n)/, '$1\n');
   return { xml: out, issues };
 }
 
-// ── Aufräumen ────────────────────────────────────────────────────────────────
+// ── Clean-up ────────────────────────────────────────────────────────────────
 const GLOBALS = ['message', 'error', 'signal', 'escalation'];
 const REF_ATTRS = ['messageRef', 'errorRef', 'signalRef', 'escalationRef'];
 
 const allElements = (root: Element): Element[] => [root, ...kids(root).flatMap(allElements)];
-/** Ein Verweis-Attribut — mit oder ohne Präfix (`errorRef`, `camunda:errorRef`) */
+/** A reference attribute — with or without prefix (`errorRef`, `camunda:errorRef`) */
 const refAttrs = (el: Element): Attr[] =>
   Array.from(el.attributes).filter(a => REF_ATTRS.includes(a.localName || a.name.replace(/^.*:/, '')));
 
 /**
- * Nachrichten, Fehler, Signale und Eskalationen: jede nur einmal, und nur,
- * wenn sie gebraucht wird (Linter-Regel `global`). Kopiert man im Editor ein
- * Nachrichten-Ereignis, entsteht eine zweite `bpmn:message` mit demselben
- * Namen — für die Engine dieselbe Nachricht. Die Kopie fällt weg, ihre
- * Verweise zeigen auf das Original. Gleich heisst: gleicher Name, gleicher
- * Code und gleicher Inhalt (Camunda 8: `zeebe:subscription`); sonst bleiben
- * beide und es wird gemeldet.
+ * Messages, errors, signals and escalations: each only once, and only
+ * if it is needed (linter rule `global`). Copying a message event in the
+ * editor creates a second `bpmn:message` with the same
+ * name — for the engine the same message. The copy is dropped, its
+ * references point to the original. Equal means: same name, same
+ * code and same content (Camunda 8: `zeebe:subscription`); otherwise both
+ * stay and it is reported.
  */
 function tidyGlobals(defs: Element, issues: WriteIssue[]) {
   const globals = kids(defs).filter(el => GLOBALS.includes(local(el)));
@@ -443,7 +443,7 @@ function tidyGlobals(defs: Element, issues: WriteIssue[]) {
     }
   }
   for (const el of globals) if (replaced.has(el.getAttribute('id') ?? '')) removeEl(el);
-  // was niemand mehr braucht
+  // what nobody needs any more
   const used = new Set(everything.flatMap(el => refAttrs(el).map(a => a.value)));
   for (const el of globals) {
     if (el.parentNode && !used.has(el.getAttribute('id') ?? '')) removeEl(el);
@@ -451,11 +451,11 @@ function tidyGlobals(defs: Element, issues: WriteIssue[]) {
 }
 
 /**
- * Ein Boundary-Event ohne Namen (Linter-Regel `label-required`) heisst, wie es
- * die Projekte tun: nach dem Fehler, der Nachricht oder dem Signal, auf das es
- * hört — ein Catch-all nach den behandelten Fehlern des Schritts
- * (`_handledErrors`), sonst «Catch All». Beim nächsten Abgleich wird der Name
- * der Code des Fehlerfalls — bei den behandelten Fehlern derselbe.
+ * A boundary event without a name (linter rule `label-required`) is named as
+ * the projects do it: after the error, the message or the signal it
+ * listens to — a catch-all after the handled errors of the step
+ * (`_handledErrors`), otherwise «Catch All». On the next sync the name
+ * becomes the code of the error case — the same for the handled errors.
  */
 function nameBoundaryEvents(defs: Element, spec: ProcessSpec, shapes: Map<string, Element[]>) {
   const byId = new Map(allElements(defs).map(el => [el.getAttribute('id') ?? '', el] as [string, Element]));
@@ -485,9 +485,9 @@ function nameBoundaryEvents(defs: Element, spec: ProcessSpec, shapes: Map<string
 }
 
 /**
- * Ein Element bekommt hier erst seinen Namen. Die Position seines Labels im
- * Diagramm war bisher nie sichtbar — oft ein Rest von früher, irgendwo daneben.
- * Sie fällt weg; der Modeler setzt das Label neu, unter das Element.
+ * An element only gets its name here. The position of its label in the
+ * diagram was never visible before — often a leftover, somewhere off to the side.
+ * It is dropped; the Modeler places the label anew, below the element.
  */
 function giveName(el: Element, name: string, shapes: Map<string, Element[]>) {
   el.setAttribute('name', name);
@@ -498,7 +498,7 @@ function giveName(el: Element, name: string, shapes: Map<string, Element[]>) {
   }
 }
 
-/** Die Formen je `bpmnElement` — einmal gebaut, nicht je benanntem Element */
+/** The shapes per `bpmnElement` — built once, not per named element */
 function shapesOf(defs: Element): Map<string, Element[]> {
   const m = new Map<string, Element[]>();
   for (const di of allElements(defs)) {
@@ -509,9 +509,9 @@ function shapesOf(defs: Element): Map<string, Element[]> {
 }
 
 /**
- * Ein Element ohne Label (Linter-Regel `label-required`) bekommt den Namen, den
- * die Spezifikation ihm gab — sonst hiesse es im Ablauf wie seine ID. Start, Ende
- * und Gateways nicht: ihr Ersatzname («Start», «Verzweigung») ist kein Label.
+ * An element without a label (linter rule `label-required`) gets the name the
+ * specification gave it — otherwise it would be named like its ID in the flow. Not start, end
+ * and gateways: their substitute name («Start», «Verzweigung») is not a label.
  */
 function nameSteps(byId: Map<string, Element>, spec: ProcessSpec, shapes: Map<string, Element[]>) {
   for (const s of allSteps(spec.steps)) {
@@ -522,9 +522,9 @@ function nameSteps(byId: Map<string, Element>, spec: ProcessSpec, shapes: Map<st
 }
 
 /**
- * Startet der Prozess mit einer Nachricht, heisst sie in den Projekten wie der
- * Prozess. Eine andere ist meist aus einem kopierten Prozess übrig — sie wird
- * nicht umbenannt (wer sie sendet, hängt daran), aber gemeldet.
+ * If the process starts with a message, in the projects it is named like the
+ * process. A different one is usually left over from a copied process — it is
+ * not renamed (whoever sends it depends on it), but reported.
  */
 function checkStartMessage(defs: Element, spec: ProcessSpec, issues: WriteIssue[]) {
   const processId = spec.processId?.trim();
@@ -541,17 +541,17 @@ function checkStartMessage(defs: Element, spec: ProcessSpec, issues: WriteIssue[
   }
 }
 
-// ── Implementierung ──────────────────────────────────────────────────────────
+// ── Implementation ──────────────────────────────────────────────────────────
 /**
- * Topic bzw. gerufener Prozess — so, wie die Spezifikation sie kennt (wählt man
- * den Service, übernimmt der Schritt beides aus dem Katalog). Ein Task, der
- * erst in Orch Spec angelegt oder zum Service gemacht wurde, hätte sie sonst
- * nirgends im Diagramm, und die Engine wüsste nicht, was sie ausführen soll.
+ * Topic or called process — as the specification knows them (when the service
+ * is chosen, the step takes both from the catalog). A task that was only
+ * created in Orch Spec or turned into a service would otherwise have them
+ * nowhere in the diagram, and the engine would not know what to execute.
  *
- *   Camunda 7   camunda:type="external" camunda:topic="…"   bzw.  calledElement="…"
- *   Camunda 8   <zeebe:taskDefinition type="…" />           bzw.  <zeebe:calledElement processId="…" />
+ *   Camunda 7   camunda:type="external" camunda:topic="…"   or    calledElement="…"
+ *   Camunda 8   <zeebe:taskDefinition type="…" />           or    <zeebe:calledElement processId="…" />
  *
- * Fehlt sie auch im Diagramm, wird das gemeldet.
+ * If it is missing in the diagram too, this is reported.
  */
 function writeImplementation(
   doc: Document, el: Element, ensureExt: (el: Element) => Element, engine: EngineId, step: Step,
@@ -575,14 +575,14 @@ function writeImplementation(
   writeMessage(doc, el, engine, step);
 
   if (local(el) === 'serviceTask') {
-    // der Init-Worker der Vorlage hört auf die Prozess-ID (Orchescala-Konvention)
+    // the init worker of the template listens to the process ID (Orchescala convention)
     const topic = step.topic?.trim() || (el.getAttribute('id') === 'InitProcessTask' ? processId?.trim() : undefined);
     if (engine === 'c8') {
       if (topic) zeebeOrNew('taskDefinition').setAttribute('type', topic);
       else if (!zeebe('taskDefinition')?.getAttribute('type')) missing('Service Task ohne Job-Typ — im Schritt einen Service wählen.');
       return;
     }
-    // eine andere Implementierung (Java-Klasse, Ausdruck) bleibt, wie sie ist
+    // another implementation (Java class, expression) stays as it is
     if (['class', 'expression', 'delegateExpression'].some(a => attr(el, a))) return;
     if (topic) {
       el.setAttributeNS(CAMUNDA_NS, 'camunda:type', 'external');
@@ -591,8 +591,8 @@ function writeImplementation(
   }
 
   if (local(el) === 'userTask') {
-    // Zuständigkeit: nur was die Spezifikation nennt — und unverändert seit dem
-    // Import bleibt der Text wörtlich (wie bei den Bedingungen)
+    // Assignment: only what the specification names — and if unchanged since the
+    // import, the text stays literally (as with the conditions)
     for (const key of ASSIGNMENT_KEYS) {
       const value = step[key]?.trim();
       if (!value) continue;
@@ -609,8 +609,8 @@ function writeImplementation(
   if (local(el) === 'callActivity') {
     const called = step.calledProcess?.trim();
     if (engine === 'c8') {
-      // Orchescala mappt explizit: hinein nur die Eingaben, zurück nur die Ausgaben — nie alle
-      // Variablen (sonst sähe der Teilprozess z. B. die processInstanceId des Elternprozesses)
+      // Orchescala maps explicitly: in only the inputs, back only the outputs — never all
+      // variables (otherwise the subprocess would see e.g. the processInstanceId of the parent process)
       const ce = called ? zeebeOrNew('calledElement') : zeebe('calledElement');
       if (called) ce!.setAttribute('processId', called);
       else if (!ce?.getAttribute('processId')) missing('Teilprozess ohne gerufenen Prozess — im Schritt einen Service wählen.');
@@ -626,11 +626,11 @@ function writeImplementation(
 }
 
 /**
- * Nachricht bzw. Signal des Schritts — Name und (Camunda 8, wartend) der
- * Korrelationsschlüssel, so wie die Spezifikation sie kennt. Beides hängt an der
- * globalen `<bpmn:message>` / `<bpmn:signal>`, die andere Elemente mit nutzen
- * können: nur dieses Element zeigt dann auf eine andere — eine schon vorhandene
- * mit dem Namen, sonst eine Kopie. Was niemand mehr braucht, räumt `tidyGlobals` weg.
+ * Message or signal of the step — name and (Camunda 8, waiting) the
+ * correlation key, as the specification knows them. Both hang on the
+ * global `<bpmn:message>` / `<bpmn:signal>`, which other elements may share:
+ * then only this element points to another one — an existing one
+ * with that name, otherwise a copy. Whatever nobody needs any more is cleared by `tidyGlobals`.
  */
 function writeMessage(doc: Document, el: Element, engine: EngineId, step: Pick<Step, 'id' | 'messageName' | 'correlationKey'>) {
   const name = step.messageName?.trim();
@@ -656,9 +656,9 @@ function writeMessage(doc: Document, el: Element, engine: EngineId, step: Pick<S
     const other = globals.find(g => g !== current && fits(g));
     if (other) current = other;
     else if (!current || users(current.getAttribute('id') ?? '') > 1) {
-      // eine eigene: Kopie der bisherigen (samt Erweiterungen) oder neu
+      // one of its own: a copy of the previous one (including extensions) or new
       const fresh = current ? (current.cloneNode(true) as Element) : doc.createElementNS(BPMN_NS, `${defs.prefix ? `${defs.prefix}:` : ''}${tag}`);
-      // eine Kopie: was darin eine ID trägt, hätte sie sonst doppelt
+      // a copy: whatever carries an ID inside it would otherwise have it twice
       for (const d of allElements(fresh).slice(1)) d.removeAttribute('id');
       const ids = new Set(allElements(defs).map(x => x.getAttribute('id')));
       let i = 1;
@@ -689,9 +689,9 @@ function writeMessage(doc: Document, el: Element, engine: EngineId, step: Pick<S
 const TIMER_TAG: Record<TimerSpec['kind'], string> = { duration: 'timeDuration', date: 'timeDate', cycle: 'timeCycle' };
 
 /**
- * Der Timer eines Ereignisses — `= timerX` als `${timerX}` (Camunda 7) bzw.
- * `=timerX` (Camunda 8), fester Text bleibt Text. Steht im Diagramm dasselbe
- * (gleich bis auf die Schreibweise der Engine), bleibt es unberührt.
+ * The timer of an event — `= timerX` as `${timerX}` (Camunda 7) or
+ * `=timerX` (Camunda 8); fixed text stays text. If the diagram says the same
+ * (equal except for the notation of the engine), it stays untouched.
  */
 function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSpec, stepId: string, where: string, issues: WriteIssue[]) {
   const def = kids(el).find(c => local(c) === 'timerEventDefinition');
@@ -717,12 +717,12 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
 }
 
 /**
- * Die Timer der Boundary-Events am Schritt — ins Element, das der Import sich
- * gemerkt hat; nur eine ältere Spezifikation ohne dessen ID findet es über den
- * Namen bzw. die ID am Schritt, bei gleichem Code der Reihe nach (wie der
- * Import die Einträge anlegt). Passt die gemerkte ID nicht (mehr) oder ist die
- * Zuordnung unklar, bleibt das Diagramm, wie es ist — sonst träfe es womöglich
- * ein anderes Boundary-Event. Den Timer eines Patterns setzt das Pattern.
+ * The timers of the boundary events on the step — into the element the import
+ * remembered; only an older specification without its ID finds it via the
+ * name or the ID on the step, with the same code in order (as the
+ * import creates the entries). If the remembered ID does not match (any more) or the
+ * assignment is unclear, the diagram stays as it is — otherwise it might hit
+ * another boundary event. The timer of a pattern is set by the pattern.
  */
 function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: EngineId, step: Step, issues: WriteIssue[]) {
   const errors = step.errors ?? [];
@@ -737,7 +737,7 @@ function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: 
       el = attached(byId.get(e.boundaryId));
       if (!el) { missing(`Boundary-Event «${e.boundaryId}» hängt nicht (mehr) an diesem Schritt — Timer nicht geschrieben; den Abgleich mit dem Diagramm starten.`); continue; }
     } else {
-      // nur Timer zählen — ein Fehler-Boundary-Event gleichen Namens macht es nicht unklar
+      // only timers count — an error boundary event with the same name does not make it unclear
       const isTimer = (b: Element) => kids(b).some(c => local(c) === 'timerEventDefinition');
       const mine = errors.filter(x => x.boundary && x.timer && x.code === e.code && !x.boundaryId);
       const candidates = [...byId.values()].filter(b => attached(b) && isTimer(b) && !claimed.has(b.getAttribute('id') ?? '')
@@ -754,12 +754,12 @@ function writeBoundaryTimers(doc: Document, byId: Map<string, Element>, engine: 
   }
 }
 
-// ── Steuerparameter am Schritt ───────────────────────────────────────────────
+// ── Control parameters on the step ───────────────────────────────────────────────
 /**
- * `_manualOutMapping` & Co. setzen (oder mit `undefined` entfernen) — Camunda 7
- * als lokale Variable bzw. am Teilprozess als `camunda:in`, Camunda 8 als Eingabe.
+ * Set `_manualOutMapping` & co. (or remove with `undefined`) — Camunda 7
+ * as a local variable or, on the subprocess, as `camunda:in`; Camunda 8 as an input.
  */
-/** `#{execution.getVariable('x')}`, `${x}`, `=x` oder `x` — die Variable x bloss weitergegeben */
+/** `#{execution.getVariable('x')}`, `${x}`, `=x` or `x` — the variable x merely passed on */
 function isPassThrough(value: string | undefined, name: string): boolean {
   const v = value?.trim();
   if (!v) return false;
@@ -767,19 +767,19 @@ function isPassThrough(value: string | undefined, name: string): boolean {
     || new RegExp(`^#\\{\\s*execution\\.getVariable\\(\\s*['"]${name}['"]\\s*\\)\\s*\\}$`).test(v);
 }
 
-/** Was ein Element des Diagramms schon über seinen Service sagt — vor dem Schreiben gelesen. */
+/** What an element of the diagram already says about its service — read before writing. */
 interface ElementState {
-  /** `_manualOutMapping` — fehlt es, undefined */
+  /** `_manualOutMapping` — undefined if it is missing */
   manual?: boolean;
-  /** steht `_outputVariables` da (auch leer)? */
+  /** is `_outputVariables` there (even empty)? */
   hasOutputVariables: boolean;
-  /** `_outputVariables` — fehlt es oder ist es leer (= alles), undefined; `NONE` ist [] */
+  /** `_outputVariables` — undefined if it is missing or empty (= everything); `NONE` is [] */
   outputVariables?: string[];
-  /** die Namen der Output-Parameter */
+  /** the names of the output parameters */
   outputParams: Set<string>;
-  /** `_outputMock` bzw. `_outputServiceMock`, wie es dasteht */
+  /** `_outputMock` or `_outputServiceMock`, as it stands */
   mock?: string;
-  /** alle Eingaben und `camunda:in`, wie sie dastehen — Name → Wert */
+  /** all inputs and `camunda:in`, as they stand — name → value */
   inputs: Map<string, string>;
 }
 
@@ -826,8 +826,8 @@ function setControl(doc: Document, ext: Element, engine: EngineId, name: string,
     for (const p of kids(ext)) if (local(p) === 'in' && attr(p, 'target') === name) removeEl(p);
     if (value === undefined) return;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:in');
-    // eine Variable einfach weitergeben: `source="_servicesMocked"` — fehlt sie,
-    // bleibt sie im Teilprozess leer (optional), und es liest sich einfacher
+    // simply pass on a variable: `source="_servicesMocked"` — if it is missing,
+    // it stays empty in the subprocess (optional), and it reads more simply
     const plain = /^#\{execution\.getVariable\('(\w+)'\)\}$/.exec(value);
     if (plain) p.setAttribute('source', plain[1]);
     else p.setAttribute('sourceExpression', value);
@@ -856,7 +856,7 @@ function setControl(doc: Document, ext: Element, engine: EngineId, name: string,
   appendEl(io, p);
 }
 
-/** Reihenfolge: fachliche Eingaben, `_…`-Eingaben, fachliche Ausgaben, `_…`-Ausgaben */
+/** Order: business inputs, `_…` inputs, business outputs, `_…` outputs */
 function controlsLast(ext: Element) {
   const isControl = (p: Element) => (attr(p, 'target') ?? attr(p, 'name') ?? '').startsWith('_');
   const reorder = (parent: Element, isIn: (p: Element) => boolean) => {
@@ -873,16 +873,16 @@ function controlsLast(ext: Element) {
   if (zio) reorder(zio, p => local(p) === 'input');
   const cio = firstNamed(ext, 'inputOutput');
   if (cio) reorder(cio, p => local(p) === 'inputParameter');
-  // am Teilprozess (Camunda 7): `camunda:in` mit `_…` ans Ende
+  // on the subprocess (Camunda 7): `camunda:in` with `_…` at the end
   const rest = kids(ext);
   const ins = rest.filter(p => local(p) === 'in' && isControl(p));
   const behind = ins.length && rest.slice(rest.indexOf(ins[0])).some(p => !ins.includes(p));
   if (behind) for (const p of ins) { removeEl(p); appendEl(ext, p); }
 }
 
-// ── Business Key an den Teilprozess ──────────────────────────────────────────
-// Camunda 7 hat dafür `camunda:in businessKey`, in Camunda 8 ist der Business
-// Key eine Variable und wird als Eingabe `businessKey` übergeben.
+// ── Business key to the subprocess ──────────────────────────────────────────
+// Camunda 7 has `camunda:in businessKey` for this; in Camunda 8 the business
+// key is a variable and is passed as the input `businessKey`.
 function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
   if (engine === 'c8') {
     let io = firstNamed(ext, 'ioMapping');
@@ -904,7 +904,7 @@ function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
 function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
   const old = firstNamed(ext, 'ioMapping');
   const oldKids = old ? kids(old) : [];
-  // Steuerparameter aus dem alten Mapping behalten
+  // keep control parameters from the old mapping
   const keep = oldKids.filter(p => TECHNICAL.has(attr(p, 'target') ?? ''));
   if (old) removeEl(old);
   if (!ins.length && !outs.length && !keep.length) return;
@@ -931,7 +931,7 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
   }
   for (const p of keep) if (local(p) === 'output') io.appendChild(p);
   appendEl(ext, io);
-  // die Kinder nachträglich einrücken — appendChild kennt keine Umbrüche
+  // indent the children afterwards — appendChild knows no line breaks
   const inner = kids(io);
   for (const p of inner) p.remove();
   for (const p of inner) appendEl(io, p);
@@ -939,10 +939,10 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
 
 // ── Camunda 7 ────────────────────────────────────────────────────────────────
 /**
- * FEEL → `${…}`; JUEL aus einem alten Import bleibt; nicht Übersetzbares wird
- * gemeldet. `script`: eine Liste bzw. ein Kontext (JSON) geht als
- * Groovy-Skript (siehe feelToGroovy) — nur wo ein Skript stehen kann
- * (`camunda:inputParameter` / `outputParameter`, nicht `camunda:in`).
+ * FEEL → `${…}`; JUEL from an old import stays; whatever cannot be translated is
+ * reported. `script`: a list or a context (JSON) goes as a
+ * Groovy script (see feelToGroovy) — only where a script can go
+ * (`camunda:inputParameter` / `outputParameter`, not `camunda:in`).
  */
 function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[], script = false, opts: JuelOptions = juelOpts): { text: string; plain?: string; script?: string } {
   const body = feelBody(m.expression);
@@ -959,7 +959,7 @@ function juelOf(m: Mapping, stepId: string, where: string, issues: WriteIssue[],
   return { text: m.expression };
 }
 
-/** Den Wert eines `camunda:inputParameter` / `outputParameter` setzen — als Text oder als Groovy-Skript */
+/** Set the value of a `camunda:inputParameter` / `outputParameter` — as text or as a Groovy script */
 function setCamundaValue(doc: Document, p: Element, v: { text: string; script?: string }) {
   if (!v.script) { p.textContent = v.text; return; }
   const sc = doc.createElementNS(CAMUNDA_NS, 'camunda:script');
@@ -974,10 +974,10 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     io = doc.createElementNS(CAMUNDA_NS, 'camunda:inputOutput');
     appendEl(ext, io);
   }
-  // Steuerparameter bleiben, fachliche Zeilen werden ersetzt — ausser
-  // Skripten, Listen und Maps: die beschreibt die Spezifikation nur
-  // (`«groovy» …`), geschrieben werden sie nicht. Sie bleiben, solange
-  // ihre Zeile noch da ist und den Wert nicht durch FEEL ersetzt hat.
+  // Control parameters stay, business rows are replaced — except
+  // scripts, lists and maps: the specification only describes those
+  // (`«groovy» …`), they are not written. They stay as long as
+  // their row is still there and has not replaced the value with FEEL.
   const keep = new Set<string>();
   for (const p of kids(io)) {
     const name = attr(p, 'name') ?? '';
@@ -1013,15 +1013,15 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
 }
 
 function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
-  // Ein Teilprozess kann neben `camunda:in/out` auch ein `inputOutput`
-  // tragen — beides liest der Import als Mapping. Was dort steht, wird dort
-  // gepflegt: Skripte bleiben, Text wird ersetzt; nur was es dort nicht
-  // gibt, kommt als `camunda:in/out`.
+  // Besides `camunda:in/out`, a subprocess can also carry an `inputOutput`
+  // — the import reads both as mapping. Whatever is there is maintained
+  // there: scripts stay, text is replaced; only what does not exist
+  // there comes as `camunda:in/out`.
   const io = firstNamed(ext, 'inputOutput');
   const ioParam = (tag: 'in' | 'out', name: string): Element | null =>
     io ? kids(io).find(p => local(p) === (tag === 'in' ? 'inputParameter' : 'outputParameter') && attr(p, 'name') === name) ?? null : null;
-  // businessKey, `variables="all"` und Steuerparameter bleiben — und
-  // Zeilen, die unverändert sind, wörtlich
+  // businessKey, `variables="all"` and control parameters stay — and
+  // rows that are unchanged, literally
   const kept = new Set<Mapping>();
   for (const p of kids(ext)) {
     const n = local(p);
@@ -1037,9 +1037,9 @@ function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Ma
     const name = m.name.trim();
     const opts = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
     const existing = ioParam(tag, name);
-    // eine lokale Variable im `inputOutput`: unverändert bleibt sie, ein
-    // Skript sowieso; ein geänderter Text wird dort ersetzt — es sei denn,
-    // derselbe Name geht auch als `camunda:in` durch, dann ist das die Zeile
+    // a local variable in the `inputOutput`: unchanged it stays, a
+    // script anyway; a changed text is replaced there — unless
+    // the same name also goes through as `camunda:in`, then that is the row
     const twice = (tag === 'in' ? ins : outs).filter(x => x.name.trim() === name).length > 1;
     if (existing && (unchanged(existing, m, opts) || (isComplex(existing) && (isScript(m) || feelBody(m.expression) == null)))) return;
     if (isScript(m)) {
@@ -1053,7 +1053,7 @@ function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Ma
     }
     const p = doc.createElementNS(CAMUNDA_NS, `camunda:${tag}`);
     const j = juelOf(m, stepId, where, issues, false, opts);
-    // ein blosser Variablenpfad ist `source`, alles andere `sourceExpression`
+    // a mere variable path is `source`, everything else `sourceExpression`
     if (j.plain && !j.plain.includes('.') && !j.plain.includes('[')) p.setAttribute('source', j.plain);
     else p.setAttribute('sourceExpression', j.text);
     p.setAttribute('target', name);

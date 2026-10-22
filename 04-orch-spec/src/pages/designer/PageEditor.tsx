@@ -1,5 +1,5 @@
-// Der Designer einer Seite (E15): die Gliederung ihrer Bausteine, die Seite live - mit demselben Renderer
-// wie die App, gespeist mit Beispieldaten der Services - und die Eigenschaften des ausgewählten Bausteins.
+// The designer of a page (E15): the outline of its building blocks, the page live - with the same renderer
+// as the app, fed with sample data of the services - and the properties of the selected building block.
 import {
   AlertTriangle, ChevronLeft, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
   RotateCcw, Rows3, SquareDashed, TextCursorInput, Type, CalendarRange, Undo2,
@@ -35,7 +35,7 @@ const ICONS: Record<Component['type'], React.ReactNode> = {
   loading: <Loader2 size={12} />,
 };
 
-/** Was die Gliederung von einem Baustein zeigt. */
+/** What the outline shows of a building block. */
 function summaryOf(b: Component): string {
   switch (b.type) {
     case 'heading':
@@ -57,7 +57,7 @@ function summaryOf(b: Component): string {
   }
 }
 
-/** Der Gateway der Vorschau: Beispieldaten des Out eines Service, ein Start und der Rest gelingen. */
+/** The gateway of the preview: sample data of a service's Out, a start and everything else succeed. */
 function previewGateway(targets: Targets): Gateway {
   const wait = () => new Promise((r) => setTimeout(r, 250));
   return {
@@ -87,19 +87,19 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const [adding, setAdding] = useState(false);
   const [left, setLeft] = useState<'outline' | 'data'>('outline');
   const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
-  // die Tastatur liest immer die Aktionen dieses Renderns (sie hängen an Seite und Auswahl)
+  // the keyboard always reads the actions of this render (they depend on page and selection)
   const keys = useRef<{
     undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean; can: { undo: boolean; redo: boolean };
   }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
 
-  // ---- speichern: eine Sekunde nach der letzten Änderung und beim Verlassen - ein Schreiben nach dem
-  // anderen (das nächste braucht die Version des vorigen), ein fehlgeschlagenes bleibt ausstehend
+  // ---- save: one second after the last change and on leaving - one write after the
+  // other (the next needs the version of the previous one), a failed one stays pending
   const pending = useRef<Page | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
   const retries = useRef(0);
-  const closed = useRef(false); // nach dem Verlassen: der letzte Versuch beim Aufräumen, keine weiteren
+  const closed = useRef(false); // after leaving: the last attempt during cleanup, no further ones
   const flush = useCallback((): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -111,15 +111,15 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       if (r.status === 'saved') {
         retries.current = 0;
         version.current = r.version;
-        if (!closed.current) setSaveState({ at: new Date() }); // der letzte Versuch beim Verlassen: niemand sieht es
+        if (!closed.current) setSaveState({ at: new Date() }); // the last attempt on leaving: nobody sees it
         return true;
       }
-      // nicht verlieren: bleibt ausstehend, solange nichts Neueres kam
+      // don't lose it: stays pending as long as nothing newer came
       pending.current ??= data;
       if (!closed.current)
         setSaveState({ error: r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – Seite neu laden.' : r.message });
-      // ein Fehler der Verbindung: von selbst noch einmal, immer seltener (2 s … 30 s) - ein Konflikt nicht,
-      // den löst nur, wer die Seite neu lädt
+      // a connection error: retry automatically, less and less often (2 s … 30 s) - not a conflict,
+      // only reloading the page resolves that
       if (r.status !== 'conflict' && !timer.current && !closed.current) {
         const wait = Math.min(30000, 2000 * 2 ** retries.current++);
         timer.current = setTimeout(() => void flush(), wait);
@@ -129,9 +129,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     return saving.current;
   }, [slug, savePage]);
   useEffect(() => {
-    // eingehängt (wieder - StrictMode hängt in der Entwicklung aus und ein): Versuche wieder erlaubt
+    // mounted (again - StrictMode unmounts and remounts in development): attempts allowed again
     closed.current = false;
-    // beim Verlassen der Seite oder des Tabs - React räumt beim Schliessen nicht auf
+    // on leaving the page or the tab - React does not clean up on close
     const now = () => void flush();
     const hidden = () => document.visibilityState === 'hidden' && now();
     window.addEventListener('pagehide', now);
@@ -151,20 +151,20 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     timer.current = setTimeout(() => void flush(), 1000);
   };
 
-  // ---- rückgängig: jede Änderung der Seite; Tippen in einem Feld ist ein Schritt (history.ts). Die Stände
-  // gehören zu dieser Seite: der Designer hängt den Editor mit key={slug} ein, eine andere Seite beginnt neu
-  // (und das Aufräumen oben speichert, was noch aussteht). Refs, nicht Zustand: zwei Schritte vor dem
-  // nächsten Rendern (⌘Z gedrückt gehalten) sehen so je den Stand des vorigen - `page` wäre noch der alte.
+  // ---- undo: every change of the page; typing in a field is one step (history.ts). The states
+  // belong to this page: the designer mounts the editor with key={slug}, another page starts fresh
+  // (and the cleanup above saves what is still pending). Refs, not state: two steps before the
+  // next render (⌘Z held down) thus each see the state of the previous one - `page` would still be the old one.
   const history = useRef<History<Page>>(emptyHistory());
   const latest = useRef<Page | null>(null);
-  // beim Rendern der neueste Stand: setPage kommt nur aus store, das latest schon gesetzt hat - so auch
-  // eine Seite, die erst nach dem Einhängen geladen ist
+  // the latest state during render: setPage only comes from store, which has already set latest - this also covers
+  // a page that is only loaded after mounting
   latest.current = page;
   const [, setHistoryTick] = useState(0);
   const update = (next: Page, coalesce?: string) => {
     const current = latest.current ?? page;
     if (!canEdit || !current) return;
-    // nichts geändert (ein Ablegen an derselben Stelle, verschieben am Rand): kein Schritt, kein Speichern
+    // nothing changed (a drop at the same place, moving at the edge): no step, no save
     if (next === current || JSON.stringify(next) === JSON.stringify(current)) return;
     history.current = record(history.current, current, coalesce, Date.now());
     store(next);
@@ -177,7 +177,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     if (!done) return;
     history.current = done.history;
     store(done.value);
-    // ein Baustein, den es danach nicht mehr gibt, ist nicht mehr gewählt
+    // a building block that no longer exists afterwards is no longer selected
     setSelected((s) => (s !== null && blockAt(done.value.body, s) ? s : null));
     setHistoryTick((t) => t + 1);
   };
@@ -198,7 +198,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     [page],
   );
 
-  // ---- Tastatur: ⌘Z / ⇧⌘Z, Entf, ⌘D, ⌥↑/⌥↓, Esc - nicht beim Tippen in einem Feld
+  // ---- keyboard: ⌘Z / ⇧⌘Z, Del, ⌘D, ⌥↑/⌥↓, Esc - not while typing in a field
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const k = keys.current;
@@ -231,7 +231,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
 
   const outline = flatten(page.body);
   const block = selected ? blockAt(page.body, selected) : undefined;
-  // der neueste Stand, nicht der des Renderns - zwei Aktionen vor dem nächsten Rendern bauen aufeinander auf
+  // the latest state, not that of the render - two actions before the next render build on each other
   const body = () => (latest.current ?? page).body;
   const setBody = (next: Component[], coalesce?: string) => update({ ...(latest.current ?? page), body: next }, coalesce);
   const apply = (r: { body: Component[]; key: BlockKey }) => {
@@ -242,7 +242,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
     apply(insertBlock(body(), newBlock(type), selected ?? undefined, block?.type === 'section'));
     setAdding(false);
   };
-  /** Die Aktionen für einen Baustein - in der Vorschau, im Kopf der Eigenschaften, in der Gliederung. */
+  /** The actions for a building block - in the preview, in the header of the properties, in the outline. */
   const opsFor = (key: BlockKey): BlockOps => ({
     move: (by) => apply(moveBlock(body(), key, by)),
     duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), structuredClone(b), key, 'after')); },
@@ -255,11 +255,11 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
   const ops = selected !== null && block ? opsFor(selected) : null;
   keys.current = {
     undo, redo, ops, deselect: () => setSelected(null), canEdit,
-    // beim Drücken gelesen - zwei ⌘Z vor dem nächsten Rendern sehen je den Stand des vorigen
+    // read on key press - two ⌘Z before the next render each see the state of the previous one
     get can() { return { undo: history.current.past.length > 0, redo: history.current.future.length > 0 }; },
   };
 
-  // ---- Drag & Drop in der Gliederung: oben/unten an einer Zeile davor/danach, mitten in einem Abschnitt hinein
+  // ---- drag & drop in the outline: top/bottom of a row before/after it, middle of a section into it
   const placeAt = (e: React.DragEvent, isSection: boolean): Place => {
     const r = e.currentTarget.getBoundingClientRect();
     const y = (e.clientY - r.top) / r.height;
@@ -271,9 +271,9 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
 
   return (
     <div className="flex flex-col h-full">
-      {/* Werkzeugleiste */}
+      {/* Toolbar */}
       <div className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 border-b ${c.border} ${c.top}`}>
-        {/* zurück erst, wenn gespeichert ist - sonst bleibt der Editor mit dem Fehler offen */}
+        {/* back only once saved - otherwise the editor stays open with the error */}
         <button onClick={() => void flush().then((ok) => ok && onBack())} className={`flex items-center gap-1 text-[11px] ${c.muted2}`}>
           <ChevronLeft size={12} /> Seiten
         </button>
@@ -298,7 +298,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
       </div>
 
       <div className="flex-1 flex min-h-0">
-        {/* Gliederung */}
+        {/* Outline */}
         <div className={`${left === 'data' ? 'w-80' : 'w-64'} flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
           <div className={`sticky top-0 z-10 flex border-b ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
             {(['outline', 'data'] as const).map((t) => (
@@ -328,7 +328,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
                   const place = placeAt(e, b.type === 'section');
                   if (drag.over !== key || drag.place !== place) setDrag({ ...drag, over: key, place });
                 }}
-                // nur beim Verlassen der Zeile - nicht beim Wechsel auf ihr Symbol, ihren Text, ihre Knöpfe
+                // only when leaving the row - not when moving to its icon, its text, its buttons
                 onDragLeave={(e) => {
                   if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
                   if (drag?.over === key) setDrag({ from: drag.from });
@@ -395,7 +395,7 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
           )}
         </div>
 
-        {/* Vorschau - derselbe Renderer wie die App */}
+        {/* Preview - the same renderer as the app */}
         <div className="flex-1 flex flex-col min-w-0">
           <div className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 border-b text-[10px] ${c.border} ${c.muted2}`}>
             <span className="font-semibold uppercase tracking-widest">Vorschau</span>
@@ -408,13 +408,13 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
             </label>
             <IconButton isDark={isDark} title="Vorschau neu starten" onClick={() => setRun((r) => r + 1)}><RotateCcw size={11} /></IconButton>
           </div>
-          {/* ein Klick neben die Bausteine wählt die Seite - ihre Eigenschaften: Zustand, Laden, Zugang */}
+          {/* a click next to the building blocks selects the page - its properties: state, loading, access */}
           <div className={`flex-1 overflow-y-auto cursor-default ${isDark ? 'bg-[var(--orch-bg,#0e0f11)]' : 'bg-[var(--orch-bg,#f5f4f0)]'} ${
             selected === null ? 'outline-2 -outline-offset-4 outline-sky-500/50' : ''}`}
             style={themeStyle(pagesApp?.data.theme, isDark)}
             onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-designer-block]')) setSelected(null); }}>
-            {/* neu gestartet, wenn sich ändert, was die Seite beim Start liest (Zustand, Laden, Zugang) - nicht bei
-                jedem Tastendruck in einem Text: den zeigt sie ohnehin */}
+            {/* restarted when what the page reads at start changes (state, loading, access) - not on
+                every keystroke in a text: it shows that anyway */}
             <PageView key={`${run}:${query}:${JSON.stringify([page.state, page.load, page.access])}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}
               user={page.access === 'public' ? undefined : { name: 'Vorschau', roles: page.access.roles }}
@@ -425,10 +425,10 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
           </div>
         </div>
 
-        {/* Eigenschaften */}
+        {/* Properties */}
         <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (
-            // key: ein anderer Baustein bekommt frische Formulare (kein halber JSON-Text des vorigen)
+            // key: another building block gets fresh forms (no half JSON text of the previous one)
             <>
               {canEdit && ops && (
                 <div className={`sticky top-0 z-20 px-3 py-1.5 border-b space-y-1 ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>

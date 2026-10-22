@@ -1,16 +1,16 @@
-// Die DMN-Tabelle einer DMN Decision im Projekt finden — wie die Domain (siehe
-// findDomain in projectImport.ts): in den gemerkten Projekt-Ordnern, der eigene
-// zuerst (sein Name ist der Anfang der Prozess-ID). Die Tabellen liegen neben
-// den BPMN: `src/main/resources/camunda`, für Camunda 8 `…/camunda8`.
+// Find the DMN table of a DMN decision in the project — like the domain (see
+// findDomain in projectImport.ts): in the remembered project folders, its own
+// first (its name is the start of the process ID). The tables live next to
+// the BPMN: `src/main/resources/camunda`, for Camunda 8 `…/camunda8`.
 import type { EngineId, Model, ProcessSpec, ProjectFolder } from './types';
 import { handleFor } from './projects';
 import { findDecision } from './dmn';
 
 export interface DmnHit {
   xml: string;
-  /** Dateiname im Projekt */
+  /** file name in the project */
   file: string;
-  /** in welchem Projekt-Ordner */
+  /** in which project folder */
   project: string;
 }
 
@@ -24,7 +24,7 @@ async function dirAt(root: FileSystemDirectoryHandle, path: string[]): Promise<F
   return dir;
 }
 
-/** In einem Ordner die DMN-Datei mit dieser Entscheidung */
+/** In a folder, the DMN file with this decision */
 async function inFolder(dir: FileSystemDirectoryHandle, decisionId: string): Promise<{ xml: string; file: string } | null> {
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind !== 'file' || !name.toLowerCase().endsWith('.dmn')) continue;
@@ -35,14 +35,14 @@ async function inFolder(dir: FileSystemDirectoryHandle, decisionId: string): Pro
 }
 
 /**
- * Die Tabelle mit der Entscheidung `decisionId` — `null`, wenn kein gemerkter
- * Projekt-Ordner sie hat. Fragt der Browser nach dem Leserecht, geschieht das
- * je Ordner einmal (der Aufruf muss aus einem Klick kommen).
+ * The table with the decision `decisionId` — `null` if no remembered
+ * project folder has it. If the browser asks for read permission, this happens
+ * once per folder (the call must come from a click).
  */
 export async function findDmnInProject(
   decisionId: string, processId: string, model: Model | null, engine: EngineId | undefined,
   onProgress?: (text: string) => void,
-  /** `ownOnly`: nur der eigene Projekt-Ordner; `roots`: die Wurzeln über mehrere Aufrufe teilen */
+  /** `ownOnly`: only the own project folder; `roots`: share the roots across several calls */
   opts: { ownOnly?: boolean; roots?: Map<string, FileSystemDirectoryHandle | null> } = {},
 ): Promise<DmnHit | null> {
   const folders: ProjectFolder[] = model?.projects ?? [];
@@ -63,11 +63,11 @@ export async function findDmnInProject(
 }
 
 /**
- * Beim Anlegen und beim Abgleich: die Tabellen der zugeordneten Decisions,
- * die die Spezifikation noch nicht führt, aus dem eigenen Projekt-Ordner
- * holen — dann lässt sich die Tabelle am Schritt gleich bearbeiten. In und
- * Out bleiben, wie sie aus der Domain kamen. Was sich nicht findet oder nicht
- * speichern lässt, bleibt ohne Tabelle (am Schritt nachzuholen).
+ * On create and on sync: fetch the tables of the matched decisions that the
+ * spec does not hold yet from the own project folder — then the table can be
+ * edited at the step right away. In and Out stay as they came from the
+ * domain. What is not found or cannot be saved stays without a table (to be
+ * fetched at the step).
  */
 export async function withProjectDmns(
   spec: ProcessSpec, model: Model | null,
@@ -82,7 +82,7 @@ export async function withProjectDmns(
     try {
       const hit = await findDmnInProject(ia.key, spec.processId ?? '', model, spec.engine, onProgress, { ownOnly: true, roots });
       if (hit && (await saveDmn(spec.slug, ia.key, hit.xml)).ok) files.set(ia.id, hit.file);
-    } catch { /* kein Zugriff — die Tabelle wird am Schritt geholt */ }
+    } catch { /* no access — the table is fetched at the step */ }
   }
   if (!files.size) return { spec, loaded: [] };
   return {

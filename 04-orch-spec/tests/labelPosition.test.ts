@@ -1,6 +1,6 @@
-// Ein Boundary-Event ohne Namen bekommt beim Schreiben einen (`label-required`).
-// Seine Label-Position im Diagramm war bis dahin nie sichtbar — oft ein Rest von
-// früher, irgendwo daneben. Sie fällt weg; der Modeler setzt das Label neu.
+// A boundary event without a name gets one on writing (`label-required`).
+// Its label position in the diagram was never visible until then — often a leftover from
+// earlier, somewhere off to the side. It is dropped; the modeler places the label anew.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -39,7 +39,7 @@ test('a boundary event named on write loses the old label position - the modeler
   const xml = writeBpmn(bpmn(''), importBpmn(bpmn(''), 'label').spec).xml;
   assert.match(xml, /<bpmn:boundaryEvent [^>]*name="output-mocked"/);
   assert.doesNotMatch(xml, /x="453"/);
-  // die Form bleibt, wo sie ist — und ein Label, das schon galt, auch
+  // the shape stays where it is — and so does a label that already applied
   assert.match(xml, /x="402" y="241"/);
   assert.match(xml, /x="605" y="243"/);
 });

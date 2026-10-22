@@ -1,10 +1,10 @@
-// Verlauf — das Änderungsprotokoll der Spezifikation (siehe audit.ts) als
-// Panel rechts, wie die Kommentare: neueste Einträge oben, je Eintrag wer,
-// wann, woher (von Hand, Abgleich, Umwandlung, beim Laden) und was — Stelle,
-// Feld, vorher → nachher. Filtern lässt es sich nach Element (ein Schritt,
-// ein Typ …), nach Person, nach Zeitraum, nach Herkunft und mit einer
-// Textsuche; ein Klick
-// auf die Stelle springt hin.
+// History — the change log of the specification (see audit.ts) as a
+// panel on the right, like the comments: newest entries at the top, per entry who,
+// when, where from (by hand, sync, conversion, on load) and what — location,
+// field, before → after. It can be filtered by element (a step,
+// a type …), by person, by time range, by origin and with a
+// text search; a click
+// on the location jumps there.
 import { useEffect, useMemo, useState } from 'react';
 import { History, Loader2, Search, X } from 'lucide-react';
 import { auditBase, coalesce, SOURCE_LABEL, type AuditChange, type AuditEntry, type AuditSource } from '../audit';
@@ -16,12 +16,12 @@ import { floatingCard } from './Comments';
 
 interface Props {
   slug: string;
-  /** Version der Spezifikation — nach jedem Speichern wird neu gelesen */
+  /** Version of the specification — it is re-read after every save */
   version: string | null;
   spec: ProcessSpec;
   isDark: boolean;
   load: (slug: string) => Promise<AuditEntry[] | null>;
-  /** Element-Stelle (`step:<id>`, `type:<id>` …) oder null = alle */
+  /** Element location (`step:<id>`, `type:<id>` …) or null = all */
   focus: string | null;
   onFocus: (base: string | null) => void;
   onGoto: (target: string) => void;
@@ -34,11 +34,11 @@ interface Props {
 const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'conversion', 'load'];
 
 type Range = 'all' | 'today' | '7' | '30' | 'custom';
-// als Liste: Object.keys stellte die Zahlen-Schlüssel ('7', '30') nach vorn
+// as a list: Object.keys would put the numeric keys ('7', '30') first
 const RANGES: Range[] = ['all', 'today', '7', '30', 'custom'];
 const RANGE_LABEL: Record<Range, string> = { all: 'Jederzeit', today: 'Heute', 7: 'Letzte 7 Tage', 30: 'Letzte 30 Tage', custom: 'Zeitraum …' };
 
-/** Lokaler Tagesanfang von `yyyy-mm-dd` (bzw. heute minus `days`) in ms. */
+/** Local start of day of `yyyy-mm-dd` (or today minus `days`) in ms. */
 const dayStart = (iso?: string, days = 0): number => {
   const d = iso ? new Date(`${iso}T00:00:00`) : new Date();
   d.setHours(0, 0, 0, 0);
@@ -46,7 +46,7 @@ const dayStart = (iso?: string, days = 0): number => {
   return d.getTime();
 };
 
-/** Von–bis in ms (bis exklusiv) — null = keine Grenze. */
+/** From–to in ms (to exclusive) — null = no limit. */
 function bounds(range: Range, from: string, to: string): [number | null, number | null] {
   switch (range) {
     case 'today': return [dayStart(), null];
@@ -72,14 +72,14 @@ export default function AuditPanel(p: Props) {
 
   const [entries, setEntries] = useState<AuditEntry[] | null | undefined>(undefined);
   const [hidden, setHidden] = useState<Set<AuditSource>>(new Set());
-  /** Person (Name) oder '' = alle */
+  /** Person (name) or '' = all */
   const [who, setWho] = useState('');
   const [query, setQuery] = useState('');
   const [range, setRange] = useState<Range>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
-  // nach jedem Speichern neu lesen — das Protokoll wächst mit
+  // re-read after every save — the log grows along
   const { load, slug, version } = p;
   useEffect(() => {
     let alive = true;
@@ -87,7 +87,7 @@ export default function AuditPanel(p: Props) {
     return () => { alive = false; };
   }, [load, slug, version]);
 
-  // Esc schliesst (ausser beim Tippen in einem Feld)
+  // Esc closes (except while typing in a field)
   const onClose = p.onClose;
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -98,12 +98,12 @@ export default function AuditPanel(p: Props) {
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  // Die Stellen, die es heute gibt — mit ihrem heutigen Namen
+  // The locations that exist today — with their current name
   const current = useMemo(() => new Map(commentTargets(spec, allSteps(spec.steps)).map(t => [t.key, t.label])), [spec]);
 
   const merged = useMemo(() => (entries ? coalesce(entries) : []), [entries]);
 
-  // Elemente im Protokoll — für die Auswahl; heutiger Name, sonst der letzte bekannte
+  // Elements in the log — for the selection; current name, otherwise the last known one
   const elements = useMemo(() => {
     const m = new Map<string, string>();
     for (const e of merged) for (const ch of e.changes) {
@@ -114,13 +114,13 @@ export default function AuditPanel(p: Props) {
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1], 'de'));
   }, [merged, current, focus]);
 
-  // wer im Protokoll vorkommt — neueste zuerst gesehen, alphabetisch gezeigt
+  // who appears in the log — collected newest first, shown alphabetically
   const authors = useMemo(() => [...new Set(merged.map(e => e.author))].sort((a, b) => a.localeCompare(b, 'de')), [merged]);
 
   /**
-   * Textsuche: alle Wörter müssen vorkommen. Passen Person, Notiz oder
-   * Bericht, bleibt der ganze Eintrag; sonst nur die Änderungen, die passen
-   * (Stelle, Feld, vorher, nachher).
+   * Text search: all words must occur. If person, note or
+   * report match, the whole entry stays; otherwise only the changes that match
+   * (location, field, before, after).
    */
   const shown = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -159,7 +159,7 @@ export default function AuditPanel(p: Props) {
         <button type="button" onClick={onClose} title="Schliessen (Esc)" className={iconBtn}><X size={13} /></button>
       </div>
 
-      {/* Filter: Element und Herkunft */}
+      {/* Filter: element and origin */}
       <div className={`px-3 py-1.5 border-b ${c.border} space-y-1.5`}>
         <div className="relative">
           <Search size={11} className={`absolute left-2 top-1/2 -translate-y-1/2 ${c.muted}`} />

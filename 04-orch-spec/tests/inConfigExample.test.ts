@@ -1,5 +1,5 @@
-// `inConfig: Option[InConfig] = None` — wie in Orchescala: die Vorgabe steht in
-// der Klasse, in `example` und `exampleMinimal` fehlt das Feld.
+// `inConfig: Option[InConfig] = None` — as in Orchescala: the default is in
+// the class, in `example` and `exampleMinimal` the field is missing.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { indexTypes, renderType } from '../src/scala';

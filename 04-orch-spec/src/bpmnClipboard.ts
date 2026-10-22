@@ -1,13 +1,13 @@
-// Die Zwischenablage von bpmn-js — gemeinsam für alle Modeler, auch in
-// anderen Tabs.
+// The bpmn-js clipboard — shared by all modelers, even in
+// other tabs.
 //
-// bpmn-js legt beim Kopieren einen Baum aus moddle-Objekten in seinen Dienst
-// `clipboard` — nur im Speicher dieses einen Modelers, der beim Wechsel des
-// Prozesses abgebaut wird. `PersistentClipboard` ersetzt diesen Dienst: er
-// legt den Baum als JSON in die gemeinsame Zwischenablage (clipboard.ts) und
-// baut ihn beim Einfügen mit dem moddle des Ziel-Modelers wieder auf — nach dem
-// Muster aus bpmn-js-examples/copy-paste. Das eingebaute Ctrl+C/V funktioniert
-// so über Prozesse und Tabs hinweg.
+// On copy, bpmn-js puts a tree of moddle objects into its service
+// `clipboard` — held only in the memory of this one modeler, which is torn down
+// when the process changes. `PersistentClipboard` replaces this service: it
+// puts the tree as JSON into the shared clipboard (clipboard.ts) and
+// rebuilds it on paste with the moddle of the target modeler — following the
+// pattern from bpmn-js-examples/copy-paste. The built-in Ctrl+C/V thus works
+// across processes and tabs.
 import { getClipboard, setDiagramTree } from './clipboard';
 
 interface ModdleLike {
@@ -21,7 +21,7 @@ interface ModdleObject {
   [key: string]: unknown;
 }
 
-/** Namensräume der Erweiterungen, die die App nicht als Typen kennt (zeebe bleibt generisch) */
+/** Namespaces of the extensions the app does not know as types (zeebe stays generic) */
 const KNOWN_NS: Record<string, string> = {
   zeebe: 'http://camunda.org/schema/zeebe/1.0',
   modeler: 'http://camunda.org/schema/modeler/1.0',
@@ -35,9 +35,9 @@ const isModdle = (v: unknown): v is ModdleObject =>
   !!v && typeof v === 'object' && typeof (v as { $type?: unknown }).$type === 'string';
 
 /**
- * Den Baum als JSON. moddle hält einiges nicht aufzählbar: `$attrs` (fremde
- * Attribute wie Farben) und bei generischen Elementen den Namensraum — beides
- * kommt ausdrücklich mit. `$parent` bleibt draussen (sonst ein Kreis).
+ * The tree as JSON. moddle keeps some things non-enumerable: `$attrs` (foreign
+ * attributes such as colours) and, for generic elements, the namespace — both
+ * are included explicitly. `$parent` stays out (otherwise a cycle).
  */
 export function serializeTree(tree: unknown): string {
   return JSON.stringify(tree, (_key, value: unknown) => {
@@ -50,9 +50,9 @@ export function serializeTree(tree: unknown): string {
 }
 
 /**
- * Den Baum mit dem moddle des Ziel-Modelers wieder aufbauen. Dasselbe Objekt
- * (z. B. ein Element und der Verweis darauf im Diagramm-Teil) wird über Typ
- * und ID wieder dasselbe.
+ * Rebuild the tree with the moddle of the target modeler. The same object
+ * (e.g. an element and the reference to it in the diagram part) becomes the
+ * same again via type and ID.
  */
 export function reviveTree(text: string, moddle: ModdleLike): unknown {
   const cache = new Map<string, ModdleObject>();
@@ -73,7 +73,7 @@ export function reviveTree(text: string, moddle: ModdleLike): unknown {
   });
 }
 
-/** Ersatz für den Dienst `clipboard` von diagram-js */
+/** Replacement for the `clipboard` service of diagram-js */
 export class PersistentClipboard {
   static $inject = ['moddle'];
   private readonly moddle: ModdleLike;
@@ -89,13 +89,13 @@ export class PersistentClipboard {
   }
 
   set(tree: unknown) {
-    // Ctrl+C ohne Auswahl liefert einen leeren Baum — das Kopierte bleibt dann
+    // Ctrl+C without a selection yields an empty tree — the copied content then stays
     if (!tree || typeof tree !== 'object' || !Object.keys(tree).length) return;
     setDiagramTree(serializeTree(tree));
   }
 
   clear(): unknown {
-    // diagram-js leert die Ablage nach dem Einfügen nicht — hier auch nicht nötig
+    // diagram-js does not clear the clipboard after pasting — not needed here either
     return this.get();
   }
 
@@ -105,10 +105,10 @@ export class PersistentClipboard {
 }
 
 /**
- * Ein eingefügtes Element ohne die Angaben der anderen Engine: Camunda-7-
- * Attribute (`camunda:…`) und Erweiterungen (Mappings, Zuständigkeit, Fehler).
- * Was davon die Spezifikation führt, schreibt die App danach in der Form der
- * Ziel-Engine hinein bzw. der Export.
+ * A pasted element without the settings of the other engine: Camunda 7
+ * attributes (`camunda:…`) and extensions (mappings, assignment, errors).
+ * Whatever of these the specification holds, the app then writes back in the
+ * form of the target engine, or the export does.
  */
 export function stripEngine(bo: ModdleObject & { set?: (k: string, v: unknown) => void; $descriptor?: { properties?: Array<{ name: string; ns?: { prefix?: string } }> } }) {
   if (bo.extensionElements) bo.set?.('extensionElements', undefined);

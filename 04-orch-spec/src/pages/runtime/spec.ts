@@ -1,26 +1,26 @@
-// Die Seiten-Spezifikation (E15) – deklarativ, zur Laufzeit gerendert. Eine Seite liest und
-// schreibt einen Zustand (state); Texte und Eingaben der Aktionen sind Vorlagen mit {{pfad}}.
+// The page specification (E15) – declarative, rendered at runtime. A page reads and
+// writes a state (state); texts and inputs of the actions are templates with {{pfad}}.
 //
-// Im Zustand stehen zusätzlich: query (die Parameter der URL), user (name, email, roles) und
-// was die Aktionen unter `result` ablegen.
+// The state additionally contains: query (the parameters of the URL), user (name, email, roles) and
+// what the actions store under `result`.
 
-/** Eine Bedingung: `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, `pfad == true` – verknüpft mit
-  * `&&` und `||`. `!` nur vor einem Pfad, nicht vor einem Vergleich (`!a == 'x'` ist falsch: `a != 'x'`) –
-  * der Designer und der Build melden es. Texte in '…' oder "…", ohne Escape (`"it's"` statt `'it\'s'`). */
+/** A condition: `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, `pfad == true` – combined with
+  * `&&` and `||`. `!` only in front of a path, not in front of a comparison (`!a == 'x'` is wrong: `a != 'x'`) –
+  * the designer and the build report it. Texts in '…' or "…", without escapes (`"it's"` instead of `'it\'s'`). */
 export type Cond = string;
 
-/** Fehlertexte nach HTTP-Status ("409") und `default` – der Gateway liefert öffentlich nur den Status. */
+/** Error texts by HTTP status ("409") and `default` – publicly the gateway only returns the status. */
 export type Errors = Record<string, string>;
 
 export type Action =
   | { do: 'set'; path: string; value: unknown }
-  /** Ein Worker/Service: POST /worker/{service} – mit `public` ohne Login über /public/worker */
+  /** A worker/service: POST /worker/{service} – with `public` without login via /public/worker */
   | { do: 'call'; service: string; public?: boolean; input?: unknown; result?: string; errors?: Errors; onError?: Action[] }
-  /** Ein Prozess starten: POST /process/{process}/async */
+  /** Start a process: POST /process/{process}/async */
   | { do: 'start'; process: string; public?: boolean; businessKey?: string; input?: unknown; result?: string; errors?: Errors; onError?: Action[] }
-  /** Eine Message: POST /message/{name} – öffentlich nur mit businessKey */
+  /** A message: POST /message/{name} – publicly only with businessKey */
   | { do: 'message'; name: string; public?: boolean; businessKey: string; input?: unknown; result?: string; errors?: Errors; onError?: Action[] }
-  /** Einen Benutzer-Task abschliessen: POST /userTask/{taskKey}/{taskId}/complete */
+  /** Complete a user task: POST /userTask/{taskKey}/{taskId}/complete */
   | { do: 'completeTask'; taskKey: string; taskId: string; input?: unknown; errors?: Errors; onError?: Action[] };
 
 export type Field = {
@@ -40,9 +40,9 @@ export type Component = Base &
   (
     | { type: 'heading'; text: string }
     | { type: 'text'; text: string; tone?: 'muted' | 'success' | 'error' | 'info' }
-    /** Eine Auswahl aus festen Werten – als Kacheln */
+    /** A choice from fixed values – as tiles */
     | { type: 'choice'; bind: string; label?: string; options: Option[]; required?: boolean; onChange?: Action[] }
-    /** Eine Auswahl aus einer Liste im Zustand (z.B. freie Termine), gruppiert */
+    /** A choice from a list in the state (e.g. free time slots), grouped */
     | {
         type: 'pick';
         bind: string;
@@ -56,14 +56,14 @@ export type Component = Base &
       }
     | { type: 'fields'; label?: string; fields: Field[] }
     | { type: 'summary'; label?: string; items: { label: string; value: string; visible?: Cond }[] }
-    /** Prüft mit `validate` die sichtbaren Pflichtfelder, dann die Aktionen nacheinander */
+    /** With `validate` checks the visible required fields, then runs the actions one after another */
     | { type: 'button'; label: string; actions: Action[]; validate?: boolean; secondary?: boolean }
     | { type: 'section'; label?: string; body: Component[] }
-    /** Ein Spinner, solange die Aktionen beim Laden laufen */
+    /** A spinner while the actions run on load */
     | { type: 'loading'; text?: string }
   );
 
-/** `public` ohne Login - sonst mit Login und einer der Rollen (ohne Rollen: jeder mit Login). */
+/** `public` without login - otherwise with login and one of the roles (without roles: anyone with login). */
 export type Access = 'public' | { roles: string[] };
 
 export type Page = {
@@ -75,27 +75,27 @@ export type Page = {
   body: Component[];
 };
 
-/** Der Auftritt der App - z.B. aus der Website der Bank (Skill orch-theme-from-site). Alles freiwillig;
-  * ohne Angabe gilt der z9nai-Stil. In der Bankenzone gibt es keine Adresse von aussen: das Logo ist
-  * eine data:-URI, die Schrift ein Stapel von Systemschriften. */
+/** The appearance of the app - e.g. from the bank's website (skill orch-theme-from-site). Everything optional;
+  * without it the z9nai style applies. In the banking zone there is no address from outside: the logo is
+  * a data: URI, the font a stack of system fonts. */
 export type Theme = {
-  /** Buttons, gewählte Kacheln, Fokus - `#0b5cab` */
+  /** buttons, selected tiles, focus - `#0b5cab` */
   primary?: string;
-  /** Text auf `primary` - ohne Angabe Weiss oder Schwarz, je nach Helligkeit */
+  /** text on `primary` - if not given white or black, depending on brightness */
   onPrimary?: string;
-  /** Hintergrund der Seite (hell) */
+  /** background of the page (light) */
   background?: string;
-  /** Flächen: Karten, Abschnitte (hell) */
+  /** surfaces: cards, sections (light) */
   surface?: string;
-  /** Text (hell) */
+  /** text (light) */
   text?: string;
-  /** `sans`, `serif`, `mono` oder ein CSS-Stapel: `"Frutiger", Arial, sans-serif` */
+  /** `sans`, `serif`, `mono` or a CSS stack: `"Frutiger", Arial, sans-serif` */
   font?: string;
-  /** Ecken: `none`, `sm`, `md`, `lg`, `xl` */
+  /** corners: `none`, `sm`, `md`, `lg`, `xl` */
   radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
-  /** das Logo in der Kopfzeile - eine data:-URI (bis 200 KB) */
+  /** the logo in the header - a data: URI (up to 200 KB) */
   logo?: string;
-  /** hell oder dunkel als Vorgabe - der Benutzer kann weiterhin wechseln */
+  /** light or dark as default - the user can still switch */
   mode?: 'light' | 'dark';
 };
 
@@ -103,9 +103,9 @@ export type App = {
   title?: string;
   subtitle?: string;
   theme?: Theme;
-  /** Die Seite für / */
+  /** The page for / */
   home?: string;
-  /** Texte für Werte – {{wert|label:topic}} */
+  /** Texts for values – {{wert|label:topic}} */
   labels?: Record<string, Record<string, string>>;
 };
 

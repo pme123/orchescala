@@ -1,5 +1,5 @@
-// `….numberValue().intValue()` im BPMN (Camunda 7, Spin) ist in FEEL einfach die
-// Zahl — FEEL hat nur einen Zahlentyp; `number(…)` liest dort Text. Und zurück.
+// `….numberValue().intValue()` in the BPMN (Camunda 7, Spin) is simply the
+// number in FEEL — FEEL has only one number type; `number(…)` reads text there. And back.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -48,7 +48,7 @@ test('merge: number(…) from an older import becomes what the diagram reads tod
   const old = '= if masterRead.clientSegment != null then number(masterRead.clientSegment) else null';
   step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: old } : m));
   assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), feel);
-  // was jemand selbst so geschrieben hat und das Diagramm anders liest, bleibt
+  // what someone wrote that way themselves and the diagram reads differently stays
   step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= number(masterRead.text)' } : m));
   assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), '= number(masterRead.text)');
 });

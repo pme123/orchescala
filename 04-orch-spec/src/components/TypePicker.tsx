@@ -1,10 +1,10 @@
-// Suchbare Typ-Auswahl für ein Feld.
+// Searchable type picker for a field.
 //
-// Reihenfolge der Gruppen, von nah nach fern: erst die **einfachen Typen**,
-// dann die **eigenen Typen** des Prozesses, die **Typen von Orchescala**
-// (`ProcessStatus` — gehört zu den Pattern, immer da), dann die
-// **Service-Objekte** aus dem Katalog. Tippen filtert über alles, Namenstreffer zuerst; Enter nimmt
-// den ersten Treffer.
+// Order of the groups, from near to far: first the **simple types**,
+// then the **own types** of the process, the **types of Orchescala**
+// (`ProcessStatus` — belongs to the patterns, always there), then the
+// **service objects** from the catalog. Typing filters across everything, name matches first; Enter takes
+// the first match.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Braces, ChevronDown, Code, ListOrdered, Plug, Search, Type as TypeIcon, X } from 'lucide-react';
 import { SCALA_TYPES, type Model, type TypeDef } from '../types';
@@ -18,14 +18,14 @@ export const NEW_ENUM = '__newEnum';
 
 interface Entry {
   value: string;
-  /** Scala-Name */
+  /** Scala name */
   name: string;
-  /** Zusatz rechts (Package, Art, Service) */
+  /** Extra info on the right (package, kind, service) */
   hint?: string;
   group: 'einfach' | 'eigene' | 'orchescala' | 'service';
   icon: typeof Braces;
   warn?: boolean;
-  /** worüber gesucht wird */
+  /** what is searched */
   haystack: string;
 }
 
@@ -39,14 +39,14 @@ const GROUP_LABEL: Record<Entry['group'], string> = {
 export default function TypePicker({ value, types, selfId, model, isDark, disabled, onPick, onCreate, className }: {
   value: string;
   types: TypeDef[];
-  /** eigener Typ — nicht auf sich selbst verweisen */
+  /** own type — do not reference itself */
   selfId: string;
   model: Model | null;
   isDark: boolean;
   disabled?: boolean;
   onPick: (value: string) => void;
   onCreate: (kind: 'case' | 'enum') => void;
-  /** Breite im Umfeld, z. B. `flex-1` */
+  /** Width in the surrounding layout, e.g. `flex-1` */
   className?: string;
 }) {
   const c = cls(isDark);
@@ -55,9 +55,9 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Gruppe 3 = alles, was von aussen kommt. Der eingelesene Domain-Katalog ist
-  // exakt; die aus dem Servicenamen abgeleiteten Typen springen nur ein, wo der
-  // Katalog den Service (noch) nicht kennt.
+  // Group 3 = everything that comes from outside. The loaded domain catalog is
+  // exact; the types derived from the service name only step in where the
+  // catalog does not know the service (yet).
   const domain = model?.domainTypes ?? [];
   const svc = useMemo(() => {
     const known = new Set(domain.map(d => d.name));
@@ -78,7 +78,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
         icon: t.kind === 'enum' ? ListOrdered : Braces,
         haystack: `${t.name} ${t.description ?? ''}`.toLowerCase(),
       })),
-    // aus `orchescala.domain` — ohne Katalog und ohne Suche da
+    // from `orchescala.domain` — there without catalog and without search
     ...ORCHESCALA_TYPES.map(d => ({
       value: domainRef(d.id),
       name: d.name,
@@ -87,8 +87,8 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
       icon: d.kind === 'enum' ? ListOrdered : Braces,
       haystack: `${d.name} ${d.pkg} ${(d.values ?? []).join(' ')}`.toLowerCase(),
     })),
-    // `InConfig` und `InitIn` stehen im Katalog (für den Abgleich), sind aber
-    // Implementations-Details — als Feldtyp haben sie nichts verloren.
+    // `InConfig` and `InitIn` are in the catalog (for the reconciliation), but are
+    // implementation details — they have no place as a field type.
     ...domain.filter(d => !/\.(InConfig|InitIn)$/.test(d.name) && !ORCHESCALA_TYPES.some(o => o.id === d.id)).map(d => ({
       value: domainRef(d.id),
       name: d.name,
@@ -114,16 +114,16 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) {
-      // ohne Suche: alles Eigene und Einfache, Services nur angeschnitten
+      // without search: everything own and simple, services only partially shown
       return [
         ...entries.filter(e => e.group !== 'service'),
         ...entries.filter(e => e.group === 'service').slice(0, 20),
       ];
     }
     const words = needle.split(/\s+/);
-    // Wer den Namen trifft, kommt vor denen, die nur ein Feld oder das Paket
-    // treffen — sonst steht `ProcessCallOrigin` hinter jedem `In` mit einem
-    // Feld `processCallOrigin` (und fällt womöglich hinter die Grenze).
+    // Whoever matches the name comes before those that only match a field or the package
+    // — otherwise `ProcessCallOrigin` stands behind every `In` with a
+    // field `processCallOrigin` (and possibly falls behind the limit).
     const rang = (e: Entry) => {
       const n = e.name.toLowerCase(), kurz = n.split('.').pop()!;
       if (n === needle || kurz === needle) return 0;
@@ -139,7 +139,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
       .slice(0, 120);
   }, [entries, q]);
 
-  // Klick daneben und Escape schliessen
+  // Clicking outside and Escape close it
   useEffect(() => {
     if (!open) return;
     const onDown = (ev: MouseEvent) => {
@@ -168,7 +168,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
           : current?.name ?? (scalaType ? `${value} — Scala-Typ aus der Domain, wird wörtlich übernommen` : value)}
         className={`flex items-center gap-1.5 w-full text-[11px] leading-[18px] px-2 py-1 rounded border text-left ${c.border2} ${disabled ? '' : c.hover}`}>
         {current ? <current.icon size={10} className={c.muted} />
-          // ein Scala-Typ aus der Domain (`MockedServiceResponse[GetX.Out]`) ist kein Fehler
+          // a Scala type from the domain (`MockedServiceResponse[GetX.Out]`) is not an error
           : scalaType ? <Code size={10} className={c.muted} />
             : <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
         <span className={`flex-1 truncate font-mono ${c.text}`}>{current?.name ?? value}</span>
@@ -181,7 +181,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
             <Search size={11} className={c.muted} />
             <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
               onKeyDown={e => {
-                // der oberste Eintrag, wie er angezeigt wird (nach Gruppen)
+                // the topmost entry, as it is displayed (by groups)
                 const first = groups.map(g => hits.find(h => h.group === g)).find(Boolean);
                 if (e.key === 'Enter' && first) { e.preventDefault(); pick(first.value); }
               }}

@@ -1,10 +1,10 @@
-// Gemeinsame Bausteine wie in orch-spec und preview/ui: Farbklassen je Modus und kleine Chips.
+// Shared building blocks as in orch-spec and preview/ui: color classes per mode and small chips.
 import { useEffect, useState } from 'react';
 
 export const cls = (isDark: boolean) => ({
-  // die Farben aus dem Theme der App (theme.ts - nur im Modus des Themes gesetzt), sonst der z9nai-Stil.
-  // Gedämpftes (title, muted, btn, icon, Ränder) bleibt Schwarz/Weiss mit Deckkraft: es passt so auf jeden
-  // Hintergrund des Modus, wie Hell- und Dunkelgrau es täten
+  // the colors from the app's theme (theme.ts - only set in the theme's mode), otherwise the z9nai style.
+  // Muted things (title, muted, btn, icon, borders) stay black/white with opacity: that way they fit on any
+  // background of the mode, as light and dark gray would
   bg: isDark ? 'bg-[var(--orch-bg,#0e0f11)]' : 'bg-[var(--orch-bg,#f5f4f0)]',
   panel: isDark ? 'bg-[var(--orch-surface,rgba(255,255,255,0.02))]' : 'bg-[var(--orch-surface,rgba(0,0,0,0.02))]',
   panelStrong: isDark ? 'bg-[var(--orch-surface,#16171a)]' : 'bg-[var(--orch-surface,#ffffff)]',
@@ -55,18 +55,18 @@ export function Chip({ tone, isDark, children, title }: {
   );
 }
 
-/** Wo der Browser die Wahl des Benutzers (hell/dunkel) für die Seiten merkt - nicht `orch-ui.theme`: das
-  * schreibt orch-spec auf demselben Origin bei jedem Laden, es ist also keine Wahl. */
+/** Where the browser remembers the user's choice (light/dark) for the pages - not `orch-ui.theme`: that
+  * is written by orch-spec on the same origin on every load, so it is not a choice. */
 export const CHOICE_KEY = 'orch-pages.theme';
-/** Der Modus, den die App zuletzt vorgab - damit eine dunkle App nicht hell aufblitzt, bis pages.json da ist.
-  * Je App (ihr Pfad `/app/<projekt>/`): auf einem Origin liegen mehrere. */
+/** The mode the app specified last - so that a dark app does not flash light until pages.json is there.
+  * Per app (its path `/app/<projekt>/`): several live on one origin. */
 export const appModeKey = (base: string): string => `orch-pages.app-mode:${base}`;
 
-/** Der Tooltip des Abmelde-Knopfs - mit dem Namen, wenn es einen gibt (auf dem Handy steht er nur hier). */
+/** The tooltip of the sign-out button - with the name, if there is one (on the phone it is only shown here). */
 export const logoutTitle = (name: string | undefined): string => (name ? `Abmelden (${name})` : 'Abmelden');
 
-/** Das Logo der App, das die Kopfzeile zeigt - keins, wenn es keins gibt oder genau dieses nicht geladen hat
-  * (dann das Standard-Icon und die Byline nur als Text). */
+/** The logo of the app that the header shows - none if there is none or exactly this one did not load
+  * (then the default icon and the byline only as text). */
 export const effectiveLogo = (logo: string | undefined, failed: string | null): string | undefined =>
   logo && logo !== failed ? logo : undefined;
 
@@ -80,7 +80,7 @@ const store = (): Store | null => {
   }
 };
 
-/** Ein gemerkter Modus - null ohne Speicher oder Wert. */
+/** A remembered mode - null without storage or value. */
 export function storedMode(key: string, from: Store | null = store()): Mode | null {
   try {
     const v = from?.getItem(key);
@@ -94,15 +94,15 @@ export function rememberMode(key: string, mode: Mode | undefined, to: Store | nu
   try {
     if (mode) to?.setItem(key, mode);
   } catch {
-    // kein Speicher - nur für diese Sitzung
+    // no storage - only for this session
   }
 }
 
-/** Dunkel? Die Wahl des Benutzers vor der Vorgabe der App; ohne beides hell. */
+/** Dark? The user's choice before the app's default; without either, light. */
 export const isDarkMode = (chosen: Mode | null, preferred: Mode | undefined): boolean => (chosen ?? preferred) === 'dark';
 
-/** Hell/Dunkel wie in den z9nai-Apps: Klasse `dark` am html-Element. Die Wahl des Benutzers merkt sich der
-  * Browser; ohne Wahl gilt die Vorgabe der App (`theme.mode`). */
+/** Light/dark as in the z9nai apps: class `dark` on the html element. The browser remembers the user's
+  * choice; without a choice the app's default applies (`theme.mode`). */
 export function useTheme(preferred?: Mode): { isDark: boolean; toggleTheme: () => void } {
   const [chosen, setChosen] = useState<Mode | null>(() => storedMode(CHOICE_KEY));
   const isDark = isDarkMode(chosen, preferred);

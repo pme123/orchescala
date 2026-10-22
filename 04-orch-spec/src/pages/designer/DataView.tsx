@@ -1,12 +1,12 @@
-// «Daten» im Designer: was im Zustand einer Seite steht - woher es kommt, mit seinen Feldern und Typen -
-// und die Services, die eine Seite aufrufen kann, mit ihrem In und Out. Ein Klick auf einen Pfad kopiert
-// ihn als {{pfad}} - für Texte, Listen und Bedingungen.
+// «Daten» in the designer: what is in the state of a page - where it comes from, with its fields and types -
+// and the services a page can call, with their In and Out. A click on a path copies
+// it as {{pfad}} - for texts, lists and conditions.
 import { ChevronRight, Copy } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
 import type { DataNode, PField, Targets } from './model';
 
-/** Der Typ eines Felds, wie man ihn in Scala liest: `Seq[Slot]`, `Option[String]`. */
+/** The type of a field as one reads it in Scala: `Seq[Slot]`, `Option[String]`. */
 function typeText(f: Pick<PField, 'type' | 'collection' | 'optional'>): string {
   const base = f.collection ? `Seq[${f.type}]` : f.type;
   return f.optional ? `Option[${base}]` : base;
@@ -14,8 +14,8 @@ function typeText(f: Pick<PField, 'type' | 'collection' | 'optional'>): string {
 
 type CopyCtx = { c: ReturnType<typeof cls>; copied: string | null; copy: (path: string) => void };
 
-/** Text in die Zwischenablage - auch ohne `navigator.clipboard` (auf http, wie in einem Intranet: dort gibt
-  * es sie nicht): über ein verstecktes Textfeld. true, wenn es geklappt hat. */
+/** Text to the clipboard - even without `navigator.clipboard` (on http, as in an intranet: there it
+  * does not exist): via a hidden text field. true if it worked. */
 export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
@@ -23,7 +23,7 @@ export async function copyText(text: string): Promise<boolean> {
       return true;
     }
   } catch {
-    // verweigert - der Weg über das Textfeld
+    // refused - the route via the text field
   }
   const area = document.createElement('textarea');
   area.value = text;
@@ -41,8 +41,8 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Ein Pfad zum Kopieren - in einer Liste mit `.0` für den ersten Eintrag; in einer Liste sind die Felder
-  * eines Eintrags direkt erreichbar ({{start}} im Eintrag einer «Auswahl aus Liste»). */
+/** A path to copy - in a list with `.0` for the first entry; in a list the fields
+  * of an entry are directly accessible ({{start}} in the entry of an «Auswahl aus Liste»). */
 function PathButton({ path, label, ctx }: { path: string; label: string; ctx: CopyCtx }) {
   return (
     <button type="button" onClick={() => ctx.copy(path)} title={`{{${path}}} kopieren`}
@@ -54,7 +54,7 @@ function PathButton({ path, label, ctx }: { path: string; label: string; ctx: Co
   );
 }
 
-/** Die Felder - im Zustand zum Kopieren, bei einem Service nur zum Lesen (dort gibt es keinen Pfad). */
+/** The fields - in the state for copying, for a service read-only (there is no path there). */
 function FieldList({ prefix, fields, depth, copyable = true, ctx }: {
   prefix: string; fields: PField[]; depth: number; copyable?: boolean; ctx: CopyCtx;
 }) {
@@ -91,7 +91,7 @@ export function DataView({ isDark, nodes, targets, usedServices, onSelect }: {
   const [copied, setCopied] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  // «kopiert» erst, wenn es in der Zwischenablage ist
+  // «kopiert» only once it is in the clipboard
   const copy = (path: string) => {
     void copyText(`{{${path}}}`).then((ok) => {
       if (!ok) return;

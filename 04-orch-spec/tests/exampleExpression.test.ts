@@ -1,4 +1,4 @@
-// Beispiele aus der Domain kommen als Scala-Ausdruck — der Export schreibt sie so zurück.
+// Examples from the domain come as a Scala expression — the export writes them back that way.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { exampleValue, looksLikeScala } from '../src/scala';
@@ -11,7 +11,7 @@ test('a path with backticks is Scala, not text - SubStatusKeyDocuments.`document
   assert.ok(looksLikeScala('SubStatusKeyDocuments.`documents-prepared`.toString', 'example'));
   assert.equal(exampleValue(field({ example: 'SubStatusKeyDocuments.`documents-prepared`.toString' }), idx),
     'SubStatusKeyDocuments.`documents-prepared`.toString');
-  // Prosa bleibt Text
+  // Prose stays text
   assert.equal(exampleValue(field({ example: 'documents prepared' }), idx), '"documents prepared"');
 });
 

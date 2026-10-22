@@ -1,8 +1,8 @@
-// Katalog der FEEL-Funktionen und -Schlüsselwörter für die Vervollständigung.
+// Catalog of the FEEL functions and keywords for the completion.
 //
-// Jeder Eintrag hat eine kurze Erklärung und ein Beispiel — sie erscheinen
-// unter der Vorschlagsliste. Grundlage: die Funktionsliste von Camunda 8
-// (Built-in functions). Leerzeichen im Namen sind in FEEL erlaubt.
+// Every entry has a short explanation and an example — they appear
+// below the suggestion list. Basis: the function list of Camunda 8
+// (built-in functions). Spaces in names are allowed in FEEL.
 
 export type FeelDocKind = 'function' | 'keyword';
 
@@ -10,13 +10,13 @@ export interface FeelDoc {
   name: string;
   kind: FeelDocKind;
   category: string;
-  /** Aufruf mit Parametern, z. B. `substring(text, start, länge?)` */
+  /** Call with parameters, e.g. `substring(text, start, länge?)` */
   signature: string;
   description: string;
   example?: string;
-  /** Text, der eingesetzt wird; bei Funktionen mit Klammern, der Cursor steht dazwischen */
+  /** Text that is inserted; for functions with parentheses, the cursor is between them */
   insert: string;
-  /** Anzahl Zeichen, die der Cursor nach dem Einsetzen zurückspringt */
+  /** Number of characters the cursor jumps back after inserting */
   back: number;
 }
 

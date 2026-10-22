@@ -1,5 +1,5 @@
-// `IdentityCorrelation` steht in orchescala.domain, nicht in den Projekten — also in
-// keinem Katalog. Orch Spec kennt es eingebaut wie `ProcessStatus`.
+// `IdentityCorrelation` lives in orchescala.domain, not in the projects — so in
+// no catalog. Orch Spec knows it built in, like `ProcessStatus`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkTypes, scalaFiles } from '../src/scala';

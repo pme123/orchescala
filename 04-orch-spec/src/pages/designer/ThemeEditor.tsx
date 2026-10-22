@@ -1,5 +1,5 @@
-// Der Auftritt der App (app.json `theme`): importieren - z.B. was der Skill orch-theme-from-site aus der
-// Website der Bank gemacht hat - und von Hand anpassen. Mit einer kleinen Probe, wie es aussieht.
+// The look of the app (app.json `theme`): import - e.g. what the skill orch-theme-from-site made from the
+// bank's website - and adjust by hand. With a small preview of how it looks.
 import { FileUp, ImagePlus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../../ui';
@@ -14,19 +14,19 @@ import { cleanLogo } from './logo';
 
 const MAX_THEME_FILE_BYTES = 1024 * 1024;
 
-/** Der Entwurf nach dem Speichern von `saved`: weg, wenn er noch dasselbe ist - eine Änderung, die während
-  * des Speicherns kam, bleibt ein Entwurf. */
+/** The draft after saving `saved`: gone if it is still the same - a change that came during
+  * saving stays a draft. */
 export function draftAfterSave<T>(draft: { theme: T } | null, saved: T): { theme: T } | null {
   return draft && JSON.stringify(draft.theme ?? null) === JSON.stringify(saved ?? null) ? null : draft;
 }
 
-/** Eine Farbe - getippt bleibt sie hier, bis sie eine ist (ein halbes `#0b5` kommt nicht ins Theme). */
+/** A colour - while typed it stays here until it is one (half a `#0b5` does not go into the theme). */
 function ColorField({ isDark, label, value, onChange, disabled }: {
   isDark: boolean; label: string; value: string | undefined; onChange: (v: string | undefined) => void; disabled?: boolean;
 }) {
   const c = cls(isDark);
   const [text, setText] = useState(value ?? '');
-  // von aussen geändert (Farbwähler, Import, Vorgabe) - die Anzeige folgt; was man gerade tippt, bleibt
+  // changed from outside (colour picker, import, default) - the display follows; what you are typing stays
   useEffect(() => setText((t) => syncedText(t, value)), [value]);
   const valid = text === '' || isThemeColor(text.trim());
   return (
@@ -60,12 +60,12 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     const next = Object.fromEntries(Object.entries({ ...t, ...patch }).filter(([, v]) => v !== undefined && v !== '')) as Theme;
     onChange(Object.keys(next).length ? next : undefined);
   };
-  // «eigener Stapel» bleibt gewählt, auch wenn das Feld leer ist oder genau «sans» darin steht
+  // «eigener Stapel» stays selected, even if the field is empty or contains exactly «sans»
   const [custom, setCustom] = useState(() => !!t.font && !isFontPreset(t.font));
-  // ein eigener Stapel, der erst nach dem Öffnen kommt (pages/app.json geladen): das Feld zeigen
+  // a custom stack that only comes after opening (pages/app.json loaded): show the field
   useEffect(() => { if (t.font && !isFontPreset(t.font)) setCustom(true); }, [t.font]);
-  // auf dem Hintergrund, auf dem die Buttons liegen (wie themeStyle) - in beiden Modi: im Modus des Themes
-  // auf seinem, im anderen auf dem z9nai-Hintergrund; der schlechtere zählt
+  // on the background the buttons are on (like themeStyle) - in both modes: in the theme's mode
+  // on its own, in the other on the z9nai background; the worse one counts
   const { primary, onPrimary } = t;
   const onPrimaryContrast = primary && onPrimary
     ? Math.min(
@@ -76,13 +76,13 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
   const preset = custom ? 'custom' : t.font && isFontPreset(t.font) ? t.font : '';
 
   const importFile = async (file: File) => {
-    // ein Theme ist klein (das Logo bis 200 KB) - was viel grösser ist, ist keins
+    // a theme is small (the logo up to 200 KB) - whatever is much bigger is not one
     if (file.size > MAX_THEME_FILE_BYTES) return setNote({ tone: 'error', text: 'Die Datei ist zu gross für ein Theme (bis 1 MB).' });
     const text = await file.text().catch(() => null);
     if (text === null) return setNote({ tone: 'error', text: 'Die Datei liess sich nicht lesen.' });
     const r = parseThemeFile(text);
     if ('error' in r) return setNote({ tone: 'error', text: r.error });
-    // ein SVG-Logo aus der Datei gesäubert wie vom Skill - die Datei kann von irgendwo sein
+    // an SVG logo from the file sanitized like by the skill - the file can be from anywhere
     const logo = r.theme.logo && cleanLogo(r.theme.logo);
     if (r.theme.logo && !logo) return setNote({ tone: 'error', text: 'Das Logo der Datei ist kein lesbares SVG.' });
     setCustom(!!r.theme.font && !isFontPreset(r.theme.font));
@@ -95,7 +95,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     reader.onload = () => {
       const logo = cleanLogo(String(reader.result));
       if (!logo) return setNote({ tone: 'error', text: 'Das SVG lässt sich nicht lesen.' });
-      // dieselbe Prüfung wie beim Lesen und Bauen - Typ und Grösse der data:-URI
+      // the same check as when reading and building - type and size of the data: URI
       const problem = themeProblem({ logo });
       if (problem) setNote({ tone: 'error', text: problem });
       else set({ logo });
@@ -104,7 +104,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
     reader.readAsDataURL(file);
   };
 
-  // die Probe: dieselben Klassen wie der Renderer, mit den Variablen des Themes - in seinem Modus
+  // the preview: the same classes as the renderer, with the theme's variables - in its mode
   const sampleDark = t.mode === 'dark';
   const p = pageCls(sampleDark);
   return (
@@ -159,7 +159,7 @@ export function ThemeEditor({ isDark, theme, onChange, canEdit }: {
 
       <div className="flex items-center gap-3">
         <span className={`text-[10px] ${c.muted2}`}>Logo</span>
-        {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
+        {/* the logo only as <img>: an SVG in it runs no script and loads nothing - never insert inline */}
         {t.logo ? <img src={t.logo} alt="" className="h-8 max-w-40 object-contain rounded border border-black/10 bg-white p-0.5" />
           : <span className={`text-[10px] ${c.muted}`}>keins (das Orchescala-Symbol)</span>}
         {canEdit && (

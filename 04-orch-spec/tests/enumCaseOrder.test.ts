@@ -1,5 +1,5 @@
-// Ein enum mit Fällen (ADT): die Parameter jedes Falls bleiben in der Reihenfolge des Codes —
-// gemeinsame Felder (`def x: T`) nicht nach vorn, sonst brechen Aufrufe mit Positionen.
+// An enum with cases (ADT): the parameters of each case stay in the order of the code —
+// shared fields (`def x: T`) do not move to the front, otherwise positional calls break.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -69,10 +69,10 @@ test('import -> export: the parameters of each case in the order of the code', (
   const content = exported(imported());
   assert.deepEqual(params(content, 'Graviton'), ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions']);
   assert.deepEqual(params(content, 'CAM'), ['subStatusKey', 'subStatusNr', 'subStatusTextDe']);
-  // die Beispiel-Argumente ebenso
+  // the example arguments likewise
   const example = /lazy val example: Out\.Graviton = Out\.Graviton\(([\s\S]*?)\n\s*\)/.exec(content)?.[1] ?? '';
   assert.deepEqual([...example.matchAll(/(\w+) =/g)].map(m => m[1]), ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions']);
-  // die gemeinsamen bleiben als def im Rumpf
+  // the shared ones stay as def in the body
   assert.match(content, /def subStatusKey: String/);
 });
 
@@ -94,7 +94,7 @@ test('own fields: renamed keeps its place, moved in Orch Spec stays moved, delet
   assert.deepEqual(names(['score', 'subStatusActions']), ['subStatusKey', 'score', 'subStatusNr', 'subStatusActions']);
   assert.deepEqual(names(['subStatusActions', 'subStatusScore']), ['subStatusKey', 'subStatusNr', 'subStatusActions', 'subStatusScore']);
   assert.deepEqual(names(['subStatusActions', 'extra']), ['subStatusKey', 'subStatusNr', 'subStatusActions', 'extra']);
-  // ohne order: die gemeinsamen zuerst
+  // without order: the shared ones first
   assert.deepEqual(inCodeOrder(common, [f('a')], undefined).map(x => x.name), ['subStatusKey', 'subStatusNr', 'a']);
 });
 

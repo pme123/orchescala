@@ -1,24 +1,24 @@
-// «Mit BPMN abgleichen» — erst die Vorschau, dann übernehmen.
+// «Mit BPMN abgleichen» — first the preview, then apply.
 //
-// Wie beim Anlegen aus BPMN: die App sucht über die Prozess-ID die Domain
-// (Katalog, gemerkte Projekt-Ordner, sonst Ordner oder ZIP wählen) und zeigt,
-// was entsteht — hier als Unterschied zum bisherigen Stand:
+// As when creating from BPMN: the app searches the domain via the process ID
+// (catalog, remembered project folders, otherwise choose a folder or ZIP) and shows
+// what will be created — here as a difference to the previous state:
 //
-//  · **Ablauf**: neue, geänderte, umbenannte und entfallene Schritte,
-//  · **Datenmodell**: Klassen und Interaktionen aus der Domain, zusammengeführt
-//    mit den gepflegten (siehe `domainMerge.ts`),
-//  · **Status**: welchen Status Neues und Geändertes bekommt — kommt das BPMN
-//    aus der Implementation, ist das z. B. «Umgesetzt»,
-//  · **Pattern**: welche im neuen Diagramm dazukommen, wegfallen oder andere
-//    Parameter haben — erkannt wie beim Anlegen, mit den Pattern aus dem Admin,
-//  · **Kommentare**: bleiben alle; was an einer entfallenen Stelle hängt,
-//    steht danach im Panel unter «Ohne Stelle».
+//  · **Flow**: new, changed, renamed and removed steps,
+//  · **Data model**: classes and interactions from the domain, merged
+//    with the maintained ones (see `domainMerge.ts`),
+//  · **Status**: which status new and changed things get — if the BPMN comes
+//    from the implementation, that is e.g. «Umgesetzt»,
+//  · **Pattern**: which are added in the new diagram, dropped or have other
+//    parameters — recognized as when creating, with the patterns from the admin,
+//  · **Comments**: all stay; what hangs on a removed spot
+//    is afterwards in the panel under «Ohne Stelle».
 //
-// Übernommen wird erst auf «Übernehmen».
+// Nothing is applied until «Übernehmen».
 //
-// **Nur mit der Domain** (`mode: 'domain'`): dasselbe mit dem gespeicherten
-// BPMN — der Ablauf bleibt, abgeglichen werden Klassen und Interaktionen,
-// etwa nachdem die Domain im Projekt gewachsen ist.
+// **Only with the domain** (`mode: 'domain'`): the same with the stored
+// BPMN — the flow stays, classes and interactions are synced,
+// e.g. after the domain has grown in the project.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Database, FolderOpen, Loader2, MessageSquare, RefreshCw, Upload, X } from 'lucide-react';
 import { allSteps, patternDiff, type MergeReport, type MergeStatus } from '../bpmn';
@@ -33,7 +33,7 @@ export interface SyncPlan {
   text: string;
   report: MergeReport;
   renames: Array<[string, string]>;
-  /** Bericht des Abgleichs mit der Domain — fürs Änderungsprotokoll */
+  /** Report of the sync with the domain — for the change log */
   domain?: DomainMergeReport;
 }
 
@@ -44,13 +44,13 @@ interface Props {
   model: Model | null;
   isDark: boolean;
   plan: (raw: string, from: string, st: MergeStatus) => SyncPlan | null;
-  /** `domain`: nur das Datenmodell — das BPMN ist das gespeicherte */
+  /** `domain`: only the data model — the BPMN is the stored one */
   mode?: 'bpmn' | 'domain';
   onApply: (plan: SyncPlan) => void;
   onClose: () => void;
 }
 
-/** Eine Liste mit Zeichen davor — lange Listen scrollen. */
+/** A list with a symbol in front — long lists scroll. */
 function Lines({ items, isDark }: { items: string[]; isDark: boolean }) {
   const c = cls(isDark);
   if (!items.length) return null;
@@ -79,20 +79,20 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   const c = cls(isDark);
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
   const zipRef = useRef<HTMLInputElement>(null);
-  // undefined = wird gesucht, null = keine gefunden
+  // undefined = being searched, null = none found
   const [hit, setHit] = useState<DomainHit | null | undefined>(undefined);
   const [busy, setBusy] = useState<string | null>('Domain wird gesucht …');
   const [error, setError] = useState('');
-  // Nur mit der Domain: was neu dazukommt, steht schon im Projekt — umgesetzt
+  // Only with the domain: what is newly added is already in the project — implemented
   const [st, setSt] = useState<MergeStatus>({ added: domainOnly ? 'implemented' : 'draft', changed: 'changed' });
   const [withDomain, setWithDomain] = useState(true);
   const [removeStale, setRemoveStale] = useState(false);
   const [prepare, setPrepare] = useState(true);
 
-  // Die Domain über die Prozess-ID des gewählten Diagramms suchen
+  // Search the domain via the process ID of the chosen diagram
   const processId = useMemo(() => {
     try { return plan(raw, from, st)?.spec.processId ?? current.processId ?? ''; } catch { return current.processId ?? ''; }
-    // nur je Datei — der Status ändert die Prozess-ID nicht
+    // only per file — the status does not change the process ID
   }, [raw, from]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
@@ -105,7 +105,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     return () => { alive = false; };
   }, [processId, model]);
 
-  /** Domain aus einem gewählten Ordner oder ZIP nachreichen. */
+  /** Supply the domain later from a chosen folder or ZIP. */
   const domainFrom = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string) => {
     try {
       setBusy(`${source} wird gelesen …`);
@@ -125,7 +125,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     if (dir) await domainFrom(() => readProjectDir(dir), `Ordner ${dir.name}`);
   };
 
-  // Das Ergebnis — bei jeder Einstellung neu gerechnet, gespeichert wird nichts
+  // The result — recomputed on every setting, nothing is stored
   const result = useMemo(() => {
     try {
       const p = plan(raw, from, st);
@@ -134,7 +134,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
       const dom = enriched ? mergeDomain(p.spec, enriched.spec, { status: st, removeStale, prepare }) : null;
       const bare = !enriched && prepare ? prepareInteractions(p.spec, model) : null;
       const spec = dom?.spec ?? bare?.spec ?? p.spec;
-      // Kommentare an Stellen, die es danach nicht mehr gibt — sie bleiben
+      // Comments on spots that no longer exist afterwards — they stay
       const vorher = new Set(commentTargets(current, allSteps(current.steps)).map(t => t.key));
       const nachher = new Set(commentTargets(spec, allSteps(spec.steps)).map(t => t.key));
       const lost = (spec.comments ?? []).filter(t => vorher.has(t.target) && !nachher.has(t.target)).length;
@@ -174,8 +174,8 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
 
       {steps && (
         <div className={`grid gap-3 ${domainOnly && nothing ? '' : 'md:grid-cols-2'}`}>
-          {/* Ablauf — beim Abgleich nur mit der Domain bloss, wenn das
-              gespeicherte BPMN noch nicht übernommen war */}
+          {/* Flow — when syncing only with the domain, only if the
+              stored BPMN had not been applied yet */}
           {!(domainOnly && nothing) && <div className="space-y-1 min-w-0">
             <p className={`text-[10px] uppercase tracking-wider ${c.muted}`}>Ablauf</p>
             <p className={`text-[10px] ${c.muted2}`}>
@@ -188,7 +188,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
             <Lines isDark={isDark} items={[...steps.added.map(n => `+ ${n}`), ...steps.changed.map(n => `~ ${n}`),
               ...steps.renamed.map(n => `✎ ${n}`), ...steps.removed.map(n => `− ${n}`),
               ...steps.confirmed.map(n => `✓ ${n} ${bestaetigt}`)]} />
-            {/* Pattern: erkannt wie beim Anlegen — hier als Unterschied */}
+            {/* Pattern: recognized as when creating — here as a difference */}
             {!!patternLines.length && (
               <>
                 <p className={`text-[10px] pt-1 ${c.muted2}`}>
@@ -200,7 +200,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
             {!model?.patterns?.length && <p className={`text-[10px] pt-1 ${c.muted}`}>Pattern: keine definiert (Admin → Pattern) — nichts erkannt.</p>}
           </div>}
 
-          {/* Datenmodell */}
+          {/* Data model */}
           <div className="space-y-1 min-w-0">
             <p className={`text-[10px] uppercase tracking-wider ${c.muted}`}>Datenmodell</p>
             {hit === undefined ? (

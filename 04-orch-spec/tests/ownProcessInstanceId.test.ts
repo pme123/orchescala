@@ -1,4 +1,4 @@
-// Die eigene processInstanceId in Camunda 8 — und Signalnamen mit einer ID darin.
+// The own processInstanceId in Camunda 8 — and signal names with an ID in them.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -40,7 +40,7 @@ const signalName = (xml: string) => /<bpmn:signal id="Sig" name="([^"]*)"/.exec(
 test('C7 -> C8 -> C7: a signal name with an expression becomes FEEL - and back JUEL', () => {
   const c8 = convertBpmn(c7, 'c8').xml;
   assert.equal(signalName(c8), '="valiant-cancel-" + string(mainProcessInstanceId)');
-  // zurück JUEL — gleichwertig zum Original
+  // back to JUEL — equivalent to the original
   assert.equal(signalName(convertBpmn(c8, 'c7').xml), '${"valiant-cancel-".concat(mainProcessInstanceId)}');
 });
 
@@ -49,6 +49,6 @@ test('C8: the InitWorker reading processInstanceId at its own task is reported -
   const c8 = importBpmn(convertBpmn(c7, 'c8').xml, 'escalation').spec;
   assert.equal(c8.engine, 'c8');
   assert.ok(warningsOf(c8).some(w => w.includes('processInstanceId') && w.includes('leer')));
-  // in Camunda 7 ist execution.processInstanceId schon da
+  // in Camunda 7 execution.processInstanceId is already there
   assert.ok(!warningsOf(importBpmn(c7, 'escalation').spec).some(w => w.includes('leer')));
 });

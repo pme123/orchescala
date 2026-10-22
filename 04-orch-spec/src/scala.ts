@@ -1,6 +1,6 @@
-// Datenmodell → Orchescala-Domain (Scala 3).
+// Data model → Orchescala domain (Scala 3).
 //
-// Erzeugt genau die Idiome, die in den globex-Projekten stehen:
+// Generates exactly the idioms found in the globex projects:
 //
 //   case class In(@description("…") feld: Option[String] = None)
 //   object In:
@@ -10,9 +10,9 @@
 //     lazy val exampleMinimal = example.copy(optionalesFeld = None, …)
 //   end In
 //
-// Das `In` gehört ins Prozess-Objekt, die übrigen Typen je in eine eigene
-// Datei unter `schema/`. `InConfig` und `InitIn` erzeugt der Generator
-// bewusst **nicht** — das sind Implementations-Details.
+// The `In` belongs in the process object, the other types each in their own
+// file under `schema/`. The generator deliberately does **not** create
+// `InConfig` and `InitIn` — those are implementation details.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration } from 'feelin';
 import type { DomainDefault, EnumValue, Field, Interaction, Model, ProcessSpec, TypeDef } from './types.ts';
@@ -29,14 +29,14 @@ import type { DomainType } from './types.ts';
 
 const isScalar = (t: string): boolean => (SCALA_TYPES as readonly string[]).includes(t);
 
-/** Zahl-artig? Bestimmt, welche Constraints und Beispiele passen. */
+/** Number-like? Determines which constraints and examples fit. */
 export const isNumeric = (t: string): boolean =>
   ['Int', 'Long', 'Double', 'BigDecimal'].includes(t);
 
 /**
- * Welche Art Einschränkung passt zu diesem Typ — `null` heisst: gar keine.
- * `Boolean` und die Datumstypen tragen kein Refinement; `Iban` und
- * `Iso8601Duration` sind Zeichenketten und verhalten sich wie `String`.
+ * Which kind of constraint fits this type — `null` means: none at all.
+ * `Boolean` and the date types carry no refinement; `Iban` and
+ * `Iso8601Duration` are strings and behave like `String`.
  */
 export function constraintKind(t: string): 'text' | 'zahl' | null {
   if (isNumeric(t)) return 'zahl';
@@ -46,50 +46,50 @@ export function constraintKind(t: string): 'text' | 'zahl' | null {
 
 export interface TypeIndex {
   byId: Map<string, TypeDef>;
-  /** Name des Typs — skalar, eigener oder Service-Objekt */
+  /** Name of the type — scalar, custom or service object */
   nameOf: (typeRef: string) => string;
-  /** Service-Objekt hinter einem `svc:`-Verweis */
+  /** Service object behind an `svc:` reference */
   serviceOf: (typeRef: string) => ServiceType | null;
-  /** Katalog-Typ hinter einem `dom:`-Verweis */
+  /** Catalog type behind a `dom:` reference */
   domainOf: (typeRef: string) => DomainType | null;
-  /** Beispielwert aus der Domain für das Feld (`clientKey` → `defaultClientKey`) — nur mit passendem Typ */
+  /** Example value from the domain for the field (`clientKey` → `defaultClientKey`) — only with a matching type */
   defaultOf: (f: Field) => DomainDefault | null;
-  /** Klassen des Datenmodells, die es in einer anderen Domain schon gibt — je TypeDef-id (siehe `referencedClass`) */
+  /** Classes of the data model that already exist in another domain — per TypeDef id (see `referencedClass`) */
   referenced: Map<string, DomainType>;
-  /** Paket des eigenen Projekts (`valiant.product`) */
+  /** Package of the own project (`valiant.product`) */
   home: string;
-  /** Paket des Prozesses (`valiant.product.domain.lilaSet.v2`) — leer, wenn unbekannt */
+  /** Package of the process (`valiant.product.domain.lilaSet.v2`) — empty if unknown */
   ownPkg: string;
-  /** Ein Beispielwert der Domain nach Namen (`defaultValidUntil`) — mit demselben Vorrang wie `defaultOf` */
+  /** An example value of the domain by name (`defaultValidUntil`) — with the same precedence as `defaultOf` */
   defaultNamed: (name: string) => DomainDefault | null;
-  /** Objekt und Package eines Services oder Prozesses — aus dem Katalog, sonst abgeleitet (`objectOf`) */
+  /** Object and package of a service or process — from the catalog, otherwise derived (`objectOf`) */
   objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
 }
 
-/** Eine eigene Klasse des Datenmodells (`schema/`) — nicht In / Out des Prozesses oder einer Interaktion. */
+/** A custom class of the data model (`schema/`) — not the In / Out of the process or of an interaction. */
 const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && !t.inProcessObject;
 
 /**
- * Eine Klasse des Datenmodells, die es in der Domain **schon gibt** — über ihren
- * Namen im Katalog (Klassen, enums, Aliase; nicht In / Out eines Objekts).
- * Ins Datenmodell gehören nur neue Klassen und die freistehenden des eigenen
- * Prozesses; alles andere wird referenziert — importiert, nicht exportiert:
- * - in einem Objekt des eigenen Prozesses definiert (`ResolveTimerDueDateWithOverwrite.DueDateSpec`,
- *   `OrderCard.CustomProcessStatus`) — der Export schriebe sie ein zweites Mal als `schema/`
- * - in genau einem anderen Package; bei mehreren gewinnt eines im selben Projekt
- *   (`PoaResult` → `valiant.product.domain.loadPoas.v1.schema`). Bleiben mehrere: neu, zu prüfen.
+ * A class of the data model that **already exists** in the domain — by its
+ * name in the catalog (classes, enums, aliases; not the In / Out of an object).
+ * Only new classes and the free-standing ones of the own process belong in
+ * the data model; everything else is referenced — imported, not exported:
+ * - defined in an object of the own process (`ResolveTimerDueDateWithOverwrite.DueDateSpec`,
+ *   `OrderCard.CustomProcessStatus`) — the export would write it a second time as `schema/`
+ * - in exactly one other package; with several, one in the same project wins
+ *   (`PoaResult` → `valiant.product.domain.loadPoas.v1.schema`). If several remain: new, to be checked.
  */
 export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string): { type?: DomainType; ambiguous?: string[] } {
   if (!isSchemaClass(t) || !t.name?.trim()) return {};
-  // aus der Domain dieses Prozesses importiert (frei im Paket bzw. in schema/) —
-  // ein älterer Katalog, der sie noch in einem Objekt führt, ändert daran nichts
+  // imported from the domain of this process (free in the package or in schema/) —
+  // an older catalog that still lists it in an object changes nothing about that
   if (t.domainId && (t.domainId === `${ownPkg}.${t.name}` || t.domainId === `${ownPkg}.schema.${t.name}`)) return {};
   const inOwn = (d: DomainType) => d.pkg === ownPkg || d.pkg.startsWith(`${ownPkg}.`);
   const hits = (model?.domainTypes ?? []).filter(d =>
     (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') &&
     (d.owner ? d.name === `${d.owner}.${t.name}` : d.name === t.name));
   if (hits.some(d => inOwn(d) && !d.owner)) return {};
-  // im eigenen Prozess-Objekt (`OrderCard.CustomProcessStatus`): gehört zur Spezifikation
+  // in the own process object (`OrderCard.CustomProcessStatus`): belongs to the specification
   if (hits.some(d => inOwn(d) && d.owner && d.processName)) return {};
   const nestedOwn = hits.find(d => inOwn(d) && d.owner);
   if (nestedOwn) return { type: nestedOwn };
@@ -102,9 +102,9 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
 }
 
 /**
- * Steht die Klasse im eigenen Prozess-Objekt (`OrderCard.CustomProcessStatus`)?
- * Laut Import (`inProcessObject`) oder laut Domain — dann schreibt der Export
- * sie dorthin und nicht nach `schema/`.
+ * Is the class in the own process object (`OrderCard.CustomProcessStatus`)?
+ * According to the import (`inProcessObject`) or according to the domain — then the
+ * export writes it there and not to `schema/`.
  */
 export function inProcessObject(t: TypeDef, model: Model | null, ownPkg: string): boolean {
   if (t.inProcessObject) return true;
@@ -114,24 +114,24 @@ export function inProcessObject(t: TypeDef, model: Model | null, ownPkg: string)
 }
 
 /**
- * Pakete, die jedes Projekt ohne Import sieht — dieselben wie im `-Yimports`
- * des Helpers: `orchescala.domain` und die Firmen-Bibliothek `<firma>.orchescala.domain`.
+ * Packages every project sees without an import — the same as in the `-Yimports`
+ * of the helper: `orchescala.domain` and the company library `<firma>.orchescala.domain`.
  */
 export const isAutoImported = (pkg: string): boolean => pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(pkg);
 
 const typeKey = (t: string): string => {
   const clean = t.replace(/\s+/g, ' ').trim();
-  // `valiant.orchescala.domain.Iban` → `Iban`; zusammengesetzte Typen bleiben, wie sie sind
+  // `valiant.orchescala.domain.Iban` → `Iban`; composite types stay as they are
   return /^[\w.]+$/.test(clean) ? clean.split('.').pop()! : clean;
 };
 
 /**
- * @param home Paket des eigenen Projekts (`valiant.product`) — bei gleich
- *             heissenden Beispielwerten geht nach der Firmen-Bibliothek das eigene Projekt vor.
+ * @param home package of the own project (`valiant.product`) — for example values
+ *             with the same name, the own project comes first after the company library.
  */
 export function indexTypes(types: TypeDef[] = [], model: Model | null = null, home = '', ownPkg?: string): TypeIndex {
   const byId = new Map(types.map(t => [t.id, t]));
-  // mit dem eigenen Package: die Klassen anderer Domains — importiert, nicht angelegt
+  // with the own package: the classes of other domains — imported, not created
   const referenced = new Map<string, DomainType>();
   if (ownPkg) for (const t of types) {
     const ref = referencedClass(t, model, ownPkg).type;
@@ -141,14 +141,14 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
   const domainOf = (ref: string) => domainTypeOf(ref, model);
   const nameOf = (ref: string): string => {
     if (isScalar(ref)) return ref;
-    // Ein Katalog-Typ bleibt auch ohne geladenen Katalog lesbar
+    // A catalog type stays readable even without a loaded catalog
     if (parseDomainRef(ref)) return domainOf(ref)?.name ?? domainNameOf(ref);
     const svc = serviceOf(ref);
     if (svc) return svc.name;
-    // eine referenzierte Klasse heisst wie im Katalog — `ResolveTimerDueDateWithOverwrite.DueDateSpec`
+    // a referenced class is named as in the catalog — `ResolveTimerDueDateWithOverwrite.DueDateSpec`
     return referenced.get(ref)?.name ?? byId.get(ref)?.name ?? ref;
   };
-  // Vorrang: Firmen-Bibliothek (ohne Import), eigenes Projekt, dann die Reihenfolge des Katalogs
+  // Precedence: company library (without import), own project, then the order of the catalog
   const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);
   const ranked = (model?.domainDefaults ?? [])
     .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
@@ -173,21 +173,21 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
   };
 }
 
-// ── Vorgabe ──────────────────────────────────────────────────────────────────
+// ── Default ──────────────────────────────────────────────────────────────────
 //
-// Die Vorgabe eines Feldes ist FEEL, wenn sie mit «=» beginnt — wie überall in
-// Orch Spec. Beim Export wird sie ausgewertet und nach dem Typ des Feldes in
-// Scala geschrieben:
+// The default of a field is FEEL if it starts with «=» — as everywhere in
+// Orch Spec. On export it is evaluated and written to Scala according to the
+// type of the field:
 //
 //   Seq[Int]            = [90, 110, 140]          → Seq(90, 110, 140)
 //   Option[String]      = "CH"                    → Some("CH")
 //   Long / BigDecimal   = 3                       → 3L / BigDecimal("3")
 //   LocalDate           = date("2026-01-01")      → LocalDate.parse("2026-01-01")
 //   Sprache (enum)      = "de"                    → Sprache.de
-//   Adresse (Klasse)    = {ort: "Bern"}           → Adresse(ort = "Bern", …)
+//   Adresse (class)     = {ort: "Bern"}           → Adresse(ort = "Bern", …)
 //   Map[String, Int]    = {a: 1}                  → Map("a" -> 1)
 //
-// Ohne «=» bleibt die Vorgabe, was sie war: ein Scala-Ausdruck, wörtlich.
+// Without «=» the default stays what it was: a Scala expression, verbatim.
 
 type FieldShape = Pick<Field, 'type' | 'optional' | 'collection' | 'map' | 'enumCase' | 'constraint'>;
 
@@ -200,13 +200,13 @@ const scalaIdent = (name: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? na
 const scalaString = (v: string) => JSON.stringify(v);
 
 /**
- * Ein reiner Pfad in FEEL (`clientKeyDescr`, `processLabels.de`): FEEL kennt
- * den Wert nicht, Scala schon — er bleibt ein Verweis. So gilt dieselbe Regel
- * für Vorgabe, Beispiel und Beschreibung, ohne Liste von Ausnahmen.
+ * A pure path in FEEL (`clientKeyDescr`, `processLabels.de`): FEEL does not know
+ * the value, Scala does — it stays a reference. So the same rule applies
+ * to default, example and description, without a list of exceptions.
  */
 const FEEL_PATH = /^(?!(?:true|false|null)$)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/;
 
-/** Die Vorgabe als Scala-Ausdruck — oder warum es nicht geht. Ohne Vorgabe: `{ scala: null }`. */
+/** The default as a Scala expression — or why that is not possible. Without a default: `{ scala: null }`. */
 export function scalaDefault(f: Field, idx: TypeIndex): { scala: string | null; issue?: string } {
   const d = f.default?.trim();
   if (!d) return { scala: null };
@@ -228,10 +228,10 @@ export function scalaDefault(f: Field, idx: TypeIndex): { scala: string | null; 
 }
 
 /**
- * ` = …` für die Parameterliste. Eine unübersetzbare Vorgabe wird nicht
- * übernommen: `???` mit einem TODO, in dem der FEEL-Ausdruck steht — das
- * Projekt kompiliert, und die Stelle ist zu finden. Als Blockkommentar, weil
- * das Komma zum nächsten Feld dahinter folgt.
+ * ` = …` for the parameter list. A default that cannot be translated is not
+ * taken over: `???` with a TODO containing the FEEL expression — the
+ * project compiles, and the spot can be found. As a block comment because
+ * the comma for the next field follows after it.
  */
 function defaultClause(f: Field, idx: TypeIndex): string {
   const r = scalaDefault(f, idx);
@@ -259,7 +259,7 @@ function feelToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
 
 function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
   const type = f.type;
-  // ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe` — wie beim example
+  // a literal that has to satisfy a refinement needs `refineUnsafe` — as with the example
   const refined = (lit: string) => (f.constraint?.trim() ? `${lit}.refineUnsafe` : lit);
   const number = (what: string): number => {
     if (typeof v !== 'number') throw new DefaultError(`erwartet ${what}.`);
@@ -301,7 +301,7 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
         if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)) return `LocalDateTime.parse(${scalaString(text)})`;
         throw new DefaultError('erwartet Datum und Zeit ohne Zeitzone, z. B. date and time("2026-01-01T08:00:00").');
       }
-      // ein Zeitpunkt — mit Zeitzone bzw. `Z` (UTC)
+      // a point in time — with time zone or `Z` (UTC)
       case 'Instant': {
         const text = v instanceof FeelDateTime || typeof v === 'string' ? String(v) : '';
         if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(text)) return `Instant.parse(${scalaString(text)})`;
@@ -318,7 +318,7 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
     if (typeof v !== 'string' || !values.includes(v)) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
     return `${own.name}.${scalaIdent(v)}`;
   }
-  // eine Klasse aus einem Kontext: fehlende optionale Felder sind None
+  // a class from a context: missing optional fields are None
   if (!isContext(v)) throw new DefaultError(`erwartet einen Kontext für ${own.name}, z. B. {feld: 1}.`);
   const fields = finished(own.fields, idx);
   const unknown = Object.keys(v).filter(k => !fields.some(x => x.name === k));
@@ -332,38 +332,38 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
   return `${own.name}(${args.join(', ')})`;
 }
 
-// ── Unfertiges ───────────────────────────────────────────────────────────────
+// ── Unfinished ───────────────────────────────────────────────────────────────
 /**
- * Ein Feld kommt erst in den Code, wenn es fertig ist: mit Namen, mit Typ und —
- * bei einem eigenen Typ — einem, den es noch gibt und der einen Namen hat.
- * Sonst stünde `: String` oder eine interne id im Code, und das Projekt
- * kompiliert nicht. Die Prüfungen im Klassenbauer melden es weiterhin.
+ * A field only gets into the code once it is finished: with a name, with a type and —
+ * for a custom type — one that still exists and has a name.
+ * Otherwise `: String` or an internal id would be in the code, and the project
+ * would not compile. The checks in the class builder keep reporting it.
  */
 export function isFinished(f: Field, idx: TypeIndex): boolean {
   const type = f.type?.trim();
   if (!f.name?.trim() || !type) return false;
   return isScalar(type) || !!parseDomainRef(type) || !!parseServiceRef(type) || !!idx.byId.get(type)?.name?.trim()
     || isScalaTypeExpression(type)
-    // ein einfacher Name, hinter dem ein Typ steht — aus dem Katalog oder eingebaut (`IdentityCorrelation`)
+    // a simple name with a type behind it — from the catalog or built in (`IdentityCorrelation`)
     || !!idx.domainOf(type);
 }
 
 /**
- * Ein Scala-Typ aus der Domain, den die App nicht auflöst — qualifiziert
- * (`GetClient.Out`) oder generisch (`MockedServiceResponse[GetClient.Out]`):
- * er wird wörtlich übernommen, statt im Export zu fehlen. Ein einfacher Name
- * (`Adresse`) ohne Typ dahinter bleibt unfertig (siehe isFinished).
+ * A Scala type from the domain that the app does not resolve — qualified
+ * (`GetClient.Out`) or generic (`MockedServiceResponse[GetClient.Out]`):
+ * it is taken over verbatim instead of missing from the export. A simple name
+ * (`Adresse`) without a type behind it stays unfinished (see isFinished).
  */
 export const isScalaTypeExpression = (type: string): boolean =>
   /^[A-Z]\w*(?:\.\w+)+$/.test(type) || /^[A-Z][\w.]*\[.+\]$/.test(type);
 
 const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fields ?? []).filter(f => isFinished(f, idx));
 
-// ── Typ-Ausdruck ─────────────────────────────────────────────────────────────
-/** `Option[Seq[String :| ValidEmail]]` — in dieser Reihenfolge geschachtelt. */
+// ── Type expression ──────────────────────────────────────────────────────────
+/** `Option[Seq[String :| ValidEmail]]` — nested in this order. */
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
-  // ein einfacher Enum-Fall ist ein Singleton-Typ (`ProcessStatus.canceled.type`), ein ADT-Fall eine Klasse
+  // a simple enum case is a singleton type (`ProcessStatus.canceled.type`), an ADT case a class
   if (f.enumCase) t = isSimpleEnum(f.type, idx) ? `${t}.${caseIdent(f.enumCase)}.type` : `${t}.${f.enumCase}`;
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
   if (f.map) t = `Map[String, ${t}]`;
@@ -372,7 +372,7 @@ export function fieldType(f: Field, idx: TypeIndex): string {
   return t;
 }
 
-// ── Beispielwerte ────────────────────────────────────────────────────────────
+// ── Example values ───────────────────────────────────────────────────────────
 const SCALAR_EXAMPLE: Record<string, string> = {
   String: '"Beispiel"',
   Boolean: 'true',
@@ -387,23 +387,23 @@ const SCALAR_EXAMPLE: Record<string, string> = {
   Iban: 'defaultIban',
 };
 
-/** Beispielwert eines Feldes — eigene Angabe schlägt die Ableitung. */
+/** Example value of a field — an explicit value beats the derivation. */
 const LITERAL = /^(".*"|-?\d+(\.\d+)?L?)$/s;
 
 /**
- * Ein eigenes Beispiel mit der Hülle des Feldes (`None`, `Some(…)`,
- * `Seq(a, b)`, `Seq.empty`, `Map(…)`) ist schon der ganze Wert — so kommt es
- * aus der Domain, wenn es sich nicht auf einen inneren Wert bringen lässt.
+ * An explicit example with the wrapper of the field (`None`, `Some(…)`,
+ * `Seq(a, b)`, `Seq.empty`, `Map(…)`) is already the whole value — that is how it comes
+ * from the domain when it cannot be reduced to an inner value.
  */
 function isWholeExample(f: Field, example: string): boolean {
-  // `Option("…")` ist schon die Hülle — sonst `Some(Option("…"))`
+  // `Option("…")` already is the wrapper — otherwise `Some(Option("…"))`
   if (f.optional) return /^(None\b|Some\s*\(|Option\s*\(|Option\.empty\b)/.test(example);
   if (f.collection) return /^(Seq|List|Vector|Set)\b/.test(example);
   if (f.map) return /^Map\b/.test(example);
   return false;
 }
 
-/** Die Hülle des Feldes um einen inneren Wert: `Map("key" -> …)`, `Seq(…)`, `Some(…)` */
+/** The wrapper of the field around an inner value: `Map("key" -> …)`, `Seq(…)`, `Some(…)` */
 function wrapExample(f: FieldShape, inner: string): string {
   const mapped = f.map ? `Map("key" -> ${inner})` : inner;
   const seq = f.collection ? `Seq(${mapped})` : mapped;
@@ -411,10 +411,10 @@ function wrapExample(f: FieldShape, inner: string): string {
 }
 
 /**
- * Ein Beispiel in FEEL (`= …`) als Scala — wie die Vorgabe (siehe
- * scalaDefault). Ein einzelner Wert für ein Feld mit Hülle (`= "CH"` bei
- * `Seq[String]`) bekommt die Hülle wie ein Scala-Beispiel; eine Liste, ein
- * Kontext oder `null` ist schon der ganze Wert. Kein FEEL: `{ scala: null }`.
+ * An example in FEEL (`= …`) as Scala — like the default (see
+ * scalaDefault). A single value for a field with a wrapper (`= "CH"` for
+ * `Seq[String]`) gets the wrapper like a Scala example; a list, a
+ * context or `null` is already the whole value. No FEEL: `{ scala: null }`.
  */
 export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; issue?: string } {
   const e = f.example?.trim();
@@ -434,16 +434,16 @@ export function scalaExample(f: Field, idx: TypeIndex): { scala: string | null; 
     if (f.optional || f.collection || f.map) {
       try {
         return { scala: wrapExample(f, feelToScala(value, { ...f, optional: false, collection: false, map: false }, idx)) };
-      } catch { /* auch als einzelner Wert nicht — gemeldet wird der ganze */ }
+      } catch { /* not even as a single value — the whole one is reported */ }
     }
     return { scala: null, issue: `Beispiel «${e}»: ${whole instanceof Error ? whole.message : String(whole)}` };
   }
 }
 
 /**
- * Ein Beispiel ohne «=» bei einem Text-Feld: ein Text braucht keine
- * Anführungszeichen (`rot` → `"rot"`). Scala bleibt, was danach aussieht —
- * so kommt es aus der Domain (siehe looksLikeScala).
+ * An example without «=» for a text field: a text needs no
+ * quotes (`rot` → `"rot"`). What looks like Scala stays Scala —
+ * that is how it comes from the domain (see looksLikeScala).
  */
 function textExample(f: Field, own: string): string {
   if (!['String', 'Iban'].includes(f.type) || f.enumCase) return own;
@@ -451,25 +451,25 @@ function textExample(f: Field, own: string): string {
 }
 
 /**
- * Sieht ein Text nach Scala aus statt nach Prosa? Nach den Konventionen der
- * Domain: ein Literal (`"CH"`, `s"…${x}"`), ein Verweis (`Defaults.street`,
- * `processLabels.de`, `UUID.randomUUID().toString`), ein Aufruf
- * (`serviceOrProcessMockDescr(…)`) — und ein einzelner Name nur, wenn er wie
- * ein Wert der Domain heisst: `defaultClientKey` im Beispiel, `clientKeyDescr`
- * in der Beschreibung. `eBanking` oder `www.example.ch` sind Text.
+ * Does a text look like Scala rather than prose? Following the conventions of the
+ * domain: a literal (`"CH"`, `s"…${x}"`), a reference (`Defaults.street`,
+ * `processLabels.de`, `UUID.randomUUID().toString`), a call
+ * (`serviceOrProcessMockDescr(…)`) — and a single name only if it is named like
+ * a value of the domain: `defaultClientKey` in the example, `clientKeyDescr`
+ * in the description. `eBanking` or `www.example.ch` are text.
  */
 export function looksLikeScala(text: string, kind: 'example' | 'description'): boolean {
   const t = text.trim();
   if (kind === 'example' ? /^(s|f|raw)?"/.test(t) : /^s".*\$/.test(t)) return true;
   if (kind === 'example' ? /^default[A-Z]\w*$/.test(t) : /^[a-z]\w*Descr$/.test(t)) return true;
-  // auch mit Backticks: `SubStatusKeyDocuments.\`documents-prepared\`.toString`
+  // also with backticks: `SubStatusKeyDocuments.\`documents-prepared\`.toString`
   return /^([A-Z]\w*|[a-z]+[A-Z]\w*)(\.(\w+|`[^`]+`)(\(\))?)+$/.test(t)
     || /^[A-Za-z_][\w.]*\(.*\)$/.test(t);
 }
 
 export function exampleValue(f: Field, idx: TypeIndex): string {
   const own = f.example?.trim();
-  // FEEL: übersetzt — sonst das abgeleitete Beispiel mit einem TODO, damit es kompiliert
+  // FEEL: translated — otherwise the derived example with a TODO, so that it compiles
   if (own?.startsWith('=')) {
     const r = scalaExample(f, idx);
     if (r.scala != null) return r.scala;
@@ -477,7 +477,7 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
   }
   if (own && isWholeExample(f, own)) return own;
   let inner = own ? textExample(f, own) : baseExample(f, idx);
-  // Ein Literal, das ein Refinement erfüllen muss, braucht `refineUnsafe`
+  // A literal that has to satisfy a refinement needs `refineUnsafe`
   if (f.example?.trim() && f.constraint?.trim() && LITERAL.test(inner)) inner = `${inner}.refineUnsafe`;
   const mapped = f.map ? `Map("key" -> ${inner})` : inner;
   const seq = f.collection ? `Seq(${mapped})` : mapped;
@@ -485,16 +485,16 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
 }
 
 function baseExample(f: Field, idx: TypeIndex): string {
-  // eine Ausprägung: ihr Companion hat ein eigenes example
+  // a variant: its companion has its own example
   if (f.enumCase) {
     return isSimpleEnum(f.type, idx)
       ? `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`
       : `${idx.nameOf(f.type)}.${f.enumCase}.example`;
   }
-  // `clientKey = defaultClientKey` — wie es die Projekte von Hand tun
+  // `clientKey = defaultClientKey` — as the projects do by hand
   const fromDomain = idx.defaultOf(f);
   if (fromDomain) return fromDomain.name;
-  // ein einfacher enum aus dem Katalog hat nicht immer ein example — sein erster Fall
+  // a simple enum from the catalog does not always have an example — its first case
   const domEnum = idx.domainOf(f.type);
   if (domEnum && isSimpleEnum(f.type, idx) && domEnum.values?.length) return `${domEnum.name}.${caseIdent(domEnum.values[0])}`;
   if (parseDomainRef(f.type)) return `${idx.nameOf(f.type)}.example`;
@@ -502,7 +502,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   if (svc) return `${svc.name}.example`;
   if (isScalar(f.type)) {
     const v = SCALAR_EXAMPLE[f.type] ?? '???';
-    // Ein Refinement braucht bei String-Literalen ein refineUnsafe
+    // A refinement needs a refineUnsafe for string literals
     return f.constraint?.trim() && f.type === 'String' ? `${v}.refineUnsafe` : v;
   }
   const t = idx.byId.get(f.type);
@@ -519,8 +519,8 @@ function descriptionLine(text: string): string {
   const clean = text.trim();
   if (!clean) return '';
   if (!clean.includes('\n')) return `@description(${scalaKey(clean)})`;
-  // die erste Zeile steht hinter `"""`, die übrigen mit `|` darunter — in
-  // `"""…"""` wird nichts escaped
+  // the first line stands after `"""`, the others with `|` below it — in
+  // `"""…"""` nothing is escaped
   const [first, ...rest] = clean.split('\n');
   const lines = rest.map(l => `  |${tripleText(l, clean)}`).join('\n');
   return `@description(\n  ${tripleOpen(clean)}${tripleText(first, clean)}\n${lines ? `${lines}\n` : ''}  |""".stripMargin\n)`;
@@ -528,28 +528,28 @@ function descriptionLine(text: string): string {
 
 const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 /**
- * Ein Wert aus Scala im Text (`valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
- * `… ${OrderCard.processName} …`): dann ist das Literal interpoliert (`s"…"`) —
- * sonst stünde der Platzhalter wörtlich darin, und z. B. kein Signal käme an.
- * Nur wenn jedes `${…}` ein Pfad ist: `${execution.processInstanceId}` (JUEL
- * im Text) bleibt Text. In Kommentaren gilt das nicht — dort steht es, wie es ist.
+ * A value from Scala in the text (`valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
+ * `… ${OrderCard.processName} …`): then the literal is interpolated (`s"…"`) —
+ * otherwise the placeholder would be in it verbatim, and e.g. no signal would arrive.
+ * Only if every `${…}` is a path: `${execution.processInstanceId}` (JUEL
+ * in the text) stays text. This does not apply in comments — there it stays as it is.
  */
 export function interpolated(text: string): boolean {
   const refs = [...text.matchAll(/\$\{([^}]*)\}/g)].map(m => m[1].trim());
   return refs.length > 0 && refs.every(r => /^[A-Za-z_][\w.]*$/.test(r) && !/^execution\b/.test(r));
 }
-/** Ein einzelnes `$` in einem `s"…"` heisst `$$` */
+/** A single `$` in an `s"…"` is written `$$` */
 const dollars = (text: string) => text.replace(/\$(?!\{)/g, '$$$$');
-/** Ein Text als Scala-Literal — interpoliert, wo er Werte aus Scala nennt (siehe interpolated) */
+/** A text as a Scala literal — interpolated where it names values from Scala (see interpolated) */
 export const scalaKey = (text: string): string => (interpolated(text) ? `s"${dollars(escape(text))}"` : `"${escape(text)}"`);
-/** Mehrzeilig: `"""…"""` bzw. `s"""…"""` — darin wird nichts escaped */
+/** Multi-line: `"""…"""` or `s"""…"""` — nothing is escaped in it */
 const tripleOpen = (text: string) => (interpolated(text) ? 's"""' : '"""');
 const tripleText = (text: string, all: string) => (interpolated(all) ? dollars(text) : text);
 
 /**
- * Die Beschreibung eines Feldes in FEEL (`= …`) als Text — wie das Beispiel,
- * nur muss am Ende ein Text stehen; ein reiner Pfad (`= clientKeyDescr`)
- * bleibt ein Verweis (`expr`). Kein FEEL: `{ text: null }`.
+ * The description of a field in FEEL (`= …`) as text — like the example,
+ * except that a text must come out at the end; a pure path (`= clientKeyDescr`)
+ * stays a reference (`expr`). No FEEL: `{ text: null }`.
  */
 export function feelDescription(f: Field): { text: string | null; expr?: string; issue?: string } {
   const d = f.description?.trim();
@@ -568,9 +568,9 @@ export function feelDescription(f: Field): { text: string | null; expr?: string;
 }
 
 /**
- * `@description` eines Feldes — ein Ausdruck aus der Domain (`clientKeyDescr`)
- * bleibt einer, FEEL wird zum Text; was sich nicht übersetzen lässt, steht
- * mit einem TODO da.
+ * `@description` of a field — an expression from the domain (`clientKeyDescr`)
+ * stays one, FEEL becomes text; what cannot be translated is there
+ * with a TODO.
  */
 function fieldDescription(f: Field): string {
   const expr = f.descriptionExpr?.trim();
@@ -583,20 +583,20 @@ function fieldDescription(f: Field): string {
   return descriptionLine(f.description);
 }
 
-/** Beschreibung eines Typs als Scaladoc — `@description` gilt nur für Felder. */
+/** Description of a type as Scaladoc — `@description` only applies to fields. */
 function scaladoc(text: string): string {
   const lines = text.trim().split('\n');
   return lines.length === 1 ? `/** ${lines[0]} */` : `/**\n${lines.map(l => ` * ${l}`).join('\n')}\n */`;
 }
 
 /**
- * `inConfig: Option[InConfig] = None` — wie in Orchescala (`bpmnDsl.md`): die
- * Vorgabe `None` steht in der Klasse, in `example` und `exampleMinimal` fehlt das Feld.
+ * `inConfig: Option[InConfig] = None` — as in Orchescala (`bpmnDsl.md`): the
+ * default `None` is in the class, in `example` and `exampleMinimal` the field is missing.
  */
 const isInConfigField = (f: Field, idx: TypeIndex) =>
   f.name === 'inConfig' && /^Option\[(?:[\w.]+\.)?InConfig\]$/.test(fieldType(f, idx));
 
-/** Die Felder des Beispiels — ohne `inConfig` (siehe oben), ausser es hat ein eigenes (`Some(InConfig.example)`) */
+/** The fields of the example — without `inConfig` (see above), unless it has its own (`Some(InConfig.example)`) */
 const exampleFields = (fields: Field[], idx: TypeIndex) =>
   fields.filter(f => !isInConfigField(f, idx) || !!f.example?.trim() && f.example.trim() !== 'None');
 
@@ -604,7 +604,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   const fields = finished(t.fields, idx);
   const params = fields.map(f => {
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
-    // ein fester Enum-Fall hat genau einen Wert; InitIn initialisiert Prozessvariablen — Vorgaben wie im InConfig
+    // a fixed enum case has exactly one value; InitIn initializes process variables — defaults as in the InConfig
     const fixed = fixedCaseValue(f, idx);
     const def = fixed ? ` = ${fixed}` : isInConfigField(f, idx) ? ' = None' : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
     return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
@@ -616,7 +616,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 function companion(t: TypeDef, idx: TypeIndex): string {
   const fields = exampleFields(finished(t.fields, idx), idx);
   const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
-  // exampleMinimal lässt alles weg, was fehlen darf
+  // exampleMinimal leaves out everything that may be missing
   const optional = fields.filter(f => f.optional);
   const minimal = optional.length
     ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${f.name} = None`).join(',\n'), '    ')}\n  )`
@@ -635,7 +635,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
   ].join('\n');
 }
 
-/** Parameterliste einer Klasse bzw. eines ADT-Falls. */
+/** Parameter list of a class or of an ADT case. */
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
@@ -645,10 +645,10 @@ function paramList(fields: Field[], idx: TypeIndex, by: string): string {
 }
 
 /**
- * Die Felder eines Falls: die eigenen in der Reihenfolge von Orch Spec (dort lassen sie sich
- * umstellen), die gemeinsamen dazwischen an ihrer Stelle im Code (`order`) — ohne `order`
- * zuerst. Ein eigenes Feld, das dort nicht steht, nimmt den Platz eines Namens, den es nicht
- * mehr gibt (umbenannt); sonst gilt es als neu, nach den anderen.
+ * The fields of a case: its own in the order of Orch Spec (they can be reordered
+ * there), the shared ones in between at their place in the code (`order`) — those without `order`
+ * first. An own field that is not listed there takes the place of a name that no
+ * longer exists (renamed); otherwise it counts as new, after the others.
  */
 export function inCodeOrder(common: Field[], own: Field[], order: string[] | undefined): Field[] {
   if (!order?.length) return [...common, ...own];
@@ -667,16 +667,16 @@ export function inCodeOrder(common: Field[], own: Field[], order: string[] | und
 }
 
 /**
- * Auswahl mit Feldern je Fall — wie `enum In` der Depot-Domain: jeder Fall
- * eine Klasse, das Companion mit `example` je Fall und einem für den Typ.
+ * Choice with fields per case — like `enum In` of the depot domain: each case
+ * a class, the companion with an `example` per case and one for the type.
  */
 function adtDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).filter(v => v.name);
   const first = cases[0]?.name ?? 'unknown';
-  // Gemeinsame Felder: als `def` im Rumpf verlangt, in jedem Fall zuerst
+  // Shared fields: required as `def` in the body, first in every case
   const common = finished(t.fields, idx);
-  // Die Bedeutung eines gemeinsamen Feldes steht **einmal** — am `def`, nicht
-  // in jedem Fall nochmals
+  // The meaning of a shared field is stated **once** — on the `def`, not
+  // again in every case
   const commonDefs = common.map(f => {
     const d = fieldDescription(f) ? `${indent(fieldDescription(f), '  ')}\n` : '';
     return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
@@ -724,7 +724,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
 function enumDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).map(v => v.name).filter(Boolean);
   const first = cases[0] ?? 'unknown';
-  // Fälle, die irgendwo als fester Typ stehen (`X.fall.type`), brauchen eigene Givens
+  // Cases that appear somewhere as a fixed type (`X.fall.type`) need their own givens
   const fixed = fixedCasesOf(t.id, idx).filter(c => cases.includes(c));
   return [
     `enum ${t.name}:`,
@@ -741,7 +741,7 @@ function enumDef(t: TypeDef, idx: TypeIndex): string {
   ].join('\n');
 }
 
-/** Ein Typ als Scala-Quelltext (ohne Package/Imports). */
+/** A type as Scala source code (without package/imports). */
 export function renderType(t: TypeDef, idx: TypeIndex): string {
   const head = t.description ? `${scaladoc(t.description)}\n` : '';
   return t.kind === 'enum'
@@ -749,14 +749,14 @@ export function renderType(t: TypeDef, idx: TypeIndex): string {
     : `${head}${caseClass(t, idx)}\n\n${companion(t, idx)}`;
 }
 
-// ── Interaktionen ────────────────────────────────────────────────────────────
+// ── Interactions ─────────────────────────────────────────────────────────────
 //
-// Jede Interaktion wird ein eigenes Objekt mit dem passenden DSL-Trait; `In`
-// und `Out` liegen darin, nicht in `schema/`. Fehlt ein Typ, steht dort
-// `NoInput` — so wie es die Domain auch schreibt.
+// Each interaction becomes its own object with the matching DSL trait; `In`
+// and `Out` live in it, not in `schema/`. If a type is missing, it says
+// `NoInput` — just as the domain writes it too.
 /**
- * Der Scala-Name hinter einem Alias von In bzw. Out (siehe Interaction.inAlias):
- * `OrderCardUT.In` — das Mitglied einer anderen Interaktion oder ein Typ der Domain.
+ * The Scala name behind an alias of In or Out (see Interaction.inAlias):
+ * `OrderCardUT.In` — the member of another interaction or a type of the domain.
  */
 export function aliasName(ref: string | undefined, spec: ProcessSpec, idx: TypeIndex): string | null {
   if (!ref?.trim()) return null;
@@ -766,7 +766,7 @@ export function aliasName(ref: string | undefined, spec: ProcessSpec, idx: TypeI
   return other?.name ? `${other.name}.${ref.slice(dot + 1)}` : null;
 }
 
-/** `X.example` mit abweichenden Werten: `X.example.copy(a = false)` */
+/** `X.example` with differing values: `X.example.copy(a = false)` */
 const withCopy = (expr: string, values: Record<string, string> | undefined): string => {
   const entries = Object.entries(values ?? {}).filter(([k, v]) => k.trim() && v.trim());
   return entries.length ? `${expr}.copy(${entries.map(([k, v]) => `${k} = ${v.trim()}`).join(', ')})` : expr;
@@ -784,13 +784,13 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   lines.push(`object ${ia.name} extends ${meta.dsl}:`);
   lines.push('');
   lines.push(`  val ${meta.keyName} = ${scalaKey(ia.key ?? ia.name ?? '')}`);
-  // die DSL verlangt `descr` (BpmnDsl) — leer, wenn es keine gibt
+  // the DSL requires `descr` (BpmnDsl) — empty if there is none
   lines.push(descrLine(ia));
   lines.push('');
 
   const member = (t: TypeDef | null, name: 'In' | 'Out') => {
     const values = name === 'In' ? ia.inExample : ia.outExample;
-    // ein anderer Typ: `type In = OrderCardUT.In` — sein Beispiel, mit den abweichenden Werten
+    // another type: `type In = OrderCardUT.In` — its example, with the differing values
     const alias = aliasName(name === 'In' ? ia.inAlias : ia.outAlias, spec, idx);
     if (alias) {
       lines.push(`  type ${name} = ${alias}`);
@@ -811,8 +811,8 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   let factory = meta.factory;
   let outExpr: string | null;
   if (ia.kind === 'decision') {
-    // DMN Decision (Orchescala, BpmnDecisionDsl): die Fabrik nach der
-    // Ergebnisform — ein einfacher Wert ist das eine Feld des Out
+    // DMN Decision (Orchescala, BpmnDecisionDsl): the factory by the
+    // result shape — a simple value is the one field of the Out
     const form = ia.decisionResult ?? 'singleResult';
     factory = form;
     const value = dmnValueField(outType);
@@ -837,19 +837,19 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   return lines.join('\n');
 }
 
-/** Das eine Feld des Out einer DMN Decision, die einen einfachen Wert liefert — sonst null. */
+/** The one field of the Out of a DMN Decision that returns a simple value — otherwise null. */
 function dmnValueField(out: TypeDef | null): Field | null {
   const fields = (out?.fields ?? []).filter(f => f.name?.trim());
   return out?.kind === 'case' && fields.length === 1 ? fields[0] : null;
 }
 
-/** Einfache Werte einer DMN-Spalte (DmnValueType in Orchescala) — dazu eine Auswahl (enum) */
+/** Simple values of a DMN column (DmnValueType in Orchescala) — plus a choice (enum) */
 const DMN_VALUE_TYPES = new Set(['String', 'Boolean', 'Int', 'Long', 'Double', 'LocalDate', 'LocalDateTime']);
 
 /**
- * Was eine DMN Decision verlangt (Orchescala, BpmnDecisionDsl): jedes Feld des
- * `In` ist ein einfacher Wert (eine Spalte der Tabelle) — ebenso die des
- * `Out`; bei `singleEntry` / `collectEntries` hat das `Out` genau ein Feld.
+ * What a DMN Decision requires (Orchescala, BpmnDecisionDsl): every field of the
+ * `In` is a simple value (a column of the table) — likewise those of the
+ * `Out`; with `singleEntry` / `collectEntries` the `Out` has exactly one field.
  */
 export function dmnIssues(ia: Interaction, types: TypeDef[]): string[] {
   if (ia.kind !== 'decision') return [];
@@ -873,18 +873,18 @@ export function dmnIssues(ia: Interaction, types: TypeDef[]): string[] {
   return out;
 }
 
-// ── InConfig und InitIn ──────────────────────────────────────────────────────
+// ── InConfig and InitIn ──────────────────────────────────────────────────────
 //
-// Beide gehören **nicht** in die Spezifikation — sie ergeben sich aus ihr:
+// Neither belongs in the specification — they follow from it:
 //
-//  · `InConfig` aus den Schleifen (Timer, Zähler, Höchstzahl) und aus jedem
-//    Schritt, dessen Ergebnis sich für Tests überschreiben lässt (`…Mock`) —
-//    dazu kommen die eigenen Stellschrauben, die der Klassenbauer als Typ
-//    `inConfig` pflegt; sie stehen vorne und gewinnen bei gleichem Namen.
-//  · `InitIn` aus den Ausgaben des Init-Workers — der Schritt, dessen Topic
-//    der Prozess selbst ist.
+//  · `InConfig` from the loops (timer, counter, maximum) and from every
+//    step whose result can be overridden for tests (`…Mock`) —
+//    plus the own adjustment knobs that the class builder maintains as the type
+//    `inConfig`; they come first and win on equal names.
+//  · `InitIn` from the outputs of the init worker — the step whose topic
+//    is the process itself.
 //
-// Deshalb erzeugt der Generator sie, statt sie erfassen zu lassen.
+// That is why the generator creates them instead of having them entered.
 const DEFAULT_BY_KIND: Record<'timer' | 'max' | 'counter', { type: string; value: string; descr: string }> = {
   timer:   { type: 'Iso8601Duration', value: '"PT1M"', descr: 'Wartezeit vor dem nächsten Versuch (ISO 8601).' },
   counter: { type: 'Int', value: '1', descr: 'Zähler der Versuche — mit `1` initialisieren.' },
@@ -906,8 +906,8 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     if (seen.has(name)) continue;
     seen.add(name);
     const d = DEFAULT_BY_KIND[kind];
-    // ein Timer eines Ereignisses: seine Vorgabe aus der Spezifikation (`P7D`) — ein
-    // Zeitpunkt oder Zyklus ist keine Dauer, also Text
+    // a timer of an event: its default from the specification (`P7D`) — a
+    // point in time or cycle is not a duration, so text
     const type = timerKind && timerKind !== 'duration' ? 'String' : d.type;
     const value = given ? JSON.stringify(given) : d.value;
     const descr = timerKind
@@ -916,23 +916,23 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     params.push(`${descriptionLine(descr)}\n${name}: ${type} = ${value}`);
   }
   for (const step of mockableSteps(spec)) {
-    // Nur Schritte mit gewähltem Mock. Der Typ ist das `Out` des gerufenen
-    // Objekts bzw. die Service-Antwort — aus der Kennung abgeleitet, samt Import.
+    // Only steps with a chosen mock. The type is the `Out` of the called
+    // object or the service response — derived from the identifier, including the import.
     if (!step.mockKind) continue;
     const ref = step.serviceId ?? step.calledProcess ?? step.topic;
     if (!ref) continue;
     const { object, pkg, uncertain } = idx ? idx.objectOf(ref) : deriveObject(ref);
     const field = mockFieldOf(step);
     const importLine = `import ${pkg}.${object}${uncertain ? '  // Pfad prüfen' : ''}`;
-    // ein eigenes Feld (aus der Domain) geht vor — es braucht den Import, wenn es das Objekt nennt
+    // an own field (from the domain) comes first — it needs the import if it names the object
     const ownField = ownFields.find(f => f.name === field);
     if (ownField && idx && fieldType(ownField, idx).includes(`${object}.`)) imports.add(importLine);
     if (seen.has(field)) continue;
     seen.add(field);
     imports.add(importLine);
     const type = step.mockKind === 'service' ? `MockedServiceResponse[${object}.ServiceOut]` : `${object}.Out`;
-    // wie in den Projekten: die Beschreibung zeigt ein Beispiel des Mocks als JSON — bei einem
-    // Service die Antwort aus seinem `example` (jeder ServiceTask hat sie, `ServiceOut.mock` nicht immer)
+    // as in the projects: the description shows an example of the mock as JSON — for a
+    // service the response from its `example` (every ServiceTask has it, `ServiceOut.mock` not always)
     const example = step.mockKind === 'service' ? `${object}.example.defaultServiceOutMock` : `${object}.Out.example`;
     params.push(`@description(serviceOrProcessMockDescr(${example}))\n`
       + `${field}: Option[${type}] = None`);
@@ -951,11 +951,11 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
 }
 
 /**
- * Vorgabewerte stehen nie in einer Klasse — einzig im `InConfig`, wo es
- * Konfigurationen sind. Beim `In` des Prozesses hat eine Vorgabe nur bei einem
- * **optionalen** Feld Sinn: das Feld bleibt `Option[…]`, und der Init-Worker
- * setzt dasselbe Feld im `InitIn` — dort Pflicht — auf den Wert aus dem `In`
- * oder die Vorgabe:
+ * Default values are never in a class — only in the `InConfig`, where they are
+ * configurations. For the `In` of the process a default only makes sense for an
+ * **optional** field: the field stays `Option[…]`, and the init worker
+ * sets the same field in the `InitIn` — mandatory there — to the value from the `In`
+ * or the default:
  *
  *   In      debitAccountForFee: Option[Int]
  *   InitIn  debitAccountForFee: Int
@@ -968,16 +968,16 @@ export function defaultsForInit(spec: ProcessSpec, idx: TypeIndex): Field[] {
     .map(f => ({ ...f, optional: false }));
 }
 
-/** Wo eine Vorgabe verwendet wird: im InConfig, und bei optionalen Feldern der Prozess-Eingabe. */
+/** Where a default is used: in the InConfig, and for optional fields of the process input. */
 export function defaultIsUsed(t: TypeDef, f: Field): boolean {
   return !!t.inConfig || !!t.initIn || (!!t.root && t.kind === 'case' && !!f.optional);
 }
 
 /**
- * `InitIn` — die Felder ergeben sich aus den Ausgaben des Init-Workers, die
- * **Typen** stehen dort aber nicht. Deshalb legt der Klassenbauer dafür einen
- * Typ an (`initIn`), der wie jeder andere bearbeitet wird. Dazu kommen die
- * Felder mit Vorgabe aus dem `In` (siehe `defaultsForInit`).
+ * `InitIn` — the fields follow from the outputs of the init worker, but the
+ * **types** are not there. That is why the class builder creates a
+ * type for it (`initIn`) that is edited like any other. Plus the
+ * fields with a default from the `In` (see `defaultsForInit`).
  */
 export function renderInitIn(spec: ProcessSpec, idx: TypeIndex): string {
   const t = (spec.types ?? []).find(t => t.initIn);
@@ -988,8 +988,8 @@ export function renderInitIn(spec: ProcessSpec, idx: TypeIndex): string {
 }
 
 /**
- * Was der Init-Worker im `customInit` zurückgibt, wenn das `In` Vorgaben hat —
- * die übrigen Felder des InitIn sind `???`, bis der Worker sie setzt. `null`: keine Vorgaben.
+ * What the init worker returns in `customInit` when the `In` has defaults —
+ * the other fields of the InitIn are `???` until the worker sets them. `null`: no defaults.
  */
 export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | null {
   const fromIn = defaultsForInit(spec, idx);
@@ -1000,16 +1000,16 @@ export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | nu
     const value = r.scala ?? `??? /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
     return `  ${f.name} = in.${f.name}.getOrElse(${value})`;
   });
-  // die übrigen Felder des InitIn berechnet der Worker — `???` statt der Beispielwerte:
-  // so schlägt er fehl, bis es implementiert ist
+  // the worker computes the other fields of the InitIn — `???` instead of the example values:
+  // so it fails until it is implemented
   const rest = own.filter(o => !fromIn.some(f => f.name === o.name))
     .map(o => `  ${o.name} = ??? /* TODO im InitWorker setzen */`);
   return `InitIn(\n${[...args, ...rest].join(',\n')}\n)`;
 }
 
 /**
- * `val descr` einer Interaktion: ein Ausdruck aus der Domain wörtlich, sonst der
- * Text — mehrzeilig als `"""…""".stripMargin`, wie in der Domain üblich.
+ * `val descr` of an interaction: an expression from the domain verbatim, otherwise the
+ * text — multi-line as `"""…""".stripMargin`, as usual in the domain.
  */
 function descrLine(ia: Interaction): string {
   if (ia.descrExpr?.trim()) return `  val descr: String = ${ia.descrExpr.trim()}`;
@@ -1019,36 +1019,36 @@ function descrLine(ia: Interaction): string {
   return [`  val descr: String =`, `    ${tripleOpen(text)}${tripleText(first, text)}`, ...rest.map(l => `      |${tripleText(l, text)}`), '      |""".stripMargin'].join('\n');
 }
 
-/** Die Beschreibung des Prozesses für den Helper: `// descr: erste Zeile`, dann `// descr| …` je Zeile. */
+/** The description of the process for the helper: `// descr: erste Zeile`, then `// descr| …` per line. */
 export function descrComment(text: string | undefined): string[] {
   const lines = (text ?? '').trim().split('\n').map(l => escape(l.trimEnd()));
   if (!lines[0]) return [];
   return [`// descr: ${lines[0]}`, ...lines.slice(1).map(l => (l ? `// descr| ${l}` : '// descr|'))];
 }
 
-// ── Dateien ──────────────────────────────────────────────────────────────────
+// ── Files ────────────────────────────────────────────────────────────────────
 export interface ScalaFile {
-  /** Pfad relativ zum Projekt */
+  /** Path relative to the project */
   path: string;
   content: string;
-  /** true = ins bestehende Prozess-Objekt einfügen, nicht als neue Datei */
+  /** true = insert into the existing process object, not as a new file */
   insert?: boolean;
-  /** Klammer: der eigene Block oder Ereignis-Subprozess, zu dem die Interaktion gehört */
+  /** Bracket: the own block or event subprocess the interaction belongs to */
   section?: string;
 }
 
-// Nur was der Typ wirklich braucht: Iron-Refinements und Service-Objekte
-// bringen ihre Imports mit, alles Übrige stellt Orchescala über den
-// Package-Export bereit.
-/** Alle Felder eines Typs — bei einem ADT die gemeinsamen und die aller Fälle. */
+// Only what the type really needs: Iron refinements and service objects
+// bring their imports along, everything else Orchescala provides via the
+// package export.
+/** All fields of a type — for an ADT the shared ones and those of all cases. */
 export function allFields(t: TypeDef): Field[] {
   return t.kind === 'enum' ? [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])] : (t.fields ?? []);
 }
 
 /**
- * Die Paket-Zeilen einer Datei: geteilt nach `domain` — `package valiant.product.domain`
- * und `package lilaSet.v2` —, damit alles aus `valiant.product.domain` ohne Import
- * sichtbar ist, wie in den Domain-Dateien von Hand. Ohne `domain` eine Zeile.
+ * The package lines of a file: split at `domain` — `package valiant.product.domain`
+ * and `package lilaSet.v2` —, so that everything from `valiant.product.domain` is visible
+ * without an import, as in the hand-written domain files. Without `domain` one line.
  */
 export function packageClause(pkg: string): string {
   const parts = pkg.split('.');
@@ -1058,7 +1058,7 @@ export function packageClause(pkg: string): string {
     : `package ${pkg}`;
 }
 
-/** Das Paket der ersten Paket-Zeile (`valiant.product.domain`) — dessen Inhalt braucht keinen Import */
+/** The package of the first package line (`valiant.product.domain`) — its content needs no import */
 const domainStem = (pkg: string): string | null => {
   const parts = pkg.split('.');
   const at = parts.indexOf('domain');
@@ -1071,40 +1071,40 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   if (fields.some(f => f.constraint?.trim())) {
     lines.push('import io.github.iltotore.iron.*', 'import io.github.iltotore.iron.constraint.all.*');
   }
-  const external = new Map<string, string>(); // importPath → Anmerkung
+  const external = new Map<string, string>(); // importPath → note
   for (const f of fields) {
-    // der Beispielwert aus einem anderen Projekt braucht seinen Import — abgeleitet
-    // (`clientKey` → `defaultClientKey`) oder im Beispiel genannt (`defaultValidUntil`)
+    // the example value from another project needs its import — derived
+    // (`clientKey` → `defaultClientKey`) or named in the example (`defaultValidUntil`)
     const d = f.example?.trim() ? null : idx.defaultOf(f);
     if (d && !isAutoImported(d.pkg)) external.set(`${d.pkg}.${d.name}`, '');
-    // die Objekte einer Beschreibung aus der Domain (`SendProcessEvent.processName`, `Escalation.*`)
+    // the objects of a description from the domain (`SendProcessEvent.processName`, `Escalation.*`)
     if (f.descriptionExpr) for (const i of f.descriptionImports ?? []) external.set(i, '');
     for (const name of f.example?.match(/\bdefault[A-Z]\w*/g) ?? []) {
-      // aus der Domain: der Import ihrer Datei — oder keiner, wenn der Wert dort ohne sichtbar war
+      // from the domain: the import of its file — or none if the value was visible there without one
       if (f.exampleImports) {
         const own = f.exampleImports.filter(i => i.endsWith(`.${name}`));
         for (const i of own) external.set(i, '');
-        // … ausser über verschachtelte Pakete (`package valiant.product` / `package domain`):
-        // der Export teilt die Paket-Zeile nur nach `domain` (siehe packageClause) — ein Wert
-        // des eigenen Projekts anderswo braucht den Import (unten fällt er weg, wenn sichtbar)
+        // … except via nested packages (`package valiant.product` / `package domain`):
+        // the export only splits the package line at `domain` (see packageClause) — a value
+        // of the own project elsewhere needs the import (below it is dropped if visible)
         const named = own.length ? null : idx.defaultNamed(name);
         if (named && idx.home && (named.pkg === idx.home || named.pkg.startsWith(`${idx.home}.`))) external.set(`${named.pkg}.${named.name}`, '');
         continue;
       }
-      // von Hand eingetragen: der Wert aus dem Katalog
+      // entered by hand: the value from the catalog
       const named = idx.defaultNamed(name);
       if (named && !isAutoImported(named.pkg)) external.set(`${named.pkg}.${named.name}`, '');
     }
     const dom = idx.domainOf(f.type);
-    // was Orchescala ohne Import mitbringt (`ProcessStatus`), braucht keinen
+    // what Orchescala brings along without an import (`ProcessStatus`) needs none
     if (dom) { if (!isAutoImported(dom.pkg)) external.set(dom.importPath, ''); continue; }
-    // eine Klasse einer anderen Domain: dort importiert statt hier angelegt
+    // a class of another domain: imported there instead of created here
     const ref = idx.referenced.get(f.type);
     if (ref) { external.set(ref.importPath, ''); continue; }
     const svc = idx.serviceOf(f.type);
     if (svc) external.set(svc.importPath, svc.uncertain ? '  // Pfad prüfen — aus dem Service-Namen abgeleitet' : '');
   }
-  // was direkt in `valiant.product.domain` liegt, sieht die Datei über ihre erste Paket-Zeile
+  // what lives directly in `valiant.product.domain` the file sees via its first package line
   const stem = domainStem(idx.ownPkg);
   for (const [path, note] of [...external.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     if (stem && path.slice(0, path.lastIndexOf('.')) === stem) continue;
@@ -1119,11 +1119,11 @@ function imports(t: TypeDef, idx: TypeIndex): string {
 }
 
 /**
- * Package-Pfad aus Projekt und Prozessname: `globex.savings.domain.openSavings.v1`.
+ * Package path from project and process name: `globex.savings.domain.openSavings.v1`.
  *
- * Trägt der Prozessname keine Version und wiederholt er nur das Projekt
- * (`globex-ordercard`), bleibt sein letztes Segment übrig — ein
- * Bindestrich wäre in einem Package-Namen nicht erlaubt.
+ * If the process name carries no version and only repeats the project
+ * (`globex-ordercard`), its last segment remains — a
+ * hyphen would not be allowed in a package name.
  */
 export function packageOf(spec: ProcessSpec, model: Model | null = null): string {
   const echt = domainHome(spec, model);
@@ -1144,11 +1144,11 @@ export function packageOf(spec: ProcessSpec, model: Model | null = null): string
 }
 
 /**
- * Wo dieser Prozess in der Domain wirklich liegt — erkennbar am
- * `val processName` seines Objekts. Ohne Katalog-Eintrag bleibt nur die
- * Ableitung aus der Prozess-ID, und die ist eine Vermutung:
- * `globex-ordercard` gibt `ordercard` her, in der Domain heisst das
- * Paket aber `orderCard`.
+ * Where this process really lives in the domain — recognizable by the
+ * `val processName` of its object. Without a catalog entry only the
+ * derivation from the process ID remains, and that is a guess:
+ * `globex-ordercard` yields `ordercard`, but in the domain the
+ * package is called `orderCard`.
  */
 function domainHome(spec: ProcessSpec, model: Model | null): { pkg: string; object: string } | null {
   const id = spec.processId ?? spec.name;
@@ -1156,13 +1156,13 @@ function domainHome(spec: ProcessSpec, model: Model | null): { pkg: string; obje
   return treffer ? { pkg: treffer.pkg, object: treffer.owner! } : null;
 }
 
-/** Der Scala-Name des Prozess-Objekts: `OpenSavingsV1`, `OrderCard`. */
+/** The Scala name of the process object: `OpenSavingsV1`, `OrderCard`. */
 export function processObject(spec: ProcessSpec, model: Model | null = null): string {
   const echt = domainHome(spec, model);
   if (echt) return echt.object;
   const teil = packageOf(spec).split('.');
   const proc = teil[teil.length - 2] ?? spec.name;
-  // ohne Version — die steht im Package (`openSavings.v1` → `OpenSavings`)
+  // without version — that is in the package (`openSavings.v1` → `OpenSavings`)
   return proc.replace(/^(.)/, c => c.toUpperCase());
 }
 
@@ -1170,13 +1170,13 @@ function srcDir(spec: ProcessSpec, model: Model | null): string {
   return `01-domain/src/main/scala/${packageOf(spec, model).replace(/\./g, '/')}`;
 }
 
-/** Paket des eigenen Projekts: `valiant-product` → `valiant.product`. */
+/** Package of the own project: `valiant-product` → `valiant.product`. */
 export const homeOf = (spec: ProcessSpec): string => (spec.project ?? '').split('-').filter(Boolean).join('.');
 
-/** Die Imports einer Interaktion — die ihres `In` und `Out` (Katalog-Typen, Beispielwerte). */
+/** The imports of an interaction — those of its `In` and `Out` (catalog types, example values). */
 function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex, pkg: string): string {
   const typeOf = (id: string | undefined) => (spec.types ?? []).find(t => t.id === id);
-  // ein Alias braucht die Felder nicht — nur sein Objekt, wenn es woanders liegt
+  // an alias does not need the fields — only its object, if it lives elsewhere
   const aliasImport = (ref: string | undefined): string[] => {
     const d = ref?.startsWith(DOMAIN_PREFIX) ? idx.domainOf(ref) : null;
     const owner = d ? d.owner ?? d.name.split('.')[0] : null;
@@ -1185,13 +1185,13 @@ function interactionImports(ia: Interaction, spec: ProcessSpec, idx: TypeIndex, 
   const lines = [...new Set([
     ...(ia.inAlias ? aliasImport(ia.inAlias) : typeOf(ia.inTypeId) ? importsOf(typeOf(ia.inTypeId)!, idx) : []),
     ...(ia.outAlias ? aliasImport(ia.outAlias) : typeOf(ia.outTypeId) ? importsOf(typeOf(ia.outTypeId)!, idx) : []),
-    // die Objekte in einem `descr`-Ausdruck
+    // the objects in a `descr` expression
     ...(ia.descrExpr ? (ia.descrImports ?? []).map(i => `import ${i}`) : []),
   ])];
   return lines.length ? `\n${lines.join('\n')}\n` : '';
 }
 
-/** Alle Dateien, die aus dem Datenmodell entstehen. */
+/** All files that result from the data model. */
 export function scalaFiles(spec: ProcessSpec, model: Model | null = null): ScalaFile[] {
   const types = spec.types ?? [];
   if (!types.length && !(spec.interactions ?? []).length) return [];
@@ -1200,8 +1200,8 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   const dir = srcDir(spec, model);
   const out: ScalaFile[] = [];
 
-  // Prozess-Objekt in der Reihenfolge der Domain: In, InitIn, InConfig, Out —
-  // danach, was sonst im Objekt steht (`enum CustomProcessStatus`)
+  // Process object in the order of the domain: In, InitIn, InConfig, Out —
+  // then whatever else is in the object (`enum CustomProcessStatus`)
   const objectName = processObject(spec, model);
   const processParts: string[] = [];
   const processImports = new Set<string>();
@@ -1212,17 +1212,17 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   for (const t of types.filter(t => t.root)) member(t, 'In');
   const initIn = renderInitIn(spec, idx);
   if (initIn) processParts.push(indent(initIn));
-  // die eigenen Felder des InitIn bringen ihre Imports mit — die aus dem In hat das In schon
+  // the own fields of the InitIn bring their imports along — those from the In the In already has
   const initInType = types.find(t => t.initIn);
   if (initIn && initInType) for (const l of importsOf(initInType, idx)) processImports.add(l);
   const inConfig = renderInConfig(spec, processImports, idx);
   if (inConfig) processParts.push(indent(inConfig));
   for (const t of types.filter(t => t.processOut && !t.root)) member(t, 'Out');
-  // was im Prozess-Objekt selbst steht — dort, nicht in schema/
+  // what is in the process object itself — there, not in schema/
   const inObject = (t: TypeDef) => inProcessObject(t, model, pkg);
   for (const t of types.filter(t => inObject(t) && t.name?.trim())) member(t);
   const customInit = initInExpression(spec, idx);
-  // das Pattern «Prozess-Bezeichnung» — ohne Werte gibt es nichts zu schreiben
+  // the pattern «Prozess-Bezeichnung» — without values there is nothing to write
   const labels = spec.processLabels?.de?.trim() || spec.processLabels?.fr?.trim() ? spec.processLabels : undefined;
 
   if (processParts.length) {
@@ -1233,13 +1233,13 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
         ...(processImports.size
           ? ['// oben in der Datei ergänzen:', ...[...processImports].map(l => `// ${l}`), '']
           : []),
-        // gehört in den Worker, nicht in die Domain — der Helper setzt ihn dort ein
+        // belongs in the worker, not in the domain — the helper inserts it there
         ...(customInit
           ? ['// im InitWorker (customInit):', ...customInit.split('\n').map(l => `// ${l}`), '']
           : []),
-        // für ein neues Prozess-Objekt — ein bestehendes behält sein `descr`
-        // die ganze Beschreibung: die erste Zeile `// descr: …`, jede weitere `// descr| …`
-        // (ein älterer Helper liest nur die erste)
+        // for a new process object — an existing one keeps its `descr`
+        // the whole description: the first line `// descr: …`, every further one `// descr| …`
+        // (an older helper only reads the first)
         ...descrComment(spec.description),
         ...(labels ? [`// processLabels: ${escape(labels.de)} | ${escape(labels.fr)}`] : []),
         ...(spec.description?.trim() || labels ? [''] : []),
@@ -1251,10 +1251,10 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     });
   }
 
-  // Je Interaktion eine eigene Datei. Dasselbe Signal an zwei Stellen im
-  // Ablauf ist **ein** Objekt — sonst stünde die Datei zweimal im Export.
-  // Erst der Hauptablauf, dann je eigenem Block bzw. Ereignis-Subprozess
-  // eine Klammer — dieselbe wie im Baum und im Datenmodell.
+  // One file per interaction. The same signal at two places in the
+  // flow is **one** object — otherwise the file would appear twice in the export.
+  // First the main flow, then a bracket per own block or event subprocess
+  // — the same as in the tree and in the data model.
   const blocks = blockIndex(spec.steps);
   const sectionOf = (ia: Interaction): string | undefined => {
     const ref = blocks.get(ia.stepId);
@@ -1264,13 +1264,13 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   const geschrieben = new Set<string>();
   const sorted = [...(spec.interactions ?? [])].map((ia, i) => ({ ia, i, section: sectionOf(ia) }))
     .sort((a, b) => (a.section ? 1 : 0) - (b.section ? 1 : 0) || (a.section ?? '').localeCompare(b.section ?? '') || a.i - b.i);
-  // eine Interaktion, deren Schritt nicht mehr im Ablauf steht, kommt nicht in den Code
+  // an interaction whose step is no longer in the flow does not get into the code
   const stepIds = new Set(allSteps(spec.steps).map(s => s.id));
   for (const { ia, section } of sorted) {
-    // ohne Namen gäbe es `object  extends …` — erst, wenn sie einen hat
+    // without a name there would be `object  extends …` — only once it has one
     if (!ia.name?.trim() || geschrieben.has(ia.name) || !stepIds.has(ia.stepId)) continue;
-    // schon in einer anderen Domain (anderer Prozess, anderes Projekt): referenziert —
-    // nicht neu angelegt, der Helper legte sonst Objekt und Worker ein zweites Mal an
+    // already in another domain (other process, other project): referenced —
+    // not created anew, otherwise the helper would create object and worker a second time
     if (interactionOrigin(ia, model, pkg).foreign) continue;
     geschrieben.add(ia.name);
     out.push({
@@ -1280,7 +1280,7 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
     });
   }
 
-  // eine Klasse einer anderen Domain wird importiert (siehe importsOf), nicht angelegt
+  // a class of another domain is imported (see importsOf), not created
   for (const t of types.filter(t => t.name?.trim() && isSchemaClass(t) && !inObject(t) && !idx.referenced.has(t.id))) {
     out.push({
       path: `${dir}/schema/${t.name}.scala`,
@@ -1290,12 +1290,12 @@ export function scalaFiles(spec: ProcessSpec, model: Model | null = null): Scala
   return out;
 }
 
-/** Alle Dateien als ein Text — zum Prüfen, Kopieren und für die KI. */
+/** All files as one text — for checking, copying and for the AI. */
 export function scalaBundle(spec: ProcessSpec, model: Model | null = null): string {
   const files = scalaFiles(spec, model);
   if (!files.length) return '// Noch kein Datenmodell — im Klassenbauer anlegen.';
-  // Klammer: eine Überschrift, sobald ein eigener Block beginnt — und wieder
-  // eine, wenn danach die gemeinsamen Klassen (schema/) folgen
+  // Bracket: a heading as soon as an own block begins — and again
+  // one when the shared classes (schema/) follow afterwards
   let section: string | undefined;
   return files.map(f => {
     const head = f.section !== section ? `// ${'═'.repeat(72)}\n// ${f.section ?? 'Gemeinsame Klassen'}\n// ${'═'.repeat(72)}\n\n` : '';
@@ -1304,17 +1304,17 @@ export function scalaBundle(spec: ProcessSpec, model: Model | null = null): stri
   }).join('\n\n');
 }
 
-// ── Prüfungen ────────────────────────────────────────────────────────────────
+// ── Checks ───────────────────────────────────────────────────────────────────
 export interface TypeIssue { typeId: string; field?: string; message: string }
 
 const SCALA_NAME = /^[a-z][A-Za-z0-9]*$/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
 const RESERVED = new Set(['type', 'val', 'var', 'def', 'class', 'object', 'case', 'match', 'new', 'with', 'given', 'end', 'for', 'if', 'else', 'true', 'false', 'null', 'import', 'package', 'extends', 'lazy', 'implicit', 'private', 'sealed', 'trait', 'enum', 'then', 'do', 'while', 'yield', 'return', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'abstract', 'final', 'override', 'protected', 'forSome']);
 
-/** Was den generierten Scala-Code brechen würde — direkt in der Oberfläche. */
-/** Die Fälle einer Auswahl mit Feldern (eigen oder aus dem Katalog) — null, wenn der Typ keine ist. */
+/** What would break the generated Scala code — directly in the UI. */
+/** The cases of a choice with fields (own or from the catalog) — null if the type is not one. */
 export function casesOf(typeRef: string, idx: TypeIndex): string[] | null {
-  // ADT-Fall = eigene Klasse, einfacher Fall = Singleton-Typ — beides wählbar
+  // ADT case = own class, simple case = singleton type — both selectable
   const own = idx.byId.get(typeRef);
   if (own) return own.kind === 'enum' ? (own.values ?? []).map(v => v.name).filter(Boolean) : null;
   const dom = idx.domainOf(typeRef);
@@ -1322,7 +1322,7 @@ export function casesOf(typeRef: string, idx: TypeIndex): string[] | null {
   return null;
 }
 
-/** Ein Enum ohne Felder — seine Fälle sind Werte, kein ADT. */
+/** An enum without fields — its cases are values, not an ADT. */
 export function isSimpleEnum(typeRef: string, idx: TypeIndex): boolean {
   const own = idx.byId.get(typeRef);
   if (own) return own.kind === 'enum' && !isAdt(own);
@@ -1330,22 +1330,22 @@ export function isSimpleEnum(typeRef: string, idx: TypeIndex): boolean {
   return !!dom && dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length;
 }
 
-/** Name eines Falls ohne Backticks — so steht er in `values`. */
+/** Name of a case without backticks — as it appears in `values`. */
 export const caseName = (c: string): string => c.replace(/^`|`$/g, '');
-/** Ein Fall als Scala-Bezeichner: `canceled`, aber `` `output-mocked` `` */
+/** A case as a Scala identifier: `canceled`, but `` `output-mocked` `` */
 const caseIdent = (c: string): string => scalaIdent(caseName(c));
 
 /**
- * Der Wert eines festen Enum-Falls (`ProcessStatus.canceled`) — er ist die
- * Vorgabe des Feldes, denn der Typ lässt keinen anderen zu. Nur ein einzelner
- * Wert (nicht mehrfach, keine Map); optional bleibt ohne Vorgabe (`None`).
+ * The value of a fixed enum case (`ProcessStatus.canceled`) — it is the
+ * default of the field, since the type allows no other. Only a single
+ * value (not multiple, no map); optional stays without a default (`None`).
  */
 export function fixedCaseValue(f: Field, idx: TypeIndex): string | null {
   if (!f.enumCase || f.collection || f.map || f.optional || !isSimpleEnum(f.type, idx)) return null;
   return `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`;
 }
 
-/** Die Fälle eines eigenen Enums, die ein Feld irgendwo als festen Typ nutzt. */
+/** The cases of an own enum that some field uses as a fixed type. */
 function fixedCasesOf(typeId: string, idx: TypeIndex): string[] {
   const out = new Set<string>();
   const visit = (fs: Field[] | undefined) => { for (const f of fs ?? []) if (f.type === typeId && f.enumCase) out.add(caseName(f.enumCase)); };
@@ -1359,7 +1359,7 @@ function fixedCasesOf(typeId: string, idx: TypeIndex): string[] {
 export function checkTypes(types: TypeDef[] = [], model: Model | null = null): TypeIssue[] {
   const issues: TypeIssue[] = [];
   const idxAll = indexTypes(types, model);
-  // ein fester Fall bzw. eine Ausprägung: gibt es ihn, taugt er als Typ?
+  // a fixed case or a variant: does it exist, is it usable as a type?
   const enumCaseIssues = (t: TypeDef, f: Field) => {
     if (!f.enumCase) return;
     const cases = casesOf(f.type, idxAll);
@@ -1374,13 +1374,13 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
   };
   const names = new Map<string, number>();
   const ids = new Set(types.map(t => t.id));
-  // ohne Katalog wird der Service-Verweis nicht geprüft (statt falsch gemeldet)
+  // without a catalog the service reference is not checked (instead of being reported wrongly)
   const services = model ? new Set(model.services.map(s => s.id)) : null;
 
   for (const t of types) {
     names.set(t.name, (names.get(t.name) ?? 0) + 1);
-    // Typen einer Interaktion heissen «Objekt.In» — das ist der Anzeigename;
-    // erzeugt wird daraus `In` innerhalb des Objekts.
+    // Types of an interaction are called «Objekt.In» — that is the display name;
+    // what gets generated from it is `In` inside the object.
     const displayName = t.interactionId ? (t.name.split('.').pop() ?? t.name) : t.name;
     if (!TYPE_NAME.test(displayName)) {
       issues.push({ typeId: t.id, message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Grossbuchstabe, keine Sonderzeichen).` });
@@ -1392,7 +1392,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9]*|`[^`]+`)$/.test(v)) {
         issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (Sonderzeichen nur in Backticks: \`QI-Deklaration\`).` });
       }
-      // Ein ADT: die Felder je Fall werden wie Klassenfelder geprüft
+      // An ADT: the fields per case are checked like class fields
       if (!isAdt(t)) continue;
       const common = new Set((t.fields ?? []).map(f => f.name));
       for (const v of t.values ?? []) {
@@ -1405,8 +1405,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       }
     }
     const fields = t.kind === 'enum' ? allFields(t) : (t.fields ?? []);
-    // InitIn und InConfig dürfen leer sein — dann gibt es sie im Export nicht
-    // (NoInput); «leer» in der Liste bleibt als Hinweis
+    // InitIn and InConfig may be empty — then they do not exist in the export
+    // (NoInput); «leer» in the list stays as a hint
     if (!fields.length && t.kind === 'case' && !t.initIn && !t.inConfig) issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
     const seen = new Set<string>();
     for (const f of fields) {
@@ -1416,12 +1416,12 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       if (RESERVED.has(f.name)) {
         issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist ein Scala-Schlüsselwort.` });
       }
-      // in einem ADT darf derselbe Feldname in mehreren Fällen stehen
+      // in an ADT the same field name may appear in several cases
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
       seen.add(f.name);
-      // eine Vorgabe gibt es nur im InConfig und bei optionalen Feldern der
-      // Prozess-Eingabe — und eine FEEL-Vorgabe muss sich nach Scala übersetzen lassen
-      // bei einem festen Fall ist die Vorgabe der Fall selbst — sie folgt aus dem Typ
+      // a default exists only in the InConfig and for optional fields of the
+      // process input — and a FEEL default must be translatable to Scala
+      // for a fixed case the default is the case itself — it follows from the type
       if (f.default?.trim() && !defaultIsUsed(t, f) && !isFixedCaseDefault(f.enumCase, f.default)) {
         issues.push({ typeId: t.id, field: f.id, message: t.root
           ? `Vorgabe von «${f.name}» wird nicht verwendet — nur bei einem optionalen Feld (der Init-Worker setzt es dann im InitIn).`
@@ -1460,7 +1460,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
   for (const [name, n] of names) {
     if (n > 1) issues.push({ typeId: '', message: `Der Typname «${name}» ist ${n}× vergeben.` });
   }
-  // Zyklen über Pflichtfelder — die liessen sich nie bauen
+  // Cycles over mandatory fields — those could never be built
   for (const t of types.filter(t => t.kind === 'case')) {
     const path = new Set<string>();
     const hit = (id: string): boolean => {

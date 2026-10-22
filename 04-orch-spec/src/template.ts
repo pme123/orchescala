@@ -1,19 +1,19 @@
-// Vorlagen für neue Prozesse.
+// Templates for new processes.
 //
-// Ein neuer Prozess startet nicht mit einem leeren Blatt, sondern mit dem
-// BPMN, das im Haus üblich ist — Pool, Startereignis, Init-Worker, die
-// eigenen Fehlerdefinitionen. Die Vorlagen liegen als Dateien in
-// `public/templates/` und werden beim Anlegen geholt; welche es gibt, steht
-// hier. Eine dazunehmen heisst: Datei ablegen, Zeile ergänzen.
+// A new process does not start with a blank sheet, but with the
+// BPMN that is customary in-house — pool, start event, init worker, the
+// house error definitions. The templates live as files in
+// `public/templates/` and are fetched on creation; which ones exist is listed
+// here. Adding one means: drop in the file, add a line.
 //
-// Eine je Engine, weil ein C7- und ein C8-Diagramm nicht dasselbe brauchen:
-// dort External Tasks mit Topic und `camunda:`-Erweiterungen, hier
-// `zeebe:taskDefinition`. Eine gemeinsame Vorlage wäre für beide falsch.
+// One per engine, because a C7 and a C8 diagram don't need the same things:
+// there external tasks with a topic and `camunda:` extensions, here
+// `zeebe:taskDefinition`. A shared template would be wrong for both.
 //
-// In den Dateien steht `COMPANY-PROJECT-PROCESSVERSION`, wo die Prozess-ID
-// hingehört. Beim Anlegen wird sie überall ersetzt — Prozess, Pool, Topics.
-// Bliebe sie stehen, hiessen alle Prozesse gleich, und daran hängt mehr, als
-// es aussieht: Topics, die Zuordnung zur Domain und der Dateiname.
+// The files contain `COMPANY-PROJECT-PROCESSVERSION` where the process ID
+// belongs. On creation it is replaced everywhere — process, pool, topics.
+// If it remained, all processes would have the same name, and more depends on that than
+// it seems: topics, the mapping to the domain and the file name.
 
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 import type { EngineId } from './types.ts';
@@ -21,9 +21,9 @@ import type { EngineId } from './types.ts';
 export interface EngineDef {
   id: EngineId;
   label: string;
-  /** wozu diese Vorlage gehört — steht im Anlegen-Dialog daneben */
+  /** what this template is for — shown next to it in the create dialog */
   hint: string;
-  /** Datei unterhalb von `public/templates/` */
+  /** file below `public/templates/` */
   file: string;
 }
 
@@ -34,13 +34,13 @@ export const ENGINES: EngineDef[] = [
 
 
 
-/** Der Platzhalter in den Vorlagen — siehe `applyTemplate`. */
+/** The placeholder in the templates — see `applyTemplate`. */
 export const PLACEHOLDER = 'COMPANY-PROJECT-PROCESSVERSION';
 
-// Einmal geholt, bleibt geholt: die Vorlagen ändern sich zur Laufzeit nicht.
+// Once fetched, stays fetched: the templates don't change at runtime.
 const geholt = new Map<EngineId, Promise<string>>();
 
-/** Die Vorlage einer Engine holen. */
+/** Fetch the template of an engine. */
 export function loadTemplate(engine: EngineId): Promise<string> {
   const vorhanden = geholt.get(engine);
   if (vorhanden) return vorhanden;
@@ -76,13 +76,13 @@ function findAll(root: Element, name: string): Element[] {
 export interface TemplateCheck {
   ok: boolean;
   message: string;
-  /** ID des Prozesses in der Vorlage */
+  /** ID of the process in the template */
   processId?: string;
-  /** Zahl der Ablauf-Elemente (ohne Verbindungen) */
+  /** number of flow elements (without connections) */
   elements?: number;
 }
 
-/** Taugt diese Datei als Vorlage? */
+/** Is this file usable as a template? */
 export function checkTemplate(xml: string): TemplateCheck {
   let doc: Document;
   try {
@@ -106,19 +106,19 @@ export function checkTemplate(xml: string): TemplateCheck {
 }
 
 /**
- * Die Vorlage auf einen neuen Prozess münzen.
+ * Adapt the template to a new process.
  *
- * Ersetzt wird der Platzhalter **überall, wo er steht** — als Attribut ganz
- * oder als Teil davon, Element-IDs eingeschlossen
- * (`COMPANY-PROJECT-PROCESSVERSION-participant`). Das trifft genau die
- * Stellen, die ihn meinen: `processRef` des Pools, dessen Name, die
- * Diagramm-Ebene und die Topics der eigenen Worker
- * (`<prozess>.ExtractClientKey`). Weil in allen Attributen dasselbe ersetzt
- * wird, bleiben die Verweise untereinander stimmig — eine Liste bekannter
- * Stellen wäre kürzer, würde aber bei der nächsten Vorlage etwas übersehen.
+ * The placeholder is replaced **wherever it occurs** — as a whole attribute
+ * or as part of one, element IDs included
+ * (`COMPANY-PROJECT-PROCESSVERSION-participant`). That hits exactly the
+ * places that mean it: the pool's `processRef`, its name, the
+ * diagram plane and the topics of the own workers
+ * (`<prozess>.ExtractClientKey`). Because the same thing is replaced in all attributes,
+ * the references among each other stay consistent — a list of known
+ * places would be shorter, but would miss something with the next template.
  *
- * Gross-/Kleinschreibung zählt dabei nicht: in der eingebauten Vorlage heisst
- * der Pool `COMPANY-PROJECT-PROCESSVERSION`, die ID aber klein.
+ * Upper/lower case doesn't matter here: in the built-in template the pool
+ * is called `COMPANY-PROJECT-PROCESSVERSION`, but the ID is lower case.
  */
 export function applyTemplate(xml: string, ziel: { processId: string; title?: string }): string {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');

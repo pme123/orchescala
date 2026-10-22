@@ -1,5 +1,5 @@
-// `${masterRead.prop("clientSegment", 10)}` setzt in Camunda 7 (Spin) ein Feld
-// und gibt den Knoten zurück — in FEEL `context put(…)`. Und zurück.
+// `${masterRead.prop("clientSegment", 10)}` sets a field in Camunda 7 (Spin)
+// and returns the node — in FEEL `context put(…)`. And back.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { feelToJuel } from '../src/feelJuel';
@@ -8,7 +8,7 @@ import { importExpression } from '../src/juelFeel';
 test('import: Spin prop(name, value) is context put', () => {
   assert.equal(importExpression('${masterRead.prop("clientSegment", 10)}'), '= context put(masterRead, "clientSegment", 10)');
   assert.equal(importExpression('${client.prop("address").prop("zip", "3000")}'), '= context put(client.address, "zip", "3000")');
-  // prop mit einem Argument liest weiterhin
+  // prop with one argument still reads
   assert.equal(importExpression('${masterRead.prop("clientSegment")}'), '= masterRead.clientSegment');
 });
 

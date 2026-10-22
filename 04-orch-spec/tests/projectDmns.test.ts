@@ -1,6 +1,6 @@
-// Beim Anlegen und beim Abgleich holt die App die Tabellen der zugeordneten
-// Decisions aus dem eigenen Projekt-Ordner — am Schritt sind sie dann gleich
-// bearbeitbar. Der Ordnerzugriff (IndexedDB, Directory-Handles) ist hier nachgebildet.
+// On create and on sync the app fetches the tables of the matched decisions
+// from the own project folder — they can then be edited at the step right away.
+// The folder access (IndexedDB, directory handles) is faked here.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -11,7 +11,7 @@ import type { Model, ProcessSpec } from '../src/types';
 
 type Tree = { [name: string]: Tree | string };
 
-/** ein Ordner im Speicher — Unterordner als Objekt, Dateien als Text */
+/** a folder in memory — subfolders as objects, files as text */
 function dir(name: string, tree: Tree): unknown {
   return {
     kind: 'directory', name,
@@ -29,7 +29,7 @@ function dir(name: string, tree: Tree): unknown {
   };
 }
 
-/** IndexedDB mit den gemerkten Handles — nur was getHandle braucht */
+/** IndexedDB with the remembered handles — only what getHandle needs */
 function fakeIndexedDb(handles: Record<string, unknown>) {
   const request = <T>(result: T) => {
     const req: { result: T; onsuccess?: () => void } = { result };

@@ -1,9 +1,9 @@
-// Klassenbauer: das Datenmodell des Prozesses — allen voran das **In**.
+// Class builder: the data model of the process — above all the **In**.
 //
-// Links die Typen, in der Mitte die Felder, rechts der Scala-Code, der daraus
-// entsteht (live). `InConfig` entsteht zum grössten Teil aus dem Ablauf
-// (Schleifen, Mocks); eigene Stellschrauben lassen sich wie beim `InitIn`
-// als Felder pflegen.
+// On the left the types, in the middle the fields, on the right the Scala code
+// generated from them (live). `InConfig` mostly results from the flow
+// (loops, mocks); own adjusting knobs can be maintained, as with the `InitIn`,
+// as fields.
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, ClipboardPaste, Copy, Check, ListOrdered,
@@ -40,34 +40,34 @@ interface Props {
   spec: ProcessSpec;
   isDark: boolean;
   canEdit: boolean;
-  /** Service-Katalog — liefert die wählbaren Service-Objekte */
+  /** service catalog — provides the selectable service objects */
   model: Model | null;
   onChange: (spec: ProcessSpec) => void;
-  /** aus dem Ablauf hierher gesprungen: diesen Typ zeigen */
+  /** jumped here from the flow: show this type */
   focusTypeId?: string | null;
   onFocused?: () => void;
-  /** aus den Kommentaren hierher gesprungen: diese Interaktion zeigen */
+  /** jumped here from the comments: show this interaction */
   focusIaId?: string | null;
   onFocusedIa?: () => void;
 }
 
 const emptyField = (): Field => ({ id: uid('f'), name: '', type: 'String' });
 
-// ── Kopieren und Einfügen ────────────────────────────────────────────────────
-// Klassen und Felder wandern über die Zwischenablage (clipboard.ts) in dieses
-// oder ein anderes Datenmodell — auch in einem anderen Tab. Der Kontext spart
-// es, die Aktionen durch Editor, Auswahl und Feldzeile zu reichen.
+// ── Copy and paste ───────────────────────────────────────────────────────────
+// Classes and fields travel via the clipboard (clipboard.ts) into this
+// or another data model — even in another tab. The context saves
+// passing the actions through editor, selection and field row.
 interface ClipActions {
   copyType: (t: TypeDef) => void;
   copyField: (f: Field) => void;
-  /** an die Klasse — bei einer Auswahl an den Fall Nummer `valueIndex` */
+  /** into the class — for a choice into case number `valueIndex` */
   pasteField: (typeId: string, valueIndex?: number) => void;
 }
 const ClipContext = createContext<ClipActions | null>(null);
-/** die ganze Spezifikation — für die Feldzeile (gehört ein Feld zu einem Pattern?) */
+/** the whole specification — for the field row (does a field belong to a pattern?) */
 const SpecContext = createContext<ProcessSpec | null>(null);
 
-/** Kopieren, kurz mit Häkchen bestätigt */
+/** copy, briefly confirmed with a check mark */
 function ClipCopyButton({ onCopy, title, className }: { onCopy: () => void; title: string; className: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -78,7 +78,7 @@ function ClipCopyButton({ onCopy, title, className }: { onCopy: () => void; titl
   );
 }
 
-/** «Feld einfügen» — nur, wenn ein Feld in der Zwischenablage liegt */
+/** «Feld einfügen» — only if a field is in the clipboard */
 function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valueIndex?: number; isDark: boolean }) {
   const actions = useContext(ClipContext);
   const m = useClipboard().model;
@@ -95,7 +95,7 @@ function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valu
 }
 const SCALA_KEY = 'orch-spec.showScala';
 
-/** Ergebnisformen einer DMN Decision — die Fabriken in Orchescala (BpmnDecisionDsl) */
+/** result shapes of a DMN decision — the factories in Orchescala (BpmnDecisionDsl) */
 const DMN_FORMS: Array<{ id: DecisionResult; label: string }> = [
   { id: 'singleEntry', label: 'ein einfacher Wert (Out mit genau einem Feld)' },
   { id: 'singleResult', label: 'ein Objekt (Out)' },
@@ -103,17 +103,17 @@ const DMN_FORMS: Array<{ id: DecisionResult; label: string }> = [
   { id: 'resultList', label: 'Liste von Objekten (Out)' },
 ];
 
-/** Gruppen der Seitenleiste je Art der Interaktion — in dieser Reihenfolge. */
+/** groups of the sidebar per kind of interaction — in this order. */
 const KIND_GROUP: Record<Interaction['kind'], string> = {
   userTask: 'User Tasks', customTask: 'Worker', decision: 'DMN Decisions', signal: 'Signale', message: 'Nachrichten',
 };
 
-// ── Seitenleiste: was ein Typ ist, was ihm fehlt, ob er gebraucht wird ─────
-/** Leer — kein Feld bzw. kein Wert mit Namen? */
+// ── Sidebar: what a type is, what it lacks, whether it is used ─────────────
+/** empty — no field or no value with a name? */
 const isEmptyType = (t: TypeDef | null | undefined): boolean =>
   !t || (t.kind === 'enum' ? !(t.values ?? []).some(v => v.name) : !(t.fields ?? []).some(f => f.name));
 
-/** Kurz, was drin ist: «14», «ADT · 2 Fälle · 8 gemeinsam», «3 Werte». */
+/** briefly, what is inside: «14», «ADT · 2 Fälle · 8 gemeinsam», «3 Werte». */
 function contentLabel(t: TypeDef): string {
   if (t.kind !== 'enum') return String((t.fields ?? []).filter(f => f.name).length);
   const cases = (t.values ?? []).filter(v => v.name).length;
@@ -122,7 +122,7 @@ function contentLabel(t: TypeDef): string {
   return `ADT · ${cases} F${cases === 1 ? 'all' : 'älle'}${common ? ` · ${common} gemeinsam` : ''}`;
 }
 
-/** Wie viele Felder anderer Typen auf diesen Typ zeigen. */
+/** how many fields of other types point to this type. */
 function usageCount(all: TypeDef[], id: string): number {
   let n = 0;
   for (const t of all) {
@@ -134,7 +134,7 @@ function usageCount(all: TypeDef[], id: string): number {
 
 const amber = (isDark: boolean) => (isDark ? 'text-amber-400' : 'text-amber-600');
 
-/** Farbe und Zeichen des Typ-Chips einer Feldzeile. */
+/** color and symbol of the type chip of a field row. */
 function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>, model: Model | null, isDark: boolean):
   { cls: string; icon: React.ReactNode; ownId?: string; title?: string } {
   const own = types.find(t => t.id === f.type);
@@ -151,7 +151,7 @@ function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>
   const dom = idx.domainOf(f.type);
   const svc = idx.serviceOf(f.type);
   if (dom || svc) {
-    // Katalog — fehlt der Eintrag im geladenen Katalog, ist das ein Fehler
+    // catalog — if the entry is missing in the loaded catalog, that is an error
     return {
       icon: <Plug size={9} className="flex-shrink-0" />,
       title: dom ? `${dom.name} — aus dem Domain-Katalog (${dom.pkg})` : `${svc!.name} — Service-Objekt, ${svc!.label}`,
@@ -165,7 +165,7 @@ function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>
   if (constraintKind(f.type) !== null || ['Boolean', 'LocalDate', 'LocalDateTime', 'Instant'].includes(f.type)) {
     return { icon: null, cls: isDark ? 'border-white/10 text-white/50' : 'border-black/10 text-black/50' };
   }
-  // ein Scala-Typ aus der Domain (`MockedServiceResponse[GetClient.Out]`) — wörtlich übernommen
+  // a Scala type from the domain (`MockedServiceResponse[GetClient.Out]`) — taken over verbatim
   if (isScalaTypeExpression(f.type)) {
     return { icon: null, title: `${f.type} — Scala-Typ aus der Domain, wird wörtlich übernommen`,
       cls: isDark ? 'border-white/10 text-white/60' : 'border-black/10 text-black/60' };
@@ -174,12 +174,12 @@ function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>
     cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };
 }
 
-/** Klasse ↔ ADT: die Felder wandern in den ersten Fall bzw. zurück. */
+/** class ↔ ADT: the fields move into the first case or back. */
 function switchKind(t: TypeDef, kind: 'case' | 'enum'): Partial<TypeDef> {
   if (kind === t.kind) return {};
-  // Klasse → ADT: die Felder werden die gemeinsamen, ein erster Fall entsteht
+  // class → ADT: the fields become the shared ones, a first case is created
   if (kind === 'enum') return { kind, values: [{ name: 'Standard' }] };
-  // ADT → Klasse: gemeinsame und spezielle Felder zusammen, je Name einmal
+  // ADT → class: shared and specific fields together, once per name
   const seen = new Set<string>();
   const fields = [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])].filter(f => !seen.has(f.name) && seen.add(f.name));
   return { kind, values: undefined, fields: fields.length ? fields : [emptyField()] };
@@ -189,18 +189,18 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const c = cls(isDark);
   const types = useMemo(() => spec.types ?? [], [spec.types]);
   const [selected, setSelected] = useState<string | null>(types[0]?.id ?? null);
-  /** gewählte Interaktion — dann steht ihr Kopf im Editor statt eines Typs */
+  /** selected interaction — then its header is shown in the editor instead of a type */
   const [selectedIa, setSelectedIa] = useState<string | null>(null);
-  /** InConfig wird erzeugt, nicht gepflegt — es hat nur eine Ansicht */
+  /** InConfig is generated, not maintained — it only has a view */
   const [showConfig, setShowConfig] = useState(false);
   const interactions = useMemo(() => spec.interactions ?? [], [spec.interactions]);
-  // Zu welchem eigenen Block ein Schritt gehört — die Seitenleiste klammert die Interaktionen so wie der Ablauf
+  // which own block a step belongs to — the sidebar groups the interactions the same way as the flow
   const blocks = useMemo(() => blockIndex(spec.steps), [spec.steps]);
-  // eine Interaktion, deren Schritt nicht mehr im Ablauf steht — z. B. im Diagramm gelöscht
+  // an interaction whose step is no longer in the flow — e.g. deleted in the diagram
   const stepIds = useMemo(() => new Set(allSteps(spec.steps).map(s => s.id)), [spec.steps]);
   const offen = useMemo(() => missingInteractions(spec, model), [spec, model]);
 
-  // Sprung aus dem Ablauf: den gewünschten Typ zeigen und die Anfrage quittieren
+  // jump from the flow: show the requested type and acknowledge the request
   useEffect(() => {
     if (!focusTypeId) return;
     setSelected(focusTypeId);
@@ -218,9 +218,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 
   const idx = useMemo(() => indexTypes(types, model, homeOf(spec)), [types, model, spec]);
   const issues = useMemo(() => checkTypes(types, model), [types, model]);
-  // Klassen, die es in der Domain schon gibt — gehören nicht ins Datenmodell (siehe referencedClass)
+  // classes that already exist in the domain — do not belong in the data model (see referencedClass)
   const existing = useMemo(() => referenceExistingClasses(spec, model), [spec, model]);
-  // … und Klassen, die es dort (noch) nicht gibt — neu, oder der Import fehlt
+  // … and classes that do not exist there (yet) — new, or the import is missing
   const notInDomain = useMemo(() => classesNotInDomain(spec, model), [spec, model]);
   const current = types.find(t => t.id === selected) ?? (selectedIa || showConfig ? null : types[0] ?? null);
 
@@ -228,10 +228,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const pickType = (id: string) => { setSelected(id); setSelectedIa(null); setShowConfig(false); };
 
   /**
-   * Die vier Typen eines Prozesses. Er ist die Klammer: `In` hinein, `Out`
-   * heraus, `InitIn` die zu Beginn gesetzten Variablen, `InConfig` die
-   * Stellschrauben für Tests. Fehlt einer, wird er beim Klick angelegt —
-   * ausser `InConfig`, das entsteht aus dem Ablauf.
+   * The four types of a process. It is the bracket: `In` going in, `Out`
+   * coming out, `InitIn` the variables set at the start, `InConfig` the
+   * adjusting knobs for tests. If one is missing, it is created on click —
+   * except `InConfig`, which results from the flow.
    */
   const processSlot = (slot: 'root' | 'initIn' | 'processOut') => {
     const t = types.find(x => x[slot]);
@@ -254,9 +254,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   };
 
   /**
-   * Was der Ablauf hergibt, in den Klassenbauer holen: je Benutzeraufgabe,
-   * eigenem Worker und Signal eine Interaktion — dazu das `InitIn` aus den
-   * Ausgaben des Init-Workers.
+   * Bring what the flow provides into the class builder: one interaction per user task,
+   * own worker and signal — plus the `InitIn` from the
+   * outputs of the init worker.
    */
   const ausAblauf = () => {
     const next = { ...spec };
@@ -266,8 +266,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     onChange(next);
   };
 
-  // ein neuer Status der Interaktion gilt auch für ihr In und Out — wie bei einem Schritt
-  // für alles darunter; sonst bliebe der Chip im Ablauf auf dem Status einer Klasse stehen
+  // a new status of the interaction also applies to its In and Out — as with a step
+  // for everything below it; otherwise the chip in the flow would stay on the status of a class
   const patchIa = (id: string, patch: Partial<Interaction>) =>
     onChange({
       ...spec,
@@ -275,7 +275,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       ...(patch.status ? { types: types.map(t => (t.interactionId === id ? { ...t, status: patch.status } : t)) } : {}),
     });
 
-  /** In bzw. Out einer Interaktion — beim ersten Klick angelegt. */
+  /** In or Out of an interaction — created on the first click. */
   const openMember = (ia: Interaction, member: 'In' | 'Out') => {
     const key = member === 'In' ? 'inTypeId' : 'outTypeId';
     const existing = ia[key] as string | undefined;
@@ -291,16 +291,16 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     pickType(id);
   };
   /**
-   * In bzw. Out auf einen anderen Typ stellen (`type In = OrderCardUT.In`) —
-   * oder zurück auf eine eigene Klasse (`null`). Die Felder kommen vom Ziel;
-   * die eigene Klasse dieser Interaktion fällt weg.
+   * Set In or Out to another type (`type In = OrderCardUT.In`) —
+   * or back to an own class (`null`). The fields come from the target;
+   * this interaction's own class is dropped.
    */
   const setAlias = (ia: Interaction, member: 'In' | 'Out', ref: string | null) => {
     const aliasKey = member === 'In' ? 'inAlias' : 'outAlias';
     const typeKey = member === 'In' ? 'inTypeId' : 'outTypeId';
     const own = ia[typeKey] ? types.find(t => t.id === ia[typeKey] && t.interactionId === ia.id) : undefined;
     const rest = own ? types.filter(t => t.id !== own.id) : types;
-    // ein Typ des Katalogs: seine Felder als Kopie (für Mappings und Prüfungen)
+    // a type of the catalog: its fields as a copy (for mappings and checks)
     const dom = ref?.startsWith('dom:') ? (model?.domainTypes ?? []).find(d => `dom:${d.id}` === ref) : undefined;
     const copy = dom ? aliasMemberType(ia, member, dom, model) : undefined;
     const dot = ref && !dom ? ref.lastIndexOf('.') : -1;
@@ -315,13 +315,13 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     });
   };
   const patchType = (id: string, patch: Partial<TypeDef>) => {
-    // In und Out einer Interaktion sind mit ihr eine Einheit: ein neuer Status gilt für alle drei
+    // In and Out of an interaction form a unit with it: a new status applies to all three
     const iaId = patch.status ? types.find(t => t.id === id)?.interactionId : undefined;
     if (iaId && interactions.some(i => i.id === iaId)) { patchIa(iaId, { status: patch.status }); return; }
     setTypes(types.map(t => (t.id === id ? { ...t, ...patch } : t)));
   };
 
-  // Das In ist die Wurzel — es gibt genau eines und es liegt im Prozess-Objekt.
+  // The In is the root — there is exactly one and it lives in the process object.
   const addType = (kind: 'case' | 'enum', name = '', root = false): string => {
     const id = uid(kind === 'enum' ? 'e' : 't');
     const t: TypeDef = {
@@ -342,7 +342,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 
   const hasRoot = types.some(t => t.root);
   const inConfig = types.find(t => t.inConfig) ?? null;
-  /** eigene Stellschrauben — das erzeugte InConfig bekommt einen Typ zum Pflegen */
+  /** own adjusting knobs — the generated InConfig gets a type to maintain */
   const addInConfig = () => {
     const id = uid('t');
     setTypes([...types, { id, name: 'InConfig', kind: 'case', inConfig: true, status: 'draft', fields: [emptyField()] }]);
@@ -376,7 +376,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     <ClipContext.Provider value={clipActions}>
     <SpecContext.Provider value={spec}>
     <div className="flex h-full min-h-0">
-      {/* ── Typen ──────────────────────────────────────────────────────────── */}
+      {/* ── Types ──────────────────────────────────────────────────────────── */}
       <div className={`w-72 flex-shrink-0 border-r ${c.border} flex flex-col`}>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div className="mb-2">
@@ -391,8 +391,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                   <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${t ? c.text : c.muted}`}>{label}</span>
                   {t && !!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
                   {t && <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />}
-                  {/* In und Out hat jeder Prozess — fehlen sie oder sind sie leer, ist das orange.
-                      Das InitIn entsteht aus dem Init-Worker; ohne den gibt es keins, das ist kein Mangel. */}
+                  {/* Every process has In and Out — if they are missing or empty, that is orange.
+                      The InitIn results from the init worker; without it there is none, which is not a defect. */}
                   {!t && slot !== 'initIn'
                     ? <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title={`${label} fehlt — anklicken legt es an`}><AlertTriangle size={9} /> fehlt</span>
                     : !t
@@ -419,7 +419,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
           {(['userTask', 'customTask', 'decision', 'signal', 'message'] as const).map(kind => {
             const group = interactions.filter(ia => ia.kind === kind);
             if (!group.length) return null;
-            // Hauptablauf zuerst, dann je eigenem Block bzw. Ereignis-Subprozess eine Klammer
+            // main flow first, then one bracket per own block or event subprocess
             const sub = new Map<string, { ref: BlockRef; items: Interaction[] }>();
             const main: Interaction[] = [];
             for (const ia of group) {
@@ -430,9 +430,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
               sub.set(ref.head.id, e);
             }
             const iaRow = (ia: Interaction) => {
-                // Was der DSL verlangt (In, bei Aufgaben und Workern auch Out) und noch
-                // fehlt oder leer ist, wird orange — Signale und Nachrichten ohne In
-                // (oder mit leerem) sind `NoInput`, das ist erlaubt
+                // What the DSL requires (In, for tasks and workers also Out) and is still
+                // missing or empty turns orange — signals and messages without In
+                // (or with an empty one) are `NoInput`, which is allowed
                 const members = (['In', 'Out'] as const).filter(m => m === 'In' || INTERACTION_META[ia.kind].hasOut);
                 const typeOf = (m: 'In' | 'Out') => { const id = m === 'In' ? ia.inTypeId : ia.outTypeId; return id ? types.find(x => x.id === id) ?? null : null; };
                 const lacking = (m: 'In' | 'Out') => {
@@ -520,7 +520,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
           <TypeGroup label="Auswahlen" isDark={isDark} all={types}
             types={types.filter(t => !t.root && !t.processOut && !t.initIn && !t.inConfig && !t.interactionId && t.kind === 'enum')}
             selected={selected} onSelect={pickType} issuesOf={issuesOf} />
-          {/* Legende — die Farben sagen, was los ist */}
+          {/* legend — the colors say what is going on */}
           <div className={`text-[9px] px-2 pt-2 pb-1 leading-relaxed ${c.muted}`}>
             <span className={amber(isDark)}>orange</span> = fehlt etwas ·{' '}
             <span className={isDark ? 'text-rose-400' : 'text-rose-600'}>rot</span> = Fehler ·{' '}
@@ -567,8 +567,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       </div>
 
       {/* ── Editor ─────────────────────────────────────────────────────────── */}
-      {/* Der Editor in lesbarer Breite, mittig — sonst laufen die Feldzeilen
-          auf einem breiten Bildschirm ins Leere; darin füllen die Felder die Breite */}
+      {/* The editor in a readable width, centered — otherwise the field rows
+          run into the void on a wide screen; inside it the fields fill the width */}
       <div className="flex-1 min-w-0 overflow-y-auto">
        <div className="max-w-4xl mx-auto w-full">
         {showConfig ? (
@@ -598,7 +598,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             interactions={interactions} model={model} ownPkg={packageOf(spec, model)}
             onAlias={(member, ref) => setAlias(interactions.find(i => i.id === selectedIa)!, member, ref)}
             onRemove={() => {
-              // ihr In und Out gehören nur ihr — sie gehen mit
+              // its In and Out belong only to it — they go along
               onChange({
                 ...spec,
                 interactions: interactions.filter(i => i.id !== selectedIa),
@@ -630,11 +630,11 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
 }
 
 // ── InConfig ─────────────────────────────────────────────────────────────────
-// Nur Ansicht: die Felder ergeben sich aus den Schleifen des Ablaufs und aus
-// jedem Schritt, dessen Ergebnis sich für Tests überschreiben lässt.
+// View only: the fields result from the loops of the flow and from
+// every step whose result can be overwritten for tests.
 function GeneratedConfig({ spec, idx, isDark, canEdit, onAdd }: {
   spec: ProcessSpec; idx: ReturnType<typeof indexTypes>; isDark: boolean; canEdit: boolean;
-  /** eigene Stellschrauben anlegen */
+  /** create own adjusting knobs */
   onAdd: () => void;
 }) {
   const c = cls(isDark);
@@ -659,7 +659,7 @@ function GeneratedConfig({ spec, idx, isDark, canEdit, onAdd }: {
   );
 }
 
-/** Was aus dem Ablauf ins InConfig kommt */
+/** what comes from the flow into the InConfig */
 function GeneratedNote({ isDark }: { isDark: boolean }) {
   const c = cls(isDark);
   return (
@@ -673,21 +673,21 @@ function GeneratedNote({ isDark }: { isDark: boolean }) {
   );
 }
 
-// ── Interaktion ──────────────────────────────────────────────────────────────
-// Kopf der Interaktion: Objektname, Schlüssel (`val name` / `topicName` /
-// `messageName`) und Beschreibung. `In` und `Out` liegen daneben in der Liste.
+// ── Interaction ──────────────────────────────────────────────────────────────
+// Header of the interaction: object name, key (`val name` / `topicName` /
+// `messageName`) and description. `In` and `Out` are next to it in the list.
 function InteractionEditor({ ia, isDark, canEdit, types, orphan, interactions, model, ownPkg, onPatch, onOpen, onAlias, onRemove }: {
   ia: Interaction; isDark: boolean; canEdit: boolean; types: TypeDef[];
-  /** der Schritt steht nicht mehr im Ablauf */
+  /** the step is no longer in the flow */
   orphan: boolean;
-  /** alle Interaktionen — ihre In und Out taugen als anderer Typ */
+  /** all interactions — their In and Out are fit as another type */
   interactions: Interaction[];
   model: Model | null;
-  /** Paket des Prozesses — Katalog-Typen von dort kommen zuerst */
+  /** package of the process — catalog types from there come first */
   ownPkg: string;
   onPatch: (patch: Partial<Interaction>) => void;
   onOpen: (member: 'In' | 'Out') => void;
-  /** In bzw. Out auf einen anderen Typ stellen — `null`: eigene Klasse */
+  /** set In or Out to another type — `null`: own class */
   onAlias: (member: 'In' | 'Out', ref: string | null) => void;
   onRemove: () => void;
 }) {
@@ -726,8 +726,8 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, interactions, m
             extends {meta.dsl} · Schritt {ia.stepId}
           </div>
         </div>
-        {/* der Status der Einheit: der kleinste von Interaktion, In und Out — sonst stünde hier
-            «Abgenommen», während das Out noch «Angepasst» ist, und dieselbe Wahl löste nichts aus */}
+        {/* the status of the unit: the lowest of interaction, In and Out — otherwise this would show
+            «Abgenommen» while the Out is still «Angepasst», and choosing the same would trigger nothing */}
         <select value={interactionStatus(ia, { types }) ?? ia.status ?? 'draft'} disabled={!canEdit}
           title="Status der Interaktion samt In und Out (der kleinste) — eine Wahl gilt für alle drei"
           onChange={e => onPatch({ status: e.target.value as Status })}
@@ -789,9 +789,9 @@ function InteractionEditor({ ia, isDark, canEdit, types, orphan, interactions, m
 }
 
 /**
- * In bzw. Out einer Interaktion: eine eigene Klasse — oder ein anderer Typ
- * (`type In = OrderCardUT.In`), das Mitglied einer anderen Interaktion bzw. ein
- * Typ der Domain. Dazu die Werte, die im Beispiel der Interaktion abweichen
+ * In or Out of an interaction: an own class — or another type
+ * (`type In = OrderCardUT.In`), the member of another interaction or a
+ * type of the domain. Plus the values that differ in the interaction's example
  * (`OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false)`).
  */
 function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, canEdit, onOpen, onAlias, onExample }: {
@@ -811,7 +811,7 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
     const other = interactions.find(i => i.id === ref.slice(0, dot));
     return other ? `${other.name}.${ref.slice(dot + 1)}` : '(nicht mehr da)';
   };
-  // dasselbe Mitglied der anderen Interaktionen des Prozesses — ein In nur ein In, ein Out nur ein Out
+  // the same member of the other interactions of the process — an In only an In, an Out only an Out
   const options = interactions.filter(i => i.id !== ia.id && i.name?.trim()).flatMap(i => (member === 'In'
     ? (i.inTypeId && !i.inAlias ? [`${i.id}.In`] : [])
     : (i.outTypeId && !i.outAlias && INTERACTION_META[i.kind].hasOut ? [`${i.id}.Out`] : [])));
@@ -823,7 +823,7 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
     onExample(Object.keys(next).length ? next : undefined);
   };
   const own = !alias && t && t.interactionId === ia.id;
-  // aus dem Katalog: `X.In` bzw. `X.Out` anderer Objekte — gesucht, es sind viele
+  // from the catalog: `X.In` or `X.Out` of other objects — searched, there are many
   const [query, setQuery] = useState<string | null>(null);
   const catalog = useMemo(() => (query == null ? [] : catalogMembers(model, member, ownPkg,
     new Set(interactions.map(i => i.name).filter(Boolean)))), [query == null, model, member, ownPkg, interactions]);
@@ -833,7 +833,7 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
     return words.every(w => hay.includes(w));
   }).slice(0, 12);
   const pick = async (v: string) => {
-    // die eigene Klasse geht verloren — mit Feldern erst nachfragen
+    // the own class gets lost — with fields, ask first
     if (own && (t?.fields?.length ?? 0) > 0
       && !(await confirm({ title: `${member} auf ${label(v)} stellen?`, text: `Die eigene Klasse ${ia.name}.${member} (${t!.fields!.length} Felder) fällt weg.`, confirmLabel: 'Umstellen' }))) return;
     setQuery(null);
@@ -911,10 +911,10 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
   );
 }
 
-// ── Typliste ─────────────────────────────────────────────────────────────────
+// ── Type list ────────────────────────────────────────────────────────────────
 function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: {
   label: string; types: TypeDef[];
-  /** alle Typen — um zu sehen, wer auf einen zeigt */
+  /** all types — to see who points to one */
   all: TypeDef[];
   selected: string | null; isDark: boolean;
   onSelect: (id: string) => void; issuesOf: (id: string) => unknown[];
@@ -933,7 +933,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
           className={`group w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
             selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
           {t.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
-          {/* fett, was gebraucht wird; grau und kursiv, worauf nichts zeigt */}
+          {/* bold what is used; gray and italic what nothing points to */}
           <span className={`flex-1 truncate text-[11px] font-mono ${used ? `font-semibold ${c.text}` : `italic ${c.muted}`}`}>{t.name}</span>
           {leer && <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title="leer — Felder fehlen"><AlertTriangle size={9} /> leer</span>}
           {!!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
@@ -948,7 +948,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
   );
 }
 
-// ── Typ-Editor ───────────────────────────────────────────────────────────────
+// ── Type editor ──────────────────────────────────────────────────────────────
 function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   isDark: boolean; canEdit: boolean; model: Model | null;
@@ -957,16 +957,16 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   onPatch: (patch: Partial<TypeDef>) => void;
   onRemove: () => void;
   onAddType: (kind: 'case' | 'enum') => string;
-  /** zu einem eigenen Typ springen (Klick auf den Typ-Chip) */
+  /** jump to an own type (click on the type chip) */
   onOpenType: (id: string) => void;
 }) {
-  // In oder Out einer Interaktion: mit ihr eine Einheit (ein Status für alle drei)
+  // In or Out of an interaction: a unit with it (one status for all three)
   const unit = t.interactionId ? (spec.interactions ?? []).find(x => x.id === t.interactionId) ?? null : null;
   const confirm = useConfirm();
   const clip = useContext(ClipContext);
   const c = cls(isDark);
   const fields = t.fields ?? [];
-  // Die Scala-Vorschau ist zu, bis man sie will — und merkt sich das
+  // The Scala preview stays closed until one wants it — and remembers that
   const [showCode, setShowCodeState] = useState(() => { try { return localStorage.getItem(SCALA_KEY) === '1'; } catch { return false; } });
   const setShowCode = (on: boolean) => { setShowCodeState(on); try { localStorage.setItem(SCALA_KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
@@ -982,22 +982,22 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId)?.message;
   const typeIssues = issues.filter(i => !i.field);
-  // über den Namen im Katalog: eine Klasse einer anderen Domain wird importiert, nicht exportiert
+  // via the name in the catalog: a class of another domain is imported, not exported
   const origin = referencedClass(t, model, packageOf(spec, model));
-  // das InConfig zeigt, was insgesamt entsteht — eigene und erzeugte Felder
+  // the InConfig shows what results overall — own and generated fields
   const code = t.inConfig ? renderInConfig(spec, new Set<string>(), idx) : renderType(t, idx);
 
   return (
     <div className="p-4 space-y-4">
-      {/* Kopf */}
+      {/* header */}
       <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
             {t.root ? 'Prozess-Eingabe' : t.inConfig ? 'Prozess-Konfiguration' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
             <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
-            {/* Das In eines Prozesses ist meist eine Klasse — kann aber ein ADT
-                sein (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
-                wenn derselbe Prozess mit verschiedenen Eingaben startet. */}
+            {/* The In of a process is mostly a class — but it can be an ADT
+                (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
+                if the same process starts with different inputs. */}
             {t.root && canEdit && (
               <select value={t.kind} onChange={e => onPatch(switchKind(t, e.target.value as 'case' | 'enum'))}
                 title="Klasse oder Auswahl mit Fällen (ADT) — die Felder der Klasse werden die gemeinsamen Felder, und zurück"
@@ -1080,7 +1080,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
           </div>
         )}
 
-      {/* Scala-Vorschau des Typs — aufklappbar; der ganze Domain-Code steht im Export */}
+      {/* Scala preview of the type — expandable; the whole domain code is in the export */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <button onClick={() => setShowCode(!showCode)}
@@ -1099,7 +1099,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   );
 }
 
-// ── Feld ─────────────────────────────────────────────────────────────────────
+// ── Field ────────────────────────────────────────────────────────────────────
 function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType, onOpenType }: {
   field: Field; index: number; last: boolean; types: TypeDef[]; selfId: string;
   isDark: boolean; canEdit: boolean; issue?: string; model: Model | null;
@@ -1114,48 +1114,48 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   const clip = useContext(ClipContext);
   const spec = useContext(SpecContext);
   const c = cls(isDark);
-  // der Typ, zu dem das Feld gehört — er bestimmt, ob es eine Vorgabe gibt
+  // the type the field belongs to — it determines whether there is a default
   const owner = types.find(t => t.id === selfId);
   const ofPattern = spec ? patternOfField(spec, owner, f) : null;
-  // der Beispielwert aus der Domain (`defaultClientKey`), den das example ohne eigene Angabe nimmt
+  // the example value from the domain (`defaultClientKey`) that the example takes without an own value
   const fromDomain = idx.defaultOf(f);
-  // Der Typ als Chip: die Farbe sagt, was es ist — einfach (grau), eigene
-  // Klasse (blau), Auswahl oder Ausprägung (violett), Katalog (teal, Stecker),
-  // unbekannt (rot). Eigene Typen sind anklickbar und springen dorthin.
+  // The type as a chip: the color says what it is — simple (gray), own
+  // class (blue), choice or variant (violet), catalog (teal, plug),
+  // unknown (red). Own types are clickable and jump there.
   const chip = typeChip(f, types, idx, model, isDark);
-  // Einschränkungen nur, wo sie etwas bedeuten (Text und Zahlen)
+  // restrictions only where they mean something (text and numbers)
   const canConstrain = !!constraintKind(f.type);
-  // Fälle einer Auswahl — eigen oder aus dem Katalog. Bei einer Auswahl mit
-  // Feldern (ADT) ist ein Fall eine Klasse, bei einer einfachen ein fester Wert
+  // Cases of a choice — own or from the catalog. For a choice with
+  // fields (ADT) a case is a class, for a simple one a fixed value
   const cases = casesOf(f.type, idx);
   const simple = isSimpleEnum(f.type, idx);
-  // ein fester Fall einer einfachen Auswahl ist ein einzelner Wert
+  // a fixed case of a simple choice is a single value
   const fixedValue = simple && !!f.enumCase;
   const fixedOk = idx.domainOf(f.type)?.fixedCases;
 
   const changeType = (v: string) => {
     if (v === NEW_CASE || v === NEW_ENUM) {
-      // Neuen Typ direkt aus dem Feld heraus anlegen und verknüpfen
+      // create a new type directly from the field and link it
       const id = onAddType(v === NEW_CASE ? 'case' : 'enum');
       onChange({ type: id, constraint: undefined });
       return;
     }
-    // Beim Typwechsel eine nicht mehr passende Einschränkung fallen lassen
+    // on a type change, drop a restriction that no longer fits
     const keep = v === f.type || (constraintKind(v) && constraintKind(v) === constraintKind(f.type));
     onChange({ type: v, enumCase: undefined, ...(keep ? {} : { constraint: undefined }) });
   };
 
-  // alle Felder gleich: Schrift, Zeilenhöhe, Polsterung — 28px hoch
+  // all fields the same: font, line height, padding — 28px high
   const box = `text-[11px] leading-[18px] px-2 py-1 rounded border outline-none ${c.input}`;
   return (
     <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
       className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
-      {/* 1 · der Name über die ganze Breite; rechts das Ergebnis als Scala-Typ, Kommentar und Knöpfe */}
+      {/* 1 · the name across the full width; on the right the result as a Scala type, comment and buttons */}
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
           placeholder="feldName" title={f.name || undefined}
           className={`flex-1 min-w-0 font-mono font-semibold ${box}`} />
-        {/* Pflicht: nicht optional — wie in den Mappings */}
+        {/* required: not optional — as in the mappings */}
         {!f.optional && f.name && <span className={`-ml-1 text-[11px] ${c.muted}`} title="Pflichtfeld — nicht optional">*</span>}
         {chip.ownId ? (
           <button onClick={() => onOpenType(chip.ownId!)} title={`${fieldType(f, idx)} — zum Typ springen`}
@@ -1190,18 +1190,18 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         )}
       </div>
 
-      {/* 2 · der Typ — mit Fall, Hüllen, Einschränkung und Vorgabe */}
+      {/* 2 · the type — with case, wrappers, restriction and default */}
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <TypePicker value={f.type} types={types} selfId={selfId} model={model} isDark={isDark}
           className="flex-1 min-w-[14rem]" disabled={!canEdit} onPick={changeType}
           onCreate={kind => changeType(kind === 'case' ? NEW_CASE : NEW_ENUM)} />
-        {/* Eine Auswahl mit Fällen: das Feld kann eine einzelne Ausprägung meinen
-            (`CustomDocContents.\`QI-Deklaration\``) — oder alle */}
+        {/* A choice with cases: the field can mean a single variant
+            (`CustomDocContents.\`QI-Deklaration\``) — or all */}
         {cases && (
           <select value={f.enumCase ? caseName(f.enumCase) : ''} disabled={!canEdit}
             onChange={e => {
               const v = e.target.value || undefined;
-              // ein fester Wert ist ein einzelner — nicht mehrfach, keine Map
+              // a fixed value is a single one — not multiple, no map
               onChange({ enumCase: v, ...(v && simple ? { collection: undefined, map: undefined } : {}) });
             }}
             title={simple
@@ -1234,9 +1234,9 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         </label>
 
         {canConstrain && <ConstraintPicker field={f} isDark={isDark} canEdit={canEdit} onChange={onChange} box={box} />}
-        {/* Vorgaben gibt es nur im InConfig, im InitIn (initialisiert Prozessvariablen) und bei
-            optionalen Feldern der Prozess-Eingabe (dort setzt sie der Init-Worker im InitIn).
-            FEEL mit «=», ohne «=» ein Scala-Ausdruck */}
+        {/* Defaults exist only in the InConfig, in the InitIn (initializes process variables) and for
+            optional fields of the process input (there the init worker sets them in the InitIn).
+            FEEL with «=», without «=» a Scala expression */}
         {(owner?.inConfig || owner?.initIn || owner?.root || f.default) && (
           <FeelInput value={f.default ?? ''} isDark={isDark} size="md"
             disabled={!canEdit || (!!owner && !defaultIsUsed(owner, f) && !f.default)}
@@ -1253,17 +1253,17 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
         )}
       </div>
 
-      {/* 3 · die Bedeutung und ein Beispiel */}
+      {/* 3 · the meaning and an example */}
       <div className="flex flex-wrap items-start gap-x-1.5 gap-y-1">
-        {/* ein Ausdruck aus der Domain (`clientKeyDescr`) bleibt einer, bis die Beschreibung geändert wird */}
-        {/* wie das Beispiel: Text — mit «=» FEEL, ein Ausdruck aus der Domain
-            (`clientKeyDescr`, `s"…${X.processName}"`) bleibt Scala. Wächst mit
-            dem Text — eine lange Beschreibung steht ganz da */}
+        {/* an expression from the domain (`clientKeyDescr`) stays one until the description is changed */}
+        {/* like the example: text — with «=» FEEL, an expression from the domain
+            (`clientKeyDescr`, `s"…${X.processName}"`) stays Scala. Grows with
+            the text — a long description is shown in full */}
         <FeelInput multiline mono={!!f.descriptionExpr} value={f.descriptionExpr ?? f.description ?? ''} isDark={isDark} size="md" disabled={!canEdit}
           variables={[]}
           onChange={v => {
             const t = v.trim();
-            // was nach Scala aussieht, wird so exportiert (`@description(clientKeyDescr)`)
+            // what looks like Scala is exported as such (`@description(clientKeyDescr)`)
             if (t && !t.startsWith('=') && looksLikeScala(t, 'description')) {
               onChange({ descriptionExpr: t, description: undefined, ...(t === f.descriptionExpr ? {} : { descriptionImports: undefined }) });
             } else {
@@ -1277,7 +1277,7 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
             + 'Mit «=» FEEL, das einen Text ergibt, z. B. = "Kunde " + "Nummer". '
             + 'Ein Verweis wie clientKeyDescr, Texte.kunde oder s"…${X.processName}" bleibt Scala.'}
           className="flex-[2] min-w-[14rem]" />
-        {/* wie die Vorgabe: FEEL mit «=»; ohne «=» bei Text der Text selbst, sonst Scala (so kommt es aus der Domain) */}
+        {/* like the default: FEEL with «=»; without «=» for text the text itself, otherwise Scala (that is how it comes from the domain) */}
         <FeelInput value={f.example ?? ''} isDark={isDark} size="md" disabled={!canEdit}
           variables={[]}
           onChange={v => onChange({ example: v || undefined })}
@@ -1297,10 +1297,10 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   );
 }
 
-// Iron-Refinements: Vorlage wählen, Wert eintragen — Ergebnis ist ein Ausdruck.
+// Iron refinements: choose a template, enter a value — the result is an expression.
 function ConstraintPicker({ field: f, canEdit, onChange, box }: {
   field: Field; isDark: boolean; canEdit: boolean; onChange: (patch: Partial<Field>) => void;
-  /** die Klassen der übrigen Felder — gleiche Grösse */
+  /** the classes of the other fields — same size */
   box: string;
 }) {
   const options = CONSTRAINTS.filter(x => x.for === constraintKind(f.type));
@@ -1311,8 +1311,8 @@ function ConstraintPicker({ field: f, canEdit, onChange, box }: {
   const apply = (t: ConstraintTemplate | null, value: string) => {
     if (!t) { onChange({ constraint: undefined }); return; }
     if (!t.arg) { onChange({ constraint: t.expr }); return; }
-    // Ohne Wert bliebe die Einschränkung leer und die Auswahl spränge zurück —
-    // deshalb gleich mit einem Startwert setzen, den man überschreiben kann.
+    // Without a value the restriction would stay empty and the selection would jump back —
+    // so set it right away with a start value that can be overwritten.
     const v = value.trim() || (t.arg === 'zahl' ? '1' : '.*');
     onChange({ constraint: t.expr.replace(/N|X/, v) });
   };
@@ -1360,12 +1360,12 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
   return re.exec(value)?.[1] ?? '';
 }
 
-// ── Auswahl (enum) ───────────────────────────────────────────────────────────
+// ── Choice (enum) ────────────────────────────────────────────────────────────
 //
-// Ein Wert kann **Felder** tragen — dann ist die Auswahl ein ADT wie
+// A value can carry **fields** — then the choice is an ADT like
 // `enum In: case Standard(clientKey: Long, …) case VermoegensVerwaltung(…)`:
-// jeder Fall eine eigene Klasse, gemeinsam ein Typ. Die Felder werden mit
-// derselben Zeile bearbeitet wie in einer Klasse.
+// each case its own class, together one type. The fields are edited with
+// the same row as in a class.
 function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
@@ -1381,7 +1381,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
     onPatch({ values: values.map((v, k) => (k === i ? { ...v, ...patch } : v)) });
   const setFields = (i: number, fields: Field[]) => set(i, { fields: fields.length ? fields : undefined });
   const adt = isAdt(t);
-  // Gemeinsame Felder aller Fälle — in Scala 3 als `def` im enum-Rumpf
+  // shared fields of all cases — in Scala 3 as `def` in the enum body
   const common = t.fields ?? [];
   const setCommon = (fields: Field[]) => onPatch({ fields: fields.length ? fields : undefined });
   const fieldRows = (fields: Field[], setAll: (next: Field[]) => void) => fields.map((f, k) => (
@@ -1399,8 +1399,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
       }}
       onAddType={onAddType} onOpenType={onOpenType} />
   ));
-  // Felder, die in allen Fällen gleich stehen, aber noch nicht gemeinsam sind —
-  // dasselbe Urteil wie beim Import, hier als Knopf
+  // fields that are the same in all cases but not yet shared —
+  // the same judgment as on import, here as a button
   const shared = adt ? sharedFields(values.filter(v => v.fields?.length).map(v => v.fields!)) : [];
   const makeCommon = (f: Field) => {
     onPatch({
@@ -1422,7 +1422,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
             Gemeinsame Felder <span className={`normal-case tracking-normal ${c.muted}`}>· in jedem Fall · {common.length}</span>
           </div>
           {common.length > 0 && <div className="space-y-2">{fieldRows(common, setCommon)}</div>}
-          {/* in allen Fällen gleich — auf Knopfdruck gemeinsam */}
+          {/* the same in all cases — shared at the push of a button */}
           {canEdit && shared.length > 0 && (
             <div className={`flex flex-wrap items-center gap-1.5 text-[10px] ${amber(isDark)}`}>
               <AlertTriangle size={10} />
@@ -1448,7 +1448,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
       )}
       {values.map((v, i) => {
         const fields = v.fields ?? [];
-        // jeder Fall in seiner Farbe — wie die Zweige im Ablauf
+        // each case in its color — like the branches in the flow
         const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
         const tone = isDark ? col.dark : col.light;
         return (
@@ -1516,7 +1516,7 @@ function CopyButton({ text, isDark }: { text: string; isDark: boolean }) {
     <button
       onClick={async () => {
         try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); }
-        catch { /* restriktive Umgebung */ }
+        catch { /* restrictive environment */ }
       }}
       className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
       {done ? <><Check size={10} /> Kopiert</> : <><Copy size={10} /> Kopieren</>}

@@ -1,19 +1,19 @@
-// BPMN-Editor über dem Ablauf — beides zeigt denselben Prozess.
+// BPMN editor above the flow — both show the same process.
 //
-// Was synchron läuft:
+// What is kept in sync:
 //
-//  · **Diagramm → Baum**: jede Änderung im Modeler wird kurz danach neu
-//    eingelesen; die fachlichen Texte bleiben über die Element-ID erhalten
-//    (`mergeSpec`). Das BPMN wird dabei neben der Spezifikation gespeichert.
-//  · **Baum → Diagramm**: ein angeklickter Schritt wird im Diagramm ausgewählt
-//    und ins Bild geholt; ein umbenannter Schritt wird im Diagramm umbenannt.
+//  · **Diagram → tree**: every change in the modeler is read in again shortly
+//    afterwards; the business texts are kept via the element ID
+//    (`mergeSpec`). The BPMN is stored next to the specification.
+//  · **Tree → diagram**: a clicked step is selected in the diagram
+//    and brought into view; a renamed step is renamed in the diagram.
 //
-// Was **nicht** synchron läuft: Schritte anlegen oder löschen geht nur im
-// Diagramm. Der Baum ist eine abgeleitete Sicht — aus ihm einen BPMN-Graphen
-// samt Layout zu erzeugen, ist ein eigener Schritt (siehe README).
+// What is **not** kept in sync: creating or deleting steps only works in the
+// diagram. The tree is a derived view — generating a BPMN graph from it
+// including layout is a separate step (see README).
 //
-// Die Camunda-Erweiterung ist zwingend: ohne sie verwirft bpmn-js beim
-// Speichern alle `camunda:`-Elemente — also genau die Mappings.
+// The Camunda extension is mandatory: without it bpmn-js discards on
+// save all `camunda:` elements — i.e. exactly the mappings.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-js.css';
@@ -28,7 +28,7 @@ import { PersistentClipboard, stripEngine } from '../bpmnClipboard';
 import { engineExpression } from '../feelJuel';
 import { feelIfPossible } from '../juelFeel';
 
-/** Was wir von einem moddle-Element anfassen — bewusst schmal gehalten. */
+/** What we touch of a moddle element — deliberately kept narrow. */
 interface Moddle {
   $type?: string;
   name?: string;
@@ -40,27 +40,27 @@ interface Moddled { businessObject?: { extensionElements?: Moddle } }
 type AssignmentKey = typeof ASSIGNMENT_KEYS[number];
 
 export interface BpmnHandle {
-  /** Schritt im Diagramm auswählen und ins Bild holen */
+  /** Select a step in the diagram and bring it into view */
   select: (id: string | null) => void;
-  /** Element im Diagramm umbenennen (aus dem Baum heraus) */
+  /** Rename an element in the diagram (from the tree) */
   rename: (id: string, name: string) => void;
   /**
-   * Element-ID ändern (Konvention aus dem fachlichen Namen).
-   * 'absent' heisst: kein Diagramm bzw. Element nicht darin — die
-   * Spezifikation darf trotzdem umbenennen.
+   * Change the element ID (convention from the business name).
+   * 'absent' means: no diagram or element not in it — the
+   * specification may rename anyway.
    */
   setId: (oldId: string, newId: string) => 'renamed' | 'conflict' | 'absent';
-  /** Camunda-Eigenschaften setzen; `id === null` meint den Prozess selbst */
+  /** Set Camunda properties; `id === null` means the process itself */
   setProps: (id: string | null, props: Record<string, unknown>) => void;
-  /** Bedingung eines Sequenzflusses */
+  /** Condition of a sequence flow */
   setCondition: (flowId: string, condition: string | undefined) => void;
-  /** Hintergrundfarbe eines Elements — `undefined` nimmt sie weg */
+  /** Background colour of an element — `undefined` removes it */
   setColor: (id: string, fill: string | undefined) => void;
-  /** `_handledErrors` eines Schritts */
+  /** `_handledErrors` of a step */
   setHandledErrors: (id: string, codes: string[], regex?: string[], engine?: EngineId) => void;
   /**
-   * Zuständigkeit einer Benutzeraufgabe, schon in der Form der Engine —
-   * `undefined` nimmt den Wert weg, fehlende Schlüssel bleiben, wie sie sind
+   * Assignment of a user task, already in the engine's form —
+   * `undefined` removes the value, missing keys stay as they are
    */
   setAssignment: (id: string, values: Partial<Record<AssignmentKey, string | undefined>>, engine?: EngineId) => void;
 }
@@ -69,16 +69,16 @@ interface Props {
   xml: string;
   isDark: boolean;
   canEdit: boolean;
-  /** Engine dieses Prozesses — Eingefügtes aus der anderen verliert seine Engine-Angaben */
+  /** Engine of this process — pasted content from the other one loses its engine information */
   engine?: EngineId;
   /**
-   * vom Modeler ausgelöste Änderung — der Baum liest neu ein. `pasted`: was
-   * seit dem letzten Mal eingefügt wurde (alte → neue ID samt Spezifikationsanteil)
+   * change triggered by the modeler — the tree reads in again. `pasted`: what
+   * was pasted since the last time (old → new ID including the specification part)
    */
   onChange: (xml: string, pasted?: PastedElements) => void;
-  /** im Diagramm kopiert (Ctrl+C) — die IDs der Elemente, ohne Beschriftungen */
+  /** copied in the diagram (Ctrl+C) — the IDs of the elements, without labels */
   onCopy?: (ids: string[]) => void;
-  /** im Diagramm angeklickt */
+  /** clicked in the diagram */
   onSelect: (id: string | null) => void;
   onReady: (handle: BpmnHandle) => void;
   onError: (message: string) => void;
@@ -94,25 +94,25 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
   cbs.current = { onChange, onCopy, onSelect, onReady, onError };
   const engineRef = useRef(engine);
   engineRef.current = engine;
-  /** zuletzt geladenes XML — verhindert, dass eigene Änderungen neu importiert
-   *  werden (das würde Auswahl und Bildausschnitt zurücksetzen) */
+  /** last loaded XML — prevents own changes from being re-imported
+   *  (that would reset selection and viewport) */
   const loadedRef = useRef<string>('');
   const xmlRef = useRef(xml);
   xmlRef.current = xml;
 
-  /** läuft gerade ein Import? Dann erst danach zerstören — sonst greift
-   *  bpmn-js auf eine Zeichenfläche zu, die es nicht mehr gibt */
+  /** is an import running? Then destroy only afterwards — otherwise
+   *  bpmn-js accesses a canvas that no longer exists */
   const pendingRef = useRef<Promise<unknown>>(Promise.resolve());
-  /** zuletzt von aussen gewünschte Auswahl — nach dem Import nachgezogen */
+  /** last selection requested from outside — applied after the import */
   const gewuenschtRef = useRef<string | null>(null);
 
   const load = useCallback((modeler: InstanceType<typeof BpmnModeler>, text: string, alive: () => boolean) => {
     loadedRef.current = text;
     setLoading(true);
-    // Beim Import ist die Zeichenfläche oft noch **nicht** vermessen — im
-    // linken Spaltenlayout steht die Breite erst nach dem nächsten Anstrich
-    // fest (Höhe 453, Breite 0). bpmn-js rechnet dann mit NaN und wirft.
-    // Also warten, bis sie eine Grösse hat, statt zu raten wie lange das dauert.
+    // On import the canvas is often **not** measured yet — in the
+    // left column layout the width is only fixed after the next paint
+    // (height 453, width 0). bpmn-js then computes with NaN and throws.
+    // So wait until it has a size, instead of guessing how long that takes.
     const einpassen = () => {
       const host = hostRef.current;
       if (!host?.isConnected || !host.clientWidth || !host.clientHeight) return false;
@@ -121,7 +121,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
         canvas.zoom('fit-viewport', 'auto');
         return true;
       } catch {
-        return false;   // Modeler schon abgebaut
+        return false;   // Modeler already torn down
       }
     };
 
@@ -138,7 +138,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
         try {
           const el = (modeler.get('elementRegistry') as { get: (i: string) => unknown }).get(id);
           if (el) (modeler.get('selection') as { select: (e: unknown) => void }).select(el);
-        } catch { /* Modeler schon abgebaut */ }
+        } catch { /* Modeler already torn down */ }
       })
       .catch((e: unknown) => { if (alive()) cbs.current.onError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (alive()) setLoading(false); });
@@ -146,32 +146,32 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
     return run;
   }, []);
 
-  // Modeler aufbauen und gleich laden. Beides in einem Effekt, damit ein
-  // erneutes Aufbauen (React StrictMode baut zweimal auf) wieder importiert —
-  // sonst stünde die Zeichenfläche leer.
+  // Build the modeler and load right away. Both in one effect, so that a
+  // rebuild (React StrictMode builds twice) imports again —
+  // otherwise the canvas would be empty.
   useEffect(() => {
     if (!hostRef.current) return;
     let mounted = true;
     const alive = () => mounted;
-    // Nach dem Abbau darf der Handle nichts mehr «erfolgreich» ändern — der
-    // zerstörte Modeler wirft nicht immer, seine Änderungen gehen aber verloren.
+    // After teardown the handle must not change anything «erfolgreich» anymore — the
+    // destroyed modeler does not always throw, but its changes get lost.
     let destroyed = false;
     const modeler = new BpmnModeler({
       container: hostRef.current,
-      // ohne die Camunda-Erweiterung verwirft das Speichern alle Mappings
+      // without the Camunda extension saving discards all mappings
       moddleExtensions: { camunda: camundaModdle },
-      // Kopieren und Einfügen über Prozesse und Tabs hinweg (siehe bpmnClipboard.ts)
+      // Copy and paste across processes and tabs (see bpmnClipboard.ts)
       additionalModules: [{ clipboard: ['type', PersistentClipboard] }],
     });
     modelerRef.current = modeler;
-    // Entwicklung: Zugriff auf den Modeler, um den Abgleich prüfen zu können
+    // Development: access to the modeler, to be able to check the reconciliation
     if (import.meta.env.DEV) (window as unknown as { __bpmn?: unknown }).__bpmn = modeler;
 
-    // Eingefügt, aber noch nicht gemeldet: alte ID → neue ID. bpmn-js legt die
-    // Elemente beim Einfügen an, ins Diagramm kommen sie erst beim Ablegen.
+    // Pasted, but not reported yet: old ID → new ID. bpmn-js creates the
+    // elements on paste, they only get into the diagram on drop.
     let pendingPaste: Record<string, string> = {};
     let pendingSpec: DiagramSpec | undefined;
-    /** was davon jetzt im Diagramm liegt — der Rest wartet aufs Ablegen */
+    /** what of it is now in the diagram — the rest waits for the drop */
     const takePasted = (): PastedElements | undefined => {
       const registry = modeler.get('elementRegistry') as { get: (id: string) => unknown };
       const ids: Record<string, string> = {};
@@ -183,17 +183,17 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
       return Object.keys(ids).length ? { ids, spec: pendingSpec } : undefined;
     };
 
-    // Jede Änderung geht denselben Weg zurück — auch die, die aus dem Baum
-    // kam. Sonst stünde die Umbenennung zwar im Diagramm, aber nie in der
-    // gespeicherten `.bpmn`. Der Baum hat den neuen Namen bereits, der
-    // Abgleich bestätigt ihn nur.
+    // Every change goes back the same way — also those that came from the tree.
+    // Otherwise the rename would be in the diagram, but never in the
+    // stored `.bpmn`. The tree already has the new name, the
+    // reconciliation only confirms it.
     const push = () => {
       if (timer.current) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(async () => {
         try {
           const { xml: next } = await modeler.saveXML({ format: true });
-          // als «geladen» merken, sonst importiert der Rückweg das eigene
-          // Ergebnis neu und wirft Auswahl und Ausschnitt weg
+          // remember as «geladen», otherwise the way back re-imports its own
+          // result and throws away selection and viewport
           if (next) { loadedRef.current = next; cbs.current.onChange(next, takePasted()); }
         } catch (e) {
           cbs.current.onError(e instanceof Error ? e.message : String(e));
@@ -203,22 +203,22 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
 
     modeler.on('commandStack.changed', push);
 
-    // ── Kopieren und Einfügen ──────────────────────────────────────────────
-    // Kopiert: die Prozessansicht legt den Anteil der Spezifikation dazu.
-    // Ein «Duplizieren» (clip: false) geht nicht in die Zwischenablage.
+    // ── Copy and paste ─────────────────────────────────────────────────────
+    // Copied: the process view adds the specification part.
+    // A «Duplizieren» (clip: false) does not go into the clipboard.
     modeler.on('copyPaste.elementsCopied', (e: { tree?: Record<string, Array<{ id: string; labelTarget?: string }>>; hints?: { clip?: boolean } }) => {
       if (e.hints?.clip === false || !e.tree) return;
       const ids = Object.values(e.tree).flat().filter(d => !d.labelTarget).map(d => d.id);
       if (ids.length) cbs.current.onCopy?.(ids);
     });
-    // Ein neues Einfügen beginnt: was vom vorigen nie abgelegt wurde, verfällt.
-    // Der Spezifikationsanteil gilt so, wie er jetzt in der Zwischenablage steht.
+    // A new paste begins: what was never dropped from the previous one expires.
+    // The specification part applies as it is in the clipboard now.
     modeler.on('copyPaste.pasteElements', () => {
       pendingPaste = {};
       pendingSpec = getClipboard().diagram?.spec;
     });
-    // Nach bpmn-js (Priorität 1000) und dessen Verweisen auf Fehler/Nachrichten
-    // (500): das Element ist angelegt und hat seine neue ID.
+    // After bpmn-js (priority 1000) and its references to errors/messages
+    // (500): the element is created and has its new ID.
     modeler.on('copyPaste.pasteElement', 250, (e: { descriptor: { id: string; labelTarget?: unknown; businessObject?: { id?: string } & Record<string, unknown> } }) => {
       const d = e.descriptor;
       if (d.labelTarget || !d.businessObject?.id) return;
@@ -226,30 +226,30 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
       const from = pendingSpec?.source.engine ?? 'c7';
       if (pendingSpec && from !== (engineRef.current ?? 'c7')) {
         stripEngine(d.businessObject as Parameters<typeof stripEngine>[0]);
-        // Bedingung am Fluss: in der Schreibweise dieser Engine (`${…}` ⇄ `=…`)
+        // Condition on the flow: in this engine's notation (`${…}` ⇄ `=…`)
         const cond = d.businessObject.conditionExpression as { body?: string } | undefined;
         if (cond?.body) cond.body = engineExpression(feelIfPossible(cond.body), engineRef.current).text;
       }
     });
-    // Ein Klick in die Zeichenfläche — auch auf leere Stelle: dann trifft er
-    // das Wurzelelement. Nur danach ist eine leere Auswahl eine echte Abwahl.
-    // Der Merker gilt nur während des Klicks: gesetzt vor der Auswahl von
-    // diagram-js (höhere Priorität), gelöscht danach — sonst bliebe er nach
-    // einem Klick stehen, und die leere Auswahl beim nächsten Import (Pattern
-    // eingefügt) wählte den Prozess statt des Elements.
+    // A click into the canvas — also on an empty spot: then it hits
+    // the root element. Only after that is an empty selection a real deselection.
+    // The flag only applies during the click: set before the selection of
+    // diagram-js (higher priority), cleared afterwards — otherwise it would stay set
+    // after a click, and the empty selection on the next import (pattern
+    // pasted) would select the process instead of the element.
     let vomNutzer = false;
     modeler.on('element.click', 1500, () => { vomNutzer = true; });
     modeler.on('element.click', 500, () => { vomNutzer = false; });
     modeler.on('selection.changed', (e: { newSelection: Array<{ id: string; type?: string; host?: { id: string } }> }) => {
-      // ein Boundary-Event ist in der Spezifikation kein Schritt, sondern ein behandelter
-      // Fehler (Nebenpfad) des Schritts, an dem es hängt — gezeigt wird dieser Schritt
+      // a boundary event is not a step in the specification, but a handled
+      // error (side path) of the step it is attached to — that step is shown
       const first = e.newSelection?.[0];
       const id = (first?.type === 'bpmn:BoundaryEvent' ? first.host?.id : first?.id) ?? null;
       const geklickt = vomNutzer;
       vomNutzer = false;
-      // Beim Aufbauen und beim Import meldet bpmn-js eine leere Auswahl. Das
-      // ist der Anfangszustand, keine Abwahl — und würde eine Auswahl
-      // löschen, die gerade von aussen kam (Wechsel Datenmodell → Ablauf).
+      // On build and on import bpmn-js reports an empty selection. That
+      // is the initial state, not a deselection — and would clear a selection
+      // that just came from outside (switch data model → flow).
       if (!id && !geklickt) return;
       cbs.current.onSelect(id);
     });
@@ -262,17 +262,17 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
           const selection = modeler.get('selection') as { select: (el: unknown) => void; get: () => unknown[] };
           const canvas = modeler.get('canvas') as { scrollToElement: (el: unknown) => void };
           const el = id ? registry.get(id) : null;
-          // Ein Schritt, der im Diagramm (noch) nicht liegt, ist kein Grund,
-          // die Auswahl im Baum wegzuwerfen.
+          // A step that is not (yet) in the diagram is no reason
+          // to throw away the selection in the tree.
           if (!el) { if (!id) selection.select(null); return; }
-          // Im Diagramm angeklickt: die Auswahl kommt nur zurück — der
-          // Ausschnitt bleibt (sonst rückt ein Element am Rand ins Bild)
+          // Clicked in the diagram: the selection only comes back — the
+          // viewport stays (otherwise an element at the edge moves into view)
           if (selection.get().includes(el)) return;
-          // ein angeklicktes Boundary-Event des Schritts bleibt gewählt
+          // a clicked boundary event of the step stays selected
           if ((selection.get() as Array<{ type?: string; host?: unknown }>).some(x => x.type === 'bpmn:BoundaryEvent' && x.host === el)) return;
           selection.select(el);
           canvas.scrollToElement(el);
-        } catch { /* Element (noch) nicht im Diagramm */ }
+        } catch { /* Element not (yet) in the diagram */ }
       },
       setProps: (id, props) => {
         try {
@@ -281,16 +281,16 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
           const modeling = modeler.get('modeling') as { updateProperties: (el: unknown, p: object) => void };
           const el = id === null ? canvas.getRootElement() : registry.get(id);
           if (el) modeling.updateProperties(el, props);
-        } catch { /* Element nicht im Diagramm */ }
+        } catch { /* Element not in the diagram */ }
       },
       setColor: (id, fill) => {
         try {
           const registry = modeler.get('elementRegistry') as { get: (id: string) => unknown };
           const modeling = modeler.get('modeling') as { setColor: (els: unknown[], c: { fill?: string } | undefined) => void };
           const el = registry.get(id);
-          // bpmn-js schreibt `bioc:fill` und `color:background-color` — wie der Camunda Modeler
+          // bpmn-js writes `bioc:fill` and `color:background-color` — like the Camunda Modeler
           if (el) modeling.setColor([el], fill ? { fill } : undefined);
-        } catch { /* Element nicht im Diagramm */ }
+        } catch { /* Element not in the diagram */ }
       },
       setCondition: (flowId, condition) => {
         try {
@@ -304,7 +304,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
               ? moddle.create('bpmn:FormalExpression', { body: condition })
               : undefined,
           });
-        } catch { /* Fluss nicht im Diagramm */ }
+        } catch { /* Flow not in the diagram */ }
       },
       setHandledErrors: (id, codes, regex, engine) => {
         try {
@@ -316,7 +316,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
           if (!bo) return;
           const ext = bo.extensionElements ?? moddle.create('bpmn:ExtensionElements', { values: [] });
           if (engine === 'c8') {
-            // Camunda 8: `zeebe:input` im `zeebe:ioMapping` — die App kennt die zeebe-Typen nicht, sie bleiben generische Elemente
+            // Camunda 8: `zeebe:input` in the `zeebe:ioMapping` — the app does not know the zeebe types, they stay generic elements
             const ZEEBE = 'http://camunda.org/schema/zeebe/1.0';
             let zio = ext.values?.find(v => v.$type === 'zeebe:ioMapping') as (Moddle & { $children?: Moddle[] }) | undefined;
             if (!zio) {
@@ -346,7 +346,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
             ...(regex?.length ? param('_regexHandledErrors', errorListSource(regex, 'c7')) : []),
           ];
           modeling.updateProperties(el, { extensionElements: ext });
-        } catch { /* Schritt nicht im Diagramm */ }
+        } catch { /* Step not in the diagram */ }
       },
       setAssignment: (id, values, engine) => {
         try {
@@ -360,7 +360,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
             modeling.updateProperties(el, Object.fromEntries(Object.entries(values).map(([k, v]) => [`camunda:${k}`, v || undefined])));
             return;
           }
-          // Camunda 8: `zeebe:assignmentDefinition` — ein generisches Element, die App kennt die zeebe-Typen nicht
+          // Camunda 8: `zeebe:assignmentDefinition` — a generic element, the app does not know the zeebe types
           const ZEEBE = 'http://camunda.org/schema/zeebe/1.0';
           const ext = bo.extensionElements ?? moddle.create('bpmn:ExtensionElements', { values: [] });
           let assign = ext.values?.find(v => v.$type === 'zeebe:assignmentDefinition');
@@ -372,10 +372,10 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
             if (v) assign[k] = v;
             else delete assign[k];
           }
-          // ohne Werte fällt das Element weg
+          // without values the element is dropped
           if (!Object.keys(assign).some(k => !k.startsWith('$'))) ext.values = (ext.values ?? []).filter(v => v !== assign);
           modeling.updateProperties(el, { extensionElements: ext });
-        } catch { /* Schritt nicht im Diagramm */ }
+        } catch { /* Step not in the diagram */ }
       },
       setId: (oldId, newId) => {
         if (destroyed) return 'absent';
@@ -384,8 +384,8 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
           const modeling = modeler.get('modeling') as { updateProperties: (el: unknown, p: object) => void };
           const el = registry.get(oldId);
           if (!el) return 'absent';
-          // Im Diagramm kann die Ziel-ID auch an Flüssen oder Boundary-Events
-          // hängen, die der Baum nicht kennt — dann lieber gar nicht umbenennen.
+          // In the diagram the target ID may also be on flows or boundary events
+          // that the tree does not know — then better not rename at all.
           if (registry.get(newId)) return 'conflict';
           modeling.updateProperties(el, { id: newId });
           return 'renamed';
@@ -400,7 +400,7 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
           const el = registry.get(id);
           if (!el || el.businessObject?.name === name) return;
           modeling.updateProperties(el, { name });
-        } catch { /* Element nicht im Diagramm */ }
+        } catch { /* Element not in the diagram */ }
       },
     };
     cbs.current.onReady(handle);
@@ -411,25 +411,25 @@ export default function BpmnEditor({ xml, isDark, canEdit, engine, onChange, onC
       destroyed = true;
       if (timer.current) window.clearTimeout(timer.current);
       modelerRef.current = null;
-      // erst abwarten, dann abbauen
+      // wait first, then tear down
       void pendingRef.current.catch(() => {}).then(() => modeler.destroy());
     };
   }, [load]);
 
-  // XML von aussen (andere Datei gewählt) — eigene Änderungen sind schon gemerkt
+  // XML from outside (another file chosen) — own changes are already remembered
   useEffect(() => {
     const modeler = modelerRef.current;
     if (!modeler || !xml || xml === loadedRef.current) return;
     load(modeler, xml, () => modelerRef.current === modeler);
   }, [xml, load]);
 
-  // Nur-Lesen: die Bearbeitungswerkzeuge ausblenden
+  // Read-only: hide the editing tools
   const readOnly = !canEdit;
-  void isDark; // die Zeichenfläche bleibt in beiden Modi hell (siehe index.css)
+  void isDark; // the canvas stays light in both modes (see index.css)
 
   return (
     <div className={`bpmn-host relative h-full w-full ${readOnly ? 'bpmn-readonly' : ''}`}>
-      {/* eigener Stapelkontext: das Kontextmenü von bpmn-js (z-index 100) bleibt unter Dialogen */}
+      {/* own stacking context: the context menu of bpmn-js (z-index 100) stays below dialogs */}
       <div ref={hostRef} className="h-full w-full isolate" />
       {loading && (
         <div className={`absolute inset-0 flex items-center justify-center text-xs pointer-events-none ${isDark ? 'text-white/40' : 'text-black/40'}`}>

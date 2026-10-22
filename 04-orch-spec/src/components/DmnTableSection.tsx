@@ -1,7 +1,7 @@
-// Die Tabelle einer DMN Decision am Schritt — holen (Projekt oder Datei),
-// neu anlegen, bearbeiten. Nach jedem Übernehmen folgen In, Out und die
-// Ergebnisform der Tabelle (siehe dmn.ts); die Tabelle selbst liegt neben der
-// Spezifikation und kommt mit «Process from Spec» ins Projekt.
+// The table of a DMN decision on the step — fetch (project or file),
+// create, edit. After each apply, In, Out and the
+// result form of the table follow (see dmn.ts); the table itself lives next to the
+// specification and goes into the project with «Process from Spec».
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, FileUp, FolderSearch, Loader2, Plus, Table2 } from 'lucide-react';
 import type { Interaction, Model, ProcessSpec, Step } from '../types';
@@ -13,7 +13,7 @@ import { suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { uid } from '../util';
 
-// dmn-js ist gross — es kommt erst, wenn die Tabelle geöffnet wird
+// dmn-js is big — it is only loaded when the table is opened
 const DmnEditor = lazy(() => import('./DmnEditor'));
 
 export default function DmnTableSection({ step, spec, model, isDark, canEdit, onSpecChange }: {
@@ -30,7 +30,7 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
   const [notice, setNotice] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // die Tabelle, die die App führt
+  // the table the app maintains
   useEffect(() => {
     let alive = true;
     if (!ia?.dmnFile || !decisionId) { setStored(null); return; }
@@ -42,7 +42,7 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
   const table: DmnDecision | null = stored ? findDecision(stored, decisionId) : null;
   const company = (spec.processId ?? '').split('-')[0] || undefined;
 
-  /** die Interaktion — entsteht, wenn es sie noch nicht gibt */
+  /** the interaction — created if it does not exist yet */
   const withInteraction = (s: ProcessSpec): { spec: ProcessSpec; ia: Interaction } => {
     const own = (s.interactions ?? []).find(i => i.stepId === step.id && i.kind === 'decision');
     if (own) return { spec: s, ia: own };
@@ -55,7 +55,7 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
     return { spec: { ...s, interactions: [...(s.interactions ?? []), neu] }, ia: neu };
   };
 
-  /** Tabelle ablegen und In/Out abgleichen */
+  /** Store the table and reconcile In/Out */
   const take = async (xml: string, file: string | undefined, from: string) => {
     const d = findDecision(xml, decisionId);
     if (!d) {
@@ -93,7 +93,7 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
     await take(await f.text(), f.name, `Aus ${f.name}`);
   };
 
-  // neu: je Feld von In und Out eine Spalte — gespeichert wird erst beim Übernehmen
+  // new: one column per field of In and Out — it is only saved on apply
   const create = () => {
     const types = spec.types ?? [];
     const fieldsOf = (id?: string) => types.find(t => t.id === id)?.fields ?? [];

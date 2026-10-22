@@ -1,8 +1,8 @@
-// Detailspalte: alles zu einem Schritt — fachlich oben, technisch darunter.
+// Detail column: everything about one step — business on top, technical below.
 //
-// Hier hängt auch die **Service-Auswahl mit vorbereitetem Mapping**: ein
-// Klick auf einen Katalog-Eintrag setzt Topic und übernimmt die Ein-/Ausgaben
-// des element-templates als Vorlage; bereits gepflegte Bedeutungen bleiben.
+// This is also where the **service selection with prepared mapping** lives: a
+// click on a catalog entry sets the topic and takes over the inputs/outputs
+// of the element template as a template; meanings already maintained stay.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
@@ -36,24 +36,24 @@ interface Props {
   canEdit: boolean;
   model: Model | null;
   onPatch: (id: string, patch: Partial<Step>) => void;
-  /** nach dem Umbenennen die ID nach Konvention nachziehen (beim Verlassen des Felds) */
+  /** after renaming, update the ID according to the convention (when leaving the field) */
   onSyncId?: (id: string) => void;
   onClose: () => void;
   onGoto: (id: string) => void;
   onSpecChange: (spec: ProcessSpec) => void;
-  /** in den Klassenbauer springen und dort diesen Typ zeigen */
+  /** jump to the class builder and show this type there */
   onEditType: (typeId: string) => void;
-  /** alle bekannten `company-projekt`-Prefixe (Katalog + Spezifikationen) */
+  /** all known `company-projekt` prefixes (catalog + specifications) */
   projectPrefixes?: string[];
-  /** Firma/Projekt wechseln — zieht alle `{company}-{project}-*`-IDs nach */
+  /** change company/project — updates all `{company}-{project}-*` IDs */
   onRenameProject?: (newPrefix: string) => void;
-  /** Pattern einfügen, entfernen, Werte ändern — schreibt direkt ins BPMN; `null` = am Prozess */
+  /** insert or remove a pattern, change values — writes directly into the BPMN; `null` = on the process */
   onPattern?: (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params?: Record<string, string>, previous?: Record<string, string>) => void;
-  /** liegt ein Diagramm vor? Ohne es gibt es nichts, wo ein Pattern hinkäme */
+  /** is there a diagram? Without one there is nowhere a pattern could go */
   hasDiagram?: boolean;
 }
 
-// Breite, Rand und Hintergrund kommen von der rechten Spalte — hier nur Inhalt.
+// Width, border and background come from the right column — only content here.
 export default function StepDetail(p: Props) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
@@ -63,11 +63,11 @@ export default function StepDetail(p: Props) {
 }
 
 /**
- * Die Spezifikation spricht FEEL, auch für Camunda 7 — dort übersetzt der
- * Export nach JUEL. Was kein JUEL-Gegenstück hat, soll man beim Tippen
- * erfahren, nicht erst beim Export.
+ * The specification speaks FEEL, also for Camunda 7 — there the export
+ * translates to JUEL. Whatever has no JUEL counterpart should be reported
+ * while typing, not only on export.
  */
-/** Farben für Warnung (gelb) und Fehler (rot) — Text und Rahmen. */
+/** Colours for warning (yellow) and error (red) — text and border. */
 const tones = (isDark: boolean) => ({
   warn: isDark ? 'text-amber-400' : 'text-amber-600',
   warnBox: isDark ? 'border-amber-500/40 bg-amber-500/5' : 'border-amber-400 bg-amber-50',
@@ -75,7 +75,7 @@ const tones = (isDark: boolean) => ({
   errBox: isDark ? 'border-rose-500/50 bg-rose-500/5' : 'border-rose-400 bg-rose-50',
 });
 
-/** Die Zuständigkeit einer Benutzeraufgabe — die Felder, wie sie der Camunda Modeler zeigt */
+/** The assignment of a user task — the fields as the Camunda Modeler shows them */
 const ASSIGNMENT_FIELDS = [
   { key: 'assignee', label: 'Assignee', placeholder: 'direkt zugeteilt an, z. B. = initiator', title: 'Wem die Aufgabe direkt zugeteilt ist.' },
   { key: 'candidateGroups', label: 'Candidate groups', placeholder: 'Gruppen, die die Aufgabe sehen, z. B. = kokRole', title: 'Gruppen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
@@ -88,9 +88,9 @@ function juelIssues(expression: string, engine: EngineId | undefined, json = fal
   if (body == null) return [];
   const r = feelToJuel(body);
   if (r.ok) return [];
-  // kein gültiges FEEL (unvollständig): das meldet schon die Prüfung des Ausdrucks
+  // not valid FEEL (incomplete): the check of the expression already reports that
   if (!feelSyntaxOk(body)) return [];
-  // eine Liste bzw. ein Kontext: in Camunda 7 ein Groovy-Skript mit Spin — wo ein Skript stehen kann
+  // a list or a context: in Camunda 7 a Groovy script with Spin — where a script can go
   if (json && isJsonLiteral(body)) {
     const g = feelToGroovy(body);
     if (g.ok) return [];
@@ -99,7 +99,7 @@ function juelIssues(expression: string, engine: EngineId | undefined, json = fal
   return [{ level: 'warn', text: `Für ${C7_LABEL} nicht nach JUEL übersetzbar (${r.reason}) — beim Export bleibt das FEEL stehen.` }];
 }
 
-// ── Prozess-Ebene (kein Schritt gewählt) ─────────────────────────────────────
+// ── Process level (no step selected) ─────────────────────────────────────
 function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject, model, onPattern, hasDiagram }: Props) {
   const c = cls(isDark);
   return (
@@ -136,9 +136,9 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
   );
 }
 
-// Firma und Projekt des Prozesses — die Auswahl kommt aus dem Katalog
-// (model.projects) und den vorhandenen Spezifikationen. Ein Wechsel zieht
-// alle `{company}-{project}-*`-IDs nach, in der Spezifikation wie im BPMN.
+// Company and project of the process — the choice comes from the catalog
+// (model.projects) and the existing specifications. A change updates
+// all `{company}-{project}-*` IDs, in the specification as in the BPMN.
 function ProjectPicker({ spec, isDark, canEdit, prefixes, onRename }: {
   spec: ProcessSpec; isDark: boolean; canEdit: boolean;
   prefixes: string[]; onRename: (newPrefix: string) => void;
@@ -172,8 +172,8 @@ function ProjectPicker({ spec, isDark, canEdit, prefixes, onRename }: {
   );
 }
 
-// Epics des Prozesses — anlegen darf nur ein Admin (Admin → Epics), hier
-// wird nur zugeordnet. Abgeschlossene bleiben stehen, kommen aber nicht neu dazu.
+// Epics of the process — only an admin may create them (Admin → Epics), here
+// they are only assigned. Closed ones stay, but are not added anew.
 function EpicPicker({ spec, model, isDark, canEdit, onChange }: {
   spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void;
 }) {
@@ -247,49 +247,49 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
   );
 }
 
-// ── Schritt-Ebene ────────────────────────────────────────────────────────────
+// ── Step level ────────────────────────────────────────────────────────────
 function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram }: Props & { step: Step }) {
   const confirm = useConfirm();
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
   const correlation = messageCorrelation(step, spec.engine);
-  // Ein aus dem BPMN gelesener Schritt trägt oft kein Template, aber ein
-  // Topic — und im OpenAPI-Katalog **ist** das Topic die Kennung. Deshalb
-  // beide Wege probieren, sonst bleibt der Eintrag ungenutzt.
-  // Der Init-Worker nicht: sein Topic ist der Prozess, und dessen Eintrag
-  // beschreibt den Aufruf des Prozesses (In/Out), nicht den Init-Worker —
-  // der liest das In aus den Prozessvariablen und liefert das InitIn.
+  // A step read from the BPMN often carries no template, but a
+  // topic — and in the OpenAPI catalog the topic **is** the identifier. So
+  // try both ways, otherwise the entry stays unused.
+  // Not the init worker: its topic is the process, and its entry
+  // describes the call of the process (In/Out), not the init worker —
+  // that one reads the In from the process variables and returns the InitIn.
   const initWorker = isInitWorker(step, spec.processId);
-  // Schritt im Block eines Patterns (Link-Ziel → Aufruf …): das Pattern füllt ihn
+  // Step in the block of a pattern (link target → call …): the pattern fills it
   const ofPattern = step.pattern ? (model?.patterns?.find(d => d.id === step.pattern)?.name ?? step.pattern) : null;
   const service = initWorker ? null : catalogEntry(step, model);
 
-  // Woran sich das Mapping messen lässt: die Klasse der Interaktion, sonst der
-  // Katalog-Eintrag. Gibt es beides nicht, ist das Mapping frei.
+  // What the mapping can be measured against: the class of the interaction, otherwise the
+  // catalog entry. If there is neither, the mapping is free.
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
   const classFieldDefs = (list: 'inputs' | 'outputs'): Field[] | null => {
     const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
     const t = id ? (spec.types ?? []).find(x => x.id === id) : null;
-    // bei einem enum auch die Felder seiner Fälle — welche gelten, sagt die Ausprägung
+    // for an enum also the fields of its cases — which apply is said by the variant
     return t ? classFieldsOf(t) : null;
   };
   const classFields = (list: 'inputs' | 'outputs'): string[] | null =>
     classFieldDefs(list)?.map(f => f.name) ?? null;
-  // Die Prozessvariablen mit ihren Pfaden — für FEEL-Prüfung und Vorschläge;
-  // bei den Ausgaben zuerst das Ergebnis des Services (die Felder seines Out)
+  // The process variables with their paths — for the FEEL check and suggestions;
+  // for the outputs first the result of the service (the fields of its Out)
   const scopes = useMemo(() => multiInstanceScopes(spec.steps).get(step.id), [spec.steps, step.id]);
   const baseVariables = useMemo(() => processVariables(spec, model), [spec, model]);
   const variables = useMemo(() => withMultiInstance(baseVariables, scopes), [baseVariables, scopes]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
-  // Die Scala-Typen des Service-Objekts aus dem Domain-Katalog — Massstab für
-  // Typ und Pflicht, wo der Schritt keine eigene In-/Out-Klasse hat
+  // The Scala types of the service object from the domain catalog — the yardstick for
+  // type and required, where the step has no In/Out class of its own
   const domainIn = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'In')), [initWorker, step, spec, model]);
-  // Benutzeraufgaben und eigene Worker lesen ihr In aus den Prozessvariablen —
-  // ein Mapping ist dort Zusatz, kein Pflichtfeld kann «fehlen»
+  // User tasks and custom workers read their In from the process variables —
+  // a mapping is an extra there, no required field can be «missing»
   const ownKind = ia?.kind ?? interactionKind(step, spec.processId ?? '');
   const implicitIn = ownKind === 'userTask' || ownKind === 'customTask' || initWorker;
   const domainOut = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'Out')), [initWorker, step, spec, model]);
-  // enum mit Fällen: der Schritt wählt seine Ausprägung (siehe variants.ts)
+  // enum with cases: the step chooses its variant (see variants.ts)
   const variantsIn = useMemo(() => variantsOf(step, spec, model, 'inputs', service), [step, spec, model, service]);
   const variantsOut = useMemo(() => variantsOf(step, spec, model, 'outputs', service), [step, spec, model, service]);
   const variantsFor = (list: 'inputs' | 'outputs') => (list === 'inputs' ? variantsIn : variantsOut);
@@ -300,7 +300,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     onPatch(step.id, { [variantKey(list)]: name ?? undefined, [list]: rowsForVariant(step[list] ?? [], v, name, list) });
   };
   const reference = (list: 'inputs' | 'outputs'): { names: string[]; quelle: 'Modell' | 'Katalog' } | null => {
-    // ohne gewählte Ausprägung nur die gemeinsamen Felder — bei der eigenen Klasse wie beim Katalog
+    // without a chosen variant only the common fields — for the own class as for the catalog
     const v = variantsFor(list), chosen = chosenFor(list);
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass.filter(n => variantAllows(v, chosen, n)), quelle: 'Modell' };
@@ -313,7 +313,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     onPatch(step.id, { [list]: (step[list] ?? []).map((m, k) => (k === i ? { ...m, ...patch } : m)) });
   const addMapping = (list: 'inputs' | 'outputs') =>
     onPatch(step.id, { [list]: [...(step[list] ?? []), { name: '', expression: '' }] });
-  /** Fehlende Zeilen aus Modell bzw. Katalog ergänzen. */
+  /** Add missing rows from the model or the catalog. */
   const fillFromCatalog = (list: 'inputs' | 'outputs') => {
     const have = new Set((step[list] ?? []).map(m => m.name));
     const ref = reference(list);
@@ -328,13 +328,13 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   };
   const removeMapping = (list: 'inputs' | 'outputs', i: number) =>
     onPatch(step.id, { [list]: (step[list] ?? []).filter((_, k) => k !== i) });
-  /** JUEL aus einem älteren Stand nach FEEL — dieselbe Übersetzung wie beim Import. */
+  /** JUEL from an older state to FEEL — the same translation as on import. */
   const convertJuel = (list: 'inputs' | 'outputs') =>
     onPatch(step.id, { [list]: (step[list] ?? []).map(m => (isJuel(m.expression) ? { ...m, expression: importExpression(m.expression) } : m)) });
 
-  // Kopf: die Art als Chip in ihrer Farbe, daneben das Objekt (eigener
-  // Vertrag, violett) oder die Katalog-Kennung (fremder Service, teal)
-  // Steht der Schritt in einem eigenen Block oder Ereignis-Subprozess? Dann sagt es der Kopf – wie die Klammer im Baum
+  // Header: the kind as a chip in its colour, next to it the object (own
+  // contract, violet) or the catalog identifier (external service, teal)
+  // Is the step in a block of its own or an event subprocess? Then the header says so – like the bracket in the tree
   const block = useMemo(() => blockIndex(spec.steps).get(step.id) ?? null, [spec.steps, step.id]);
   const kindTone = ia
     ? (isDark ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-800')
@@ -342,14 +342,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       ? (isDark ? 'border-teal-500/40 bg-teal-500/10 text-teal-300' : 'border-teal-300 bg-teal-50 text-teal-800')
       : (isDark ? 'border-white/15 text-white/50' : 'border-black/15 text-black/50');
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== (spec.processId ?? '') ? (step.serviceId ?? step.topic ?? '') : '';
-  // Ein- und Ausgaben, die ein Pattern beisteuert: Implementation — ausgeblendet
+  // Inputs and outputs contributed by a pattern: implementation — hidden
   const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
   const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
-  // Befunde gesammelt — dieselbe Liste wie das Dreieck im Baum
-  // die Arten je Timer-Variable — für die Befunde am Schritt und an seinen Boundary-Timern
+  // Findings collected — the same list as the triangle in the tree
+  // the kinds per timer variable — for the findings on the step and on its boundary timers
   const kinds = useMemo(() => timerKinds(spec.steps), [spec.steps]);
   const finding = stepFindings(step, spec, model, baseVariables, { kinds });
-  // Was an einem Fehler oder Ausdruck steht, steht schon direkt dort — oben nicht noch einmal
+  // Whatever concerns an error or expression is already shown right there — not repeated at the top
   const inline = new Set(finding.inline ?? []);
   const shownErrors = finding.errors.filter(t => !inline.has(t));
   const shownWarnings = finding.warnings.filter(t => !inline.has(t));
@@ -395,12 +395,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           className={`text-[11px] px-2 py-1 rounded border outline-none ${c.input}`}>
           {STATUSES.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
-        {/* schliesst nur die Ansicht — gelöscht wird nichts */}
+        {/* only closes the view — nothing is deleted */}
         <button onClick={onClose} title="Ansicht schliessen (Auswahl aufheben — löscht nichts)" aria-label="Ansicht schliessen"
           className={`p-1 ${c.muted}`}><X size={12} /></button>
       </div>
 
-      {/* Befunde — was rot oder orange im Baum steht, hier ausgeschrieben */}
+      {/* Findings — what is red or orange in the tree, written out here */}
       {(shownErrors.length > 0 || shownWarnings.length > 0) && (
         <div className={`text-[10px] px-2 py-1.5 rounded border space-y-0.5 ${
           shownErrors.length
@@ -411,7 +411,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </div>
       )}
 
-      {/* Fachliche Beschreibung */}
+      {/* Business description */}
       <Field label="Fachliche Beschreibung (Markdown)" isDark={isDark} comment={sub(stepTarget(step.id), 'description')}>
         <MarkdownField value={step.description ?? ''} disabled={!canEdit} isDark={isDark} rows={4}
           onChange={v => onPatch(step.id, { description: v })}
@@ -421,7 +421,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
       {step.kind === 'user' && (() => {
         const filled = ASSIGNMENT_FIELDS.filter(f => step[f.key]?.trim()).length;
-        // ein Pattern, das die Zuständigkeit festlegt: es steht hier, Gruppen/Person sind gesperrt
+        // a pattern that defines the assignment: it is shown here, groups/person are locked
         const byPattern = (step.patterns ?? []).map(a => model?.patterns?.find(d => d.id === a.id)).filter(d => d?.area === 'assignment');
         return (
           <Section id="assign" label="Zuständigkeit" isDark={isDark}
@@ -438,7 +438,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               )}
               {ASSIGNMENT_FIELDS.map(f => {
                 const value = step[f.key] ?? '';
-                // wie bei den Mappings: `= …` ist FEEL und wird geprüft, sonst fester Text
+                // as with the mappings: `= …` is FEEL and is checked, otherwise fixed text
                 const issues: FeelIssue[] = isFeel(value)
                   ? [...checkFeel(value, variables).issues, ...juelIssues(value, spec.engine)]
                   : isJuel(value)
@@ -471,7 +471,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       <PatternSection target={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
         onPattern={onPattern} hasDiagram={hasDiagram} />
 
-      {/* Schleife */}
+      {/* Loop */}
       {step.loop && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-violet-500/30 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-700'}`}>
           <div className="flex items-center gap-1.5 font-semibold"><Repeat size={10} /> Wiederholung</div>
@@ -481,7 +481,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </div>
       )}
 
-      {/* Mehrfachausführung: je Element einer Sammlung — aus dem BPMN gelesen */}
+      {/* Multi-instance: per element of a collection — read from the BPMN */}
       {step.multiInstance && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-violet-500/30 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-700'}`}>
           <div className="flex items-center gap-1.5 font-semibold"><Repeat size={10} /> Mehrfachausführung{step.multiInstance.sequential ? ' (nacheinander)' : ' (parallel)'}</div>
@@ -490,7 +490,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </div>
       )}
 
-      {/* Service-Auswahl mit vorbereitetem Mapping */}
+      {/* Service selection with prepared mapping */}
       {initWorker && (
         <Row label="Init-Worker" isDark={isDark}>
           <span title="Sein Topic ist der Prozess selbst: er liest das In aus den Prozessvariablen und liefert das InitIn — kein Service-Aufruf.">
@@ -498,7 +498,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           </span>
         </Row>
       )}
-      {/* Teil eines Pattern-Blocks: Aufruf, Ein- und Ausgaben legt das Pattern fest */}
+      {/* Part of a pattern block: the pattern defines call, inputs and outputs */}
       {ofPattern && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${patternTone(isDark)}`}>
           <div className="flex items-center gap-1.5 font-semibold"><Puzzle size={10} /> Teil des Patterns «{ofPattern}»</div>
@@ -508,8 +508,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && !ofPattern && (
         <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} onSyncId={onSyncId} current={service} />
       )}
-      {/* DMN Decision dieses Prozesses: die Tabelle selbst — In und Out folgen ihr.
-          Eine zugeordnete Decision zählt auch ohne Prozess-ID in der decisionRef */}
+      {/* DMN decision of this process: the table itself — In and Out follow it.
+          A matched decision counts even without the process ID in its decisionRef */}
       {step.kind === 'rule' && !ofPattern && ownKind === 'decision' && (
         <DmnTableSection step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onSpecChange={onSpecChange} />
       )}
@@ -522,7 +522,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           <span className="flex items-center gap-1"><Zap size={10} /> {step.eventKind} {step.eventDirection === 'throw' ? '(werfend)' : '(fangend)'}</span>
         </Row>
       )}
-      {/* der Name aus `messageRef` / `signalRef` — über ihn wird korreliert; der Export schreibt ihn ins Diagramm */}
+      {/* the name from `messageRef` / `signalRef` — correlation is by it; the export writes it into the diagram */}
       {carriesMessage(step) && (
         <div className="flex items-center gap-2 text-[10px]">
           <span className={`${c.muted} w-24 flex-shrink-0`}>{step.eventKind === 'signal' ? 'Signal' : 'Nachricht'}</span>
@@ -558,7 +558,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       </>}
 
-      {/* Signal, Nachricht, Eskalation am Rand: keine Fehler — Name (und Korrelation) bearbeitbar, der Export schreibt sie ins Diagramm */}
+      {/* Signal, message, escalation on the boundary: no errors — name (and correlation) editable, the export writes them into the diagram */}
       {(step.errors ?? []).some(isEventBoundary) && (
         <Section id="events" label="Ereignisse am Rand" count={(step.errors ?? []).filter(isEventBoundary).length} isDark={isDark}>
           <div className="space-y-1">
@@ -631,14 +631,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           </p>
           <div className="space-y-1">
             {(step.errors ?? []).map((e, i) => {
-              // Nebenpfade (ohne Fehlercode) gehören in den Baum, nicht in diese Liste — ausser mit Timer;
-              // Signal, Nachricht, Eskalation stehen oben unter «Ereignisse am Rand»
+              // Side paths (without error code) belong in the tree, not in this list — except with a timer;
+              // signal, message, escalation are listed above under «Ereignisse am Rand»
               if (isEventBoundary(e) || (e.side && !e.timer)) return null;
               const setErr = (patch: Partial<typeof e>) =>
                 onPatch(step.id, { errors: (step.errors ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
-              // behandelt ist der Normalfall — gelb/rot nur, wenn am Eintrag etwas nicht stimmt
+              // handled is the normal case — yellow/red only if something is wrong with the entry
               const handled = handledErrorIssue(e, i, step.errors ?? [], { variables, engine: spec.engine });
-              // der Timer eines Boundary-Events: dieselben Befunde wie in der Liste oben
+              // the timer of a boundary event: the same findings as in the list above
               const timerIssues = { errors: [] as string[], warnings: [] as string[] };
               if (e.boundary && e.timer) timerFindings(e.timer, spec, timerIssues.errors, timerIssues.warnings, { kinds });
               const issue = handled?.level === 'error' || timerIssues.errors.length ? { level: 'error' as const }
@@ -732,7 +732,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             {step.branches.map((b, i) => {
               const setBranch = (patch: Partial<typeof b>) =>
                 onPatch(step.id, { branches: (step.branches ?? []).map((x, k) => (k === i ? { ...x, ...patch } : x)) });
-              // Bedingung als FEEL: gültig, Pfade bekannt, Ergebnis Ja/Nein
+              // Condition as FEEL: valid, paths known, result yes/no
               const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
                 ? [...checkFeel(b.condition, variables, conditionExpected(spec.engine)).issues, ...juelIssues(b.condition, spec.engine)]
                 : !b.isDefault && b.condition && isJuel(b.condition)
@@ -800,15 +800,15 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
 // ── Pattern ──────────────────────────────────────────────────────────────────
 //
-// Was der Admin als Pattern hinterlegt hat und zu diesem Element passt, lässt
-// sich hier wählen — es steht danach sofort im Diagramm (nicht erst beim
-// Export). Die Werte der Parameter gehen beim Verlassen des Felds hinein.
+// What the admin has set up as a pattern and fits this element can be
+// chosen here — it is then in the diagram immediately (not only on
+// export). The values of the parameters go in when leaving the field.
 function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDiagram, area, onSpecChange }: {
   target: Step | null; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean;
   onPattern?: Props['onPattern']; hasDiagram?: boolean;
-  /** nur die Pattern dieses Bereichs (`assignment`: in der Zuständigkeit, ohne eigene Überschrift) — sonst die übrigen */
+  /** only the patterns of this section (`assignment`: in the assignment, without its own heading) — otherwise the rest */
   area?: PatternDef['area'];
-  /** für die Pattern von Orchescala — sie stehen in der Spezifikation, nicht im Diagramm */
+  /** for the patterns of Orchescala — they live in the specification, not in the diagram */
   onSpecChange?: (spec: ProcessSpec) => void;
 }) {
   const c = cls(isDark);
@@ -818,14 +818,14 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   const here = (d: PatternDef | undefined) => (d?.area ?? undefined) === area;
   const applied = ((target ? target.patterns : processPatterns(spec)) ?? []).filter(a => here(defOf(a.id)));
   const tags = target ? stepTags(target.kind, target.eventDirection, target.gatewayType) : [PROCESS_TARGET];
-  // ins Diagramm nur mit Diagramm; die von Orchescala gehen immer — und je einmal
+  // into the diagram only with a diagram; those of Orchescala always work — and each once
   const editableBpmn = canEdit && !!onPattern && !!hasDiagram;
   const editableBuiltin = canEdit && !!onSpecChange;
   const available = patternsFor(defs, tags, engine).filter(here)
     .filter(d => !d.builtin || !applied.some(a => a.id === d.id));
   const selectable = available.filter(d => (d.builtin ? editableBuiltin : editableBpmn));
-  // Parameter mit «=» sind FEEL wie die Mapping-Werte — Vorschläge aus den Prozessvariablen
-  // (vor dem frühen Ausstieg: Hooks immer in derselben Reihenfolge)
+  // Parameters with «=» are FEEL like the mapping values — suggestions from the process variables
+  // (before the early return: hooks always in the same order)
   const variables = useMemo(() => processVariables(spec, model), [spec, model]);
   if (!applied.length && !available.length) return null;
   const editable = editableBpmn;
@@ -843,7 +843,7 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
         onParams={params => (def?.builtin ? onSpecChange?.(changeBuiltinPattern(spec, a.id, 'update', params)) : onPattern?.(id, a.id, 'update', params, a.params))} />
     );
   });
-  // in der Zuständigkeit: die Pattern und — solange keines gewählt ist — die Auswahl, ohne eigene Überschrift
+  // in the assignment: the patterns and — as long as none is chosen — the selection, without its own heading
   if (area) {
     return (
       <div className="space-y-1.5">
@@ -883,18 +883,18 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
 }
 
 /**
- * Ein Pattern-Parameter steht wörtlich im BPMN (`{{name}}`) — also in der Form
- * der Engine: `${x}` in Camunda 7, `=x` in Camunda 8. Gezeigt und bearbeitet
- * wird er wie ein Mapping-Wert: mit «=» FEEL, sonst fester Text.
+ * A pattern parameter is written literally into the BPMN (`{{name}}`) — so in the form
+ * of the engine: `${x}` in Camunda 7, `=x` in Camunda 8. It is shown and edited
+ * like a mapping value: with «=» FEEL, otherwise fixed text.
  */
 const paramView = (stored: string): string => (isJuel(stored) || feelBody(stored) != null ? importExpression(stored) : stored);
 
-/** Zurück in die Form der Engine — FEEL, das nicht nach JUEL geht, bleibt stehen (und wird gemeldet). */
+/** Back into the form of the engine — FEEL that does not translate to JUEL stays as is (and is reported). */
 function paramStored(view: string, engine: EngineId, vars: VarNode[]): string {
   const body = feelBody(view);
   if (body == null) return view;
   if (engine === 'c8') return `=${body.trim()}`;
-  // die Variablen bestimmen, wie ein Spin-Pfad endet (`numberValue()` …)
+  // the variables determine how a Spin path ends (`numberValue()` …)
   const r = feelToJuel(body, { vars });
   return r.ok ? `\${${r.juel}}` : view;
 }
@@ -911,7 +911,7 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
     : Object.keys(applied.params ?? {}).map(name => ({ name }));
   const stored = applied.params ?? {};
   const storedKey = JSON.stringify(stored);
-  // bearbeitet wird die FEEL-Ansicht; gespeichert die Form der Engine
+  // the FEEL view is edited; the form of the engine is stored
   const viewOf = (ps: Record<string, string>) => Object.fromEntries(Object.entries(ps).map(([k, v]) => [k, paramView(v)]));
   const textView = (ps: Record<string, string>) => {
     const text = new Set(params.filter(p => p.textOnly).map(p => p.name));
@@ -921,9 +921,9 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
   useEffect(() => { setDraft(textView(JSON.parse(storedKey))); }, [storedKey]);
   const [confirm, setConfirm] = useState(false);
   const commit = () => {
-    // was nicht angefasst wurde, bleibt wörtlich, wie es im BPMN steht — die
-    // Werte eines Patterns von Orchescala stehen nicht im BPMN, sondern so, wie getippt
-    // ein Parameter in einer Zeichenkette des Patterns nimmt nur Text (`succeeded`, nicht `= ProcessStatus.succeeded`)
+    // what was not touched stays literally as it is in the BPMN — the
+    // values of an Orchescala pattern are not in the BPMN, but as typed
+    // a parameter inside a string of the pattern takes only text (`succeeded`, not `= ProcessStatus.succeeded`)
     const text = new Set(params.filter(p => p.textOnly).map(p => p.name));
     const next = Object.fromEntries(Object.entries(draft).map(([k, v]) =>
       [k, def?.builtin ? v : text.has(k) ? paramText(v) : stored[k] != null && paramView(stored[k]) === v ? stored[k] : paramStored(v, engine, variables)]));
@@ -964,10 +964,10 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
                 <div className="flex items-center gap-1.5 text-[10px]"
                   title={p.inBlock ? `${p.description ? `${p.description}\n` : ''}Steht im gemeinsamen Block des Prozesses — dort, im Diagramm, ändern.` : p.description}>
                   <span className={`w-28 flex-shrink-0 truncate ${c.muted2}`}>{p.label || p.name}</span>
-                  {/* Blur übernimmt — wie beim Feld vorher; Enter verlässt das Feld */}
+                  {/* blur applies — as with the field before; Enter leaves the field */}
                   <div className="flex-1 min-w-0" onBlur={commit}
                     onKeyDown={e => {
-                      // Enter übernimmt (Shift+Enter: neue Zeile) — auch im aufgeklappten FEEL-Feld
+                      // Enter applies (Shift+Enter: new line) — also in the expanded FEEL field
                       if (e.key === 'Enter' && !e.shiftKey && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
                         e.preventDefault();
                         e.target.blur();
@@ -1009,12 +1009,12 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
   );
 }
 
-// ── Klassen einer Interaktion ────────────────────────────────────────────────
+// ── Classes of an interaction ────────────────────────────────────────────────
 //
-// Eine Benutzeraufgabe (wie ein eigener Worker oder ein Signal) hat neben dem
-// Mapping eigene Klassen: `In` und `Out` mit beschriebenen Feldern — genau wie
-// der Prozess. Hier stehen sie am Schritt; bearbeitet werden sie im
-// Datenmodell, wo auch die Typen gewählt werden.
+// A user task (like a custom worker or a signal) has, besides the
+// mapping, classes of its own: `In` and `Out` with described fields — just like
+// the process. Here they are shown on the step; they are edited in the
+// data model, where the types are chosen as well.
 function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecChange, onEditType }: {
   step: Step; spec: ProcessSpec; isDark: boolean; canEdit: boolean;
   entry: ServiceDef | null;
@@ -1039,7 +1039,7 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
       name: suggestName(step, kind, spec.processId ?? '', model),
       key: kind === 'userTask' ? step.id : step.topic ?? step.name,
       ...(step.description ? { descr: step.description } : {}),
-      // DMN Decision: die Ergebnisform aus dem BPMN (`camunda:mapDecisionResult`)
+      // DMN decision: the result form from the BPMN (`camunda:mapDecisionResult`)
       ...(kind === 'decision' && step.decisionResult ? { decisionResult: step.decisionResult } : {}),
       status: 'draft',
     };
@@ -1061,8 +1061,8 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
   };
 
   const { warn, warnBox } = tones(isDark);
-  // über den Schlüssel im Katalog: ein Objekt eines anderen Prozesses / Projekts wird
-  // referenziert und nicht exportiert
+  // via the key in the catalog: an object of another process / project is
+  // referenced and not exported
   const origin = ia ? interactionOrigin(ia, model, packageOf(spec, model)) : null;
   return (
     <div>
@@ -1096,9 +1096,9 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
             const t = types.find(x => x.id === (m === 'In' ? ia.inTypeId : ia.outTypeId));
             const fields = (t?.fields ?? []).filter(f => f.name);
             const known = ((m === 'In' ? entry?.inputs : entry?.outputs) ?? []).length;
-            // Eine Klasse ohne Felder ist ein Hinweis (gelb): der Schritt bekommt
-            // bzw. liefert dann nichts — meist ist das noch nicht fertig
-            // — ausser beim In eines Signals oder einer Nachricht: das darf leer sein
+            // A class without fields is a hint (yellow): the step then receives
+            // or returns nothing — usually it is not finished yet
+            // — except for the In of a signal or a message: that may be empty
             const leer = !!t && !fields.length && meta.hasOut;
             const what = m === 'In'
               ? 'was der Schritt bekommt'
@@ -1147,11 +1147,11 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
   );
 }
 
-// ── Service-Katalog ──────────────────────────────────────────────────────────
+// ── Service catalog ──────────────────────────────────────────────────────────
 function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, current }: {
   step: Step; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; current: ServiceDef | null;
   onPatch: (id: string, patch: Partial<Step>) => void;
-  /** die ID dem (neuen) Namen nachziehen — wie nach dem Umbenennen im Feld */
+  /** update the ID to the (new) name — as after renaming in the field */
   onSyncId?: (id: string) => void;
 }) {
   const c = cls(isDark);
@@ -1159,10 +1159,10 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
   const [q, setQ] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Nur passende Einträge anbieten: Service-Task → Worker (kind 'service'),
-  // Call Activity → Prozesse ('call'), Senden → Signale/Nachrichten ('send'),
-  // Entscheidung → NUR DMNs ('rule', keine Services). Einträge ohne kind
-  // (Altbestand) zählen als Worker.
+  // Offer only matching entries: service task → workers (kind 'service'),
+  // call activity → processes ('call'), send → signals/messages ('send'),
+  // decision → ONLY DMNs ('rule', no services). Entries without kind
+  // (legacy) count as workers.
   const wanted = step.kind === 'call' ? 'call' : step.kind === 'send' ? 'send' : step.kind === 'rule' ? 'rule' : 'service';
   const pool = useMemo(
     () => (model?.services ?? []).filter(s => (s.kind ?? 'service') === wanted),
@@ -1176,14 +1176,14 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
     return list.slice(0, 60);
   }, [pool, q]);
 
-  // Vorbereitetes Mapping übernehmen — vorhandene Bedeutungen bleiben erhalten
+  // Take over the prepared mapping — existing meanings are kept
   const apply = (svc: ServiceDef) => {
     const keep = (list: Mapping[] | undefined) => new Map((list ?? []).map(m => [m.name, m]));
     const oldIn = keep(step.inputs), oldOut = keep(step.outputs);
-    // Ausprägungen des neuen Service: eine gewählte bleibt, wenn es sie dort
-    // auch gibt; die Felder der anderen kommen nicht als Zeilen herein. «Alle»
-    // bei den Eingaben sagt, dass **dieser** Worker selbst entscheidet — beim
-    // Wechsel des Service gilt es nicht mehr
+    // Variants of the new service: a chosen one stays if it exists there
+    // too; the fields of the others do not come in as rows. «Alle»
+    // for the inputs says that **this** worker decides itself — on a
+    // change of service it no longer applies
     const next: Step = { ...step, serviceId: svc.id, topic: svc.topic ?? step.topic, calledProcess: svc.calledProcess ?? step.calledProcess };
     const variantState = (list: 'inputs' | 'outputs') => {
       const v = variantsOf(next, spec, model, list, svc);
@@ -1193,16 +1193,16 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       return { v, name, chosen: { name, inferred: false, mixed: [] } as Chosen };
     };
     const vin = variantState('inputs'), vout = variantState('outputs');
-    // ein Schritt ohne eigenen Namen heisst wie der Service — ebenso einer, der
-    // noch den Namen des bisher gewählten trägt; einen gewählten Namen lässt es stehen
+    // a step without a name of its own is named like the service — likewise one that
+    // still carries the name of the previously chosen one; a chosen name is left as it is
     const refOf = (s: ServiceDef) => s.calledProcess ?? s.topic ?? s.id;
     const prefixes = knownPrefixes(model, [spec.project]);
     const autoName = unnamed(step) || (!!current && step.name === nameFromService(refOf(current), prefixes));
     const name = autoName ? nameFromService(refOf(svc), prefixes) : null;
     const inParams = (svc.inputs ?? []).filter(pm => variantAllows(vin.v, vin.chosen, pm.name));
     const outParams = (svc.outputs ?? []).filter(pm => variantAllows(vout.v, vout.chosen, pm.name));
-    // derselbe Service nochmals gewählt: Zeilen, die sein Katalog nicht kennt, bleiben —
-    // eine Erweiterung oder ein Feld, das der (ältere) Katalog noch nicht führt
+    // the same service chosen again: rows its catalog does not know stay —
+    // an extension or a field the (older) catalog does not list yet
     const same = current?.id === svc.id;
     const extra = (list: Mapping[] | undefined, params: ServiceParam[]) =>
       (same ? list ?? [] : []).filter(m => !params.some(pm => pm.name === m.name));
@@ -1213,7 +1213,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       outVariant: vout.name ?? undefined,
       ...(svc.topic ? { topic: svc.topic } : {}),
       ...(svc.calledProcess ? { calledProcess: svc.calledProcess } : {}),
-      // Was schon erfasst war, bleibt: Ausdruck, Bedeutung und die Abwahl
+      // What was already entered stays: expression, meaning and the deselection
       inputs: inParams.map(pm => ({
         name: pm.name,
         expression: oldIn.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
@@ -1231,7 +1231,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
         : {}),
       status: 'changed' as Status,
     });
-    // erst nach dem Rendern steht der neue Name in der Spezifikation
+    // only after rendering is the new name in the specification
     if (name && name !== step.name) window.setTimeout(() => onSyncId?.(step.id), 0);
     setOpen(false); setQ('');
   };
@@ -1245,8 +1245,8 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       <button disabled={!canEdit} onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 30); }}
         className={`w-full flex items-center gap-2 text-[11px] px-2 py-1.5 rounded border text-left ${c.border2} ${canEdit ? c.hover : ''}`}>
         <span className={`flex-1 truncate font-mono ${current ? c.text : c.muted}`}>
-          {/* eine Entscheidung heisst über ihre decisionId, ein Worker über sein Topic, ein Aufruf über
-              seinen Prozess — der Import setzt dort nur `calledProcess`, kein `serviceId` */}
+          {/* a decision is named by its decisionId, a worker by its topic, a call by
+              its process — the import only sets `calledProcess` there, no `serviceId` */}
           {step.serviceId ?? current?.id ?? (step.calledProcess ? `Prozess: ${step.calledProcess}`
             : step.topic ? `${step.kind === 'rule' ? 'decisionId' : 'Topic'}: ${step.topic}`
             : step.kind === 'rule' ? 'keine Entscheidung gewählt' : step.kind === 'call' ? 'kein Prozess gewählt' : 'kein Service gewählt')}
@@ -1284,66 +1284,66 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
   );
 }
 
-// ── kleine Bausteine ─────────────────────────────────────────────────────────
-// Ein- und Ausgaben eines Schritts: bearbeitbar, und jede Zeile lässt sich
-// **abwählen** oder entfernen. Ein Katalog-Service bringt alles mit, was er
-// kann — was dieser Prozess nicht braucht, wird abgewählt (bleibt sichtbar)
-// oder gelöscht (kommt über «+ N aus Katalog» zurück). Ein erneuter Abgleich
-// stellt Abgewähltes nicht wieder her.
+// ── small building blocks ─────────────────────────────────────────────────────────
+// Inputs and outputs of a step: editable, and every row can be
+// **deselected** or removed. A catalog service brings everything it
+// can do — what this process does not need is deselected (stays visible)
+// or deleted (comes back via «+ N aus Katalog»). A new sync
+// does not restore deselected rows.
 function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
-  /** Ausprägungen des In bzw. Out (enum mit Fällen) — null: keine */
+  /** variants of the In or Out (enum with cases) — null: none */
   variants: Variants | null;
   chosen: Chosen;
   onVariant: (list: 'inputs' | 'outputs', name: string | null) => void;
-  /** Name → Pattern: diese Zeilen steuert ein Pattern bei — Implementation, ausgeblendet */
+  /** name → pattern: these rows are contributed by a pattern — implementation, hidden */
   fromPattern: Map<string, string>;
-  /** wie oft das Pattern einen Namen selbst mitbringt — so oft ist er kein Doppel */
+  /** how often the pattern brings a name itself — that many times it is not a duplicate */
   patternTimes: Map<string, number>;
   patternName: (id: string) => string;
-  /** Benutzeraufgabe oder eigener Worker: das In kommt aus den Prozessvariablen, ein Mapping ist keine Pflicht */
+  /** user task or custom worker: the In comes from the process variables, a mapping is not required */
   implicitIn: boolean;
-  /** Katalog-Eintrag — liefert die Bedeutung, wo der Schritt keine eigene hat */
+  /** catalog entry — provides the meaning where the step has none of its own */
   service: ServiceDef | null;
-  /** was der Ausdruck sehen darf: Prozessvariablen — bei Ausgaben zuerst das Ergebnis des Services */
+  /** what the expression may see: process variables — for outputs first the result of the service */
   variables: VarNode[] | null;
-  /** Felder der In- bzw. Out-Klasse — daraus der erwartete Typ je Zeile */
+  /** fields of the In or Out class — from them the expected type per row */
   refFields: Field[] | null;
-  /** `<Objekt>.In` bzw. `.Out` aus dem Domain-Katalog — Massstab ohne eigene Klasse */
+  /** `<Objekt>.In` or `.Out` from the domain catalog — the yardstick without an own class */
   domain: DomainType | null;
   types: TypeDef[];
   model: Model | null;
   engine: EngineId | undefined;
-  /** was das Datenmodell bzw. der Katalog kennt — daran misst sich das Mapping */
+  /** what the data model or the catalog knows — the mapping is measured against it */
   reference: { names: string[]; quelle: 'Modell' | 'Katalog' } | null;
   onChange: (list: 'inputs' | 'outputs', i: number, patch: Partial<Mapping>) => void;
   onAdd: (list: 'inputs' | 'outputs') => void;
   onRemove: (list: 'inputs' | 'outputs', i: number) => void;
   onFill: (list: 'inputs' | 'outputs') => void;
-  /** JUEL-Reste dieser Tabelle nach FEEL übersetzen */
+  /** translate JUEL leftovers of this table to FEEL */
   onConvert: (list: 'inputs' | 'outputs') => void;
 }) {
   const c = cls(isDark);
   const all = step[list] ?? [];
-  // Felder anderer Ausprägungen sind ausgeblendet — ohne Wahl gelten nur die gemeinsamen
+  // Fields of other variants are hidden — without a choice only the common ones apply
   const allowed = (name: string) => variantAllows(variants, chosen, name);
   const hiddenByVariant = all.filter(m => !fromPattern.has(m.name) && !allowed(m.name)).length;
-  // Eingaben: der Service erwartet genau einen Fall — dieselbe Regel wie in findings.ts
+  // Inputs: the service expects exactly one case — the same rule as in findings.ts
   const needsChoice = !!variants && !chosen.name && !chosen.mixed.length && list === 'inputs' && !implicitIn && !fromPattern.size;
-  // was ein Pattern beisteuert, steht nicht hier — seine Parameter stehen am Pattern
+  // what a pattern contributes is not shown here — its parameters are on the pattern
   const rows = all.filter(m => !fromPattern.has(m.name) && allowed(m.name));
   const byPattern = all.filter(m => fromPattern.has(m.name));
   const byPatternNames = [...new Set(byPattern.map(m => patternName(fromPattern.get(m.name)!)))];
-  // JUEL aus einem älteren Stand: was sich übersetzen lässt, bekommt oben den Knopf
+  // JUEL from an older state: whatever can be translated gets the button at the top
   const juelRows = rows.filter(m => !m.disabled && isJuel(m.expression));
   const convertible = juelRows.filter(m => importExpression(m.expression) !== m.expression).length;
   const active = rows.filter(m => !m.disabled).length;
-  /** Zeile, deren Entfernen gerade bestätigt werden soll */
+  /** row whose removal is about to be confirmed */
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
-  // Was die Felder bedeuten — beim Überfahren erklärt, denn bei Ein- und
-  // Ausgaben ist die Leserichtung verschieden: bei Eingaben ist «name» der
-  // Parameter des Services und der Ausdruck kommt aus dem Prozess, bei
-  // Ausgaben ist «name» die Prozessvariable und der Ausdruck die Quelle.
+  // What the fields mean — explained on hover, because for inputs and
+  // outputs the reading direction differs: for inputs «name» is the
+  // parameter of the service and the expression comes from the process, for
+  // outputs «name» is the process variable and the expression the source.
   const hint = list === 'inputs'
     ? {
         section: 'Eingaben: was der Schritt beim Aufruf bekommt — je Zeile ein Parameter des Services (In) und der Wert dazu aus dem Prozess.',
@@ -1356,35 +1356,35 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
         expression: 'Quelle der Ausgabe: Ausdruck auf dem Ergebnis des Services — dessen Out-Felder stehen direkt bereit, z. B. = accountId.',
       };
   const descrHint = 'Fachliche Bedeutung des Feldes für die Stakeholder — landet in der Spezifikation und im Export.';
-  // Der Katalog kennt die Bedeutung der Felder (aus den OpenAPI-Schemas).
-  // Wo der Schritt keine eigene hat, steht sie als Vorschlag im Feld — sie
-  // wird nicht mitgespeichert, solange niemand sie übernimmt.
+  // The catalog knows the meaning of the fields (from the OpenAPI schemas).
+  // Where the step has none of its own, it is shown as a suggestion in the field — it
+  // is not stored as long as nobody takes it over.
   const fromCatalog = new Map((service?.[list] ?? []).map(p => [p.name, p.description]));
   const vorhanden = new Set(all.map(m => m.name));
-  // dazu, was die Domain im In führt (`inConfig`, Mocks) — wie in findings.ts; nur beim Katalog, das Modell kennt sein In selbst
+  // in addition, what the domain lists in the In (`inConfig`, mocks) — as in findings.ts; only for the catalog, the model knows its In itself
   const bekannt = reference ? new Set([...reference.names, ...(list === 'inputs' && reference.quelle === 'Katalog' ? domainInputNames(domain, model) : [])]) : null;
   const fehlend = reference ? reference.names.filter(n => !vorhanden.has(n)).length : 0;
-  // Zeilen, die das Modell bzw. der Katalog nicht kennt: eine **Erweiterung**,
-  // die dort noch fehlt — oder ein Feld, das es nicht mehr gibt. Beides ist
-  // eine Warnung, kein Fehler: sobald das Feld im Modell steht, ist die Zeile
-  // ohne weiteres Zutun in Ordnung.
-  // Bei den Ausgaben ist der Name die **neue** Prozessvariable — die darf
-  // heissen, wie sie will; nur Eingaben messen sich am In des Services
-  // eine allgemeine Variable (`_idempotentId` …) nimmt jeder Worker — keine Erweiterung
+  // Rows the model or the catalog does not know: an **extension**
+  // that is still missing there — or a field that no longer exists. Both are
+  // a warning, not an error: as soon as the field is in the model, the row
+  // is fine without further ado.
+  // For outputs the name is the **new** process variable — it may be
+  // named as it likes; only inputs are measured against the In of the service
+  // a general variable (`_idempotentId` …) is accepted by every worker — not an extension
   const unbekannt = (name: string) => !!bekannt && !!name && !bekannt.has(name) && !GENERAL_VARIABLES.has(name);
   const verwaist = list === 'inputs' ? rows.filter(m => unbekannt(m.name)).length : 0;
   const { warn, warnBox, err, errBox } = tones(isDark);
-  // Derselbe Name zweimal: die zweite Zeile überschriebe die erste — im
-  // BPMN wie im Export. Abgewählte Zeilen zählen nicht, die kommen nicht vor.
+  // The same name twice: the second row would overwrite the first — in the
+  // BPMN as in the export. Deselected rows do not count, they do not occur.
   const zaehler = new Map<string, number>();
   for (const m of all) if (m.name && !m.disabled) zaehler.set(m.name, (zaehler.get(m.name) ?? 0) + 1);
   const doppelt = new Set([...zaehler].filter(([name, n]) => n > (patternTimes.get(name) ?? 1)).map(([name]) => name));
-  // Pflicht: das Feld der In-Klasse ist nicht optional — oder der Katalog
-  // sagt `required`. Ein Pflichtfeld muss der Service bekommen; die Zeile
-  // lässt sich deshalb weder abwählen noch entfernen.
+  // Required: the field of the In class is not optional — or the catalog
+  // says `required`. The service must receive a required field; the row
+  // can therefore be neither deselected nor removed.
   const pflichtGrund = (name: string): string | null => {
     if (list !== 'inputs' || !name || implicitIn || !allowed(name)) return null;
-    // Weichen des Decoders: eine genügt — Pflicht ist die einzige aktive, ohne aktive die erste
+    // Switches of the decoder: one is enough — required is the only active one, without an active one the first
     const routing = variants?.routing;
     if (routing?.includes(name)) {
       const on = routing.filter(n => all.some(m => m.name === n && !m.disabled));
@@ -1401,12 +1401,12 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
     const p = service?.inputs?.find(x => x.name === name);
     return p?.required ? `Pflichtfeld: «${name}» ist laut Katalog erforderlich` : null;
   };
-  // legt ein Pattern den Aufruf fest, fehlt kein Pflichtfeld
+  // if a pattern defines the call, no required field is missing
   const pflichtFehlt = reference && !(list === 'inputs' && byPattern.length)
     ? reference.names.filter(n => pflichtGrund(n) && !all.some(m => m.name === n && !m.disabled))
     : [];
 
-  // Auf- und zuklappen, je Tabelle gemerkt; leer = zu, und was hinzukommt, klappt auf
+  // Expand and collapse, remembered per table; empty = collapsed, and whatever is added expands it
   const sectionKey = `orch-spec.section.${list}`;
   const [open, setOpen] = useState<boolean>(() => {
     try { const v = localStorage.getItem(sectionKey); if (v != null) return v === '1'; } catch { /* ignore */ }
@@ -1460,10 +1460,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             title={needsChoice ? 'Der Service erwartet eine Ausprägung — ohne Wahl bekommt er keine. Unterstützt der Worker mehrere: «alle Ausprägungen».' : undefined}
             className={`text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input} ${needsChoice ? warnBox : ''}`}>
             <option value="">— nur gemeinsame Felder —</option>
-            {/* Ausgaben: der Service liefert einen Fall — welchen, entscheidet er: die Ausgaben dürfen alle lesen.
-                Eingaben: der Worker unterstützt mehrere Fälle und entscheidet beim Unmarshalling */}
+            {/* Outputs: the service returns one case — which one, it decides: the outputs may read all of them.
+                Inputs: the worker supports several cases and decides on unmarshalling */}
             {!chosen.runtime && <option value={ALL_VARIANTS}>— alle Ausprägungen{list === 'inputs' ? ' (Worker entscheidet)' : ''} —</option>}
-            {/* die Weiche wählt den Fall erst zur Laufzeit — erkannt, nicht wählbar */}
+            {/* the switch picks the case only at runtime — detected, not selectable */}
             {chosen.runtime && <option value={ALL_VARIANTS} disabled>— zur Laufzeit über {chosen.runtime} —</option>}
             {variants.cases.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
           </select>
@@ -1473,7 +1473,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           )}
         </div>
       )}
-      {/* dieselbe Warnung wie in findings.ts — hier, wo sie sich beheben lässt */}
+      {/* the same warning as in findings.ts — here, where it can be fixed */}
       {needsChoice && (
         <p className={`text-[10px] mb-1 ${warn}`}>{noVariantText(variants!)}</p>
       )}
@@ -1510,24 +1510,24 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const fehlt = list === 'inputs' && unbekannt(m.name);
           const dupl = !off && doppelt.has(m.name);
           const pflicht = pflichtGrund(m.name);
-          // Doppelt ist ein Fehler (rot), eine Erweiterung nur eine Warnung (gelb)
+          // A duplicate is an error (red), an extension only a warning (yellow)
           const problem = dupl
             ? `«${m.name}» kommt mehrmals vor — jeder Name nur einmal; eine Zeile umbenennen oder abwählen.`
             : !off && list === 'inputs' && !refFields && m.name === inConfigField(domain) ? inConfigWarning(m.name)
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
-          // FEEL (Camunda 8): `= …` wird beim Tippen geprüft — Syntax, Pfade, Typ
-          // Solltyp: die eigene Klasse zuerst, sonst der Domain-Katalog
+          // FEEL (Camunda 8): `= …` is checked while typing — syntax, paths, type
+          // Expected type: the own class first, otherwise the domain catalog
           const expected = refFields
             ? expectedFor(refFields.find(f => f.name === m.name), types, model)
             : expectedFromDomain(domain, m.name, model);
           const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
           const feelIssues: FeelIssue[] = [
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
-            // ein Parameter (kein `camunda:in` am Teilprozess) kann JSON als Skript tragen
+            // a parameter (not a `camunda:in` on the subprocess) can carry JSON as a script
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine, step.kind !== 'call')] : []),
-            // ein Skript aus dem BPMN (Groovy): beschrieben, nicht übersetzt
+            // a script from the BPMN (Groovy): described, not translated
             ...(!off && isScriptValue(m.expression) ? [{ level: 'warn' as const, text: scriptWarning(engine) }] : []),
-            // JUEL, das der Import nicht übersetzen konnte — bleibt, bis es jemand als FEEL schreibt
+            // JUEL the import could not translate — stays until someone writes it as FEEL
             ...(!off && !feel && !isScriptValue(m.expression) && isJuel(m.expression)
               ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
                   ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
@@ -1538,13 +1538,13 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           const box = dupl || feelIssues.some(i => i.level === 'error') ? errBox : fehlt || feelIssues.length ? warnBox : c.border2;
           const mark = dupl ? err : warn;
           return (
-            // Key nur über die Position: ein Key mit dem Namen darin würde die
-            // Zeile bei jedem Tastendruck neu aufbauen — und den Fokus verlieren.
+            // Key only by position: a key containing the name would
+            // rebuild the row on every keystroke — and lose the focus.
             <div key={i}
               title={problem}
               data-cframe={m.name ? sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`) : undefined}
               className={`group px-2 py-1.5 rounded border ${box} ${off ? 'opacity-45' : ''}`}>
-              {/* Befund zum FEEL-Ausdruck — über dem Feld, damit er beim Tippen im Blick bleibt */}
+              {/* Finding on the FEEL expression — above the field, so it stays in view while typing */}
               {feelIssues.map((it, k) => (
                 <p key={k} className={`text-[10px] mb-1 flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
                   <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
@@ -1580,15 +1580,15 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                 {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
                 {m.name && <CommentBubble target={sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`)} quiet />}
-                {/* Entfernen geht immer. Ein Feld des Massstabs kommt über
-                    «+ N aus Modell/Katalog» jederzeit zurück — Abwählen ist
-                    die sanftere Variante, wenn es sichtbar bleiben soll. */}
+                {/* Removing always works. A field of the yardstick comes back any time via
+                    «+ N aus Modell/Katalog» — deselecting is
+                    the gentler variant if it should stay visible. */}
                 {canEdit && !pflicht && confirmRemove !== i && (
                   <button onClick={() => setConfirmRemove(i)}
                     title={reference && !fehlt ? `Zeile entfernen — steht danach unter «+ aus ${reference.quelle}» wieder bereit` : 'Zeile entfernen'}
                     className={`p-0.5 flex-shrink-0 ${c.muted}`}><Trash2 size={10} /></button>
                 )}
-                {/* Rückfrage direkt in der Zeile — erst «Ja» entfernt */}
+                {/* Confirmation directly in the row — only «Ja» removes */}
                 {canEdit && confirmRemove === i && (
                   <span className="flex items-center gap-1 flex-shrink-0">
                     <span className={`text-[10px] ${err}`}>Entfernen?</span>
@@ -1614,7 +1614,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   );
 }
 
-/** Farbe und Zeichen je Typart — dieselben wie die Typ-Chips im Datenmodell. */
+/** Colour and symbol per kind of type — the same as the type chips in the data model. */
 function kindStyle(kind: ExpectedType['kind'], isDark: boolean): { cls: string; icon: React.ReactNode; what: string } {
   const ico = (I: typeof Braces) => <I size={9} className="flex-shrink-0" />;
   switch (kind) {
@@ -1632,8 +1632,8 @@ function kindStyle(kind: ExpectedType['kind'], isDark: boolean): { cls: string; 
 }
 
 /**
- * Solltyp der Zeile — was das Feld der In-/Out-Klasse (oder der Katalog)
- * verlangt. Steht neben dem Namen, damit klar ist, was der Ausdruck liefern muss.
+ * Expected type of the row — what the field of the In/Out class (or the catalog)
+ * demands. Shown next to the name, so it is clear what the expression must return.
  */
 function ExpectedChip({ expected, list, isDark }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean }) {
   const st = kindStyle(expected.kind, isDark);
@@ -1648,9 +1648,9 @@ function ExpectedChip({ expected, list, isDark }: { expected: ExpectedType; list
 }
 
 /**
- * Was der FEEL-Ausdruck liefert — ausgewertet mit Beispielwerten. Grün, wenn
- * es zum Solltyp passt, rot, wenn nicht; grau ohne Massstab. Kein Chip, wenn
- * der Ausdruck nicht auswertbar ist — dann steht der Befund darüber.
+ * What the FEEL expression returns — evaluated with example values. Green if
+ * it matches the expected type, red if not; grey without a yardstick. No chip if
+ * the expression cannot be evaluated — then the finding is shown above it.
  */
 function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: ExpectedType | null; isDark: boolean }) {
   if (!feel.result || feel.issues.some(i => i.level === 'error')) return null;
@@ -1670,16 +1670,16 @@ function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: Exp
 }
 
 /**
- * Einklappbarer Abschnitt mit Zähler. Zu, wenn er leer ist; offen, wenn
- * etwas drin ist — und die Wahl der Person wird je Abschnitt gemerkt.
- * Kommt etwas hinzu (der Zähler steigt), geht er auf.
+ * Collapsible section with a counter. Collapsed when it is empty; open when
+ * there is something in it — and the person's choice is remembered per section.
+ * If something is added (the counter goes up), it opens.
  */
 function Section({ id, label, count, isDark, action, hint, children, comment, openFor }: {
   id: string; label: string; count?: number; isDark: boolean;
   action?: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode;
-  /** Kommentar-Stelle des Abschnitts — Sprechblase und Rahmen */
+  /** Comment location of the section — speech bubble and frame */
   comment?: string;
-  /** Stellen darin (Präfix): steht der offene Kommentar dort, klappt der Abschnitt auf */
+  /** locations inside it (prefix): if the open comment is there, the section expands */
   openFor?: string;
 }) {
   const c = cls(isDark);
@@ -1692,8 +1692,8 @@ function Section({ id, label, count, isDark, action, hint, children, comment, op
   const prev = useRef(n);
   useEffect(() => { if (n > prev.current && !open) setOpen(true); prev.current = n; }, [n, open]);
   const toggle = () => setOpen(o => { try { localStorage.setItem(key, o ? '0' : '1'); } catch { /* ignore */ } return !o; });
-  // Beim Durchgehen der Kommentare: eine Stelle in einem zugeklappten
-  // Abschnitt wäre nicht zu sehen — also aufklappen (ohne es zu merken)
+  // When going through the comments: a location in a collapsed
+  // section would not be visible — so expand it (without remembering it)
   const aktiv = useActiveComment();
   const betrifft = !!aktiv && ((!!comment && aktiv === comment) || (!!openFor && aktiv.startsWith(openFor)));
   useEffect(() => { if (betrifft) setOpen(true); }, [betrifft, aktiv]);
@@ -1717,7 +1717,7 @@ function Section({ id, label, count, isDark, action, hint, children, comment, op
 
 function Field({ label, children, isDark, action, comment }: {
   label: string; children: React.ReactNode; isDark: boolean; action?: React.ReactNode;
-  /** Kommentar-Stelle dieses Abschnitts — Sprechblase neben der Überschrift */
+  /** Comment location of this section — speech bubble next to the heading */
   comment?: string;
 }) {
   const c = cls(isDark);
@@ -1736,11 +1736,11 @@ function Field({ label, children, isDark, action, comment }: {
 const TIMER_KIND_LABEL: Record<TimerSpec['kind'], string> = { duration: 'Dauer', date: 'Zeitpunkt', cycle: 'Zyklus' };
 
 /**
- * Der Timer eines Ereignisses bzw. Boundary-Events: wie lange bzw. wann. Üblich
- * ist eine Variable (`= timerEscalationCancel`) — sie kommt als Konstante mit
- * ihrer Vorgabe ins `InConfig`, so lässt sie sich je Umgebung oder im Test
- * einstellen. Gehört das Boundary-Event zu einem Pattern (`lockedBy`), setzt
- * dieses den Timer — hier bleibt nur die Vorgabe.
+ * The timer of an event or boundary event: how long or when. Usually
+ * a variable (`= timerEscalationCancel`) — it goes into `InConfig` as a constant with
+ * its default, so it can be set per environment or in the test. If the
+ * boundary event belongs to a pattern (`lockedBy`), the pattern sets
+ * the timer — only the default remains here.
  */
 function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
   timer: TimerSpec | undefined; spec: ProcessSpec; isDark: boolean; canEdit: boolean;
@@ -1787,7 +1787,7 @@ function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
   );
 }
 
-/** Die beiden Wege des Gateways (businessKey / processInstanceId) — einer wird gewählt; den Aufruf zeigt die Doku (Export) */
+/** The two paths of the gateway (businessKey / processInstanceId) — one is chosen; the docs (export) show the call */
 function CorrelationChoice({ corr, engine, isDark, disabled, onChoose }: {
   corr: MessageCorrelation; engine?: EngineId; isDark: boolean; disabled: boolean; onChoose: (key: string) => void;
 }) {
@@ -1795,7 +1795,7 @@ function CorrelationChoice({ corr, engine, isDark, disabled, onChoose }: {
   const { warn, err } = tones(isDark);
   return (
     <>
-      {/* die beiden Wege des Gateways — einer wird gewählt; den Aufruf zeigt die Doku (Export) */}
+      {/* the two paths of the gateway — one is chosen; the docs (export) show the call */}
       <div className="flex items-center gap-2 text-[10px]">
         <span className={`${c.muted} w-24 flex-shrink-0`}>Korrelation</span>
         <div className="flex gap-1">

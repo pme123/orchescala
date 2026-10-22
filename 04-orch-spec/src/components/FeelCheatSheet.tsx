@@ -1,6 +1,6 @@
-// FEEL-Spickzettel als Dialog (Kopfzeile). Die Beispiele sind eingefärbt wie im
-// Eingabefeld: Variablen blau, Zeichenketten grün, FEEL violett. Die Suche
-// filtert Beispiele und Funktionen; ein Klick auf ein Beispiel kopiert es.
+// FEEL cheat sheet as a dialog (header). The examples are coloured as in the
+// input field: variables blue, strings green, FEEL violet. The search
+// filters examples and functions; a click on an example copies it.
 import { useMemo, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { Check, Search, X } from 'lucide-react';
@@ -9,7 +9,7 @@ import { FEEL_DOCS } from '../feelDocs';
 import { tokenizeFeel, type FeelTokenKind } from '../feel';
 import { cls } from '../ui';
 
-/** `code` und **fett** in einem Hinweistext */
+/** `code` and **bold** in a hint text */
 function Rich({ text }: { text: string }) {
   return (
     <>
@@ -35,7 +35,7 @@ export default function FeelCheatSheet({ isDark, onClose }: { isDark: boolean; o
     comment: c.muted,
     plain: '',
   };
-  // Namen im Beispiel, die keine Funktionen sind, gelten als Variablen
+  // names in the example that are not functions count as variables
   const code = (text: string) => {
     const names = [...new Set(text.match(/(?<![\w.`"])[A-Za-z_]\w*(?!\w*\s*\()/g) ?? [])]
       .filter(n => !FEEL_DOCS.some(d => d.name.split(' ').includes(n)) && !['item', 'true', 'false', 'null'].includes(n));

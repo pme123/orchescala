@@ -1,5 +1,5 @@
-// Der Schlüssel eines Objekts auf der nächsten Zeile — scalafmt bricht
-// `val topicName: String = "…"` um, wenn die Zeile zu lang wird.
+// The key of an object on the next line — scalafmt wraps
+// `val topicName: String = "…"` when the line gets too long.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';

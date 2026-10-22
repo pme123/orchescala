@@ -6,8 +6,8 @@ import { StoreProvider } from './store';
 import { AuthProvider } from './auth';
 import { ConfirmProvider } from './components/Confirm';
 
-// In einem versteckten iframe (stille Token-Erneuerung durch MSAL) die App
-// NICHT starten — sonst verbraucht sie die Antwort, die das Hauptfenster liest.
+// In a hidden iframe (silent token renewal by MSAL) do NOT start
+// the app — otherwise it consumes the response that the main window reads.
 if (window.self !== window.top) {
   document.getElementById('root')!.textContent = '';
 } else ReactDOM.createRoot(document.getElementById('root')!).render(

@@ -1,28 +1,28 @@
-// Pool und Prozess heissen gleich.
+// Pool and process have the same name.
 //
-// Im Diagramm benennt man den Pool — der Prozess dahinter behält die ID, die
-// der Modeler ihm gegeben hat (`Process_0jx2w61`). Daran hängt aber alles:
-// Topics, die Zuordnung zur Domain, Projekt und Dateiname. Darum gilt die
-// Konvention der Vorlagen:
+// In the diagram one names the pool — the process behind it keeps the ID that
+// the modeler gave it (`Process_0jx2w61`). But everything hangs on it:
+// topics, the assignment to the domain, project and file name. Hence the
+// convention of the templates applies:
 //
 //   Pool      name = <Name>          id = <Name>-participant
-//   Prozess   name = <Name>          id = <Name>
+//   Process   name = <Name>          id = <Name>
 //
-// Massgeblich ist der Name des Pools — aber nur, wenn er als ID taugt
-// (`globex-savings-openSavingsV1`). Hat das Diagramm keinen Pool (so legt
-// der Camunda Modeler einen C8-Prozess an) oder trägt der Pool einen
-// fachlichen Titel mit Leerzeichen, gilt der Name des Prozesses; taugt auch
-// der nicht, wird nichts angeglichen.
+// The name of the pool is decisive — but only if it works as an ID
+// (`globex-savings-openSavingsV1`). If the diagram has no pool (that is how
+// the Camunda Modeler creates a C8 process) or the pool carries a
+// business title with spaces, the name of the process applies; if that does not work
+// either, nothing is aligned.
 //
-// Die **Prozess-ID** ist ein Vertrag (Deployment, Topics, Aufrufer) — sie
-// folgt dem Namen nur, wenn sie noch die des Modelers ist (`Process_…`) oder
-// jemand den Namen gerade geändert hat (`renameProcess`). Sonst würde das
-// blosse Öffnen einen Prozess umbenennen, dessen Pool etwas anders heisst.
+// The **process ID** is a contract (deployment, topics, callers) — it
+// follows the name only if it is still the modeler's (`Process_…`) or
+// someone has just changed the name (`renameProcess`). Otherwise merely
+// opening would rename a process whose pool is named slightly differently.
 //
-// Umbenannt wird überall, wo die alte ID **als ganzer Wert** steht
-// (`processRef`, `bpmnElement`, Nachrichtenflüsse, der Init-Worker, dessen
-// Topic die Prozess-ID ist) oder als FEEL-Text `="<ID>"` (Camunda 8, z. B.
-// `processDefinitionKey` beim Prozess-Event) — Namen ausgenommen.
+// Renaming happens wherever the old ID appears **as a whole value**
+// (`processRef`, `bpmnElement`, message flows, the init worker, whose
+// topic is the process ID) or as FEEL text `="<ID>"` (Camunda 8, e.g.
+// `processDefinitionKey` on the process event) — names excepted.
 
 const local = (el: Element): string => {
   const n = el.localName || el.tagName || '';
@@ -37,15 +37,15 @@ function descendants(root: Element): Element[] {
   return out;
 }
 
-/** taugt als BPMN-ID (NCName ohne Doppelpunkt) */
+/** usable as a BPMN ID (NCName without colon) */
 export const isIdLike = (s: string): boolean => /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(s);
 
 export const participantIdOf = (name: string): string => `${name}-participant`;
 
-/** vom Modeler vergebene ID (`Process_0jx2w61`) — noch von niemandem gewählt */
+/** ID assigned by the modeler (`Process_0jx2w61`) — not yet chosen by anyone */
 const GENERATED = /^Process_[A-Za-z0-9]+$/;
 
-/** Die Namen, nach denen sich die Prozesse richten — ändern sie sich, wird umbenannt */
+/** The names the processes follow — if they change, a rename happens */
 export function poolNames(xml: string): string {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const root = doc.documentElement;
@@ -59,14 +59,14 @@ export function poolNames(xml: string): string {
 
 export interface PoolAlignment {
   xml: string;
-  /** was umbenannt wurde: alt → neu */
+  /** what was renamed: old → new */
   renamed: Array<[string, string]>;
 }
 
 /**
- * Prozess-ID und -Name nach dem Namen des Pools, die Pool-ID mit
- * `-participant` dahinter. Ändert sich nichts, kommt das XML unverändert
- * zurück (derselbe String).
+ * Process ID and name after the name of the pool, the pool ID with
+ * `-participant` appended. If nothing changes, the XML comes back
+ * unchanged (the same string).
  */
 export function alignPoolIds(xml: string, opts: { renameProcess?: boolean } = {}): PoolAlignment {
   const same = { xml, renamed: [] };
@@ -82,14 +82,14 @@ export function alignPoolIds(xml: string, opts: { renameProcess?: boolean } = {}
   for (const proc of all.filter(e => local(e) === 'process')) {
     const procId = proc.getAttribute('id') ?? '';
     const part = all.find(e => local(e) === 'participant' && e.getAttribute('processRef') === procId) ?? null;
-    // der Name des Pools — ohne Pool (oder mit fachlichem Titel darauf) der des Prozesses
+    // the name of the pool — without a pool (or with a business title on it) that of the process
     const name = [part?.getAttribute('name'), proc.getAttribute('name')]
       .map(n => (n ?? '').trim()).find(n => n && isIdLike(n));
     if (!procId || !name) continue;
     const want: Array<[string, string]> = opts.renameProcess || GENERATED.test(procId) ? [[procId, name]] : [];
     if (part) want.push([part.getAttribute('id') ?? '', participantIdOf(name)]);
     for (const [alt, neu] of want) {
-      // die neue ID gehört schon einem anderen Element — dann lieber nicht
+      // the new ID already belongs to another element — then better not
       if (!alt || alt === neu || (ids.has(neu) && !want.some(([a]) => a === neu))) continue;
       map.set(alt, neu);
     }
@@ -117,9 +117,9 @@ export function alignPoolIds(xml: string, opts: { renameProcess?: boolean } = {}
 }
 
 /**
- * Den Prozess umbenennen (aus dem Titel heraus): Pool bzw. Prozess bekommt
- * den neuen Namen, ID und Pool-ID folgen. Taugt der Name nicht als ID, kommt
- * das XML unverändert zurück.
+ * Rename the process (from the title): the pool or the process gets
+ * the new name, ID and pool ID follow. If the name does not work as an ID, the
+ * XML comes back unchanged.
  */
 export function renameProcess(xml: string, processId: string, name: string): string {
   if (!isIdLike(name)) return xml;
@@ -139,26 +139,26 @@ export function renameProcess(xml: string, processId: string, name: string): str
 }
 
 /**
- * Die Prozess-ID nach Hauskonvention: `company-projekt-prozessVersion` —
- * Firma und Projekt klein, der Prozess in camelCase mit Version am Ende
- * (`globex-savings-openSavingsV1`). Das Projekt darf mehrteilig sein.
+ * The process ID according to house convention: `company-projekt-prozessVersion` —
+ * company and project lowercase, the process in camelCase with the version at the end
+ * (`globex-savings-openSavingsV1`). The project may consist of several parts.
  */
 export const PROCESS_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+-[a-z][A-Za-z0-9]*V\d+$/;
 
 const EXAMPLE_ID = 'globex-savings-openSavingsV1';
 
 export interface ProcessIdCheck {
-  /** error: wird nicht übernommen · warn: wird übernommen, aber prüfen */
+  /** error: is not applied · warn: is applied, but check it */
   level: 'error' | 'warn';
   text: string;
 }
 
 /**
- * Was an einer Prozess-ID nicht stimmt — null, wenn sie passt. `prefixes`
- * sind die bekannten `company-projekt` (Katalog, andere Spezifikationen):
- * eine unbekannte Firma ist ein Fehler, ein unbekanntes Projekt einer
- * bekannten Firma nur eine Warnung — sonst liesse sich kein neues Projekt
- * anfangen. Ohne bekannte Prefixe zählt nur das Muster.
+ * What is wrong with a process ID — null if it fits. `prefixes`
+ * are the known `company-projekt` (catalog, other specifications):
+ * an unknown company is an error, an unknown project of a
+ * known company only a warning — otherwise no new project could be
+ * started. Without known prefixes only the pattern counts.
  */
 export function checkProcessId(id: string, prefixes: string[] = [], legacy = false): ProcessIdCheck | null {
   const t = id.trim();
@@ -166,11 +166,11 @@ export function checkProcessId(id: string, prefixes: string[] = [], legacy = fal
   if (!t) return error('Die Prozess-ID fehlt.');
   const parts = t.split('-');
   if (parts.length < 3) return error(`Drei Teile: company-projekt-prozessVersion, z. B. ${EXAMPLE_ID}.`);
-  // ein alter Name bleibt, wie er ist — keine Konvention, keine bekannten Prefixe
+  // an old name stays as it is — no convention, no known prefixes
   if (legacy) return null;
   const proc = parts[parts.length - 1];
   if (!PROCESS_ID_PATTERN.test(t)) {
-    // der Vorschlag gleich richtig: klein beginnend, ohne Sonderzeichen, mit Version
+    // the suggestion right away: starting lowercase, without special characters, with version
     const camel = (proc.charAt(0).toLowerCase() + proc.slice(1)).replace(/[^A-Za-z0-9]/g, '') || 'openSavings';
     if (!/V\d+$/.test(proc)) return error(`Der Prozess endet mit der Version — z. B. ${camel}V1.`);
     if (!/^[a-z][A-Za-z0-9]*$/.test(proc)) return error(`Der Prozess in camelCase, klein beginnend — z. B. ${camel}.`);
@@ -190,13 +190,13 @@ export function checkProcessId(id: string, prefixes: string[] = [], legacy = fal
   return { level: 'warn', text: `Projekt «${project}» gibt es bei ${company} noch nicht — ${h ? `neu, oder meinten Sie «${h}»?` : 'ein neues Projekt?'}` };
 }
 
-/** der ähnlichste bekannte Wert — wenn einer nah genug ist, um ein Tippfehler zu sein */
+/** the most similar known value — if one is close enough to be a typo */
 function closest(value: string, known: string[]): string | null {
   const best = known.map(k => ({ k, d: distance(value, k) })).sort((a, b) => a.d - b.d)[0];
   return best && best.d <= Math.max(2, Math.floor(value.length / 3)) ? best.k : null;
 }
 
-/** Editierdistanz (Levenshtein) */
+/** Edit distance (Levenshtein) */
 function distance(a: string, b: string): number {
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {

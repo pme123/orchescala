@@ -1,5 +1,5 @@
-// Projektfarben aus dem generierten Katalog: `white` bzw. `#fff` heisst in
-// Orchescala «keine Farbe» — das kommt nicht als Farbe herein.
+// Project colours from the generated catalog: `white` or `#fff` means
+// «keine Farbe» in Orchescala — that does not come in as a colour.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readCatalogFile } from '../src/catalogImport';

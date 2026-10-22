@@ -1,24 +1,24 @@
-// Katalog erzeugen — nur dort, wo die Quellen liegen.
+// Generate the catalog — only where the sources are.
 //
-// In der Bankenzone gibt es weder die Projekt-Ordner noch die Doku-Site;
-// dort kommt der Katalog als Datei herein (siehe `CatalogTransfer`). Alles
-// hier ist deshalb **optional** und standardmässig zugeklappt.
+// In the banking zone there are neither the project folders nor the docs site;
+// there the catalog comes in as a file (see `CatalogTransfer`). Everything
+// here is therefore **optional** and collapsed by default.
 //
-// Drei Wege hinein:
+// Three ways in:
 //
-//  · **Projekt-Ordner** — eine benannte, sortierbare Liste für die
-//    Domain-Typen. Gewählt wird ein Ordner über den Projekten
-//    (`~/dev-mycompany/projects`); seine Unterordner kommen als Projekte
-//    hinein. **Oben steht, was gewinnt**: dasselbe Paket aus einem weiter
-//    unten stehenden Projekt (`globex.core.banking.domain.client` nach
-//    `initech.core.banking.domain.client`) wird verworfen und gemeldet.
-//    «Neu aufbauen» liest die Liste von oben nach unten frisch ein.
-//  · **OpenAPI einlesen** — die `03-api/OpenApi.yml` der Projekte. Sie
-//    beschreibt, was **tatsächlich deployed** ist: Worker, Prozesse,
-//    Benutzeraufgaben und Signale mit ihren Ein- und Ausgaben.
-//  · **Von URL laden** — die Orchescala-Doku-Site. Von dort kommen die
-//    Prozesse aller Projekte mit ihren `In`/`Out`, auch ohne die Quellen
-//    lokal zu haben.
+//  · **Project folders** — a named, sortable list for the
+//    domain types. One chooses a folder above the projects
+//    (`~/dev-mycompany/projects`); its subfolders come in as projects.
+//    **What is on top wins**: the same package from a project further
+//    down (`globex.core.banking.domain.client` after
+//    `initech.core.banking.domain.client`) is discarded and reported.
+//    «Neu aufbauen» reads the list freshly from top to bottom.
+//  · **Read OpenAPI** — the `03-api/OpenApi.yml` of the projects. It
+//    describes what is **actually deployed**: workers, processes,
+//    user tasks and signals with their inputs and outputs.
+//  · **Load from URL** — the Orchescala docs site. From there come the
+//    processes of all projects with their `In`/`Out`, even without having the sources
+//    locally.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown, ChevronRight, ChevronUp, FolderOpen, Globe, RefreshCw, Upload, X,
@@ -33,10 +33,10 @@ import { cls } from '../ui';
 import { useConfirm } from './Confirm';
 
 /**
- * `Failed to fetch` hat zwei ganz verschiedene Ursachen. Ein Versuch mit
- * `no-cors` unterscheidet sie: kommt eine (undurchsichtige) Antwort, ist der
- * Server erreichbar und es fehlt nur die CORS-Freigabe — sonst kommt man gar
- * nicht hin. Das spart die Suche am falschen Ende.
+ * `Failed to fetch` has two quite different causes. An attempt with
+ * `no-cors` tells them apart: if an (opaque) response comes back, the
+ * server is reachable and only the CORS permission is missing — otherwise one
+ * cannot reach it at all. That saves searching at the wrong end.
  */
 async function diagnose(url: string): Promise<string> {
   const hinweis = 'Weg ohne CORS: «node tools/site2catalog.ts ' + url
@@ -50,15 +50,15 @@ async function diagnose(url: string): Promise<string> {
   }
 }
 
-/** zuletzt genutzte Adresse als Vorschlag */
+/** most recently used address as a suggestion */
 function sourcesUrl(model: Model): string {
   return (model.domainSources ?? []).find(s => /^https?:/i.test(s)) ?? '';
 }
 
 /**
- * Rekursiv die generierten OpenAPI-Dateien eines Ordners lesen — genau
- * `OpenApi.yml` / `.yaml` / `.json`, nicht die Postman-Variante und keine
- * fremden Spezifikationen, die daneben liegen.
+ * Recursively read the generated OpenAPI files of a folder — exactly
+ * `OpenApi.yml` / `.yaml` / `.json`, not the Postman variant and no
+ * foreign specifications lying next to them.
  */
 const IS_SPEC = /^openapi\.(ya?ml|json)$/i;
 
@@ -99,7 +99,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
   const sources = model.domainSources ?? [];
   const projects = useMemo(() => model.projects ?? [], [model.projects]);
 
-  // Jede OpenAPI beschreibt ein Projekt; mehrere ergeben zusammen den Katalog.
+  // Each OpenAPI describes one project; several together make up the catalog.
   const applySpecs = async (files: Array<{ name: string; text: string }>) => {
     let next = services;
     let typen = model.domainTypes ?? [];
@@ -137,8 +137,8 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
     }
   };
 
-  // Ein Projekt hat seine OpenAPI unter `03-api/OpenApi.yml`. Einen Ordner
-  // darüber wählen und darunter alles einsammeln ist der bequemste Weg.
+  // A project has its OpenAPI under `03-api/OpenApi.yml`. Choosing a folder
+  // above it and collecting everything below is the most convenient way.
   const pickSpecFolder = async () => {
     if (!('showDirectoryPicker' in window)) {
       setMsg('Ordner einlesen geht nur in Chrome oder Edge. Alternative: die Dateien einzeln wählen.');
@@ -170,8 +170,8 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
 
   const merge = async (found: DomainType[], source: string, alreadyDropped: DiscardedPackage[] = []) => {
     const before = new Set(types.map(t => t.id));
-    // Was schon im Katalog steht, hat Vorrang — die Reihenfolge der Quellen
-    // entscheidet, welches Paket bei Namensgleichheit gilt.
+    // What is already in the catalog has precedence — the order of the sources
+    // decides which package applies when names are equal.
     const { types: next, discarded } = mergeDomainTypes(types, found);
     const added = next.filter(t => !before.has(t.id)).length;
     const res = await onSave({
@@ -185,9 +185,9 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       : res.message);
   };
 
-  // ── Projekt-Ordner ───────────────────────────────────────────────────────
-  // Gewählt wird der Ordner **über** den Projekten; seine Unterordner kommen
-  // als Projekte in die Liste. Ist es selbst ein Projekt, kommt eben dieses.
+  // ── Project folders ──────────────────────────────────────────────────────
+  // One chooses the folder **above** the projects; its subfolders come
+  // into the list as projects. If it is itself a project, that one comes in.
   const addProjects = async () => {
     if (!('showDirectoryPicker' in window)) {
       setMsg('Ordner wählen geht nur in Chrome oder Edge. Alternative: Katalog-Datei einlesen.');
@@ -210,16 +210,16 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       const bekannt = new Set(projects.map(p => p.name));
       const neu = gefunden.filter(g => !bekannt.has(g.project.name));
       for (const g of neu) await rememberProject(g.project, g.handle);
-      // schon bekannte Projekte behalten ihren Platz, bekommen aber den
-      // frischen Zugriff — sonst müsste man sie zum Erneuern erst entfernen
+      // already known projects keep their place, but get the
+      // fresh access — otherwise one would have to remove them first to renew
       for (const g of gefunden.filter(x => bekannt.has(x.project.name))) {
         const alt = projects.find(p => p.name === g.project.name)!;
         await rememberProject(alt, g.handle);
       }
       const liste = [...projects, ...neu.map(g => g.project)];
       await onSave({ ...model, projects: liste });
-      // Bekannte Projekte, die bisher einzeln gemerkt waren, hängen sich an
-      // den Ordner darüber — dann reicht künftig eine Erlaubnis für alle
+      // known projects that were remembered individually so far attach themselves to
+      // the folder above — then from now on one permission suffices for all
       const liste2 = liste.map(p => {
         const g = gefunden.find(x => x.project.name === p.name);
         return g?.project.root && p.root !== g.project.root ? { ...p, root: g.project.root } : p;
@@ -245,12 +245,12 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
   };
 
   /**
-   * Der Katalog wird **neu** gebaut, nicht ergänzt — sonst bliebe das früher
-   * Gelesene stehen und ein Umsortieren hätte keine Wirkung.
+   * The catalog is built **anew**, not extended — otherwise what was read
+   * earlier would remain and reordering would have no effect.
    */
-  /** Ohne Zugriff: die Wurzeln bzw. Projekte, für die er fehlt — je ein Knopf an der Meldung */
+  /** without access: the roots or projects it is missing for — one button each on the message */
   const [noAccess, setNoAccess] = useState<{ roots: string[]; single: ProjectFolder[] }>({ roots: [], single: [] });
-  /** Zugriff erteilen (oder den Ordner wählen) — und gleich neu aufbauen */
+  /** grant access (or choose the folder) — and rebuild right away */
   const grantAndRebuild = async (target: { root: string } | { project: ProjectFolder }) => {
     if (await grantAccess(target)) await rebuildCatalog();
   };
@@ -260,12 +260,12 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
     setBusy('…'); setMsg(''); setDropped([]); setNoAccess({ roots: [], single: [] });
     try {
       const r = await rebuild(projects, setBusy);
-      // Nichts speichern, solange ein Projekt fehlt: sonst wäre der Katalog
-      // um dessen Typen ärmer, nur weil der Browser den Zugriff vergessen hat.
+      // Save nothing as long as a project is missing: otherwise the catalog would
+      // be poorer by its types, just because the browser forgot the access.
       if (r.missing.length) {
-        // Wurzel ohne Zugriff → ein Knopf für alle darunter; liegt ein Projekt
-        // nicht in seiner (lesbaren) Wurzel — etwa ein zweiter Ordner gleichen
-        // Namens —, braucht es seinen eigenen Zugriff
+        // root without access → one button for everything below; if a project is
+        // not in its (readable) root — such as a second folder with the same
+        // name —, it needs its own access
         const roots = r.rootsWithoutAccess.filter(x => r.missing.some(p => p.root === x));
         const single = r.missing.filter(p => !p.root || !roots.includes(p.root));
         setNoAccess({ roots, single });
@@ -466,12 +466,12 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
 }
 
 /**
- * Projektfarbe (wie `ProjectConfig.color`). Gespeichert wird erst, wenn die
- * Farbe kurz stehen bleibt — beim Ziehen im Farbwähler nicht bei jedem Schritt.
+ * Project color (like `ProjectConfig.color`). It is only saved once the
+ * color stays for a moment — not on every step while dragging in the color picker.
  */
 function ColorPick({ value, fallback, disabled, className, onChange }: {
   value: string | undefined;
-  /** Farbe aus der Orchescala-Konfiguration (generierter Katalog) — gilt, solange hier keine gesetzt ist */
+  /** color from the Orchescala configuration (generated catalog) — applies as long as none is set here */
   fallback?: string;
   disabled?: boolean; className?: string; onChange: (color: string) => void;
 }) {
@@ -495,7 +495,7 @@ function ColorPick({ value, fallback, disabled, className, onChange }: {
   );
 }
 
-/** `#abc` → `#aabbcc` (der Farbwähler kennt nur die lange Form); anderes → weiss */
+/** `#abc` → `#aabbcc` (the color picker only knows the long form); anything else → white */
 function expandHex(c: string): string {
   const m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(c.trim());
   return m ? `#${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}` : '#ffffff';

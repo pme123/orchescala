@@ -1,5 +1,5 @@
-// Ein Aufrufer gibt Mocks des Aufgerufenen (`postAccountMock`) als eigene
-// Variablen mit — sie stehen in dessen `InConfig`, nicht im Katalog der Eingaben.
+// A caller passes mocks of the callee (`postAccountMock`) as its own
+// variables — they are in the callee's `InConfig`, not in the catalog of inputs.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
@@ -29,7 +29,7 @@ test('the fields of the InConfig of an In', () => {
   const model = { domainTypes: scanScala(source) } as unknown as Model;
   const inT = model.domainTypes!.find(t => t.name === 'OpenAccountV2.In')!;
   assert.deepEqual(inConfigFields(inT, model), ['basisSetMock', 'postAccountMock']);
-  // ohne InConfig: keine
+  // without InConfig: none
   assert.deepEqual(inConfigFields(model.domainTypes!.find(t => t.name === 'OpenAccountV2.InConfig')!, model), []);
 });
 

@@ -1,36 +1,36 @@
-// Pfade, Vorlagen und Bedingungen der Seiten-Spezifikation – ohne React, damit testbar.
+// Paths, templates and conditions of the page specification – without React, so it is testable.
 
 export type State = Record<string, unknown>;
 export type Labels = Record<string, Record<string, string>>;
 
-/** `a.b.0.c` aus dem Zustand – undefined, wenn es den Pfad nicht gibt. */
+/** `a.b.0.c` from the state – undefined if the path does not exist. */
 export function getPath(state: unknown, path: string): unknown {
   return path
     .split('.')
     .filter(Boolean)
-    // nur eigene Felder - `constructor`, `__proto__` & Co. gibt es im Zustand nicht (bei einer Liste
-    // auch `length`: `slots.length == 0` ist gewollt)
+    // own fields only - `constructor`, `__proto__` & co. do not exist in the state (for a list
+    // also `length`: `slots.length == 0` is intended)
     .reduce<unknown>((o, k) => (o != null && typeof o === 'object' && Object.hasOwn(o, k) ? (o as Record<string, unknown>)[k] : undefined), state);
 }
 
-/** Ein neuer Zustand mit `value` an `path` – die Objekte auf dem Weg werden kopiert. */
+/** A new state with `value` at `path` – the objects along the way are copied. */
 export function setPath(state: State, path: string, value: unknown): State {
   const [head, ...rest] = path.split('.').filter(Boolean);
   if (head === undefined) return state;
-  // wie getPath: keine Felder, die es nur am Prototyp gibt - sie kämen als eigene in die Eingaben
+  // like getPath: no fields that exist only on the prototype - they would end up in the inputs as own ones
   if (head === '__proto__' || head === 'constructor' || head === 'prototype') return state;
   const current = (state as Record<string, unknown>)[head];
   const next =
     rest.length === 0
       ? value
       : setPath(current != null && typeof current === 'object' ? (current as State) : {}, rest.join('.'), value);
-  // eine Liste bleibt eine Liste (`items.0.name`)
+  // a list stays a list (`items.0.name`)
   if (Array.isArray(state)) {
-    // nur ein Index - `items.name` auf einer Liste ändert nichts
+    // only an index - `items.name` on a list changes nothing
     const index = Number(head);
-    // höchstens ein Eintrag nach dem letzten - `items.4294967294` legte sonst eine riesige Liste an
+    // at most one entry after the last one - `items.4294967294` would otherwise create a huge list
     if (!Number.isInteger(index) || index < 0 || index > state.length) {
-      // ein Tippfehler im Pfad (set, bind) täte sonst still nichts
+      // a typo in the path (set, bind) would otherwise silently do nothing
       console.warn(`[pages] «${head}» ist kein Index für diese Liste (${state.length} Einträge) - nichts gesetzt`);
       return state;
     }
@@ -43,10 +43,10 @@ export function setPath(state: State, path: string, value: unknown): State {
 
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
-/** Ein LocalDateTime (`2026-10-20T09:00`) – als lokale Zeit, ohne Zeitzone. */
+/** A LocalDateTime (`2026-10-20T09:00`) – as local time, without time zone. */
 function asDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
-  // ein Zeitpunkt mit Zone (Instant, OffsetDateTime): in der Zeit des Browsers - nicht die Uhrzeit von UTC
+  // a point in time with a zone (Instant, OffsetDateTime): in the browser's time - not the UTC clock time
   if (/T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(value)) {
     const instant = new Date(value);
     return Number.isNaN(instant.getTime()) ? null : instant;
@@ -55,13 +55,13 @@ function asDate(value: unknown): Date | null {
   const [y, m, day] = d.split('-').map(Number);
   const [h, min] = t.split(':').map(Number);
   const date = new Date(y, m - 1, day, h || 0, min || 0);
-  // 2026-13-45 wäre sonst ein anderer Tag - dann bleibt der Text, wie er ist
+  // 2026-13-45 would otherwise be a different day - then the text stays as it is
   return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === day ? date : null;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** Ein Wert für die Anzeige: `date`, `time`, `datetime`, `day` (Montag, 20. Oktober), `label:<name>`. */
+/** A value for display: `date`, `time`, `datetime`, `day` (Montag, 20. Oktober), `label:<name>`. */
 export function format(value: unknown, fmt: string | undefined, labels: Labels = {}): string {
   if (value == null) return '';
   if (fmt?.startsWith('label:')) {
@@ -69,7 +69,7 @@ export function format(value: unknown, fmt: string | undefined, labels: Labels =
     return labels[fmt.slice(6)]?.[key] ?? key;
   }
   const date = fmt ? asDate(value) : null;
-  // nur ein Tag (2026-10-20) hat keine Uhrzeit - nicht 00:00 erfinden
+  // only a day (2026-10-20) has no time - do not invent 00:00
   if (date && (fmt === 'time' || fmt === 'datetime') && typeof value === 'string' && !value.includes('T'))
     return fmt === 'time' ? '' : format(value, 'date', labels);
   if (date) {
@@ -93,15 +93,15 @@ export function format(value: unknown, fmt: string | undefined, labels: Labels =
 const EXPR = /\{\{\s*([^}|]+?)\s*(?:\|\s*([^}]+?)\s*)?\}\}/g;
 const SINGLE = /^\{\{\s*([^}|]+?)\s*\}\}$/;
 
-/** `Termin am {{start|date}}` – die Ausdrücke formatiert eingesetzt. */
+/** `Termin am {{start|date}}` – the expressions inserted formatted. */
 export function interpolate(text: string, state: unknown, labels: Labels = {}): string {
   return text.replace(EXPR, (_, path: string, fmt?: string) => format(getPath(state, path), fmt, labels));
 }
 
-/** Die Eingabe einer Aktion: Vorlagen in Objekten und Listen eingesetzt. `"{{pfad}}"` allein gibt
- * den Wert selbst (z.B. ein Objekt). Leere Felder (undefined, null, "") fallen in Objekten weg – so
- * werden optionale Felder nicht als leerer Text geschickt. In Listen bleibt jeder Eintrag an seinem
- * Platz (auch ein leerer), sonst verschöben sich die Indizes. */
+/** The input of an action: templates inserted in objects and lists. `"{{pfad}}"` alone gives
+ * the value itself (e.g. an object). Empty fields (undefined, null, "") are dropped in objects – so
+ * optional fields are not sent as empty text. In lists every entry stays in its
+ * place (an empty one too), otherwise the indices would shift. */
 export function resolve(value: unknown, state: unknown, labels: Labels = {}): unknown {
   if (typeof value === 'string') {
     const single = value.match(SINGLE);
@@ -124,7 +124,7 @@ export function resolve(value: unknown, state: unknown, labels: Labels = {}): un
   return value;
 }
 
-/** Ein Wert aus dem Zustand ohne leere Felder (wie in `resolve`). */
+/** A value from the state without empty fields (as in `resolve`). */
 function compact(value: unknown): unknown {
   if (value === null || value === '' || value === undefined) return undefined;
   if (Array.isArray(value)) return value.map(entry);
@@ -135,26 +135,26 @@ function compact(value: unknown): unknown {
         .filter(([, v]) => v !== undefined),
     );
   }
-  // nur leer (oder nur Leerzeichen) fällt weg - der Inhalt bleibt, wie er ist
+  // only empty (or only whitespace) is dropped - the content stays as it is
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
 
-/** Ein Eintrag einer Liste: bleibt an seinem Platz - nur in Objekten darin fallen leere Felder weg. */
+/** An entry of a list: stays in its place - only in objects inside it empty fields are dropped. */
 function entry(value: unknown): unknown {
   if (value === undefined) return null;
   if (Array.isArray(value)) return value.map(entry);
   return value !== null && typeof value === 'object' ? compact(value) : value;
 }
 
-/** Der Wert einer Aktion «Wert setzen»: wie `resolve`, aber ein Text bleibt, wie er ist - auch leer
- * (`""` oder `"{{x}}"` mit leerem x leert ein Feld). */
+/** The value of an action «Wert setzen»: like `resolve`, but a text stays as it is - even empty
+ * (`""` or `"{{x}}"` with an empty x clears a field). */
 export function resolveValue(value: unknown, state: unknown, labels: Labels = {}): unknown {
   if (typeof value !== 'string') return resolve(value, state, labels);
   const single = value.match(SINGLE);
   return single ? getPath(state, single[1]) : interpolate(value, state, labels);
 }
 
-/** Gleich - auch Objekte mit den Feldern in anderer Reihenfolge (eine neu geladene Liste). */
+/** Equal - also objects with the fields in a different order (a reloaded list). */
 export function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
@@ -165,11 +165,11 @@ export function sameValue(a: unknown, b: unknown): boolean {
   return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && sameValue((a as State)[k], (b as State)[k]));
 }
 
-/** `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'` (auch true, false, null, Zahlen), verbunden
- * mit `&&` und `||` (&& bindet stärker, keine Klammern). */
+/** `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'` (also true, false, null, numbers), combined
+ * with `&&` and `||` (&& binds more tightly, no parentheses). */
 export function evaluate(cond: string | undefined, state: unknown): boolean {
   if (!cond) return true;
-  warnOnce(cond); // die ganze Bedingung - nicht jeder Teil noch einmal
+  warnOnce(cond); // the whole condition - not every part again
   return holds(cond, state);
 }
 
@@ -190,11 +190,11 @@ function holds(cond: string, state: unknown): boolean {
   return truthy(getPath(state, c));
 }
 
-// eine Bedingung, die nicht passt, ist still falsch - einmal je Bedingung in der Konsole (wie im Build)
+// a condition that does not fit is silently false - once per condition in the console (as in the build)
 const checked = new Set<string>();
 function warnOnce(cond: string) {
   if (checked.has(cond)) return;
-  if (checked.size >= 500) checked.clear(); // im Designer kommt mit jedem Tastendruck eine neue dazu
+  if (checked.size >= 500) checked.clear(); // in the designer a new one comes with every keystroke
   checked.add(cond);
   const problem = conditionProblem(cond);
   if (problem) console.warn(`[pages] sichtbar, wenn «${cond}»: ${problem} - gilt als falsch`);
@@ -202,13 +202,13 @@ function warnOnce(cond: string) {
 
 const PATH = /^[A-Za-z_$][\w$]*(\.[\w$]+)*$/;
 
-/** Was an einer Bedingung nicht stimmt - null, wenn sie passt. Für die Befunde im Designer: eine
-  * Bedingung, die nicht passt, ist sonst einfach falsch und versteckt den Baustein still. */
+/** What is wrong with a condition - null if it fits. For the findings in the designer: a
+  * condition that does not fit is otherwise simply false and silently hides the building block. */
 export function conditionProblem(cond: string | undefined): string | null {
   if (!cond?.trim()) return null;
-  // kein Escape: ein ' im Text geht nur zwischen " (vor dem offenen Anführungszeichen: \' sähe so aus)
+  // no escape: a ' in the text only works between " (before the open quote: \' would look like this)
   if (/\\['"]/.test(cond)) return `kein \\ in Texten: '…"…' oder "…'…" verwenden`;
-  // ein offenes Anführungszeichen verschluckte den Rest - auch ein && oder || darin
+  // an open quote would swallow the rest - including an && or || inside it
   if (openQuote(cond)) return `ein Anführungszeichen ist nicht geschlossen`;
   for (const or of splitOutsideQuotes(cond, '||')) {
     for (const raw of splitOutsideQuotes(or, '&&')) {
@@ -229,7 +229,7 @@ export function conditionProblem(cond: string | undefined): string | null {
   return null;
 }
 
-/** Das erste `==` / `!=` ausserhalb von Anführungszeichen. */
+/** The first `==` / `!=` outside of quotes. */
 function operatorOutsideQuotes(text: string): { op: '==' | '!='; at: number } | null {
   let quote: string | null = null;
   for (let i = 0; i < text.length - 1; i++) {
@@ -242,7 +242,7 @@ function operatorOutsideQuotes(text: string): { op: '==' | '!='; at: number } | 
   return null;
 }
 
-/** Bleibt am Ende ein Anführungszeichen offen? (wie splitOutsideQuotes zählt) */
+/** Is a quote left open at the end? (counted as splitOutsideQuotes does) */
 function openQuote(text: string): boolean {
   let quote: string | null = null;
   for (const ch of text) {
@@ -253,7 +253,7 @@ function openQuote(text: string): boolean {
   return quote !== null;
 }
 
-/** `a || 'x||y'` → `a`, `'x||y'` - nur ausserhalb von Anführungszeichen. */
+/** `a || 'x||y'` → `a`, `'x||y'` - only outside of quotes. */
 function splitOutsideQuotes(text: string, op: string): string[] {
   const parts: string[] = [];
   let quote: string | null = null;
@@ -273,7 +273,7 @@ function splitOutsideQuotes(text: string, op: string): string[] {
   return parts;
 }
 
-/** Gleich - eine Zahl und ihr Text auch (`n == '1'` bei n = 1), fehlend wie null. */
+/** Equal - a number and its text too (`n == '1'` with n = 1), missing like null. */
 function equal(actual: unknown, expected: unknown): boolean {
   if (actual === expected) return true;
   if (expected === null) return actual === undefined || actual === null;
@@ -295,7 +295,7 @@ function truthy(v: unknown): boolean {
   return v !== undefined && v !== null && v !== false && v !== '';
 }
 
-/** Die Gruppen einer Liste nach einem formatierten Wert – in der Reihenfolge der Liste. */
+/** The groups of a list by a formatted value – in the order of the list. */
 export function groupBy<T>(items: T[], key: (item: T) => string): { key: string; items: T[] }[] {
   const groups: { key: string; items: T[] }[] = [];
   for (const item of items) {
@@ -307,7 +307,7 @@ export function groupBy<T>(items: T[], key: (item: T) => string): { key: string;
   return groups;
 }
 
-/** Ein Fehlertext für einen HTTP-Status – aus den Texten der Aktion, sonst ein allgemeiner. */
+/** An error text for an HTTP status – from the texts of the action, otherwise a general one. */
 export function errorText(status: number, errors: Record<string, string> | undefined): string {
   return (
     errors?.[String(status)] ??
@@ -317,7 +317,7 @@ export function errorText(status: number, errors: Record<string, string> | undef
       : status === 429
       ? 'Zu viele Anfragen – bitte in einer Minute noch einmal versuchen.'
       : status === 504
-      // keine Antwort: vielleicht ist es trotzdem geschehen - nicht gleich noch einmal senden
+      // no response: maybe it happened anyway - do not send again right away
       ? 'Keine Antwort erhalten – ob es geklappt hat, ist offen. Bitte nicht gleich noch einmal senden, sondern etwas später prüfen.'
       : status >= 500
         ? 'Das geht im Moment leider nicht – bitte später noch einmal versuchen.'
@@ -325,11 +325,11 @@ export function errorText(status: number, errors: Record<string, string> | undef
   );
 }
 
-/** Ob eine E-Mail-Adresse so aussieht. */
+/** Whether an e-mail address looks like one. */
 export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
-/** Die Eingabe einer Aktion - ein öffentlicher Aufruf bekommt das Honeypot-Feld mit (nur Bots
-  * füllen es aus; der Gateway lehnt sie dann ab), ein Aufruf mit Login nicht. */
+/** The input of an action - a public call gets the honeypot field along (only bots
+  * fill it in; the gateway then rejects them), a call with login does not. */
 export function actionInput(raw: unknown, state: unknown, labels: Labels, isPublic: boolean, honeypot: string): Record<string, unknown> {
   const body = (resolve(raw ?? {}, state, labels) ?? {}) as Record<string, unknown>;
   return isPublic ? { ...body, _hp: honeypot } : body;

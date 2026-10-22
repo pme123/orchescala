@@ -1,5 +1,5 @@
-// Was man mit einem Baustein tun kann - dieselben Aktionen im Kopf der Eigenschaften, an der Vorschau
-// und in der Gliederung: verschieben, verdoppeln, löschen, Typ wechseln, einfügen, in einen Abschnitt.
+// What can be done with a building block - the same actions in the header of the properties, on the preview
+// and in the outline: move, duplicate, delete, change type, insert, into a section.
 import { ArrowDown, ArrowUp, Copy, FolderInput, FolderOutput, Plus, Repeat2, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Component } from '../runtime/spec';
@@ -19,7 +19,7 @@ export type BlockOps = {
 
 const TYPES = Object.keys(BLOCK_LABELS) as Component['type'][];
 
-/** Die Kürzel - im Tooltip der Knöpfe, damit man sie findet. */
+/** The shortcuts - in the tooltip of the buttons, so they can be found. */
 const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Strg+';
 
 export function BlockActions({ isDark, block, ops, compact }: {
@@ -27,14 +27,14 @@ export function BlockActions({ isDark, block, ops, compact }: {
 }) {
   const c = cls(isDark);
   const [menu, setMenuState] = useState<null | 'type' | Place>(null);
-  // nach oben, wenn darunter kein Platz ist (die letzten Zeilen der Gliederung, unten in der Vorschau)
+  // upwards if there is no room below (the last rows of the outline, at the bottom of the preview)
   const [up, setUp] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const setMenu = (next: null | 'type' | Place) => {
     if (next && !menu) setUp((box.current?.getBoundingClientRect().bottom ?? 0) > window.innerHeight - 280);
     setMenuState(next);
   };
-  // ein Klick daneben schliesst das Menü; Esc auch - vor dem Designer (der sonst den Baustein abwählte)
+  // a click beside it closes the menu; Esc too - before the designer (which would otherwise deselect the building block)
   useEffect(() => {
     if (!menu) return;
     const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setMenuState(null); };
@@ -61,13 +61,13 @@ export function BlockActions({ isDark, block, ops, compact }: {
   const lost = lostOnConvert(block);
   return (
     <div ref={box} className="relative flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}
-      // in der Gliederung erscheinen die Knöpfe nur beim Darüberfahren - ihr Menü geht mit ihnen
+      // in the outline the buttons only appear on hover - their menu goes with them
       onMouseLeave={() => compact && setMenuState(null)}>
       {btn(`nach oben (⌥↑)`, <ArrowUp size={size} />, () => ops.move(-1))}
       {btn(`nach unten (⌥↓)`, <ArrowDown size={size} />, () => ops.move(1))}
       {btn(`verdoppeln (${MOD}D)`, <Copy size={size} />, ops.duplicate, compact ? undefined : 'Kopie')}
       {block.type === 'section' && block.body.length > 0
-        // ein anderer Typ verlöre die Bausteine des Abschnitts - erst auflösen
+        // another type would lose the building blocks of the section - dissolve it first
         ? <span title="Ein Abschnitt mit Bausteinen - erst auflösen, dann den Typ wechseln"
             className={`flex items-center gap-1 ${compact ? 'p-1' : 'px-1.5 py-1'} text-[10px] opacity-35 ${c.muted2}`}>
             <Repeat2 size={size} />{!compact && 'Typ'}

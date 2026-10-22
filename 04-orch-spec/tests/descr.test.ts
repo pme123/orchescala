@@ -1,6 +1,6 @@
-// Die Beschreibung eines Prozess-Objekts (`override def descr = """…""".stripMargin`)
-// ist die Ausgangslage der Spezifikation — beim Import und, solange sie leer ist,
-// beim Abgleich mit der Domain.
+// The description of a process object (`override def descr = """…""".stripMargin`)
+// is the starting point of the specification — on import and, as long as it is empty,
+// on reconciliation with the domain.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';

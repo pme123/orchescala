@@ -10,16 +10,16 @@ type Props = {
   app: App;
   isDark: boolean;
   user?: { name?: string; email?: string; roles: string[] };
-  /** Der Gateway - im Designer ein Ersatz mit Beispieldaten */
+  /** The gateway - in the designer a substitute with example data */
   gateway: Gateway;
-  /** Im Designer: die Parameter der URL (z.B. token), die die Seite sieht */
+  /** In the designer: the parameters of the URL (e.g. token) the page sees */
   query?: Record<string, string>;
-  /** Im Designer: ein Klick auf einen Baustein wählt ihn aus, der ausgewählte ist markiert - mit seinen
-    * Aktionen (`toolbar`) am Rahmen */
+  /** In the designer: a click on a block selects it, the selected one is highlighted - with its
+    * actions (`toolbar`) on the frame */
   designer?: { selected?: string; onSelect: (key: string) => void; toolbar?: (key: string) => React.ReactNode };
 };
 
-/** Eine Seite der Spezifikation: ihr Zustand, ihre Aktionen und ihre Bausteine. */
+/** A page of the specification: its state, its actions and its blocks. */
 export default function PageView({ page, app, isDark, user, gateway, query, designer }: Props) {
   const c = cls(isDark);
   const labels = app.labels ?? {};
@@ -28,9 +28,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     query: query ?? Object.fromEntries(new URLSearchParams(window.location.search)),
     user,
   }));
-  // die Aktionen laufen nacheinander und lesen den neuesten Zustand - nicht den des Renderns
+  // the actions run one after another and read the latest state - not the one from rendering
   const latest = useRef(state);
-  // nach dem Verlassen der Seite (oder einem neuen Stand im Designer): keine Aktion läuft weiter
+  // after leaving the page (or a new state in the designer): no action continues
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -45,24 +45,24 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   };
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // nach dem ersten Prüfen laufend markiert - ein ergänztes Feld ist sofort nicht mehr rot
+  // highlighted continuously after the first validation - a completed field is immediately no longer red
   const [checked, setChecked] = useState(false);
   const missing = new Set(checked ? missingIn(page.body, state) : []);
-  // ein verstecktes Feld - nur Bots füllen es aus (der Gateway lehnt sie dann ab)
+  // a hidden field - only bots fill it in (the gateway then rejects them)
   const [honeypot, setHoneypot] = useState('');
-  const honeypotRef = useRef(''); // beim Aufruf der Stand von jetzt, nicht der beim Start der Aktionen
+  const honeypotRef = useRef(''); // at call time the current state, not the one at the start of the actions
   const isPublic = page.access === 'public';
-  // der Fehler einer Aktion - und, falls auch das scheiterte, der ihres onError
+  // the error of an action - and, if that failed too, the one of its onError
   const errorOf = (key: string) => [errors[key], errors[`${key}.onError`]].filter(Boolean).join(' – ');
 
-  // je Aktion der Zustand von jetzt - mit dem, was die Aktionen davor abgelegt haben (latest, nicht
-  // der des Renderns), der Honeypot ebenso aus seinem Ref. labels kommen aus der Seite (fest)
+  // per action the current state - with what the previous actions stored (latest, not
+  // the one from rendering), the honeypot likewise from its ref. labels come from the page (fixed)
   async function runOne(a: Action): Promise<void> {
     const s = latest.current;
     const input = (raw: unknown, pub?: boolean) => actionInput(raw, s, labels, !!pub, honeypotRef.current);
     const store = (path: string | undefined, value: unknown) => path && update((st) => setPath(st, path, value));
-    // ein Business Key aus einer Vorlage, die leer bleibt: die Aktion schlägt fehl - eine Message
-    // ohne Key fände ihre Instanz nicht, ein Start bekäme keinen
+    // a business key from a template that stays empty: the action fails - a message
+    // without a key would not find its instance, a start would get none
     const keyOf = (template: string | undefined, required: boolean): string | undefined => {
       if (template === undefined && !required) return undefined;
       const key = interpolate(template ?? '', s, labels).trim();
@@ -71,7 +71,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     };
     switch (a.do) {
       case 'set':
-        // Vorlagen auch in Objekten und Listen - null bleibt null (ein Wert löschen)
+        // templates also in objects and lists - null stays null (deleting a value)
         update((st) => setPath(st, a.path, a.value === null ? null : resolveValue(a.value, st, labels)));
         return;
       case 'call':
@@ -87,7 +87,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         store(a.result, await gateway.message(a.name, keyOf(a.businessKey, true)!, input(a.input, a.public), !!a.public));
         return;
       case 'completeTask': {
-        // wie der Business Key: ohne Task-ID ginge der Aufruf an /userTask/<key>//complete
+        // like the business key: without a task ID the call would go to /userTask/<key>//complete
         const taskId = interpolate(a.taskId, s, labels).trim();
         if (!taskId) throw new ApiError(400, `Task-ID «${a.taskId}» ist leer`);
         await gateway.completeTask(a.taskKey, taskId, input(a.input));
@@ -96,9 +96,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     }
   }
 
-  /** Die Aktionen nacheinander - beim ersten Fehler Schluss, sein Text unter `key`. */
+  /** The actions one after another - stop at the first error, its text under `key`. */
   async function run(actions: Action[], key: string): Promise<boolean> {
-    // auch der Fehler des onError vom letzten Mal - errorOf zeigt beide
+    // also the error of the onError from last time - errorOf shows both
     setErrors((e) => ({ ...e, [key]: '', [`${key}.onError`]: '' }));
     for (const a of actions) {
       if (!mounted.current) return false;
@@ -108,9 +108,9 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
         if (!mounted.current) return false;
         const status = e instanceof ApiError ? e.status : 0;
         if (!(e instanceof ApiError)) console.error(e);
-        // eine Anmeldung, die nicht geht (IdP weg, config.json fehlt), sagt das selbst - nicht «neu anmelden»
+        // a sign-in that does not work (IdP gone, config.json missing) says so itself - not «neu anmelden»
         const login = e instanceof ApiError && e.kind === 'login' ? e.message : null;
-        // kein Fehler des Gateways, sondern der Seite (z.B. eine Vorlage) - im Designer mit dem Grund
+        // not an error of the gateway but of the page (e.g. a template) - in the designer with the reason
         const own = !(e instanceof ApiError) && designer ? `Fehler in der Aktion «${a.do}»: ${e instanceof Error ? e.message : String(e)}` : null;
         setErrors((er) => ({ ...er, [key]: login ?? own ?? errorText(status || 503, 'errors' in a ? a.errors : undefined) }));
         if ('onError' in a && a.onError) await run(a.onError, `${key}.onError`);
@@ -120,7 +120,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     return true;
   }
 
-  // der Zustand `busy` gilt erst nach dem nächsten Rendern - ein Doppelklick startete sonst zweimal
+  // the state `busy` only applies after the next render - a double click would otherwise start twice
   const inFlight = useRef(false);
   async function runBusy(actions: Action[], key: string) {
     if (inFlight.current) return;
@@ -136,13 +136,13 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
 
   const loaded = useRef(false);
   useEffect(() => {
-    if (loaded.current || !page.load) return; // StrictMode ruft Effekte zweimal - eine Message nur einmal
+    if (loaded.current || !page.load) return; // StrictMode calls effects twice - a message only once
     loaded.current = true;
     void runBusy(page.load, 'load');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Die sichtbaren Pflichtangaben, die fehlen. */
+  /** The visible required inputs that are missing. */
   function missingIn(body: Component[], s: State): string[] {
     return body.flatMap((comp) => {
       if (!evaluate(comp.visible, s)) return [];
@@ -167,7 +167,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
     });
   }
 
-  /** Ein Baustein - im Designer in einem Rahmen, der ihn bei einem Klick auswählt. */
+  /** A block - in the designer in a frame that selects it on a click. */
   function render(comp: Component, key: string): React.ReactNode {
     const node = renderBlock(comp, key);
     if (!designer || node === null) return node;
@@ -212,7 +212,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
                 return (
                   <button key={i} type="button" disabled={busy !== null}
                     onClick={() => {
-                      if (inFlight.current) return; // die Wahl und ihre Aktionen gehören zusammen
+                      if (inFlight.current) return; // the choice and its actions belong together
                       update((s) => setPath(s, comp.bind, o.value));
                       if (comp.onChange) void runBusy(comp.onChange, key);
                     }}
@@ -330,7 +330,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
           </div>
         ) : null;
       default:
-        // ein Baustein, den dieser Renderer nicht kennt (eine neuere Seite) - weglassen statt abstürzen
+        // a block this renderer does not know (a newer page) - leave it out instead of crashing
         return null;
     }
   }
@@ -338,7 +338,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   return (
     <div className="relative mx-auto w-full max-w-3xl space-y-5 p-6">
       {isPublic && (
-        // kein Name, den Browser oder Passwort-Manager ausfüllen (website, url, …) - sonst lehnt der Gateway echte Benutzer ab
+        // not a name that browsers or password managers fill in (website, url, …) - otherwise the gateway rejects real users
         <input type="text" name="hp_x7q" tabIndex={-1} autoComplete="off" aria-hidden="true" data-lpignore="true" data-1p-ignore="true"
           data-bwignore="true" data-form-type="other" value={honeypot}
           onChange={(e) => { honeypotRef.current = e.target.value; setHoneypot(e.target.value); }}
@@ -350,7 +350,7 @@ export default function PageView({ page, app, isDark, user, gateway, query, desi
   );
 }
 
-/** Der Wert eines Felds als Text - ein Objekt oder eine Liste (falsch gebunden) nicht als «[object Object]». */
+/** The value of a field as text - an object or a list (wrongly bound) not as «[object Object]». */
 function asText(value: unknown): string {
   return value === null || value === undefined || typeof value === 'object' ? '' : String(value);
 }
@@ -362,7 +362,7 @@ function Label({ text, missing, isDark }: { text: string; missing?: boolean; isD
   );
 }
 
-/** Ein Eingabefeld - `disabled`, solange Aktionen laufen: sie lesen den Zustand nacheinander, er soll derselbe bleiben. */
+/** An input field - `disabled` while actions are running: they read the state one after another, it should stay the same. */
 function FieldInput({ field, value, onChange, missing, isDark, disabled }: {
   field: Field; value: string; onChange: (v: string) => void; missing: boolean; isDark: boolean; disabled: boolean;
 }) {
