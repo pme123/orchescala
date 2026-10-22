@@ -1,6 +1,6 @@
-// The personal settings of this browser - for now only the key of the Claude API, the switch of the
-// AI mode (E20). Without a key this field is the only trace of AI in orch-spec.
-import { KeyRound, Save, Trash2 } from 'lucide-react';
+// The AI mode (E20): the key of the Claude API is the switch - personal, only in this browser.
+// Opened with the AI icon in the header; without a key that icon is the only trace of AI.
+import { Save, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { StartDialog } from '../components/StartCard';
 import { cls } from '../ui';
@@ -12,7 +12,7 @@ export function SettingsDialog({ isDark, onClose }: { isDark: boolean; onClose: 
   const [input, setInput] = useState('');
   const value = input.trim();
   return (
-    <StartDialog isDark={isDark} icon={<KeyRound size={14} />} title="Persönliche Einstellungen" onClose={onClose}
+    <StartDialog isDark={isDark} icon={<Sparkles size={14} />} title="KI-Modus" onClose={onClose}
       lead="Gilt nur für dich und nur in diesem Browser – nichts davon kommt in den Ordner der Spezifikationen."
       primary={{ label: 'Speichern', icon: <Save size={12} />, disabled: !value, onClick: () => { writeKey(value); onClose(); } }}>
       <div>
