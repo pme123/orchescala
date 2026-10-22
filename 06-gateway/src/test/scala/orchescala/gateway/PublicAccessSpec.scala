@@ -584,5 +584,5 @@ object PublicAccessSpec extends ZIOSpecDefault:
           forbidden <- calls(403)
         yield assertTrue(rejected == (503 -> 2), forbidden == (400 -> 1)) // a message: 400, the token kept
     )
-  ) @@ TestAspect.timeout(60.seconds) // a runaway test fails - it does not block CI
+  ) @@ TestAspect.timeout(60.seconds) // per test (the slowest takes ~3 s): a runaway test fails - it does not block CI
 end PublicAccessSpec
