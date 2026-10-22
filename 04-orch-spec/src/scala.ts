@@ -1396,7 +1396,7 @@ export function renameEnumValue(types: TypeDef[], typeId: string, index: number,
   const old = en?.values?.[index]?.name;
   if (en == null || old == null) return types;
   // only to a name that can be written and is still free
-  const bad = !name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name);
+  const bad = !name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name) || name === '_';
   if (bad || en.values!.some((v, k) => k !== index && caseName(v.name) === name)) return types;
   // a default or example naming the value: FEEL (`= "ONLY GAMIFICATION"`) or Scala (`ReceivingSystem.\`ONLY GAMIFICATION\``)
   const path = new RegExp(`${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`, 'g');
@@ -1468,7 +1468,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     const displayName = t.interactionId ? (t.name.split('.').pop() ?? t.name) : t.name;
     // a type becomes a file, an object and an import — it needs a plain name; what only
     // deviates from the convention (lowercase first, underscore) is a hint
-    if (!/^[A-Za-z_]\w*$/.test(displayName) || RESERVED.has(displayName)) {
+    if (!/^[A-Za-z_]\w*$/.test(displayName) || RESERVED.has(displayName) || displayName === '_') {
       const suggestion = displayName === t.name ? free(nameSuggestion('type', t.name), otherTypes) : undefined;
       issues.push({ typeId: t.id, ...(suggestion ? { suggestion } : {}), message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Buchstaben, Ziffern, _ — keine Leer- oder Sonderzeichen: daraus werden Datei und Objekt).` });
     } else if (!TYPE_NAME.test(displayName)) {
@@ -1483,7 +1483,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       for (const [k, v] of vals.entries()) {
         const name = caseName(v);
         const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
-        if (!name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name)) {
+        // `_` is the wildcard — not a name, not even in backticks
+        if (!name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name) || name === '_') {
           issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick oder Zeilenumbruch darin, kein Leerzeichen am Rand).` });
         } else if (!plain) {
           // valid — the export writes it in backticks (`ONLY GAMIFICATION`, a case with fields

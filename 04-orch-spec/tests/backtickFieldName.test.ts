@@ -387,3 +387,10 @@ test('renaming an enum value: not to an empty, unwritable or taken name', () => 
   for (const name of ['', ' A', 'a`b', 'a\nb', 'C']) assert.equal(renameEnumValue(types as never, 'e', 0, name), types, JSON.stringify(name));
   assert.deepEqual(renameEnumValue(types as never, 'e', 0, 'AB')[0].values?.map(v => v.name), ['AB', 'C']);
 });
+
+test('a lone _ is no name - not even in backticks (Scala 3: wildcard invalid as backquoted identifier)', () => {
+  const errors = (t: object) => checkTypes([t] as never).filter(i => !i.warn);
+  assert.equal(errors({ id: 'e', name: 'E', kind: 'enum', values: [{ name: '_' }] }).length, 1);
+  assert.equal(errors({ id: 'c', name: 'X', kind: 'case', fields: [{ id: 'f', name: '_', type: 'String' }] }).length, 1);
+  assert.equal(errors({ id: 't', name: '_', kind: 'enum', values: [{ name: 'A' }] }).length, 1);
+});
