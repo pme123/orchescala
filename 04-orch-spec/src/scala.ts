@@ -1383,15 +1383,32 @@ export function fixedCaseValue(f: Field, idx: TypeIndex): string | null {
   return `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`;
 }
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * Rename the value or case `index` of the enum `typeId` — and the fields that use it
- * as a fixed case (`enumCase`), so that they keep pointing to it.
+ * as a fixed case (`enumCase`) or name it in a default or example, so that they keep pointing to it.
  */
 export function renameEnumValue(types: TypeDef[], typeId: string, index: number, name: string): TypeDef[] {
-  const old = types.find(t => t.id === typeId)?.values?.[index]?.name;
-  if (old == null) return types;
-  const follow = (fs: Field[] | undefined) => fs?.map(f =>
-    f.type === typeId && f.enumCase && caseName(f.enumCase) === caseName(old) ? { ...f, enumCase: name } : f);
+  const en = types.find(t => t.id === typeId);
+  const old = en?.values?.[index]?.name;
+  if (en == null || old == null) return types;
+  // a default or example naming the value: FEEL (`= "ONLY GAMIFICATION"`) or Scala (`ReceivingSystem.\`ONLY GAMIFICATION\``)
+  const path = new RegExp(`${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`, 'g');
+  const rewrite = (expr: string | undefined) => {
+    if (!expr) return expr;
+    return expr.trim().startsWith('=')
+      ? expr.replace(/"((?:[^"\\]|\\.)*)"/g, (m, v: string) => (caseName(v) === caseName(old) ? JSON.stringify(name) : m))
+      : expr.replace(path, () => `${en.name}.${caseIdent(name)}`);
+  };
+  const follow = (fs: Field[] | undefined) => fs?.map(f => {
+    if (f.type !== typeId) return f;
+    const next = { ...f, default: rewrite(f.default), example: rewrite(f.example) };
+    if (f.enumCase && caseName(f.enumCase) === caseName(old)) next.enumCase = name;
+    // no keys that were not there
+    for (const k of ['default', 'example'] as const) if (next[k] === undefined) delete next[k];
+    return next;
+  });
   return types.map(t => {
     const values = t.id === typeId ? t.values!.map((v, k) => (k === index ? { ...v, name } : v)) : t.values;
     return {

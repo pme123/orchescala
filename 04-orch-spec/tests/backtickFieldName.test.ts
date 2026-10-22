@@ -314,3 +314,22 @@ test('a FEEL default names an enum value without backticks - also one imported w
   assert.equal(dflt('= "type"').scala, 'Channel.`type`');
   assert.equal(dflt('= "Mail"').scala, 'Channel.Mail');
 });
+
+test('renaming an enum value: FEEL and Scala defaults and examples follow', () => {
+  const types = [
+    { id: 'e', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }, { name: 'ONLY GAMIFICATION X' }] },
+    { id: 'In', name: 'In', kind: 'case', root: true, fields: [
+      { id: 'f', name: 'system', type: 'e', optional: true, default: '= "ONLY GAMIFICATION"', example: 'ReceivingSystem.`ONLY GAMIFICATION`' },
+      { id: 'g', name: 'all', type: 'e', collection: true, example: '= ["ONLY GAMIFICATION", "ONLY GAMIFICATION X"]' },
+      { id: 'h', name: 'text', type: 'String', example: '= "ONLY GAMIFICATION"' },
+    ] },
+  ];
+  const next = renameEnumValue(types as never, 'e', 0, 'ONLY_GAMIFICATION');
+  assert.deepEqual(next[1].fields?.map(f => [f.default, f.example]), [
+    ['= "ONLY_GAMIFICATION"', 'ReceivingSystem.ONLY_GAMIFICATION'],
+    [undefined, '= ["ONLY_GAMIFICATION", "ONLY GAMIFICATION X"]'],
+    // another type: untouched
+    [undefined, '= "ONLY GAMIFICATION"'],
+  ]);
+  assert.ok(!('default' in next[1].fields![1]));
+});
