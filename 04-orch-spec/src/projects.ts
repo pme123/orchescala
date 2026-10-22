@@ -10,12 +10,10 @@
 // order; `mergeDomainTypes` keeps what was read first and reports what
 // it discarded in doing so.
 
-import { isDomainSource, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
+import { isDomainSource, isSkippedDir, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
 import { delHandle, ensureRead, getHandle, putHandle } from './handles.ts';
 import type { DomainDefault, DomainType, ProjectFolder } from './types.ts';
 import { uid } from './util.ts';
-
-const IGNORE = ['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules', '.idea'];
 
 /** Key of the remembered folder access. */
 export const handleKey = (p: ProjectFolder) => `project:${p.id}`;
@@ -53,7 +51,7 @@ export async function projectsInFolder(
   await putHandle(rootKey(root), dir);
   const gefunden: Array<{ project: ProjectFolder; handle: FileSystemDirectoryHandle }> = [];
   for await (const [name, handle] of dir.entries()) {
-    if (handle.kind !== 'directory' || IGNORE.includes(name) || name.startsWith('.')) continue;
+    if (handle.kind !== 'directory' || isSkippedDir(name)) continue;
     const unter = handle as FileSystemDirectoryHandle;
     if (await istProjekt(unter)) gefunden.push({ project: { id: uid('p'), name, root }, handle: unter });
   }
@@ -85,7 +83,7 @@ export async function readSources(
   for await (const [name, handle] of dir.entries()) {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === 'directory') {
-      if (IGNORE.includes(name)) continue;
+      if (isSkippedDir(name)) continue;
       await readSources(handle as FileSystemDirectoryHandle, path, out, onProgress);
       continue;
     }
