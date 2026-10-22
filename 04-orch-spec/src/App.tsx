@@ -197,9 +197,10 @@ export default function App() {
           <div className={`flex items-center gap-2 min-w-0 flex-[1000_1_auto] ${fullWidth ? 'px-3' : 'max-w-[64rem] px-6'}`}>
             {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip.
                 On a narrow window it gives way first (the name is cut, down to 6rem) — not the navigation.
-                Not `disabled` without navigation: some browsers drop the tooltip on disabled buttons. */}
+                Without navigation it is inert and out of the tab order, but not `disabled`: some
+                browsers drop the tooltip on disabled buttons. */}
             <div className="flex-1 w-0 min-w-24 overflow-hidden mr-2">
-              <button onClick={() => { if (navOn) setView({ kind: 'list' }); }} aria-disabled={!navOn}
+              <button onClick={() => { if (navOn) setView({ kind: 'list' }); }} aria-disabled={!navOn} tabIndex={navOn ? undefined : -1}
                 className={`flex items-center gap-2 min-w-0 max-w-full ${navOn ? '' : 'cursor-default'}`}
                 title={`Orch Spec · Stand ${APP_VERSION}${navOn ? ' — zur Prozessliste' : ''}`}>
                 {model?.logo && (
