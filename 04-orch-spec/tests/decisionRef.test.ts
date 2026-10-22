@@ -137,3 +137,9 @@ test('the project of a foreign object: the part before the `.domain` segment - e
   assert.equal(at('acme.demo.domains.x'), 'acme.demo.domains.x');
   assert.equal(at('acme.demo.rules'), 'acme.demo.rules');
 });
+
+test('a sibling package with the same start (`…v10` next to `…v1`) is not the process package', () => {
+  const sibling = scanScala(decisionSource(DECISION).replace(`package ${PKG}`, `package ${PKG}0`), 'MapActionsDmn.scala');
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, [...scanScala(processSource, 'SendEvent.scala'), ...sibling], null)!;
+  assert.deepEqual(r.matched, []);
+});

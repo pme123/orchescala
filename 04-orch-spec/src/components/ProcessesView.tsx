@@ -209,15 +209,16 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     const rows = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
     try {
       // the tables of the matched decisions right from the project — editable at the step then.
-      // Written only when there is no spec with this name (its tables stay untouched);
-      // referenced only once saved — nothing points to a table that is not there
+      // Written only when there is no spec with this name, and create-only: a table already
+      // stored under this name is never overwritten, it is linked as it is. Referenced only
+      // when it is there — nothing points to a table that was not written
       const problems: string[] = [];
       let saved: FoundDmn[] = [];
       if (!specs.some(s => s.slug === rows.slug)) {
         setBusy('DMN-Tabellen werden gesucht …');
         const r = await findProjectDmns(rows, model, setBusy);
-        const w = await saveProjectDmns(rows.slug, r.found, saveDmn);
-        saved = w.saved;
+        const w = await saveProjectDmns(rows.slug, r.found, saveDmn, { createOnly: true });
+        saved = [...w.saved, ...w.kept];
         problems.push(...r.failed.map(f => `DMN-Tabelle nicht gelesen: ${f}`), ...w.failed.map(f => `DMN-Tabelle nicht gespeichert: ${f}`));
       }
       const spec = withDmnFiles(rows, saved);

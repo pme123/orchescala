@@ -756,6 +756,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const { found, failed } = await findProjectDmns(from, model);
     const saved = await saveProjectDmns(from.slug, found, saveDmn, { createOnly: true });
     const linked = [...saved.saved, ...saved.kept];
+    // `latest` is what `update` set last (also before its debounced save) — the
+    // interaction ids of `from` are those of the committed spec: withServiceRows only adds rows to steps
     const now = latest.current ?? specRef.current;
     if (linked.length && now) {
       const report: AuditReport = {
