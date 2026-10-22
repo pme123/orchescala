@@ -36,6 +36,9 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
     .filter((e) => e.n > 0);
   const activeEpic = listEpic && epicFilter.some((e) => e.id === listEpic) ? listEpic : null;
   const shown = activeEpic ? pages.filter((p) => p.data.spec?.epics?.includes(activeEpic)) : pages;
+  // one bracket per project - like the list of processes, a head only with more than one project
+  const groups = [...new Set(shown.map((p) => p.data.spec?.project || 'ohne Projekt'))]
+    .map((project) => [project, shown.filter((p) => (p.data.spec?.project || 'ohne Projekt') === project)] as const);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-6">
@@ -109,8 +112,17 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
           <p className={`text-xs ${c.muted2}`}>Noch keine Seiten – im Ordner fehlt <span className="font-mono">pages/</span>.</p>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          {shown.map(({ slug, data, version }) => {
+        <div className="space-y-4">
+          {groups.map(([project, items]) => (
+          <div key={project} className={groups.length > 1 ? `pl-3 border-l-2 ${isDark ? 'border-slate-500/40' : 'border-slate-300'}` : ''}>
+            {groups.length > 1 && (
+              <div className="flex items-baseline gap-2 mb-1.5 px-1">
+                <span className={`text-sm font-mono font-bold ${c.muted2}`}>{project}</span>
+                <span className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{items.length} Seite{items.length === 1 ? '' : 'n'}</span>
+              </div>
+            )}
+          <div className="space-y-1.5">
+          {items.map(({ slug, data, version }) => {
             const findings = targets ? pageFindings(data, targets, pages.map((p) => p.data)).filter((f) => f.level !== 'info') : [];
             const errors = findings.filter((f) => f.level === 'error').length;
             return (
@@ -147,6 +159,9 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string, aiPrompt?
               </div>
             );
           })}
+          </div>
+          </div>
+          ))}
         </div>
       )}
     </div>
