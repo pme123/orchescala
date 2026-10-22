@@ -174,6 +174,8 @@ export default function App() {
   const textMuted = isDark ? 'text-white/40' : 'text-black/40';
   // the process view and the page editor use the whole width — no margins, no scrollbar track
   const fullWidth = view.kind === 'spec' || view.kind === 'page';
+  // the navigation (and the word mark as a link to the list) only once a folder is open and access is granted
+  const navOn = !gated && !denied && !!dirHandle && !!model;
 
   return (
     <div className={`flex flex-col h-screen ${bg} ${textBase}`}>
@@ -196,8 +198,8 @@ export default function App() {
             {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip.
                 On a narrow window it gives way first (the name is cut, down to 6rem) — not the navigation. */}
             <div className="flex-1 w-0 min-w-24 overflow-hidden mr-2">
-              <button onClick={() => setView({ kind: 'list' })} className="flex items-center gap-2 min-w-0 max-w-full"
-                title={`Orch Spec · Stand ${APP_VERSION} — zur Prozessliste`}>
+              <button onClick={() => setView({ kind: 'list' })} disabled={!navOn} className="flex items-center gap-2 min-w-0 max-w-full"
+                title={`Orch Spec · Stand ${APP_VERSION}${navOn ? ' — zur Prozessliste' : ''}`}>
                 {model?.logo && (
                   <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
                 )}
@@ -212,7 +214,7 @@ export default function App() {
 
             {/* Navigation, then the references (FEEL cheat sheet, docs) — always there */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              {!gated && !denied && dirHandle && model && (
+              {navOn && (
                 <>
                   <HeaderButton isDark={isDark} icon={<Workflow size={12} />} label="Prozesse"
                     active={view.kind === 'list' || view.kind === 'spec'}
