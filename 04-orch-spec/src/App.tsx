@@ -20,26 +20,28 @@ const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' }
-  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string };
+  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string };
 
-// Deep link (?spec=<slug>&comment=<id>, see util.deepLink): on start take it from
+// Deep link (?spec=<slug>&comment=<id> or ?page=<slug>&comment=<id> for a page, see util.deepLink): on start take it from
 // the URL and remember it in the tab — so it survives the login redirect — and
 // redeem it as soon as folder and model.json are there.
 const DEEP_LINK_KEY = 'orch-spec.deepLink';
-function takeDeepLink(): { slug: string; commentId?: string } | null {
+type DeepLink = { slug: string; commentId?: string; page?: boolean };
+function takeDeepLink(): DeepLink | null {
   try {
     const u = new URL(window.location.href);
-    const slug = (u.searchParams.get('spec') ?? '').trim();
+    const page = (u.searchParams.get('page') ?? '').trim();
+    const slug = page || (u.searchParams.get('spec') ?? '').trim();
     const commentId = (u.searchParams.get('comment') ?? '').trim();
     if (slug) {
-      u.searchParams.delete('spec'); u.searchParams.delete('comment');
+      u.searchParams.delete('spec'); u.searchParams.delete('page'); u.searchParams.delete('comment');
       window.history.replaceState(null, '', u.toString());
-      const link = { slug, ...(commentId ? { commentId } : {}) };
+      const link: DeepLink = { slug, ...(commentId ? { commentId } : {}), ...(page ? { page: true } : {}) };
       sessionStorage.setItem(DEEP_LINK_KEY, JSON.stringify(link));
       return link;
     }
     const stored = sessionStorage.getItem(DEEP_LINK_KEY);
-    return stored ? JSON.parse(stored) as { slug: string; commentId?: string } : null;
+    return stored ? JSON.parse(stored) as DeepLink : null;
   } catch {
     return null;
   }
@@ -64,7 +66,9 @@ export default function App() {
     if (!deepLink || deepLinkUsed.current || !storage || !model) return;
     deepLinkUsed.current = true;
     try { sessionStorage.removeItem(DEEP_LINK_KEY); } catch { /* ignore */ }
-    setView({ kind: 'spec', ...deepLink });
+    setView(deepLink.page
+      ? { kind: 'page', slug: deepLink.slug, ...(deepLink.commentId ? { commentId: deepLink.commentId } : {}) }
+      : { kind: 'spec', slug: deepLink.slug, ...(deepLink.commentId ? { commentId: deepLink.commentId } : {}) });
   }, [deepLink, storage, model]);
   const dirHandle = storage; // Short name: connected storage (local or SharePoint)
   // Login active and not yet logged in → gate; admin only with the role.
@@ -423,7 +427,7 @@ export default function App() {
           </Suspense>
         ) : view.kind === 'page' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PageEditor key={view.slug} slug={view.slug} aiPrompt={view.aiPrompt} onBack={() => setView({ kind: 'pages' })} />
+            <PageEditor key={view.slug} slug={view.slug} aiPrompt={view.aiPrompt} focusCommentId={view.commentId} onBack={() => setView({ kind: 'pages' })} />
           </Suspense>
         ) : view.kind === 'admin' ? (
           canAdmin

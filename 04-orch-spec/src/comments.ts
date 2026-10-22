@@ -31,14 +31,17 @@ export const sub = (base: string, part: string) => `${base}#${part}`;
 /** The element behind a place: `step:x#in:y` → `step:x`. */
 export const baseOf = (target: string) => target.split('#')[0];
 
+/** What carries comments - a process, the spec part of a page (`page.spec`). */
+export type Commented = { comments?: CommentThread[] };
+
 /** Threads of the element including its parts. */
-export const threadsUnder = (spec: ProcessSpec, base: string): CommentThread[] =>
+export const threadsUnder = (spec: Commented, base: string): CommentThread[] =>
   (spec.comments ?? []).filter(t => baseOf(t.target) === base);
 
 export interface Counts { open: number; resolved: number }
 
 /** Open and resolved threads per place — computed once per state. */
-export function countIndex(spec: ProcessSpec): { exact: Map<string, Counts>; under: Map<string, Counts> } {
+export function countIndex(spec: Commented): { exact: Map<string, Counts>; under: Map<string, Counts> } {
   const exact = new Map<string, Counts>();
   const under = new Map<string, Counts>();
   const add = (m: Map<string, Counts>, key: string, t: CommentThread) => {
@@ -67,14 +70,14 @@ const eintrag = (author: CommentAuthor, text: string, extras: EntryExtras = {}):
 });
 
 /** Create a new thread. */
-export function addThread(spec: ProcessSpec, target: string, author: CommentAuthor, text: string, extras?: EntryExtras): ProcessSpec {
+export function addThread<T extends Commented>(spec: T, target: string, author: CommentAuthor, text: string, extras?: EntryExtras): T {
   if (!text.trim()) return spec;
   const faden: CommentThread = { id: uid('ct'), target, entries: [eintrag(author, text, extras)] };
   return { ...spec, comments: [...(spec.comments ?? []), faden] };
 }
 
 /** Reply in a thread — this also reopens it. */
-export function addReply(spec: ProcessSpec, threadId: string, author: CommentAuthor, text: string, extras?: EntryExtras): ProcessSpec {
+export function addReply<T extends Commented>(spec: T, threadId: string, author: CommentAuthor, text: string, extras?: EntryExtras): T {
   if (!text.trim()) return spec;
   return {
     ...spec,
@@ -88,7 +91,7 @@ export function addReply(spec: ProcessSpec, threadId: string, author: CommentAut
  * Acknowledge the Teams delivery: the delivered recipients move from
  * `notifyPending` to `notified` — what did not get through stays pending.
  */
-export function markNotified(spec: ProcessSpec, done: { entryId: string; email: string }[]): ProcessSpec {
+export function markNotified<T extends Commented>(spec: T, done: { entryId: string; email: string }[]): T {
   if (!done.length) return spec;
   return {
     ...spec,
@@ -108,11 +111,11 @@ export function markNotified(spec: ProcessSpec, done: { entryId: string; email: 
 }
 
 /** Which thread belongs to a comment ID — thread or single post (deep link). */
-export const threadOf = (spec: ProcessSpec, id: string): CommentThread | undefined =>
+export const threadOf = (spec: Commented, id: string): CommentThread | undefined =>
   (spec.comments ?? []).find(t => t.id === id || t.entries.some(e => e.id === id));
 
 /** Resolved / reopened — who checked it off stays recorded. */
-export function setResolved(spec: ProcessSpec, threadId: string, resolved: boolean, author: string): ProcessSpec {
+export function setResolved<T extends Commented>(spec: T, threadId: string, resolved: boolean, author: string): T {
   return {
     ...spec,
     comments: (spec.comments ?? []).map(t => (t.id !== threadId ? t : resolved
@@ -138,7 +141,7 @@ export const EMOJIS = [
 export const personKey = (p: { name: string; email?: string }) => (p.email?.trim() || p.name.trim()).toLowerCase();
 
 /** Set or take back one's own reaction on a post. */
-export function toggleReaction(spec: ProcessSpec, threadId: string, entryId: string, emoji: string, author: CommentAuthor): ProcessSpec {
+export function toggleReaction<T extends Commented>(spec: T, threadId: string, entryId: string, emoji: string, author: CommentAuthor): T {
   const key = personKey(author);
   return {
     ...spec,
@@ -160,12 +163,12 @@ export function toggleReaction(spec: ProcessSpec, threadId: string, entryId: str
 }
 
 /** Remove a thread entirely. */
-export function removeThread(spec: ProcessSpec, threadId: string): ProcessSpec {
+export function removeThread<T extends Commented>(spec: T, threadId: string): T {
   return { ...spec, comments: (spec.comments ?? []).filter(t => t.id !== threadId) };
 }
 
 /** Remove a single reply (not the first post). */
-export function removeEntry(spec: ProcessSpec, threadId: string, entryId: string): ProcessSpec {
+export function removeEntry<T extends Commented>(spec: T, threadId: string, entryId: string): T {
   return {
     ...spec,
     comments: (spec.comments ?? []).map(t => (t.id === threadId

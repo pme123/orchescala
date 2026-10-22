@@ -17,7 +17,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
  * comment panel at the place of this comment (App.tsx evaluates the
  * parameters on start; they survive the Microsoft login redirect).
  */
-export function deepLink(slug: string, commentId?: string, setup?: LinkSetup | null): string {
+export function deepLink(slug: string, commentId?: string, setup?: LinkSetup | null, kind: 'spec' | 'page' = 'spec'): string {
   const u = new URL(import.meta.env.BASE_URL, document.baseURI);
   // like the setup link (auth.setupLink): whoever has not yet set up the browser
   // still gets directly into the right folder this way
@@ -26,7 +26,8 @@ export function deepLink(slug: string, commentId?: string, setup?: LinkSetup | n
     u.searchParams.set('client', setup.clientId);
     if (setup.folderUrl) u.searchParams.set('folder', setup.folderUrl);
   }
-  u.searchParams.set('spec', slug);
+  // a process (`spec`) or a page of the app (`page`)
+  u.searchParams.set(kind, slug);
   if (commentId) u.searchParams.set('comment', commentId);
   return u.toString();
 }
