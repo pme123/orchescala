@@ -508,8 +508,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       {(step.kind === 'service' || step.kind === 'call' || step.kind === 'send' || step.kind === 'rule') && !initWorker && !ofPattern && (
         <ServicePicker step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onPatch={onPatch} onSyncId={onSyncId} current={service} />
       )}
-      {/* DMN Decision dieses Prozesses: die Tabelle selbst — In und Out folgen ihr */}
-      {step.kind === 'rule' && !ofPattern && interactionKind(step, spec.processId ?? '') === 'decision' && (
+      {/* DMN Decision dieses Prozesses: die Tabelle selbst — In und Out folgen ihr.
+          Eine zugeordnete Decision zählt auch ohne Prozess-ID in der decisionRef */}
+      {step.kind === 'rule' && !ofPattern && ownKind === 'decision' && (
         <DmnTableSection step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} onSpecChange={onSpecChange} />
       )}
 
@@ -1022,13 +1023,13 @@ function InteractionClasses({ step, spec, isDark, canEdit, entry, model, onSpecC
   onEditType: (typeId: string) => void;
 }) {
   const c = cls(isDark);
-  const kind = step.id === spec.steps.find(s => s.kind === 'start')?.id
-    ? null
-    : interactionKind(step, spec.processId ?? '');
-  if (!kind) return null;
-
   const interactions = spec.interactions ?? [];
   const ia = interactions.find(i => i.stepId === step.id) ?? null;
+  const kind = step.id === spec.steps.find(s => s.kind === 'start')?.id
+    ? null
+    : ia?.kind ?? interactionKind(step, spec.processId ?? '');
+  if (!kind) return null;
+
   const meta = INTERACTION_META[kind];
   const types = spec.types ?? [];
 

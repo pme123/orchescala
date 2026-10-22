@@ -306,7 +306,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   }
 
   // ── Service: kennt ihn der Katalog? ──────────────────────────────────────
-  const foreign = (step.serviceId || step.topic) && !interactionKind(step, processId) && step.topic !== processId;
+  // eine zugeordnete Interaktion ist eigen — auch ohne Prozess-ID im Schlüssel
+  const foreign = (step.serviceId || step.topic) && !ia && !interactionKind(step, processId) && step.topic !== processId;
   if (foreign && model?.services?.length && !service) {
     errors.push(`Service «${step.serviceId ?? step.topic}» steht nicht im Katalog.`);
   }

@@ -596,7 +596,12 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     // Ein Signal beschreibt das Objekt auch, wenn der Prozess es **fängt**
     // (Startereignis eines Ereignis-Subprozesses, Zwischenereignis)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
-    const kind = byTopic ? 'customTask' : (interactionKind(step, processId) ?? caughtSignal);
+    // Eine Decision im Paket des Prozesses gehört ihm — auch wenn ihre
+    // decisionRef nicht mit der Prozess-ID beginnt (`valiant-bpmn-map-actions`)
+    const ownDecision = step.kind === 'rule' && !!step.topic
+      && objects.some(o => o.pkg === pkg && objectKind(o) === 'decision' && o.key?.toLowerCase() === step.topic!.toLowerCase())
+      ? 'decision' as const : null;
+    const kind = byTopic ? 'customTask' : (interactionKind(step, processId) ?? ownDecision ?? caughtSignal);
     if (!kind) continue;
     const obj = byTopic ?? objects.find(o => {
       if (objectKind(o) !== kind) return false;
