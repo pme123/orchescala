@@ -54,8 +54,9 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   markiert neue und geänderte Bausteine violett. Unter dem Chat stehen die
   **Unterschiede**; ein Klick wählt den Baustein.
 - **Übernehmen** schreibt den Entwurf wie eine Änderung von Hand: ein Schritt im
-  Rückgängig (⌘Z), automatisch gespeichert. **Verwerfen** lässt die Seite wie
-  vorher.
+  Rückgängig (⌘Z), automatisch gespeichert. Der **Verlauf** der Seite verzeichnet
+  ihn mit der eigenen Quelle **KI (Claude)**, die Wünsche des RE stehen als Notiz
+  dabei. **Verwerfen** lässt die Seite wie vorher.
 - Solange ein Entwurf offen ist, ist die Seite schreibgeschützt.
 - Wurde Claude nicht fertig (Schrittgrenze, Antwort abgeschnitten, angehalten,
   Fehler), steht ein Hinweis über dem Entwurf und der Button heisst **Trotzdem
@@ -184,9 +185,6 @@ als ein neues Gespräch.
 - **Stufe C light** (Service-Spez aus einer OpenAPI) ist nicht umgesetzt. Den
   deterministischen Import aus OpenAPI gibt es schon (Admin → Katalog,
   `tools/openapi2catalog`).
-- **Seiten haben kein Änderungsprotokoll.** Bei Prozessen hält der Verlauf eine
-  KI-Änderung mit eigener Quelle fest, bei Seiten gibt es noch gar keinen
-  Verlauf.
 - **Prozess neu anlegen:** Stufe B ändert bestehende Prozesse. Ein neuer Prozess
   entsteht wie bisher mit der Vorlage, danach kann Claude ihn ausbauen.
 - **Datenmodell des Prozesses:** Interaktionen und Klassen für neue Schritte
