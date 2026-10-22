@@ -96,7 +96,10 @@ export function pageDiff(before: Page, after: Page): PageChange[] {
     if (same) return { changes: [...acc.changes, { kind: 'moved', key: x.key, label: blockName(x.block), detail: `von ${same.key}` }], left: acc.left.filter((y) => y !== same) };
     // the same type with the same title (keys shift when something is inserted before), else at the same key
     const was = acc.left.find((y) => y.block.type === x.block.type && titleOf(y.block) === titleOf(x.block))
-      ?? acc.left.find((y) => y.key === x.key && y.block.type === x.block.type);
+      ?? acc.left.find((y) => y.key === x.key && y.block.type === x.block.type)
+      // the only one of its type that is left - a button with a new label after an insert before it
+      ?? (acc.left.filter((y) => y.block.type === x.block.type).length === 1 && restB.filter((z) => z.block.type === x.block.type).length === 1
+        ? acc.left.find((y) => y.block.type === x.block.type) : undefined);
     if (was) {
       const detail = detailOf(was.block, x.block);
       return { changes: [...acc.changes, { kind: 'changed', key: x.key, label: blockName(x.block), ...(detail ? { detail } : {}) }], left: acc.left.filter((y) => y !== was) };

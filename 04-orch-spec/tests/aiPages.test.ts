@@ -317,4 +317,7 @@ test('pageDiff - new field, changed block, moved, removed, page properties', () 
   const removed = pageDiff(book, kit(d0, 'remove_block', { key: '2' }).page);
   assert.deepEqual(removed.map((c) => [c.kind, c.key, c.label]), [['removed', '2', 'Button «Buchen»']]);
   assert.deepEqual(pageDiff(book, book), []);
+  // a new label after an insert before it: the only button changed - not one new and one removed
+  const relabeled = kit(kit(d0, 'insert_block', { block: { type: 'text', text: 'Datenschutz' }, at: '1' }), 'update_block', { key: '3', block: { type: 'button', label: 'Verbindlich anfragen', actions: [] } });
+  assert.deepEqual(pageDiff(book, relabeled.page).map((c) => [c.kind, c.key, c.label]), [['added', '2', 'Text «Datenschutz»'], ['changed', '3', 'Button «Verbindlich anfragen»']]);
 });
