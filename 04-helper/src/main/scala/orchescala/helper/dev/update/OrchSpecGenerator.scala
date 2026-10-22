@@ -1212,16 +1212,18 @@ object TypeImplementation:
   private def withMembers(own: Seq[String], generated: Seq[String]): Seq[String] =
     val keys    = members(own).map(_._1).toSet
     val missing = members(generated).collect:
-      case (k, ls) if !keys.contains(k) && !k.startsWith("example") && !implicitFor(own, k) => ls
+      case (k, ls) if !keys.contains(k) && !examples.contains(k) && !implicitFor(own, k) => ls
     .flatten
     if missing.isEmpty then own
     else if own.headOption.exists(_.trim.startsWith("object ")) then own.head +: (missing ++ own.tail)
     else missing ++ own
 
+  private val examples = Seq("example", "exampleMinimal")
+
   // `lazy val example` / `exampleMinimal` of `generated` replace the own ones - missing ones go
   // before `end X`
   private def withExamples(own: Seq[String], generated: Seq[String], name: String): Seq[String] =
-    Seq("example", "exampleMinimal").foldLeft(own): (lines, ex) =>
+    examples.foldLeft(own): (lines, ex) =>
       block(generated, ex) match
         case None               => lines
         case Some((gFrom, gTo)) =>
@@ -1234,7 +1236,12 @@ object TypeImplementation:
 
   // the lines of `lazy val <name> = …`: the start and what is indented deeper, the closing `)`
   private def block(lines: Seq[String], name: String): Option[(Int, Int)] =
-    val start = lines.indexWhere(_.matches(s"""\\s*lazy val $name\\b.*"""))
+    // also `val example`, `override lazy val example`, `lazy val example: In` - on the member level only
+    val at    = memberIndent(lines)
+    val start = lines.indexWhere(l =>
+      indentOf(l) == at &&
+        l.matches(s"""\\s*(?:(?:override|final|private|protected)\\s+)*(?:lazy\\s+)?val\\s+$name\\b.*""")
+    )
     Option.when(start >= 0)(start -> extent(lines, start))
 
   // the end (exclusive) of the member starting at `start`: the lines indented deeper and its

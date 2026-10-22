@@ -1096,6 +1096,50 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       assert(!m.contains("deriveInOutCodec"), m)
       assert(m.contains(codec), m)
 
+  test("merge - an own example as val, with modifiers or a type is replaced - not a second one"):
+    def existing(example: String) =
+      s"""package a.b.domain.proc.v1
+         |
+         |object Proc extends CompanyBpmnProcessDsl:
+         |  val processName = "a-b-procV1"
+         |
+         |  case class In(
+         |      amount: Int
+         |  )
+         |
+         |  object In:
+         |    given ApiSchema[In]  = deriveApiSchema
+         |    given InOutCodec[In] = deriveInOutCodec
+         |    def build(n: Int) =
+         |      lazy val example = In(n)
+         |      example
+         |    $example
+         |  end In
+         |end Proc
+         |""".stripMargin
+    val block =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int
+        |  )
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    for example <- Seq("val example = In(1)", "override lazy val example = In(1)", "lazy val example: In = In(1)") do
+      val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing(example))
+      assertEquals("""(?m)^    (?:\w+\s+)*val example\b""".r.findAllIn(m).size, 1, m)
+      assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In"), m)
+      // the nested one in `build` stays
+      assert(m.contains("      lazy val example = In(n)\n"), m)
+
   test("processTypeOf - a C8 export in a C8 project keeps the project's path"):
     val custom = BpmnProcessType.C8(os.rel / "bpmn8")
     assertEquals(OrchSpecGenerator.processTypeOf(custom, c8 = true), custom)
