@@ -35,6 +35,8 @@ export interface ScalaParam {
 
 const OPEN = '([{';
 const CLOSE = ')]}';
+/** A char literal at the start: `'"'`, `'('`, `'\''`, `'\u0022'` — neither a string nor a bracket */
+export const CHAR_LITERAL = /^'(?:\\u[0-9a-fA-F]{4}|\\.|[^'\\])'/;
 
 /**
  * Walk one bracket level, skipping strings along the way.
@@ -54,6 +56,11 @@ function skipBalanced(text: string, start: number): number {
       i++;
       while (i < text.length && !(text[i] === '"' && text[i - 1] !== '\\')) i++;
       i++;
+      continue;
+    }
+    const char = ch === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
+    if (char) {
+      i += char[0].length;
       continue;
     }
     if (OPEN.includes(ch)) depth++;
@@ -84,6 +91,11 @@ export function splitParams(raw: string): string[] {
       i++;
       while (i < text.length && !(text[i] === '"' && text[i - 1] !== '\\')) i++;
       i++;
+      continue;
+    }
+    const char = ch === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
+    if (char) {
+      i += char[0].length;
       continue;
     }
     if (OPEN.includes(ch)) depth++;
@@ -119,6 +131,12 @@ export function stripComments(text: string): string {
       const stop = skipString(text, i);
       out += text.slice(i, stop);
       i = stop;
+      continue;
+    }
+    const char = text[i] === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
+    if (char) {
+      out += char[0];
+      i += char[0].length;
       continue;
     }
     if (text.startsWith('//', i)) {

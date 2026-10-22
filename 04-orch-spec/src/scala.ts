@@ -1389,7 +1389,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       const vals = (t.values ?? []).map(v => v.name);
       if (!vals.length) issues.push({ typeId: t.id, message: 'Enumeration ohne Werte.' });
       if (new Set(vals).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
-      for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9]*|`[^`]+`)$/.test(v)) {
+      // a Scala identifier — underscores included (`EXTERNALLY_TERMINATED`)
+      for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9_]*|`[^`]+`)$/.test(v)) {
         issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (Sonderzeichen nur in Backticks: \`QI-Deklaration\`).` });
       }
       // An ADT: the fields per case are checked like class fields

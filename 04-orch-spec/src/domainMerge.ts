@@ -96,9 +96,27 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     link(ia.inTypeId, prev.inTypeId);
     link(ia.outTypeId, prev.outTypeId);
   }
+  // Two previous types with the same name (a duplicate of an earlier sync): the one
+  // reachable from the roots and interactions gets the domain — not just the first in
+  // the list. References from stale types (or from the copy itself) do not count.
+  let reachable: Set<string> | undefined;
+  const reachableIds = () => {
+    if (reachable) return reachable;
+    reachable = new Set();
+    const todo = [...pTypes.filter(roleOf).map(t => t.id), ...pIas.flatMap(ia => [ia.inTypeId, ia.outTypeId])];
+    while (todo.length) {
+      const id = todo.pop();
+      const t = id ? pById.get(id) : undefined;
+      if (!t || reachable.has(t.id)) continue;
+      reachable.add(t.id);
+      for (const x of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) todo.push(x.type);
+    }
+    return reachable;
+  };
   for (const f of fresh.types ?? []) {
     if (pair.has(f.id) || dropTypes.has(f.id) || roleOf(f)) continue;
-    const p = pTypes.find(t => !paired.has(t.id) && !roleOf(t) && t.name === f.name);
+    const candidates = pTypes.filter(t => !paired.has(t.id) && !roleOf(t) && t.name === f.name);
+    const p = candidates.length > 1 ? candidates.find(t => reachableIds().has(t.id)) ?? candidates[0] : candidates[0];
     if (p) link(f.id, p.id);
   }
   const mapType = (type: string) => pair.get(type) ?? type;
