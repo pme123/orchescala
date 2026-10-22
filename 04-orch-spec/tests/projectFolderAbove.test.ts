@@ -1,0 +1,71 @@
+// A project whose remembered folder is the one above it (`…/projects` instead
+// of `…/projects/democompany-services`): the build reads the project inside it.
+// Before, it read all projects below through this one, and the others counted
+// 0 types (same packages).
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { rebuild } from '../src/projects';
+import type { ProjectFolder } from '../src/types';
+
+type Tree = { [name: string]: Tree | string };
+
+/** a folder in memory — subfolders as objects, files as text */
+function dir(name: string, tree: Tree): unknown {
+  return {
+    kind: 'directory', name,
+    queryPermission: async () => 'granted',
+    getDirectoryHandle: async (n: string) => {
+      const sub = tree[n];
+      if (!sub || typeof sub === 'string') throw new Error(`NotFound: ${n}`);
+      return dir(n, sub);
+    },
+    entries: async function* () {
+      for (const [n, v] of Object.entries(tree)) {
+        yield [n, typeof v === 'string' ? { kind: 'file', name: n, getFile: async () => ({ text: async () => v }) } : dir(n, v)];
+      }
+    },
+  };
+}
+
+/** IndexedDB with the remembered handles — only what getHandle needs */
+function fakeIndexedDb(handles: Record<string, unknown>) {
+  const request = <T>(result: T) => {
+    const req: { result: T; onsuccess?: () => void } = { result };
+    setTimeout(() => req.onsuccess?.());
+    return req;
+  };
+  (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+    open: () => request({
+      transaction: () => ({ objectStore: () => ({ get: (key: string) => request(handles[key] ?? null) }) }),
+    }),
+  };
+}
+
+/** a project with one class in its own package */
+const project = (name: string, cls: string): Tree => ({
+  '01-domain': { src: { main: { scala: { acme: { [name]: { domain: { [`${cls}.scala`]: `package acme.${name}.domain\n\ncase class ${cls}(id: String)\n` } } } } } } },
+});
+
+const projects = dir('projects', {
+  'acme-services': project('services', 'Client'),
+  'acme-customer': project('customer', 'Advisor'),
+  'acme-cards': project('cards', 'Card'),
+});
+
+test('a project remembered with the folder above it counts only its own types', async () => {
+  const list: ProjectFolder[] = [
+    { id: 'p-services', name: 'acme-services' },
+    { id: 'p-customer', name: 'acme-customer' },
+    { id: 'p-cards', name: 'acme-cards' },
+  ];
+  fakeIndexedDb({
+    // services: the folder above — customer and cards: their own
+    'project:p-services': projects,
+    'project:p-customer': await (projects as { getDirectoryHandle: (n: string) => Promise<unknown> }).getDirectoryHandle('acme-customer'),
+    'project:p-cards': await (projects as { getDirectoryHandle: (n: string) => Promise<unknown> }).getDirectoryHandle('acme-cards'),
+  });
+  const r = await rebuild(list, () => {});
+  assert.deepEqual(r.projects.map(p => [p.name, p.types]), [['acme-services', 1], ['acme-customer', 1], ['acme-cards', 1]]);
+  assert.equal(r.files, 3);
+  assert.deepEqual(r.types.map(t => t.name).sort(), ['Advisor', 'Card', 'Client']);
+});

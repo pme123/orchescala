@@ -140,7 +140,18 @@ export async function handleFor(
     }
   }
   const own = await getHandle(handleKey(p));
-  return own && (await ensureRead(own)) ? own : null;
+  return own && (await ensureRead(own)) ? intoProject(own, p.name) : null;
+}
+
+/**
+ * A remembered folder that is not the project but the folder above it
+ * (`…/projects` instead of `…/projects/democompany-services`): the project
+ * inside it — otherwise the build reads all projects below through this one,
+ * and the others add nothing (same packages).
+ */
+export async function intoProject(dir: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle> {
+  if (dir.name === name) return dir;
+  try { return await dir.getDirectoryHandle(name); } catch { return dir; }
 }
 
 export async function rebuild(
