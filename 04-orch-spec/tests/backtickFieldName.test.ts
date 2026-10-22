@@ -30,13 +30,15 @@ case class IdentityLink(
       "The type of the identity link."
     )
     \`type\`: IdentityLinkType,
-    groupId: Option[String]
+    groupId: Option[String],
+    \`display name\`: Option[String]
 )
 
 object IdentityLink:
   lazy val example = IdentityLink(
     \`type\` = IdentityLinkType.candidate,
-    groupId = Some("0949--Kundencenter")
+    groupId = Some("0949--Kundencenter"),
+    \`display name\` = Some("Kundencenter")
   )
 end IdentityLink
 
@@ -65,7 +67,7 @@ const domain = () => [...scanScala(identityLink, 'IdentityLink.scala'), ...scanS
 
 test('scan: a field in backticks is read - named without them, with its description and example', () => {
   const t = domain().find(x => x.name === 'IdentityLink')!;
-  assert.deepEqual(t.fields?.map(f => [f.name, f.type]), [['type', 'IdentityLinkType'], ['groupId', 'Option[String]']]);
+  assert.deepEqual(t.fields?.map(f => [f.name, f.type]), [['type', 'IdentityLinkType'], ['groupId', 'Option[String]'], ['display name', 'Option[String]']]);
   const type = t.fields!.find(f => f.name === 'type')!;
   assert.equal(type.description, 'The type of the identity link.');
   assert.equal(type.example, 'IdentityLinkType.candidate');
@@ -78,6 +80,11 @@ test('a reserved word as field name is no error - and the export writes it in ba
   assert.deepEqual(checkTypes(r.spec.types).filter(i => i.typeId === link.id).map(i => i.message), []);
   const code = scalaFiles(r.spec, { domainTypes: domain() } as never).map(f => f.content).join('\n');
   assert.match(code, /`type`: IdentityLinkType/);
+  assert.match(code, /`display name`: Option\[String\]/);
+  // the example and exampleMinimal name the fields the same way
+  assert.match(code, /`type` = IdentityLinkType\.candidate/);
+  assert.match(code, /`display name` = (Some\()?"Kundencenter"/);
+  assert.match(code, /exampleMinimal = example\.copy\([\s\S]*`display name` = None/);
   assert.ok(!/[^`]type: IdentityLinkType/.test(code), 'no bare `type:` declaration');
 });
 
@@ -85,4 +92,25 @@ test('scalaName: reserved words and odd names in backticks, plain names as they 
   assert.equal(scalaName('type'), '`type`');
   assert.equal(scalaName('QI-Deklaration'), '`QI-Deklaration`');
   assert.equal(scalaName('groupId'), 'groupId');
+  assert.equal(scalaName('display name'), '`display name`');
+});
+
+test('field names: plain ones follow the convention, quoted ones only must be writable in backticks', () => {
+  const issues = (name: string) => checkTypes([{ id: 't', name: 'X', kind: 'case', fields: [{ id: 'f', name, type: 'String' }] }] as never)
+    .filter(i => i.field === 'f').map(i => i.message);
+  assert.deepEqual(issues('display name'), []);
+  assert.deepEqual(issues('QI-Deklaration'), []);
+  assert.deepEqual(issues('type'), []);
+  assert.equal(issues('GroupId').length, 1);
+  assert.equal(issues(' name').length, 1);
+  assert.equal(issues('a`b').length, 1);
+  assert.equal(issues('').length, 1);
+});
+
+test('enum values with a space: read in backticks, no error, written back as they are', () => {
+  const src = `package ${PKG}.schema\n\nenum Channel:\n  case Mail, \`Ohne Angabe\`\n  case \`Per Post\` // - letter\nend Channel\n`;
+  const t = scanScala(src, 'Channel.scala').find(x => x.name === 'Channel')!;
+  assert.deepEqual(t.values, ['Mail', '`Ohne Angabe`', '`Per Post`']);
+  const typeDef = { id: 'e', name: 'Channel', kind: 'enum', values: t.values!.map(name => ({ name })) };
+  assert.deepEqual(checkTypes([typeDef] as never).map(i => i.message), []);
 });

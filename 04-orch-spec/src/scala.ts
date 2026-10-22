@@ -1420,8 +1420,11 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     if (!fields.length && t.kind === 'case' && !t.initIn && !t.inConfig) issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
     const seen = new Set<string>();
     for (const f of fields) {
-      if (!SCALA_NAME.test(f.name)) {
-        issues.push({ typeId: t.id, field: f.id, message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang).` });
+      // a plain name follows the convention (lowercase first); any other goes in backticks
+      // (`display name`) — then only a backtick or a space at the edge cannot be written
+      const quoted = !/^[A-Za-z_]\w*$/.test(f.name);
+      if (quoted ? !f.name.trim() || f.name !== f.name.trim() || f.name.includes('`') : !SCALA_NAME.test(f.name)) {
+        issues.push({ typeId: t.id, field: f.id, message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick und ohne Leerzeichen am Rand).` });
       }
       // in an ADT the same field name may appear in several cases
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
