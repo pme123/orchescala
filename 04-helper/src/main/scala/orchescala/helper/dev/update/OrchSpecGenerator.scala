@@ -1187,6 +1187,15 @@ object TypeImplementation:
 
   private def indentOf(l: String) = l.indexWhere(_ != ' ')
 
+  // a generated `given T` the own lines have in another form - `implicit val x: T = …`,
+  // `given T with …`, `given x(using …): T = …`: a second one would make it ambiguous
+  private def implicitFor(own: Seq[String], key: String): Boolean =
+    key.startsWith("given ") && {
+      val tpe = key.stripPrefix("given ")
+      own.exists(l => """^\s*(?:(?:private|protected|override)\s+)*(?:given|implicit)\b.*""".r.matches(l) &&
+        l.replaceAll("\\s+", "").contains(tpe))
+    }
+
   // the indent of the members: the first code line (after `object X:` in a companion)
   private def memberIndent(lines: Seq[String]): Int =
     lines.filter(isCode).dropWhile(_.trim.startsWith("object ")).headOption.map(indentOf).getOrElse(-1)
@@ -1203,7 +1212,7 @@ object TypeImplementation:
   private def withMembers(own: Seq[String], generated: Seq[String]): Seq[String] =
     val keys    = members(own).map(_._1).toSet
     val missing = members(generated).collect:
-      case (k, ls) if !keys.contains(k) && !k.startsWith("example") => ls
+      case (k, ls) if !keys.contains(k) && !k.startsWith("example") && !implicitFor(own, k) => ls
     .flatten
     if missing.isEmpty then own
     else if own.headOption.exists(_.trim.startsWith("object ")) then own.head +: (missing ++ own.tail)

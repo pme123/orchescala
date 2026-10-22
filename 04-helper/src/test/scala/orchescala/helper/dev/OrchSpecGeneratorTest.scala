@@ -1057,6 +1057,45 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In\nend Proc"), m)
     assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
 
+  test("merge - an own codec in another form (implicit val, given … with) gets no second, generated one"):
+    def existing(codec: String) =
+      s"""package a.b.domain.proc.v1
+         |
+         |object Proc extends CompanyBpmnProcessDsl:
+         |  val processName = "a-b-procV1"
+         |
+         |  case class In(
+         |      amount: Int
+         |  )
+         |
+         |  object In:
+         |    $codec
+         |    given ApiSchema[In] = deriveApiSchema
+         |    lazy val example = In(amount = 1)
+         |  end In
+         |end Proc
+         |""".stripMargin
+    val block =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int
+        |  )
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    for codec <- Seq("implicit val inCodec: InOutCodec[In] = customCodec", "given InOutCodec[In] with customCodec") do
+      val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing(codec))
+      assert(!m.contains("deriveInOutCodec"), m)
+      assert(m.contains(codec), m)
+
   test("processTypeOf - a C8 export in a C8 project keeps the project's path"):
     val custom = BpmnProcessType.C8(os.rel / "bpmn8")
     assertEquals(OrchSpecGenerator.processTypeOf(custom, c8 = true), custom)
