@@ -211,7 +211,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       // the tables of the matched decisions right from the project — editable at the step then.
       // Written only when there is no spec with this name, and create-only: a table already
       // stored under this name is never overwritten, it is linked as it is. Referenced only
-      // when it is there — nothing points to a table that was not written
+      // when it is there — nothing points to a table that was not written. Accepted: if createSpec
+      // fails after all, the table stays behind unreferenced and a later spec of that name links it
       const problems: string[] = [];
       let saved: FoundDmn[] = [];
       if (!specs.some(s => s.slug === rows.slug)) {

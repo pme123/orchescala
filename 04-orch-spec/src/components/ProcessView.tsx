@@ -760,9 +760,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     // interaction ids of `from` are those of the committed spec: withServiceRows only adds rows to steps
     const now = latest.current ?? specRef.current;
     if (linked.length && now) {
+      // the problems go into the log entry too — the autosave of this update replaces the save state
       const report: AuditReport = {
         ...(saved.saved.length ? { 'aus dem Projekt': saved.saved.map(d => d.name) } : {}),
         ...(saved.kept.length ? { 'vorhanden, verknüpft': saved.kept.map(d => d.name) } : {}),
+        ...(failed.length ? { 'nicht gelesen': failed } : {}),
+        ...(saved.failed.length ? { 'nicht gespeichert': saved.failed } : {}),
       };
       update(withDmnFiles(now, linked), { source: 'domain-sync', note: 'DMN-Tabellen aus dem Projekt', report });
     }
