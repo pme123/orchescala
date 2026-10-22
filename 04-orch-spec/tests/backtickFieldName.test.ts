@@ -79,11 +79,9 @@ test('a reserved word as field name is no error - and the export writes it in ba
   assert.ok(link.fields?.some(f => f.name === 'type'));
   const issues = checkTypes(r.spec.types).filter(i => i.typeId === link.id);
   assert.deepEqual(issues.filter(i => !i.warn).map(i => i.message), []);
-  // valid — but a warning for each name that needs backticks
-  assert.deepEqual(issues.filter(i => i.warn).map(i => i.message), [
-    '«type» steht in Scala in Backticks (`type`) — ein Scala-Schlüsselwort. Wenn möglich einen einfachen Namen wählen.',
-    '«display name» steht in Scala in Backticks (`display name`) — mit Leer- oder Sonderzeichen. Wenn möglich einen einfachen Namen wählen.',
-  ]);
+  // valid — but a warning for each name that needs backticks, with a plain name where there is one
+  const nameOf = (id?: string) => link.fields?.find(f => f.id === id)?.name;
+  assert.deepEqual(issues.filter(i => i.warn).map(i => [nameOf(i.field), i.suggestion]), [['type', undefined], ['display name', 'displayName']]);
   const code = scalaFiles(r.spec, { domainTypes: domain() } as never).map(f => f.content).join('\n');
   assert.match(code, /`type`: IdentityLinkType/);
   assert.match(code, /`display name`: Option\[String\]/);
