@@ -435,8 +435,10 @@ object PublicAccessSpec extends ZIOSpecDefault:
                         .repeatUntil(_.status == Status.Ok)
                     .timed
           gone   <- bounded(5.seconds)(first.await)
+          // the dump asks the stuck fiber - bounded as well
           _      <- ZIO.when(gone.isEmpty):
-                      first.dump.flatMap(_.prettyPrint).flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n$d"))
+                      bounded(5.seconds)(first.dump.flatMap(_.prettyPrint))
+                        .flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n${d.getOrElse("(no dump within 5 s)")}"))
         // freed by the timeout of the call - not only much later or never (the bound is wide for a slow
         // CI machine; the status is in the message when it fails)
         yield assertTrue(second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds, gone.isDefined)
