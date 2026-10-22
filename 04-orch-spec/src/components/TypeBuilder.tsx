@@ -993,7 +993,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 
   // the error first; a warning only if there is none
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId && !i.warn) ?? issues.find(i => i.field === fieldId);
-  const typeIssues = issues.filter(i => !i.field);
+  const typeIssues = issues.filter(i => !i.field && !i.value);
   // the suggested name for the type — or for one of its enum values
   const suggest = (i: { suggestion?: string; value?: string }) => i.suggestion && canEdit && (
     <SuggestButton name={i.suggestion} isDark={isDark} onTake={() => onPatch(i.value
@@ -1479,6 +1479,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
       )}
       {values.map((v, i) => {
         const fields = v.fields ?? [];
+        // what the check says about this value or case — the error first
+        const valueIssue = issues.find(x => x.value === v.name && !x.warn) ?? issues.find(x => x.value === v.name);
         // each case in its color — like the branches in the flow
         const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
         const tone = isDark ? col.dark : col.light;
@@ -1494,7 +1496,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
             <div className="flex items-center gap-1.5">
               <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
                 placeholder={adt ? 'Fall' : 'wert'}
-                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input} ${
+                  !valueIssue ? '' : valueIssue.warn ? (isDark ? '!border-amber-500/60' : '!border-amber-400') : (isDark ? '!border-rose-500/60' : '!border-rose-400')}`} />
               <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
                 placeholder="Bedeutung"
                 className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
@@ -1513,6 +1516,12 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
                 </button>
               )}
             </div>
+            {valueIssue && (
+              <div className={`text-[10px] ${valueIssue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+                {valueIssue.message}
+                {valueIssue.suggestion && canEdit && <SuggestButton name={valueIssue.suggestion} isDark={isDark} onTake={() => set(i, { name: valueIssue.suggestion! })} />}
+              </div>
+            )}
             {!!fields.length && (
               <div className="pl-3 space-y-2">
                 {fieldRows(fields, next => setFields(i, next))}
