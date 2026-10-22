@@ -341,3 +341,25 @@ test('a line break or control character in a name is an error, not a warning', (
   assert.equal(errors({ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'a\nb' }] }).length, 1);
   assert.equal(errors({ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'a b' }] }).length, 0);
 });
+
+test('backticks inside comments do not open a name', () => {
+  const src = `package ${PKG}.schema
+
+case class Commented(
+    /* use \`a (b\` or \`c */
+    first: String, // see \`x (\`
+    /** the \`)\` one */
+    \`second (2)\`: Int
+)
+
+enum Doc:
+  case Brief( // \`(\`
+      empfaenger: String /* \`)\` */
+  )
+  case Mail(to: String)
+end Doc
+`;
+  const scanned = scanScala(src, 'Commented.scala');
+  assert.deepEqual(scanned.find(t => t.name === 'Commented')!.fields?.map(f => f.name), ['first', 'second (2)']);
+  assert.deepEqual(scanned.find(t => t.name === 'Doc')!.cases?.map(c => [c.name, c.fields?.map(f => f.name)]), [['Brief', ['empfaenger']], ['Mail', ['to']]]);
+});
