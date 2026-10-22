@@ -394,3 +394,33 @@ test('a lone _ is no name - not even in backticks (Scala 3: wildcard invalid as 
   assert.equal(errors({ id: 'c', name: 'X', kind: 'case', fields: [{ id: 'f', name: '_', type: 'String' }] }).length, 1);
   assert.equal(errors({ id: 't', name: '_', kind: 'enum', values: [{ name: 'A' }] }).length, 1);
 });
+
+test('a stray backtick in a string or a comment does not swallow the parameters after it', () => {
+  const src = `package ${PKG}.schema
+
+case class Stray(
+    @description("use \`x, " + "or y")
+    first: String, // a \`stray one
+    second: Option[Int] = Some(1),
+    third: Boolean
+)
+`;
+  const t = scanScala(src, 'Stray.scala').find(x => x.name === 'Stray')!;
+  assert.deepEqual(t.fields?.map(f => [f.name, f.type, f.default]), [['first', 'String', undefined], ['second', 'Option[Int]', 'Some(1)'], ['third', 'Boolean', undefined]]);
+  assert.equal(t.fields![0].description, 'use `x, or y');
+});
+
+test('round trip: an ADT with a dot and a colon in case and field names - exported, then read again', () => {
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain(), null)!;
+  const spec = { ...r.spec, types: [
+    ...(r.spec.types ?? []),
+    { id: 't-doc', name: 'DocContent', kind: 'enum',
+      values: [{ name: 'Nr.1:QR', fields: [{ id: 'q1', name: 'betrag (CHF)', type: 'BigDecimal' }] }, { name: 'Brief', fields: [{ id: 'b1', name: 'a:b', type: 'String' }] }] },
+  ] } as never;
+  const file = scalaFiles(spec, { domainTypes: domain() } as never).find(f => /enum DocContent/.test(f.content))!;
+  const back = scanScala(file.content, 'DocContent.scala').find(t => t.name === 'DocContent')!;
+  assert.deepEqual(back.cases?.map(c => [c.name, c.fields?.map(f => [f.name, f.type])]), [
+    ['`Nr.1:QR`', [['betrag (CHF)', 'BigDecimal']]],
+    ['Brief', [['a:b', 'String']]],
+  ]);
+});
