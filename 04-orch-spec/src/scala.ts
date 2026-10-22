@@ -1337,6 +1337,8 @@ export function nameSuggestion(kind: 'field' | 'type' | 'value', raw: string): s
 }
 
 const SCALA_NAME = /^[a-z][A-Za-z0-9]*$/;
+/** a line break or other control character — a name in backticks ends on its line */
+const CONTROL = /[\u0000-\u001f\u007f]/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
 /**
  * A field name as written in Scala: a reserved word (`type`) or a name that is
@@ -1478,8 +1480,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       for (const [k, v] of vals.entries()) {
         const name = caseName(v);
         const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
-        if (!name.trim() || name !== name.trim() || name.includes('`')) {
-          issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick darin, kein Leerzeichen am Rand).` });
+        if (!name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name)) {
+          issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick oder Zeilenumbruch darin, kein Leerzeichen am Rand).` });
         } else if (!plain) {
           // valid — the export writes it in backticks (`ONLY GAMIFICATION`, a case with fields
           // like `QR-Rechnung`(…) with its object and end too), but every use in Scala needs them
@@ -1515,9 +1517,9 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       // a plain name follows the convention (lowercase first); any other goes in backticks
       // (`display name`) — then only a backtick or a space at the edge cannot be written
       const quoted = !/^[A-Za-z_]\w*$/.test(f.name);
-      if (quoted ? !f.name.trim() || f.name !== f.name.trim() || f.name.includes('`') : !SCALA_NAME.test(f.name)) {
+      if (quoted ? !f.name.trim() || f.name !== f.name.trim() || f.name.includes('`') || CONTROL.test(f.name) : !SCALA_NAME.test(f.name)) {
         const suggestion = free(nameSuggestion('field', f.name), siblings(f));
-        issues.push({ typeId: t.id, field: f.id, ...(suggestion ? { suggestion } : {}), message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick und ohne Leerzeichen am Rand).` });
+        issues.push({ typeId: t.id, field: f.id, ...(suggestion ? { suggestion } : {}), message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick, ohne Zeilenumbruch und ohne Leerzeichen am Rand).` });
       } else if (scalaName(f.name) !== f.name) {
         // valid, but every use in Scala needs the backticks — and FEEL cannot name it plainly
         const suggestion = free(nameSuggestion('field', f.name), siblings(f));

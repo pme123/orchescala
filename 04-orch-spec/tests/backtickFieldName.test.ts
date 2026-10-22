@@ -333,3 +333,11 @@ test('renaming an enum value: FEEL and Scala defaults and examples follow', () =
   ]);
   assert.ok(!('default' in next[1].fields![1]));
 });
+
+test('a line break or control character in a name is an error, not a warning', () => {
+  const errors = (t: object) => checkTypes([t] as never).filter(i => !i.warn);
+  assert.equal(errors({ id: 'c', name: 'X', kind: 'case', fields: [{ id: 'f', name: 'a\nb', type: 'String' }] }).filter(i => i.field === 'f').length, 1);
+  assert.equal(errors({ id: 'c', name: 'X', kind: 'case', fields: [{ id: 'f', name: 'a\tb', type: 'String' }] }).filter(i => i.field === 'f').length, 1);
+  assert.equal(errors({ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'a\nb' }] }).length, 1);
+  assert.equal(errors({ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'a b' }] }).length, 0);
+});
