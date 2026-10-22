@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
+import { checkTypes } from '../src/scala';
 
 const source = `package acme.demo.domain.send.v1.schema
 
@@ -31,4 +32,12 @@ test('the comment does not break a list of cases or a case with parameters', () 
   const channel = byName('Channel');
   assert.deepEqual(channel.values, ['Mail', 'Phone', 'Web']);
   assert.deepEqual(channel.cases?.find(c => c.name === 'Web')?.fields?.map(f => f.name), ['url']);
+});
+
+test('an enum value with underscores is a valid name - one with a hyphen is not', () => {
+  const enumOf = (...names: string[]) => [{ id: 't1', name: 'CProcessState', kind: 'enum' as const, values: names.map(name => ({ name })) }];
+  const messages = (...names: string[]) => checkTypes(enumOf(...names) as never).map(i => i.message);
+  assert.deepEqual(messages('ACTIVE', 'EXTERNALLY_TERMINATED'), []);
+  assert.ok(messages('QI-Deklaration').some(m => m.includes('kein gültiger Name')));
+  assert.deepEqual(messages('`QI-Deklaration`'), []);
 });
