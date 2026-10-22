@@ -32,6 +32,13 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   verlangt die API zusätzlich die ID eines Workspace. Dann die ID aus der
   Console (Settings → Workspaces) eintragen. Sie wird wie der Key nur im
   Browser gespeichert.
+- **Schutz des Keys:** Jedes Skript, das in der Seite läuft, kann den Key aus
+  `localStorage` lesen. orch-spec zeigt Inhalte der Spez deshalb nie als
+  ausführbares HTML: Markdown-Felder geben eingegebenes HTML als Text aus, Links
+  nur mit `http(s)`/`mailto` (`src/markdownEdit.ts`), alles andere rendert React
+  escaped. Wer orch-spec selbst hostet, sollte zusätzlich eine
+  Content-Security-Policy setzen, die Skripte nur vom eigenen Origin und
+  Verbindungen nur zu `api.anthropic.com` (plus Login und SharePoint) zulässt.
 - **Wer den Key eingibt, bezahlt.** Ein Claude-Abo (Pro, Max) deckt die API
   nicht ab. Als Grenze dient das Guthaben in der Console mit ausgeschaltetem
   Auto-Reload.
@@ -49,6 +56,9 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Rückgängig (⌘Z), automatisch gespeichert. **Verwerfen** lässt die Seite wie
   vorher.
 - Solange ein Entwurf offen ist, ist die Seite schreibgeschützt.
+- Wurde Claude nicht fertig (Schrittgrenze, Antwort abgeschnitten, angehalten,
+  Fehler), steht ein Hinweis über dem Entwurf und der Button heisst **Trotzdem
+  übernehmen**: Der Entwurf kann halb fertig sein.
 - Im selben Gespräch lässt sich weiter am Entwurf arbeiten («noch etwas
   kürzer»). **Neues Gespräch** (Symbol oben im Chat) beginnt von vorn.
 - **Neue Seite:** Mit Key hat der Dialog «Neu» ein Feld **Beschreibung für

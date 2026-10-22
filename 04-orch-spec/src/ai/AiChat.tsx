@@ -72,12 +72,17 @@ export function AiChat<D>(p: AiChatProps<D>) {
   // the requests of the RE for the current draft - for the log when it is accepted
   const requests = useRef<string[]>([]);
   const abort = useRef<AbortController | null>(null);
+  // the running turn: a new conversation or leaving the designer starts a new one - an older turn
+  // that ends afterwards writes nothing (no history, no draft, no entries)
+  const turn = useRef(0);
+  // the draft comes from a turn that did not finish (step limit, cut off, cancelled, error) - it may be half done
+  const [incomplete, setIncomplete] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const add = (...e: Entry[]) => setEntries((list) => [...list, ...e]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [entries, busy]);
   // leaving the designer or deleting the key stops a running request
-  useEffect(() => () => abort.current?.abort(), []);
+  useEffect(() => () => { turn.current++; abort.current?.abort(); }, []);
 
   const ask = async (text: string) => {
     if (!text.trim() || busy) return;
@@ -86,37 +91,50 @@ export function AiChat<D>(p: AiChatProps<D>) {
     const prompt = [note.current, history.current.length === 0 ? p.firstPrompt(text.trim()) : text.trim()].filter(Boolean).join('\n\n');
     note.current = null;
     const controller = new AbortController();
+    const id = ++turn.current;
+    const current = () => turn.current === id;
     abort.current = controller;
     setBusy(true);
     setInput('');
     add({ kind: 'user', text: text.trim() });
     const onEvent = (e: AgentEvent) => {
+      if (!current()) return;
       if (e.kind === 'text') add({ kind: 'claude', text: e.text });
       else if (e.kind === 'tool') add({ kind: 'tool', text: e.summary, isError: e.isError });
       else if (e.kind === 'check') add({ kind: 'check', errors: e.errors });
       else setLive(e.usage);
     };
-    const before = draft ?? p.start();
-    const r = await runTurn({
-      send: claudeSender(p.apiKey, workspace), system: sys, kit: p.kit,
-      history: history.current, prompt, draft: before, onEvent, signal: controller.signal,
-    });
-    history.current = r.history;
-    abort.current = null;
-    setBusy(false);
-    setLive(null);
-    setTotal((t) => addUsage(t, r.usage));
-    const changed = p.changed(r.draft);
-    if (changed) requests.current = [...requests.current, text.trim()];
-    p.onDraft(changed ? r.draft : null);
-    const known = new Set(p.openPoints(before));
-    add(
-      ...(r.stop === 'error' ? [{ kind: 'note' as const, text: errorText(r.error), tone: 'error' as const }] : []),
-      ...(STOP_TEXT[r.stop] ? [{ kind: 'note' as const, text: STOP_TEXT[r.stop]!, tone: 'error' as const }] : []),
-      { kind: 'done', usage: r.usage, stop: r.stop, errors: r.errors, openPoints: p.openPoints(r.draft).filter((x) => !known.has(x)), changed },
-    );
-    // for measuring the costs of the PoC
-    console.info('[orch-spec KI]', usageLine(r.usage), r.usage);
+    try {
+      const before = draft ?? p.start();
+      const r = await runTurn({
+        send: claudeSender(p.apiKey, workspace), system: sys, kit: p.kit,
+        history: history.current, prompt, draft: before, onEvent, signal: controller.signal,
+      });
+      if (!current()) return;
+      history.current = r.history;
+      setTotal((t) => addUsage(t, r.usage));
+      const changed = p.changed(r.draft);
+      if (changed) requests.current = [...requests.current, text.trim()];
+      setIncomplete(changed && r.stop !== 'done');
+      p.onDraft(changed ? r.draft : null);
+      const known = new Set(p.openPoints(before));
+      add(
+        ...(r.stop === 'error' ? [{ kind: 'note' as const, text: errorText(r.error), tone: 'error' as const }] : []),
+        ...(STOP_TEXT[r.stop] ? [{ kind: 'note' as const, text: STOP_TEXT[r.stop]!, tone: 'error' as const }] : []),
+        { kind: 'done', usage: r.usage, stop: r.stop, errors: r.errors, openPoints: p.openPoints(r.draft).filter((x) => !known.has(x)), changed },
+      );
+      // for measuring the costs: token counts only, no content (docs/KI-MODUS.md)
+      console.info('[orch-spec KI]', usageLine(r.usage), r.usage);
+    } catch (e) {
+      // not from the API (runTurn turns those into a stop) - a bug in the app; the chat stays usable
+      if (current()) add({ kind: 'note', text: `Unerwarteter Fehler: ${errorText(e)}`, tone: 'error' });
+    } finally {
+      if (current()) {
+        abort.current = null;
+        setBusy(false);
+        setLive(null);
+      }
+    }
   };
 
   // a request from outside (a new page with a description): start right away, once
@@ -130,6 +148,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
     if (!draft) return;
     p.onAccept(draft, requests.current);
     requests.current = [];
+    setIncomplete(false);
     p.onDraft(null);
     note.current = 'Der RE hat deinen Entwurf übernommen – er ist jetzt der gespeicherte Stand.';
     add({ kind: 'note', text: p.acceptedText, tone: 'ok', undo: true });
@@ -137,11 +156,18 @@ export function AiChat<D>(p: AiChatProps<D>) {
   const discard = () => {
     p.onDraft(null);
     requests.current = [];
+    setIncomplete(false);
     note.current = 'Der RE hat deinen letzten Entwurf verworfen – es gilt wieder der Stand vor deinen Änderungen.';
     add({ kind: 'note', text: 'Verworfen – alles ist wie vorher.' });
   };
   const restart = () => {
+    // the running turn (if any) is over: what it still brings is dropped
+    turn.current++;
     abort.current?.abort();
+    abort.current = null;
+    setBusy(false);
+    setLive(null);
+    setIncomplete(false);
     history.current = [];
     system.current = null;
     note.current = null;
@@ -224,9 +250,15 @@ export function AiChat<D>(p: AiChatProps<D>) {
         <div className={`flex-shrink-0 border-t px-3 py-2 space-y-1.5 ${c.border} ${isDark ? 'bg-violet-500/10' : 'bg-violet-50'}`}>
           <div className={`text-[10px] font-semibold uppercase tracking-widest ${isDark ? 'text-violet-200' : 'text-violet-800'}`}>Entwurf – Unterschiede</div>
           <div className="max-h-40 overflow-y-auto space-y-0.5">{p.changes}</div>
+          {incomplete && (
+            <div className={`flex items-start gap-1.5 text-[10px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+              <AlertTriangle size={10} className="mt-0.5 flex-shrink-0" />
+              <span>Claude wurde nicht fertig – der Entwurf kann unvollständig sein. Weiterschreiben lassen, verwerfen oder bewusst so übernehmen.</span>
+            </div>
+          )}
           <div className="flex gap-2 pt-1">
             <button onClick={discard} className={`flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}><X size={11} /> Verwerfen</button>
-            <button onClick={accept} className={`ml-auto flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}><Check size={11} /> Übernehmen</button>
+            <button onClick={accept} className={`ml-auto flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}><Check size={11} /> {incomplete ? 'Trotzdem übernehmen' : 'Übernehmen'}</button>
           </div>
         </div>
       )}
