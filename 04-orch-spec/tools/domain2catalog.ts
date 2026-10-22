@@ -21,7 +21,7 @@
 // is discarded and reported at the end.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isDomainSource, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from '../src/domainScan.ts';
+import { isDomainSource, isSkippedDir, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from '../src/domainScan.ts';
 import type { DomainDefault, DomainType, ProjectFolder } from '../src/types.ts';
 
 const args = process.argv.slice(2);
@@ -65,8 +65,7 @@ function* walk(dir: string): Generator<string> {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) {
-      // hidden folders stay out — e.g. `.claude/worktrees/…` holds a second, older copy of the domain
-      if (['target', 'node_modules'].includes(e) || e.startsWith('.')) continue;
+      if (isSkippedDir(e)) continue;
       yield* walk(p);
     } else if (isDomainSource(p)) yield p;
   }

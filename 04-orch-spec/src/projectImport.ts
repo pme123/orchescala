@@ -22,7 +22,7 @@
 import { unzipSync } from 'fflate';
 import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, Step, TypeDef } from './types.ts';
 import { SCALA_TYPES } from './types.ts';
-import { isDomainSource, scanFiles } from './domainScan.ts';
+import { isDomainSource, isSkippedDir, scanFiles } from './domainScan.ts';
 import { allSteps } from './bpmn.ts';
 import { exampleOf, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape } from './scalaTypes.ts';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
@@ -36,15 +36,13 @@ import { catalogIndex } from './orchescalaTypes.ts';
 
 export interface ProjectFile { path: string; text: string }
 
-const IGNORE = new Set(['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules', '.idea', 'dist', '__MACOSX']);
-
 /** Read a folder recursively — only domain sources, build folders stay out. */
 export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''): Promise<ProjectFile[]> {
   const out: ProjectFile[] = [];
   for await (const [name, handle] of dir.entries()) {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === 'directory') {
-      if (IGNORE.has(name) || name.startsWith('.')) continue;
+      if (isSkippedDir(name)) continue;
       out.push(...await readProjectDir(handle as FileSystemDirectoryHandle, path));
     } else if (isDomainSource(path)) {
       out.push({ path, text: await (handle as FileSystemFileHandle).getFile().then(f => f.text()) });
@@ -57,8 +55,8 @@ export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''
 export function readProjectZip(data: Uint8Array): ProjectFile[] {
   const dec = new TextDecoder();
   const entries = unzipSync(data, {
-    // like the folder: no build folders and no hidden ones (`.claude/worktrees/…` holds a second copy)
-    filter: f => isDomainSource(f.name) && !f.name.split('/').slice(0, -1).some(seg => IGNORE.has(seg) || seg.startsWith('.')),
+    // like the folder: no file below a skipped folder (the file name itself is checked by isDomainSource)
+    filter: f => isDomainSource(f.name) && !f.name.split('/').slice(0, -1).some(isSkippedDir),
   });
   return Object.entries(entries).map(([path, bytes]) => ({ path, text: dec.decode(bytes) }));
 }
