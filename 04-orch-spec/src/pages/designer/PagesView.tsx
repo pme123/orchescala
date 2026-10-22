@@ -1,5 +1,5 @@
 // The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
-import { AlertTriangle, AppWindow, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
+import { AlertTriangle, AppWindow, ClipboardCheck, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
@@ -7,7 +7,7 @@ import { useStore } from '../../store';
 import { cls } from '../../ui';
 import type { App, Page } from '../runtime/spec';
 import { JsonField, SelectField, TextField } from './fields';
-import { flatten, pageFindings, slugOf, targetsOf } from './model';
+import { flatten, pageFindings, slugOf, targetsOf, userTasksOfPage } from './model';
 import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
 import { ThemeEditor } from './ThemeEditor';
@@ -84,15 +84,29 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
           {pages.map(({ slug, data, version }) => {
             const findings = targets ? pageFindings(data, targets, pages.map((p) => p.data)).filter((f) => f.level !== 'info') : [];
             const errors = findings.filter((f) => f.level === 'error').length;
+            // a page for a user task (it completes one) or a simple page
+            const tasks = userTasksOfPage(data).map((key) => {
+              const t = targets?.userTasks.find((u) => u.key === key);
+              return t ? `${t.name} – ${t.key} (${t.process})` : key;
+            });
             return (
               <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
                 <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
-                  <AppWindow size={14} className={c.muted} />
+                  {tasks.length ? <ClipboardCheck size={14} className={isDark ? 'text-sky-300' : 'text-sky-700'} /> : <AppWindow size={14} className={c.muted} />}
                   <div className="min-w-0 flex-1">
                     <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
                     <div className={`text-[10px] font-mono truncate ${c.muted}`}>/{data.path}</div>
                   </div>
                   <span className={`hidden sm:inline text-[9px] ${c.muted}`}>{flatten(data.body).length} Bausteine</span>
+                  {tasks.length ? (
+                    <span title={`Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.join('\n')}`}
+                      className={`text-[9px] px-1.5 py-0.5 rounded border ${isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800'}`}>
+                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}
+                    </span>
+                  ) : (
+                    <span title="Einfache Seite – schliesst keinen Benutzer-Task ab"
+                      className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted}`}>Seite</span>
+                  )}
                   <AccessChip isDark={isDark} page={data} />
                   {findings.length > 0 ? (
                     <span title={findings.map((f) => f.message).join('\n')}

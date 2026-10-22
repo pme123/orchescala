@@ -406,6 +406,11 @@ export function newBlock(type: Component['type']): Component {
 
 // ---------------------------------------------------------------- the actions of a page
 
+/** The user tasks a page completes (`completeTask`) - a page for a user task, or [] for a simple page. */
+export function userTasksOfPage(page: Page): string[] {
+  return [...new Set(actionsOf(page).flatMap(({ action }) => (action.do === 'completeTask' && action.taskKey.trim() ? [action.taskKey.trim()] : [])))];
+}
+
 /** Every action of a page with its location - load, a button, onChange, onError. */
 export function actionsOf(page: Page): { where: string; key?: BlockKey; action: Action }[] {
   const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>

@@ -5,7 +5,7 @@ import { designerKey, type KeyLike } from '../src/pages/designer/keys';
 import { test } from 'node:test';
 import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
-  dataOf, lostOnConvert, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
+  dataOf, lostOnConvert, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, userTasksOfPage, wrapInSection,
 } from '../src/pages/designer/model';
 import type { Model, ProcessSpec } from '../src/types';
 import type { Component, Page } from '../src/pages/runtime/spec';
@@ -530,4 +530,19 @@ test('unwrapSection - an empty section: its parent is selected (the page: no key
   assert.deepEqual(r.body.map((b) => b.type), ['heading']);
   assert.equal(r.key, '');
   assert.equal(blockAt(r.body, r.key), undefined);
+});
+
+test('userTasksOfPage - a page for a user task completes one (also on load or in onError), a simple page none', () => {
+  const simple: Page = { path: 'shop/book', title: 'Buchen', access: 'public', body: [{ type: 'button', label: 'Buchen', actions: [{ do: 'call', service: 'x', input: {} }] }] };
+  assert.deepEqual(userTasksOfPage(simple), []);
+  const task: Page = {
+    path: 'shop/confirm', title: 'Bestätigen', access: { roles: [] },
+    body: [
+      { type: 'button', label: 'Bestätigen', actions: [{ do: 'completeTask', taskKey: 'ConfirmTask', taskId: '{{task.taskId}}' }] },
+      { type: 'button', label: 'Nochmals', actions: [{ do: 'call', service: 'x', input: {}, onError: [{ do: 'completeTask', taskKey: 'ConfirmTask', taskId: '{{task.taskId}}' }] }] },
+      { type: 'button', label: 'Ablehnen', actions: [{ do: 'completeTask', taskKey: 'RejectTask', taskId: '{{task.taskId}}' }] },
+      { type: 'button', label: 'Leer', actions: [{ do: 'completeTask', taskKey: ' ', taskId: '' }] },
+    ],
+  };
+  assert.deepEqual(userTasksOfPage(task), ['ConfirmTask', 'RejectTask']);
 });
