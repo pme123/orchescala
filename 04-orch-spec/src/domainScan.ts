@@ -551,7 +551,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
       /** `def clientKey: Long` in the body — a field shared by all cases */
       const common: DomainField[] = [];
       for (let j = i + 1; j < lines.length; j++) {
-        const l = lines[j];
+        // without a comment at the end (`case ACTIVE // - running`) — otherwise the case is not recognized
+        const l = withoutComment(lines[j]).trimEnd();
         if (!l.trim()) continue;
         if (l.search(/\S/) <= indent) break;
         const cd = /^\s*def\s+([a-z]\w*)\s*:\s*([^=]+?)\s*$/.exec(l);
