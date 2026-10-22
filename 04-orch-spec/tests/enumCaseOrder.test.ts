@@ -69,6 +69,9 @@ test('import -> export: the parameters of each case in the order of the code', (
   const content = exported(imported());
   assert.deepEqual(params(content, 'Graviton'), ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions']);
   assert.deepEqual(params(content, 'CAM'), ['subStatusKey', 'subStatusNr', 'subStatusTextDe']);
+  // die Beispiel-Argumente ebenso
+  const example = /lazy val example: Out\.Graviton = Out\.Graviton\(([\s\S]*?)\n\s*\)/.exec(content)?.[1] ?? '';
+  assert.deepEqual([...example.matchAll(/(\w+) =/g)].map(m => m[1]), ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions']);
   // die gemeinsamen bleiben als def im Rumpf
   assert.match(content, /def subStatusKey: String/);
 });
@@ -83,11 +86,16 @@ test('a field added in Orch Spec goes after those of the code; without order the
   assert.deepEqual(params(exported(spec), 'Graviton').slice(0, 2), ['subStatusKey', 'subStatusNr']);
 });
 
-test('a field renamed in Orch Spec keeps its place - a new one goes to the end', () => {
+test('own fields: renamed keeps its place, moved in Orch Spec stays moved, deleted + new goes to the end', () => {
   const f = (name: string) => ({ id: name, name, type: 'String' });
+  const common = [f('subStatusKey'), f('subStatusNr')];
   const order = ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions'];
-  const renamed = [f('subStatusKey'), f('subStatusNr'), f('score'), f('subStatusActions'), f('extra')];
-  assert.deepEqual(inCodeOrder(renamed, order).map(x => x.name), ['subStatusKey', 'score', 'subStatusNr', 'subStatusActions', 'extra']);
+  const names = (own: string[]) => inCodeOrder(common, own.map(f), order).map(x => x.name);
+  assert.deepEqual(names(['score', 'subStatusActions']), ['subStatusKey', 'score', 'subStatusNr', 'subStatusActions']);
+  assert.deepEqual(names(['subStatusActions', 'subStatusScore']), ['subStatusKey', 'subStatusNr', 'subStatusActions', 'subStatusScore']);
+  assert.deepEqual(names(['subStatusActions', 'extra']), ['subStatusKey', 'subStatusNr', 'subStatusActions', 'extra']);
+  // ohne order: die gemeinsamen zuerst
+  assert.deepEqual(inCodeOrder(common, [f('a')], undefined).map(x => x.name), ['subStatusKey', 'subStatusNr', 'a']);
 });
 
 test('re-import: a case only reordered in the code is a change - the new order is taken over', () => {
@@ -101,4 +109,12 @@ test('re-import: a case only reordered in the code is a change - the new order i
   const out = r.spec.types!.find(t => t.name === 'Out')!;
   assert.deepEqual(out.values!.find(v => v.name === 'Graviton')!.order, ['subStatusKey', 'subStatusNr', 'subStatusScore', 'subStatusActions']);
   assert.ok(r.report.changed.length > 0, JSON.stringify(r.report));
+});
+
+test('re-import of a spec from before the order - that alone is no change', () => {
+  const before = imported();
+  for (const t of before.types ?? []) for (const v of t.values ?? []) delete v.order;
+  const r = mergeDomain(before, imported(), { status: DEFAULT_MERGE_STATUS });
+  assert.equal(r.report.changed.length, 0, JSON.stringify(r.report));
+  assert.ok(r.spec.types!.find(t => t.name === 'Out')!.values!.every(v => v.order?.length));
 });
