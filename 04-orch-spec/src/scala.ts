@@ -196,7 +196,8 @@ class DefaultError extends Error {}
 const isContext = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
   && !(v instanceof FeelDate) && !(v instanceof FeelDateTime) && !(v instanceof FeelDuration);
-const scalaIdent = (name: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `\`${name}\``);
+/** An identifier as written in Scala — in backticks if it is reserved or no plain name (see scalaName) */
+const scalaIdent = (name: string) => scalaName(name);
 const scalaString = (v: string) => JSON.stringify(v);
 
 /**
@@ -316,7 +317,7 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
     if (isAdt(own)) throw new DefaultError('für eine Auswahl mit Fällen ohne «=» als Scala-Ausdruck angeben.');
     const values = (own.values ?? []).map(x => x.name).filter(Boolean);
     if (typeof v !== 'string' || !values.includes(v)) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
-    return `${own.name}.${scalaIdent(v)}`;
+    return `${own.name}.${caseIdent(v)}`;
   }
   // a class from a context: missing optional fields are None
   if (!isContext(v)) throw new DefaultError(`erwartet einen Kontext für ${own.name}, z. B. {feld: 1}.`);
@@ -728,7 +729,7 @@ function enumDef(t: TypeDef, idx: TypeIndex): string {
   const fixed = fixedCasesOf(t.id, idx).filter(c => cases.includes(c));
   return [
     `enum ${t.name}:`,
-    `  case ${cases.length ? cases.join(', ') : 'unknown'}`,
+    `  case ${cases.length ? cases.map(caseIdent).join(', ') : 'unknown'}`,
     '',
     `object ${t.name}:`,
     `  given ApiSchema[${t.name}]  = deriveEnumApiSchema`,
@@ -736,7 +737,7 @@ function enumDef(t: TypeDef, idx: TypeIndex): string {
     `  given InOutCodec[${t.name}] = deriveEnumInOutCodec`,
     ...fixed.map(c => `  given InOutCodec[${t.name}.${caseIdent(c)}.type] = deriveEnumValueInOutCodec`),
     '',
-    `  lazy val example = ${t.name}.${first}`,
+    `  lazy val example = ${t.name}.${caseIdent(first)}`,
     `end ${t.name}`,
   ].join('\n');
 }
@@ -1395,16 +1396,29 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     // Types of an interaction are called «Objekt.In» — that is the display name;
     // what gets generated from it is `In` inside the object.
     const displayName = t.interactionId ? (t.name.split('.').pop() ?? t.name) : t.name;
-    if (!TYPE_NAME.test(displayName)) {
-      issues.push({ typeId: t.id, message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Grossbuchstabe, keine Sonderzeichen).` });
+    // a type becomes a file, an object and an import — it needs a plain name; what only
+    // deviates from the convention (lowercase first, underscore) is a hint
+    if (!/^[A-Za-z_]\w*$/.test(displayName) || RESERVED.has(displayName)) {
+      issues.push({ typeId: t.id, message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Buchstaben, Ziffern, _ — keine Leer- oder Sonderzeichen: daraus werden Datei und Objekt).` });
+    } else if (!TYPE_NAME.test(displayName)) {
+      issues.push({ typeId: t.id, warn: true, message: `«${t.name}»: Typnamen beginnen nach Konvention mit einem Grossbuchstaben, ohne _ (z. B. ${displayName.charAt(0).toUpperCase()}${displayName.slice(1).replace(/_(\w)/g, (_, c: string) => c.toUpperCase())}).` });
     }
     if (t.kind === 'enum') {
       const vals = (t.values ?? []).map(v => v.name);
       if (!vals.length) issues.push({ typeId: t.id, message: 'Enumeration ohne Werte.' });
       if (new Set(vals).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
-      // a Scala identifier — underscores included (`EXTERNALLY_TERMINATED`)
-      for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9_]*|`[^`]+`)$/.test(v)) {
-        issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (Sonderzeichen nur in Backticks: \`QI-Deklaration\`).` });
+      for (const v of vals) {
+        const name = caseName(v);
+        const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
+        if (!name.trim() || name !== name.trim() || name.includes('`')) {
+          issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick darin, kein Leerzeichen am Rand).` });
+        } else if (!plain && isAdt(t)) {
+          // a case with fields becomes a class and an object — like a type it needs a plain name
+          issues.push({ typeId: t.id, message: `Fall «${name}» hat Felder und braucht einen einfachen Namen (Buchstaben, Ziffern, _).` });
+        } else if (!plain) {
+          // valid — the export writes it in backticks (`ONLY GAMIFICATION`), but every use in Scala needs them
+          issues.push({ typeId: t.id, warn: true, message: `Wert «${name}» steht in Scala in Backticks (${scalaName(name)}) — ${RESERVED.has(name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
+        }
       }
       // An ADT: the fields per case are checked like class fields
       if (!isAdt(t)) continue;

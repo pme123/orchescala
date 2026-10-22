@@ -1050,9 +1050,15 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
         </p>
       )}
 
-      {!!typeIssues.length && (
+      {typeIssues.some(i => !i.warn) && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
-          {typeIssues.map((i, k) => <div key={k}>{i.message}</div>)}
+          {typeIssues.filter(i => !i.warn).map((i, k) => <div key={k}>{i.message}</div>)}
+        </div>
+      )}
+      {/* hints — valid, but worth a second look */}
+      {typeIssues.some(i => i.warn) && (
+        <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+          {typeIssues.filter(i => i.warn).map((i, k) => <div key={k}>{i.message}</div>)}
         </div>
       )}
 

@@ -123,5 +123,36 @@ test('enum values with a space: read in backticks, no error, written back as the
   const t = scanScala(src, 'Channel.scala').find(x => x.name === 'Channel')!;
   assert.deepEqual(t.values, ['Mail', '`Ohne Angabe`', '`Per Post`']);
   const typeDef = { id: 'e', name: 'Channel', kind: 'enum', values: t.values!.map(name => ({ name })) };
-  assert.deepEqual(checkTypes([typeDef] as never).map(i => i.message), []);
+  const issues = checkTypes([typeDef] as never);
+  assert.deepEqual(issues.filter(i => !i.warn).map(i => i.message), []);
+  assert.equal(issues.filter(i => i.warn).length, 2);
+});
+
+/** a process In with one field of an own type — enough to export the type */
+const withType = (t: object) => {
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain(), null)!;
+  return { ...r.spec, types: [...(r.spec.types ?? []), t] } as never;
+};
+
+test('enum values typed without backticks (ONLY GAMIFICATION) are written in backticks - also in the example', () => {
+  const spec = withType({ id: 't-rs', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }, { name: 'GRAVITON' }] });
+  const code = scalaFiles(spec, { domainTypes: domain() } as never).map(f => f.content).join('\n');
+  assert.match(code, /case `ONLY GAMIFICATION`, GRAVITON/);
+  assert.match(code, /lazy val example = ReceivingSystem\.`ONLY GAMIFICATION`/);
+  const issues = checkTypes([{ id: 't-rs', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }] }] as never);
+  assert.deepEqual([issues.filter(i => !i.warn).length, issues.filter(i => i.warn).length], [0, 1]);
+});
+
+test('type names: spaces stay an error, a deviation from the convention is a warning', () => {
+  const kinds = (name: string) => checkTypes([{ id: 't', name, kind: 'enum', values: [{ name: 'A' }] }] as never)
+    .filter(i => !i.field && /Typname/.test(i.message)).map(i => (i.warn ? 'warn' : 'error'));
+  assert.deepEqual(kinds('ReceivingSystem'), []);
+  assert.deepEqual(kinds('receiving_system'), ['warn']);
+  assert.deepEqual(kinds('Receiving System'), ['error']);
+  assert.deepEqual(kinds('type'), ['error']);
+});
+
+test('a case with fields needs a plain name - it becomes a class and an object', () => {
+  const issues = checkTypes([{ id: 't', name: 'Out', kind: 'enum', values: [{ name: 'Per Post', fields: [{ id: 'f', name: 'street', type: 'String' }] }] }] as never);
+  assert.ok(issues.some(i => !i.warn && i.message.includes('braucht einen einfachen Namen')));
 });

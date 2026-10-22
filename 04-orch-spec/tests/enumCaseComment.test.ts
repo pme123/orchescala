@@ -34,12 +34,15 @@ test('the comment does not break a list of cases or a case with parameters', () 
   assert.deepEqual(channel.cases?.find(c => c.name === 'Web')?.fields?.map(f => f.name), ['url']);
 });
 
-test('an enum value with underscores is a valid name - one with a hyphen is not', () => {
+test('an enum value with underscores is a plain name - one with a hyphen is valid, with a warning', () => {
   const enumOf = (...names: string[]) => [{ id: 't1', name: 'CProcessState', kind: 'enum' as const, values: names.map(name => ({ name })) }];
-  const messages = (...names: string[]) => checkTypes(enumOf(...names) as never).map(i => i.message);
-  assert.deepEqual(messages('ACTIVE', 'EXTERNALLY_TERMINATED'), []);
-  assert.ok(messages('QI-Deklaration').some(m => m.includes('kein gültiger Name')));
-  assert.deepEqual(messages('`QI-Deklaration`'), []);
+  const issues = (...names: string[]) => checkTypes(enumOf(...names) as never);
+  const errors = (...names: string[]) => issues(...names).filter(i => !i.warn).map(i => i.message);
+  const warns = (...names: string[]) => issues(...names).filter(i => i.warn).length;
+  assert.deepEqual([errors('ACTIVE', 'EXTERNALLY_TERMINATED'), warns('ACTIVE', 'EXTERNALLY_TERMINATED')], [[], 0]);
+  // with or without backticks typed in: the export writes them — a hint, no error
+  assert.deepEqual([errors('QI-Deklaration'), warns('QI-Deklaration')], [[], 1]);
+  assert.deepEqual([errors('`QI-Deklaration`'), warns('`QI-Deklaration`')], [[], 1]);
 });
 
 test('a char literal or a triple-quoted string does not hide the comment', () => {
