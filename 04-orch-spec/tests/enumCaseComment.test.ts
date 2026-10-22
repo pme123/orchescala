@@ -54,3 +54,18 @@ end Sep
   const sep = scanScala(src, 'X.scala').find(t => t.name === 'Sep')!;
   assert.deepEqual(sep.values, ['Quote', 'Text', 'Plain']);
 });
+
+test('a bracket or a unicode escape in a char literal does not break the parameter list', () => {
+  const src = `package acme.demo
+
+enum Bracket:
+  case Open(c: Char = '(', n: Int = 1) // - an open bracket
+  case Quote(c: Char = '\\u0022', s: String = "x") // - a unicode quote
+  case Plain
+end Bracket
+`;
+  const bracket = scanScala(src, 'X.scala').find(t => t.name === 'Bracket')!;
+  assert.deepEqual(bracket.values, ['Open', 'Quote', 'Plain']);
+  assert.deepEqual(bracket.cases?.find(c => c.name === 'Open')?.fields?.map(f => f.name), ['c', 'n']);
+  assert.deepEqual(bracket.cases?.find(c => c.name === 'Quote')?.fields?.map(f => f.name), ['c', 's']);
+});

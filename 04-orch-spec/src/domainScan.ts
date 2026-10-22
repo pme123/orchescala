@@ -21,7 +21,7 @@
 // leaves out than guesses.
 
 import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
-import { cleanText, descriptionExpression, exampleArgs, parseParams, splitParams } from './scalaTypes.ts';
+import { CHAR_LITERAL, cleanText, descriptionExpression, exampleArgs, parseParams, splitParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
 const IMPORT = /^import\s/;
@@ -59,7 +59,7 @@ function withoutComment(text: string): string {
     }
     if (text[i] === '"') { open = text.startsWith('"""', i) ? '"""' : '"'; i += open.length - 1; }
     // a char literal (`'"'`, `'\''`) does not open a string
-    else if (text[i] === "'") i += (/^'(?:\\.|[^'\\])'/.exec(text.slice(i))?.[0].length ?? 1) - 1;
+    else if (text[i] === "'") i += (CHAR_LITERAL.exec(text.slice(i))?.[0].length ?? 1) - 1;
     else if (text[i] === '/' && text[i + 1] === '/') return text.slice(0, i);
   }
   return text;
@@ -122,7 +122,7 @@ function balance(line: string, depth: number, state: { triple: boolean } = { tri
     if (line.startsWith('"""', i)) { state.triple = true; i += 2; continue; }
     if (ch === '"') { inString = true; continue; }
     // a char literal (`'"'`, `'('`) neither opens a string nor counts as a bracket
-    const char = ch === "'" ? /^'(?:\\.|[^'\\])'/.exec(line.slice(i)) : null;
+    const char = ch === "'" ? CHAR_LITERAL.exec(line.slice(i)) : null;
     if (char) { i += char[0].length - 1; continue; }
     if (ch === '/' && line[i + 1] === '/') break; // line comment
     if (ch === '(' || ch === '[') d++;
