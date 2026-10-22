@@ -38,7 +38,9 @@ export function errorText(e: unknown): string {
   if (e instanceof Anthropic.APIUserAbortError) return 'Abgebrochen.';
   if (e instanceof Anthropic.AuthenticationError) return 'Der API-Key wird nicht angenommen – in den Einstellungen prüfen.';
   if (e instanceof Anthropic.PermissionDeniedError) return 'Der API-Key darf das Modell nicht verwenden (403).';
-  if (e instanceof Anthropic.RateLimitError) return 'Zu viele Anfragen oder Guthaben aufgebraucht (429) – später nochmals versuchen.';
+  if (e instanceof Anthropic.RateLimitError) return 'Zu viele Anfragen (429) – kurz warten und nochmals versuchen.';
+  if (e instanceof Anthropic.BadRequestError && /credit balance/i.test(e.message))
+    return 'Das Guthaben des API-Keys ist aufgebraucht – in der Anthropic Console (Billing) aufladen.';
   if (e instanceof Anthropic.BadRequestError && e.message.includes('anthropic-workspace-id'))
     return 'Der Key ist keinem Workspace zugeordnet – im KI-Dialog (✦ oben rechts) die Workspace-ID eintragen oder einen Key in einem Workspace erstellen.';
   if (e instanceof Anthropic.BadRequestError) return `Die Anfrage wurde abgelehnt (400): ${e.message}`;

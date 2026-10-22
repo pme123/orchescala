@@ -82,6 +82,8 @@ export function AiChat<D>(p: AiChatProps<D>) {
   // the draft comes from a turn that did not finish (step limit, cut off, cancelled, error) - it may be half done
   const [incomplete, setIncomplete] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  // the same as a ref: two clicks in one tick see the state of the last render
+  const acceptingNow = useRef(false);
   // the request from outside (a new page with a description) - started once
   const started = useRef(false);
   const end = useRef<HTMLDivElement>(null);
@@ -93,7 +95,8 @@ export function AiChat<D>(p: AiChatProps<D>) {
   useEffect(() => () => { turn.current++; abort.current?.abort(); started.current = false; }, []);
 
   const ask = async (text: string) => {
-    if (!text.trim() || busy) return;
+    // a turn runs (abort is set at once, before the first await) or a draft is being taken over
+    if (!text.trim() || abort.current || acceptingNow.current) return;
     const sys = system.current ?? p.system();
     system.current = sys;
     const prompt = [note.current, history.current.length === 0 ? p.firstPrompt(text.trim()) : text.trim()].filter(Boolean).join('\n\n');
@@ -152,7 +155,8 @@ export function AiChat<D>(p: AiChatProps<D>) {
   }, [p.initialPrompt]);
 
   const accept = async () => {
-    if (!draft || accepting) return;
+    if (!draft || acceptingNow.current || abort.current) return;
+    acceptingNow.current = true;
     setAccepting(true);
     let r: AcceptOutcome;
     try {
@@ -160,6 +164,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
     } catch (e) {
       r = { refused: `Übernehmen fehlgeschlagen: ${errorText(e)}` };
     } finally {
+      acceptingNow.current = false;
       setAccepting(false);
     }
     // refused: nothing changed - the draft stays, to discard it or to try again
@@ -240,7 +245,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
                     </div>
                   )}
                   {!e.changed && e.stop === 'done' && <div className={c.muted}>Keine Änderung.</div>}
-                  <div className={c.muted} title="Tokens und Kosten dieser Änderung (Claude Opus 5.5, Preise Oktober 2026)">{usageLine(e.usage)}</div>
+                  <div className={c.muted} title="Tokens und Kosten dieser Änderung (Preise Claude Opus 5.5, Oktober 2026 – hat ein anderes Modell geantwortet, ist der Betrag geschätzt)">{usageLine(e.usage)}</div>
                 </div>
               );
             case 'note':
@@ -284,14 +289,14 @@ export function AiChat<D>(p: AiChatProps<D>) {
 
       <div className={`flex-shrink-0 border-t p-2 ${c.border}`}>
         <div className="flex items-end gap-1.5">
-          <textarea value={input} rows={3} disabled={busy} placeholder={draft ? 'Weiter am Entwurf …' : p.placeholder}
+          <textarea value={input} rows={3} disabled={busy || accepting} placeholder={draft ? 'Weiter am Entwurf …' : p.placeholder}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void ask(input); } }}
             className={`flex-1 resize-none text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`} />
           {busy ? (
             <button onClick={() => abort.current?.abort()} title="Anhalten" className={`p-2 rounded border ${c.btn}`}><CircleStop size={13} /></button>
           ) : (
-            <button onClick={() => void ask(input)} disabled={!input.trim()} title="Senden (Enter)"
+            <button onClick={() => void ask(input)} disabled={!input.trim() || accepting} title="Senden (Enter)"
               className={`p-2 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}><SendIcon size={13} /></button>
           )}
         </div>

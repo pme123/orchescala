@@ -201,7 +201,7 @@ test('runTurn - Claude reads, inserts, finishes: the draft changes, the history 
   const result = (claude.requests[2].messages[4].content as { type: string; tool_use_id: string; is_error?: boolean }[])[0];
   assert.equal(result.tool_use_id, 't2');
   assert.equal(result.is_error, undefined);
-  assert.deepEqual(r.usage, { input: 3000, output: 600, cacheRead: 12000, cacheWrite: 0, requests: 3 });
+  assert.deepEqual(r.usage, { input: 3000, output: 600, cacheRead: 12000, cacheWrite: 0, requests: 3, fallbacks: [] });
   assert.deepEqual(events.filter((e) => e.kind === 'tool').map((e) => e.kind === 'tool' && e.name), ['read_page', 'insert_block']);
 });
 
@@ -333,6 +333,15 @@ test('runTurn - the history after refusal, cut off and pause_turn; a follow-up k
   assert.equal(next.requests[0].messages.length, 1);
   assert.deepEqual(next.requests[0].messages[0].content, [{ type: 'text', text: 'erste' }, { type: 'text', text: 'zweite' }]);
 
+  // an error at the first request: the first request (with its context) stays once, the next one is added to it
+  const offline = await runTurn({ send: async () => { throw new Error('offline'); }, system, kit, history: [], prompt: 'erste mit Kontext', draft });
+  assert.equal(offline.stop, 'error');
+  assert.deepEqual(roles(offline.history), ['user']);
+  const retry = scripted([message([text('ok')], 'end_turn')]);
+  const again = await runTurn({ send: retry.send, system, kit, history: offline.history, prompt: 'nochmals', draft });
+  assert.deepEqual(retry.requests[0].messages, [{ role: 'user', content: [{ type: 'text', text: 'erste mit Kontext' }, { type: 'text', text: 'nochmals' }] }]);
+  assert.ok(alternating(again.history));
+
   // the step limit ends after tool results: the next request comes after them, in the same message
   const looping: Send = async () => message([toolUse('t', 'check_page', {})], 'tool_use');
   const limited = await runTurn({ send: looping, system, kit, history: [], prompt: 'x', draft, maxSteps: 2 });
@@ -353,6 +362,10 @@ test('runTurn - the history after refusal, cut off and pause_turn; a follow-up k
 test('errorText - what the RE reads', () => {
   assert.equal(errorText(new Anthropic.APIUserAbortError()), 'Abgebrochen.');
   assert.equal(errorText(new Error('kaputt')), 'kaputt');
+  const headers = new Headers();
+  assert.match(errorText(new Anthropic.RateLimitError(429, undefined, 'rate_limit_error', headers)), /^Zu viele Anfragen \(429\)/);
+  assert.match(errorText(new Anthropic.BadRequestError(400, undefined, 'Your credit balance is too low to access the Anthropic API.', headers)), /Guthaben des API-Keys ist aufgebraucht/);
+  assert.match(errorText(new Anthropic.BadRequestError(400, undefined, 'messages: bad', headers)), /^Die Anfrage wurde abgelehnt \(400\)/);
   assert.equal(errorText('nur Text'), 'nur Text');
 });
 
@@ -370,11 +383,17 @@ test('the system - two cached blocks, the data model as text, deterministic', ()
 
 test('costs - Opus 5.5 prices, cache reads cheap, one line for the chat', () => {
   const u = addUsage(usageOf(usage), usageOf({ input_tokens: 500, output_tokens: 100, cache_read_input_tokens: null, cache_creation_input_tokens: 2000 }));
-  assert.deepEqual(u, { input: 1500, output: 300, cacheRead: 4000, cacheWrite: 2000, requests: 2 });
+  assert.deepEqual(u, { input: 1500, output: 300, cacheRead: 4000, cacheWrite: 2000, requests: 2, fallbacks: [] });
   // 1500 × 4 + 300 × 20 + 4000 × 0.2 + 2000 × 5 = 6000 + 6000 + 800 + 10000 = 22800 per million
   assert.equal(costUsd(u).toFixed(4), '0.0228');
   assert.equal(usageLine(u), '2 Anfragen · 7.5k ein (4.0k aus dem Cache) · 300 aus · 0.02 USD');
   assert.equal(costUsd(NO_USAGE), 0);
+
+  // another model served a response (fallback after a refusal): named, the cost marked as an estimate
+  const other = usageOf({ ...usage, iterations: [{ type: 'message', model: null }, { type: 'fallback_message', model: 'claude-opus-5' }] });
+  assert.deepEqual(other.fallbacks, ['claude-opus-5']);
+  assert.deepEqual(addUsage(other, other).fallbacks, ['claude-opus-5']);
+  assert.match(usageLine(addUsage(u, other)), / USD \(geschätzt\) · beantwortet auch von claude-opus-5$/);
 });
 
 // ---------------------------------------------------------------- the differences

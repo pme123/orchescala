@@ -122,7 +122,9 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
   ersetzen.
 - **Anfrage:** Modell `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
-  einem passenden Modell (`fallbacks: "default"`).
+  einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
+  nennt die Kostenzeile es, und der Betrag ist eine Schätzung (gerechnet mit
+  den Preisen von Opus 5.5).
 - **Prompt Caching:** Die festen Teile werden gecacht: Anweisungen und Katalog
   der Bausteine (Breakpoint 1), das Datenmodell zu Beginn des Gesprächs
   (Breakpoint 2) und das wachsende Gespräch (automatisch).
