@@ -426,7 +426,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
           one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
           r       = routes(one, got, answer, Some(token))
           first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
-          inside <- bounded(5.seconds)(got.get.repeatUntil(_.nonEmpty)) // the first one is in the engine
+          // the first one is in the engine - else the rest would only hide this cause
+          _      <- bounded(5.seconds)(got.get.repeatUntil(_.nonEmpty)).someOrFail("the first call never reached the engine")
           // the caller is gone - not waited for here (an unbounded wait hung CI); that it stops is checked below
           _      <- first.interruptFork
           second <- bounded(10.seconds):
@@ -438,7 +439,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
                       first.dump.flatMap(_.prettyPrint).flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n$d"))
         // freed by the timeout of the call - not only much later or never (the bound is wide for a slow
         // CI machine; the status is in the message when it fails)
-        yield assertTrue(inside.isDefined, second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds, gone.isDefined)
+        yield assertTrue(second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds, gone.isDefined)
       @@ TestAspect.withLiveClock,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =
