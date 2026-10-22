@@ -152,9 +152,39 @@ test('type names: spaces stay an error, a deviation from the convention is a war
   assert.deepEqual(kinds('type'), ['error']);
 });
 
-test('a case with fields needs a plain name - it becomes a class and an object', () => {
-  const issues = checkTypes([{ id: 't', name: 'Out', kind: 'enum', values: [{ name: 'Per Post', fields: [{ id: 'f', name: 'street', type: 'String' }] }] }] as never);
-  assert.ok(issues.some(i => !i.warn && i.message.includes('braucht einen einfachen Namen')));
+test('a case with fields in backticks (`QR-Rechnung`(…)) is read, valid with a warning, and written back in backticks', () => {
+  const docs = `package ${PKG}.schema
+
+enum DocContent:
+  case \`QR-Rechnung\`(
+      @description(
+        "\`docContents.customDocContents.BetragFranken\` - \`rentalObject.totalAmount\`. Regel: wird nur befüllt, wenn es nur eine einzige Rate gibt (\`rentalObject.rateCount = 1\`)."
+      )
+      betragFranken: Option[BigDecimal]
+  )
+  case Brief(
+      empfaenger: String
+  )
+end DocContent
+`;
+  const withDoc = process.replace('identityLinks: Option[Seq[IdentityLink]])', 'identityLinks: Option[Seq[IdentityLink]], doc: DocContent)');
+  const dom = [...scanScala(identityLink, 'IdentityLink.scala'), ...scanScala(docs, 'DocContent.scala'), ...scanScala(withDoc, 'SendEvent.scala')];
+  const scanned = dom.find(t => t.name === 'DocContent')!;
+  assert.deepEqual(scanned.cases?.map(c => [c.name, c.fields?.map(f => f.name)]), [['`QR-Rechnung`', ['betragFranken']], ['Brief', ['empfaenger']]]);
+  assert.match(scanned.cases![0].fields![0].description ?? '', /^`docContents\.customDocContents\.BetragFranken`/);
+
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, dom, null)!;
+  const doc = (r.spec.types ?? []).find(t => t.name === 'DocContent')!;
+  const issues = checkTypes(r.spec.types).filter(i => i.typeId === doc.id);
+  assert.deepEqual(issues.filter(i => !i.warn).map(i => i.message), []);
+  assert.deepEqual(issues.filter(i => i.warn).map(i => i.suggestion), ['QRRechnung']);
+
+  const code = scalaFiles(r.spec, { domainTypes: dom } as never).map(f => f.content).join('\n');
+  assert.match(code, /case `QR-Rechnung`\(/);
+  assert.match(code, /object `QR-Rechnung`:/);
+  assert.match(code, /end `QR-Rechnung`/);
+  assert.match(code, /lazy val example: DocContent\.`QR-Rechnung` = DocContent\.`QR-Rechnung`\(/);
+  assert.ok(!/``/.test(code), 'no doubled backticks');
 });
 
 test('suggestions: a plain name from what was typed', () => {

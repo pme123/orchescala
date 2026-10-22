@@ -365,7 +365,7 @@ const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fiel
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
   // a simple enum case is a singleton type (`ProcessStatus.canceled.type`), an ADT case a class
-  if (f.enumCase) t = isSimpleEnum(f.type, idx) ? `${t}.${caseIdent(f.enumCase)}.type` : `${t}.${f.enumCase}`;
+  if (f.enumCase) t = isSimpleEnum(f.type, idx) ? `${t}.${caseIdent(f.enumCase)}.type` : `${t}.${caseIdent(f.enumCase)}`;
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
   if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
@@ -490,7 +490,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   if (f.enumCase) {
     return isSimpleEnum(f.type, idx)
       ? `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`
-      : `${idx.nameOf(f.type)}.${f.enumCase}.example`;
+      : `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}.example`;
   }
   // `clientKey = defaultClientKey` — as the projects do by hand
   const fromDomain = idx.defaultOf(f);
@@ -673,7 +673,7 @@ export function inCodeOrder(common: Field[], own: Field[], order: string[] | und
  */
 function adtDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).filter(v => v.name);
-  const first = cases[0]?.name ?? 'unknown';
+  const first = cases[0] ? caseIdent(cases[0].name) : 'unknown';
   // Shared fields: required as `def` in the body, first in every case
   const common = finished(t.fields, idx);
   // The meaning of a shared field is stated **once** — on the `def`, not
@@ -688,7 +688,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);
-    return fields.length ? `${d}  case ${v.name}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${v.name}`;
+    return fields.length ? `${d}  case ${caseIdent(v.name)}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${caseIdent(v.name)}`;
   });
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
     const fields = exampleFields(fieldsOf(v), idx);
@@ -698,12 +698,12 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
       ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '      ')}\n    )`
       : 'lazy val exampleMinimal = example';
     return [
-      `  object ${v.name}:`,
+      `  object ${caseIdent(v.name)}:`,
       args.length
-        ? `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}(\n${indent(args.join(',\n'), '      ')}\n    )`
-        : `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}()`,
+        ? `    lazy val example: ${t.name}.${caseIdent(v.name)} = ${t.name}.${caseIdent(v.name)}(\n${indent(args.join(',\n'), '      ')}\n    )`
+        : `    lazy val example: ${t.name}.${caseIdent(v.name)} = ${t.name}.${caseIdent(v.name)}()`,
       `    ${minimal}`,
-      `  end ${v.name}`,
+      `  end ${caseIdent(v.name)}`,
     ].join('\n');
   });
   return [
@@ -1437,13 +1437,10 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
         if (!name.trim() || name !== name.trim() || name.includes('`')) {
           issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick darin, kein Leerzeichen am Rand).` });
-        } else if (!plain && isAdt(t)) {
-          // a case with fields becomes a class and an object — like a type it needs a plain name
-          const suggestion = nameSuggestion('type', name);
-          issues.push({ typeId: t.id, value: v, ...(suggestion ? { suggestion } : {}), message: `Fall «${name}» hat Felder und braucht einen einfachen Namen (Buchstaben, Ziffern, _).` });
         } else if (!plain) {
-          // valid — the export writes it in backticks (`ONLY GAMIFICATION`), but every use in Scala needs them
-          const suggestion = nameSuggestion('value', name);
+          // valid — the export writes it in backticks (`ONLY GAMIFICATION`, a case with fields
+          // like `QR-Rechnung`(…) with its object and end too), but every use in Scala needs them
+          const suggestion = nameSuggestion(isAdt(t) ? 'type' : 'value', name);
           issues.push({ typeId: t.id, warn: true, value: v, ...(suggestion ? { suggestion } : {}), message: `Wert «${name}» steht in Scala in Backticks (${scalaName(name)}) — ${RESERVED.has(name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
         }
       }
