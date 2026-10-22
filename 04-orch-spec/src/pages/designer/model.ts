@@ -1,6 +1,7 @@
 // The designer of the pages (E15) - what a page can call, example data for the preview, the
 // tree of the building blocks and the findings. Without React, tested like the rest (tests/pagesDesigner.test.ts).
 import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from '../../types';
+import { uid } from '../../util';
 import { conditionProblem } from '../runtime/expr';
 import type { Action, Component, Page } from '../runtime/spec';
 
@@ -356,7 +357,7 @@ export function lostOnConvert(b: Component): string | null {
   * the binding of a selection, the condition; the rest comes from the new type. */
 export function convertBlock(b: Component, type: Component['type']): Component {
   if (b.type === type) return b;
-  const fresh = newBlock(type) as Component & Record<string, unknown>;
+  const fresh = freshBlock(type) as Component & Record<string, unknown>;
   const title = titleOf(b);
   const next: Record<string, unknown> = { ...fresh };
   if (title !== undefined && title !== '') {
@@ -368,6 +369,8 @@ export function convertBlock(b: Component, type: Component['type']): Component {
     if (b.required !== undefined) next.required = b.required;
   }
   if (b.visible) next.visible = b.visible;
+  // the same building block in another type - its comments stay with it
+  if (b.id) next.id = b.id;
   return next as Component;
 }
 
@@ -380,8 +383,46 @@ export function flatten(body: Component[], prefix = ''): { key: BlockKey; block:
   });
 }
 
+// ---------------------------------------------------------------- stable IDs of the building blocks
+
+/** A new ID for a building block. */
+export const blockId = () => uid('b');
+
+/** Every building block with an ID of its own - missing and duplicate ones (a copy) get a new one.
+  * Comments and the change log hang on it; the key (index path) changes with every move. */
+export function withIds(body: Component[]): Component[] {
+  const walk = (list: Component[], taken: Set<string>): { list: Component[]; taken: Set<string> } =>
+    list.reduce<{ list: Component[]; taken: Set<string> }>((acc, b) => {
+      const id = b.id && !acc.taken.has(b.id) ? b.id : blockId();
+      const taken = new Set([...acc.taken, id]);
+      if (b.type !== 'section') return { list: [...acc.list, { ...b, id }], taken };
+      const inner = walk(b.body, taken);
+      return { list: [...acc.list, { ...b, id, body: inner.list }], taken: inner.taken };
+    }, { list: [], taken });
+  return walk(body, new Set()).list;
+}
+
+/** Do all building blocks have an ID of their own? */
+export const hasIds = (body: Component[]) => {
+  const ids = flatten(body).map(({ block }) => block.id);
+  return ids.every(Boolean) && new Set(ids).size === ids.length;
+};
+
+/** A copy of a building block with new IDs - for duplicating. */
+export function copyBlock(b: Component): Component {
+  const copy = { ...structuredClone(b), id: blockId() } as Component;
+  return copy.type === 'section' ? { ...copy, body: copy.body.map(copyBlock) } : copy;
+}
+
+/** The key of the building block with this ID - undefined if it is gone. */
+export const keyOfId = (body: Component[], id: string): BlockKey | undefined => flatten(body).find(({ block }) => block.id === id)?.key;
+
 /** A new building block of a type - with what it needs to show something. */
 export function newBlock(type: Component['type']): Component {
+  return { ...freshBlock(type), id: blockId() } as Component;
+}
+
+function freshBlock(type: Component['type']): Component {
   switch (type) {
     case 'heading':
       return { type, text: 'Überschrift' };

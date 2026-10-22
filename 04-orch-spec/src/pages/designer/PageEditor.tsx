@@ -22,7 +22,7 @@ import { IconButton } from './fields';
 import { coalesceKey, emptyHistory, record, travel, type History } from './history';
 import { designerKey, type DesignerKey } from './keys';
 import {
-  actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
+  actionsOf, blockAt, convertBlock, copyBlock, dataOf, hasIds, withIds, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
 
@@ -179,15 +179,23 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
   // a page that is only loaded after mounting
   latest.current = page;
   const [, setHistoryTick] = useState(0);
-  const update = (next: Page, coalesce?: string) => {
+  const update = (raw: Page, coalesce?: string) => {
     const current = latest.current ?? page;
     if (!canEdit || !current) return;
+    // every building block keeps an ID of its own (a new one, a copy, one from Claude)
+    const next = hasIds(raw.body) ? raw : { ...raw, body: withIds(raw.body) };
     // nothing changed (a drop at the same place, moving at the edge): no step, no save
     if (next === current || JSON.stringify(next) === JSON.stringify(current)) return;
     history.current = record(history.current, current, coalesce, Date.now());
     store(next);
     setHistoryTick((t) => t + 1);
   };
+  // an older page without IDs gets them once on opening - saved, without a step of undo
+  useEffect(() => {
+    const current = latest.current;
+    if (canEdit && current && !hasIds(current.body)) store({ ...current, body: withIds(current.body) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, page === null]);
   const step = (dir: 'undo' | 'redo') => {
     const current = latest.current ?? page;
     if (!canEdit || !current) return;
@@ -264,7 +272,7 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
   /** The actions for a building block - in the preview, in the header of the properties, in the outline. */
   const opsFor = (key: BlockKey): BlockOps => ({
     move: (by) => apply(moveBlock(body(), key, by)),
-    duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), structuredClone(b), key, 'after')); },
+    duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), copyBlock(b), key, 'after')); },
     remove: () => { setBody(removeBlock(body(), key)); setSelected(null); },
     convert: (type) => { setBody(updateBlock(body(), key, (b) => convertBlock(b, type))); setSelected(key); },
     insert: (type, place: Place) => apply(placeBlock(body(), newBlock(type), key, place)),

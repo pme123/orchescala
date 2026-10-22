@@ -155,7 +155,9 @@ export function runPageTool(name: string, input: unknown, d: PageDraft, ctx: Pag
     case 'update_block': {
       if (!asKey(args.key) || !blockAt(body, args.key)) return failed(d, `Einen Baustein «${String(args.key)}» gibt es nicht.`);
       if (!isObject(args.block)) return failed(d, '«block» fehlt oder ist kein Objekt.');
-      const block = args.block as Component;
+      // the ID stays with the building block - its comments and its entries in the change log hang on it
+      const old = blockAt(body, args.key)!;
+      const block = { ...(args.block as Component), ...(old.id ? { id: old.id } : {}) } as Component;
       return withPage(d, { ...d.page, body: updateBlock(body, args.key, () => block) }, ctx, `Baustein ${args.key} ${blockLabel(block)} geändert`.replace(/\s+/g, ' '));
     }
     case 'move_block': {
