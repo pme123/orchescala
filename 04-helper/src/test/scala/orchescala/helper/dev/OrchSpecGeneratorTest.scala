@@ -1000,6 +1000,63 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(m.contains("  object In:\n    given ApiSchema[In]  = deriveApiSchema\n    given InOutCodec[In] = deriveInOutCodec\n    type Amount = Int\n"), m)
     assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In"), m)
 
+  test("merge - members: a named given counts, a nested val does not, a missing one with all its lines, an example with a blank line"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      amount: Int
+        |  ):
+        |    def total =
+        |      val defaultConfig = 1
+        |      amount + defaultConfig
+        |  end In
+        |
+        |  object In:
+        |    given inOutCodec: InOutCodec[In] = customCodec
+        |    given ApiSchema[In] = deriveApiSchema
+        |
+        |    lazy val example = In(
+        |      amount = 1
+        |
+        |    )
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig(
+        |      timer = "PT1M"
+        |    )
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the nested val in `total` does not count - the generated defaultConfig comes, with all its lines
+    assert(m.contains("  ) extends WithConfig[InConfig]:\n    lazy val defaultConfig = InConfig(\n      timer = \"PT1M\"\n    )\n    def total =\n"), m)
+    // the named given is the codec of In - no second one
+    assert(!m.contains("deriveInOutCodec"), m)
+    assert(m.contains("    given inOutCodec: InOutCodec[In] = customCodec\n"), m)
+    // the example with a blank line inside is replaced as a whole
+    assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In\nend Proc"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
   test("processTypeOf - a C8 export in a C8 project keeps the project's path"):
     val custom = BpmnProcessType.C8(os.rel / "bpmn8")
     assertEquals(OrchSpecGenerator.processTypeOf(custom, c8 = true), custom)

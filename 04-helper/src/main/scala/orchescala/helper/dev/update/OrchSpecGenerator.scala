@@ -1146,8 +1146,6 @@ object TypeImplementation:
 
   private case class Parts(head: Seq[String], body: Seq[String], companion: Seq[String])
 
-  private val member =
-    """\s*(?:(?:override|private|protected|final|implicit)\s+)*(?:lazy\s+val|val|def|given)\s+([\w\[\]]+).*""".r
 
   def merge(own: Seq[String], generated: Seq[String], name: String): Seq[String] =
     (parts(own, name), parts(generated, name)) match
@@ -1175,13 +1173,38 @@ object TypeImplementation:
       val until   = if obj < 0 then section.size else obj
       Some(Parts(section.take(headEnd), section.slice(headEnd, until), if obj < 0 then Seq.empty else section.drop(obj)))
 
-  // the members of `generated` the own lines lack - after the first line (`object X:`) of a
-  // companion, at the start of a body
+  // a member: `val`, `lazy val`, `def` by its name - a `given` by its type (`given x: InOutCodec[In]`
+  // and `given InOutCodec[In]` are the same)
+  private val member =
+    """\s*(?:(?:override|private|protected|final|implicit)\s+)*(?:lazy\s+val|val|def)\s+(\w+).*""".r
+  private val givenMember =
+    """\s*given\s+(?:\w+\s*:\s*)?([^=]+?)\s*=.*""".r
+
+  private def keyOf(l: String): Option[String] = l match
+    case givenMember(t) => Some(s"given ${t.replaceAll("\\s+", "")}")
+    case member(n)      => Some(n)
+    case _              => None
+
+  private def indentOf(l: String) = l.indexWhere(_ != ' ')
+
+  // the indent of the members: the first code line (after `object X:` in a companion)
+  private def memberIndent(lines: Seq[String]): Int =
+    lines.filter(isCode).dropWhile(_.trim.startsWith("object ")).headOption.map(indentOf).getOrElse(-1)
+
+  // the members on the member level, each with its lines (see `extent`)
+  private def members(lines: Seq[String]): Seq[(String, Seq[String])] =
+    val at = memberIndent(lines)
+    lines.indices.flatMap: i =>
+      if isCode(lines(i)) && indentOf(lines(i)) == at then keyOf(lines(i)).map(_ -> lines.slice(i, extent(lines, i)))
+      else None
+
+  // the members of `generated` the own lines lack, with all their lines - after the first line
+  // (`object X:`) of a companion, at the start of a body
   private def withMembers(own: Seq[String], generated: Seq[String]): Seq[String] =
-    val names   = own.collect { case member(n) => n }.toSet
-    val missing = generated.filter:
-      case l @ member(n) => !names.contains(n) && !l.trim.startsWith("lazy val example")
-      case _             => false
+    val keys    = members(own).map(_._1).toSet
+    val missing = members(generated).collect:
+      case (k, ls) if !keys.contains(k) && !k.startsWith("example") => ls
+    .flatten
     if missing.isEmpty then own
     else if own.headOption.exists(_.trim.startsWith("object ")) then own.head +: (missing ++ own.tail)
     else missing ++ own
@@ -1203,14 +1226,16 @@ object TypeImplementation:
   // the lines of `lazy val <name> = …`: the start and what is indented deeper, the closing `)`
   private def block(lines: Seq[String], name: String): Option[(Int, Int)] =
     val start = lines.indexWhere(_.matches(s"""\\s*lazy val $name\\b.*"""))
-    if start < 0 then None
-    else
-      val indent = lines(start).indexWhere(_ != ' ')
-      val end    = Iterator.from(start + 1).takeWhile: j =>
-        j < lines.size && !lines(j).isBlank &&
-          (lines(j).indexWhere(_ != ' ') > indent || lines(j).trim.startsWith(")"))
-      .toSeq.lastOption.getOrElse(start)
-      Some(start -> (end + 1))
+    Option.when(start >= 0)(start -> extent(lines, start))
+
+  // the end (exclusive) of the member starting at `start`: the lines indented deeper and its
+  // closing `)` - a blank line inside too, when the next code line still belongs to it
+  private def extent(lines: Seq[String], start: Int): Int =
+    val indent  = indentOf(lines(start))
+    def belongs(j: Int) = indentOf(lines(j)) > indent || lines(j).trim.startsWith(")")
+    val next    = Iterator.from(start + 1).takeWhile(_ < lines.size)
+    val inside  = next.takeWhile(j => if lines(j).isBlank then lines.indices.drop(j).find(k => !lines(k).isBlank).exists(belongs) else belongs(j))
+    inside.toSeq.lastOption.getOrElse(start) + 1
 end TypeImplementation
 
 /** The imports a file already has - an import is not added again, nor one for a name that is
