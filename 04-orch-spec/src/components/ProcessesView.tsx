@@ -212,7 +212,11 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       // Only looked up here: they are written once the spec exists (no spec with this name before)
       setBusy('DMN-Tabellen werden gesucht …');
       let found: FoundDmn[] = [];
-      try { found = await findProjectDmns(rows, model, setBusy); } catch { /* no table — the step offers to fetch it */ }
+      try {
+        const r = await findProjectDmns(rows, model, setBusy);
+        found = r.found;
+        if (r.failed.length) console.warn('[orch-spec] DMN-Tabelle nicht gelesen:', r.failed);
+      } catch { /* no table — the step offers to fetch it */ }
       const spec = withDmnFiles(rows, found);
       setBusy(null);
       const res = await createSpec(spec);

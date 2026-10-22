@@ -46,7 +46,8 @@ interface Props {
   plan: (raw: string, from: string, st: MergeStatus) => SyncPlan | null;
   /** `domain`: only the data model — the BPMN is the stored one */
   mode?: 'bpmn' | 'domain';
-  onApply: (plan: SyncPlan) => void;
+  /** may be async (the DMN tables are looked up first) — the panel shows it busy meanwhile */
+  onApply: (plan: SyncPlan) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -298,7 +299,10 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
           )}
           <div className="ml-auto flex items-center gap-2">
             <button onClick={onClose} className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
-            <button onClick={() => onApply(r.plan)} disabled={(hit === undefined && !!busy) || (domainOnly && !r.dom && !r.prepared.length)}
+            <button onClick={async () => {
+                setBusy('Wird übernommen …');
+                try { await onApply(r.plan); } finally { setBusy(null); }
+              }} disabled={!!busy || (domainOnly && !r.dom && !r.prepared.length)}
               title={hit === undefined ? 'Domain wird noch gesucht' : domainOnly && !r.dom ? 'Ohne Domain gibt es nichts abzugleichen' : undefined}
               className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-40 ${c.btnPrimary}`}>
               Übernehmen

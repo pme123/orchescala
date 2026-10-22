@@ -101,3 +101,24 @@ test('a foreign decision shows where it comes from - domain object, package and 
     { object: 'MapActionsDmn', pkg: 'acme.demo.domain.subStatusAll.v1', project: 'acme-demo' });
   assert.equal(foreignOrigin({ ...step, topic: 'acme-demo-unknown' }, { domainTypes: domain } as never), null);
 });
+
+test('the same decisionId in another package does not win - the object of the process package is matched', () => {
+  const other = scanScala(decisionSource(DECISION).replace(`package ${PKG}`, 'package acme.other.domain.rules.v1')
+    .replace(/MapActionsDmn/g, 'OtherDmn'), 'OtherDmn.scala');
+  const domain = [...other, ...scanScala(processSource, 'SendEvent.scala'), ...scanScala(decisionSource(DECISION), 'MapActionsDmn.scala')];
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain, null)!;
+  assert.deepEqual(r.matched, ['MapActionsDmn']);
+  assert.equal(r.spec.interactions?.find(i => i.stepId === 'GetActionTask')?.name, 'MapActionsDmn');
+});
+
+test('any matched interaction is the process\'s own - a worker without the process id is no foreign service either', () => {
+  const s = enriched().spec;
+  const worker = { ...allSteps(s.steps).find(x => x.id === 'GetActionTask')!, kind: 'service' as const, topic: 'acme-shared-doSomething' };
+  const spec2 = {
+    ...s, steps: s.steps.map(x => (x.id === 'GetActionTask' ? worker : x)),
+    interactions: [{ id: 'ia-w', stepId: 'GetActionTask', kind: 'customTask' as const, name: 'DoSomething', key: 'acme-shared-doSomething' }],
+  };
+  const found = [...collectFindings(spec2, { services: [{ id: 'other', name: 'other' }] } as never, allSteps(spec2.steps)).values()]
+    .flatMap(f => [...f.errors, ...f.warnings]);
+  assert.deepEqual(found.filter(m => m.includes('nicht im Katalog')), []);
+});

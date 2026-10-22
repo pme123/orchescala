@@ -82,21 +82,25 @@ export type SaveDmn = (slug: string, decisionId: string, xml: string, opts?: { c
 /**
  * On create and on sync: the tables of the matched decisions that the spec
  * does not hold yet, from the own project folder. Only reads — saving is
- * `saveProjectDmns`, once it is clear the spec can be written.
+ * `saveProjectDmns`, once the spec is written. Not found (or no access) is
+ * no failure — the step offers to fetch it; a folder that cannot be read is.
  */
 export async function findProjectDmns(
   spec: ProcessSpec, model: Model | null, onProgress?: (text: string) => void,
-): Promise<FoundDmn[]> {
+): Promise<{ found: FoundDmn[]; failed: string[] }> {
   const open = (spec.interactions ?? []).filter(i => i.kind === 'decision' && !i.dmnFile && i.key);
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
   const found: FoundDmn[] = [];
+  const failed: string[] = [];
   for (const ia of open) {
     try {
       const hit = await findDmnInProject(ia.key, spec.processId ?? '', model, spec.engine, onProgress, { ownOnly: true, roots });
       if (hit) found.push({ iaId: ia.id, name: ia.name, decisionId: ia.key, file: hit.file, xml: hit.xml });
-    } catch { /* no access — not found; the step offers to fetch it */ }
+    } catch (e) {
+      failed.push(`${ia.name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
-  return found;
+  return { found, failed };
 }
 
 export interface SavedDmns {

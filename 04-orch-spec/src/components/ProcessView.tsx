@@ -31,7 +31,7 @@ import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, ty
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
-import { findProjectDmns, saveProjectDmns, withDmnFiles, type SavedDmns } from '../dmnProject';
+import { findProjectDmns, saveProjectDmns, withDmnFiles, type FoundDmn } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -1045,16 +1045,22 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         <SyncPanel raw={sync.raw} from={sync.from} mode={sync.mode} current={spec} model={model} isDark={isDark} plan={planXml}
           onClose={() => setSync(null)}
           onApply={async p => {
-            setSync(null);
-            setShowDiagram(true);
             // the tables of the matched decisions right from the project — editable at the step then.
-            // Only created, never overwritten: a table already stored beside the spec is linked as it is
-            let dmns: SavedDmns = { saved: [], kept: [], failed: [] };
+            // Only read here, while the panel is still open; written after the commit
+            const base = specRef.current;
+            let dmns: { found: FoundDmn[]; failed: string[] } = { found: [], failed: [] };
             try {
-              dmns = await saveProjectDmns(p.spec.slug, await findProjectDmns(p.spec, model), saveDmn, { createOnly: true });
+              dmns = await findProjectDmns(p.spec, model);
             } catch (e) {
               dmns.failed.push(e instanceof Error ? e.message : String(e));
             }
+            // changed meanwhile (a permission prompt can take a while): the plan is stale — nothing is taken over
+            if (specRef.current !== base) {
+              setSaveState({ error: 'Die Spezifikation hat sich während der Suche nach den DMN-Tabellen geändert — nochmals übernehmen.' });
+              return;
+            }
+            setSync(null);
+            setShowDiagram(true);
             // for the log: flow and data model reported separately
             const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
             const origin: AuditOrigin = {
@@ -1062,15 +1068,21 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
               report: {
                 ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}),
-                ...(dmns.saved.length ? { 'DMN-Tabelle aus dem Projekt': dmns.saved.map(d => d.name) } : {}),
-                ...(dmns.kept.length ? { 'DMN-Tabelle vorhanden, verknüpft': dmns.kept.map(d => d.name) } : {}),
-                ...(dmns.failed.length ? { 'DMN-Tabelle nicht gespeichert': dmns.failed } : {}),
+                ...(dmns.found.length ? { 'DMN-Tabelle aus dem Projekt': dmns.found.map(d => d.name) } : {}),
+                ...(dmns.failed.length ? { 'DMN-Tabelle nicht gelesen': dmns.failed } : {}),
               },
             };
-            const next = withDmnFiles(p.spec, [...dmns.saved, ...dmns.kept]);
-            // all fields of the services as rows, required inputs checked — as when creating
-            void commitPlan(withServiceRows(next, model, { importing: true }).spec, p.text, p.report, p.renames, origin)
-              .catch(e => setSaveState({ error: e instanceof Error ? e.message : String(e) }));
+            try {
+              // all fields of the services as rows, required inputs checked — as when creating
+              await commitPlan(withServiceRows(withDmnFiles(p.spec, dmns.found), model, { importing: true }).spec, p.text, p.report, p.renames, origin);
+            } catch (e) {
+              setSaveState({ error: e instanceof Error ? e.message : String(e) });
+              return;
+            }
+            // create-only: a table already stored beside the spec stays as it is (and is linked);
+            // one that cannot be saved stays referenced — the step reports it missing
+            const saved = await saveProjectDmns(p.spec.slug, dmns.found, saveDmn, { createOnly: true });
+            if (saved.failed.length) setSaveState({ error: `DMN-Tabelle nicht gespeichert — ${saved.failed.join('; ')}` });
           }} />
       )}
 

@@ -11,6 +11,9 @@ import type { Model, ProcessSpec } from '../src/types';
 
 type Tree = { [name: string]: Tree | string };
 
+/** a ready-made handle in a tree (e.g. one whose listing fails) */
+const isHandle = (v: unknown): boolean => typeof v === 'object' && v !== null && (v as { kind?: unknown }).kind === 'directory';
+
 /** a folder in memory — subfolders as objects, files as text */
 function dir(name: string, tree: Tree): unknown {
   return {
@@ -19,7 +22,7 @@ function dir(name: string, tree: Tree): unknown {
     getDirectoryHandle: async (n: string) => {
       const sub = tree[n];
       if (!sub || typeof sub === 'string') throw new Error(`NotFound: ${n}`);
-      return dir(n, sub);
+      return isHandle(sub) ? sub : dir(n, sub);
     },
     entries: async function* () {
       for (const [n, v] of Object.entries(tree)) {
@@ -67,7 +70,15 @@ const model = {
   ],
 } as unknown as Model;
 
+/** a folder whose listing fails — like a file that cannot be read */
+const broken = {
+  kind: 'directory', name: 'camunda8', queryPermission: async () => 'granted',
+  getDirectoryHandle: async () => { throw new Error('NotFound'); },
+  entries: async function* () { yield* []; throw new Error('NotReadableError'); },
+};
+
 fakeIndexedDb({
+  'project:p-broken': dir('acme-broken', { src: { main: { resources: { camunda8: broken as unknown as Tree } } } }),
   'root:projects': dir('projects', {
     'acme-bpmn': { src: { main: { resources: {
       camunda8: { 'bpmn-map-actions.dmn': dmn('acme-bpmn-map-actions'), 'notes.txt': 'x' },
@@ -78,7 +89,8 @@ fakeIndexedDb({
 });
 
 test('a matched decision without table finds the table of the own project - without saving anything', async () => {
-  const found = await findProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model);
+  const { found, failed } = await findProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model);
+  assert.deepEqual(failed, []);
   assert.deepEqual(found.map(f => [f.iaId, f.name, f.decisionId, f.file]), [['ia1', 'ia1Dmn', 'acme-bpmn-map-actions', 'bpmn-map-actions.dmn']]);
   assert.match(found[0].xml, /decision id="acme-bpmn-map-actions"/);
   const s = withDmnFiles(spec([decision('ia1', 'acme-bpmn-map-actions')]), found);
@@ -87,12 +99,12 @@ test('a matched decision without table finds the table of the own project - with
 
 test('a decision that already has a table, or one only another project has, is not looked up', async () => {
   const s = spec([decision('ia1', 'acme-bpmn-map-actions', 'kept.dmn'), decision('ia2', 'acme-other-rules')]);
-  assert.deepEqual(await findProjectDmns(s, model), []);
+  assert.deepEqual(await findProjectDmns(s, model), { found: [], failed: [] });
   assert.equal(withDmnFiles(s, []), s);
 });
 
 /** the tables found for one decision of the own project */
-const foundOne = () => findProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model);
+const foundOne = async () => (await findProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model)).found;
 
 test('saving: created, kept when already stored (createOnly), failed with the reason', async () => {
   const calls: Array<[string, string, boolean]> = [];
@@ -133,4 +145,13 @@ test('the message names the real cause - no folders, or the table is not there',
   assert.equal(await findDmnInProject('acme-bpmn-unknown', 'acme-bpmn-sendEvent', model, 'c8', undefined, { noAccess }), null);
   assert.deepEqual(noAccess, []);
   assert.match(notFoundMessage('acme-bpmn-unknown', 'acme-bpmn-sendEvent', model, 'c8', noAccess), /camunda8 keine Tabelle «acme-bpmn-unknown»/);
+});
+
+test('a table that cannot be read is reported - not taken for "not found"', async () => {
+  // src/main/resources/camunda8 resolves to a folder whose listing fails
+  const brokenModel = { projects: [{ id: 'p-broken', name: 'acme-broken', path: '', types: 0 }] } as unknown as Model;
+  const s = { ...spec([decision('ia1', 'acme-broken-rules')]), processId: 'acme-broken-sendEvent' } as ProcessSpec;
+  const r = await findProjectDmns(s, brokenModel);
+  assert.deepEqual(r.found, []);
+  assert.deepEqual(r.failed, ['ia1Dmn: NotReadableError']);
 });

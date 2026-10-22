@@ -601,13 +601,16 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     const ownDecision = step.kind === 'rule' && !!step.topic
       && objects.some(o => o.pkg === pkg && objectKind(o) === 'decision' && o.key?.toLowerCase() === step.topic!.toLowerCase())
       ? 'decision' as const : null;
-    const kind = byTopic ? 'customTask' : (interactionKind(step, processId) ?? ownDecision ?? caughtSignal);
+    const byPrefix = interactionKind(step, processId);
+    const kind = byTopic ? 'customTask' : (byPrefix ?? ownDecision ?? caughtSignal);
     if (!kind) continue;
+    // matched only via the package: then the object of that package — not one with the same key elsewhere
+    const ownPkgOnly = !byPrefix && kind === 'decision';
     const obj = byTopic ?? objects.find(o => {
       if (objectKind(o) !== kind) return false;
       if (kind === 'customTask') return o.topicName === step.topic;
       if (kind === 'userTask' && o.key) return o.key === step.id;
-      if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase();
+      if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase() && (!ownPkgOnly || o.pkg === pkg);
       // Signal / message: via the name in the BPMN (up to the dynamic part)
       const key = (o.key ?? '').split('${')[0];
       if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
