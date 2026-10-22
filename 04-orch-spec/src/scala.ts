@@ -1395,6 +1395,9 @@ export function renameEnumValue(types: TypeDef[], typeId: string, index: number,
   const en = types.find(t => t.id === typeId);
   const old = en?.values?.[index]?.name;
   if (en == null || old == null) return types;
+  // only to a name that can be written and is still free
+  const bad = !name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name);
+  if (bad || en.values!.some((v, k) => k !== index && caseName(v.name) === name)) return types;
   // a default or example naming the value: FEEL (`= "ONLY GAMIFICATION"`) or Scala (`ReceivingSystem.\`ONLY GAMIFICATION\``)
   const path = new RegExp(`${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`, 'g');
   const rewrite = (expr: string | undefined) => {

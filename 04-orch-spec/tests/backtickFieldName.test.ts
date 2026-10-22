@@ -381,3 +381,9 @@ test('an ADT with names in backticks: shared def, case, object, end and a field 
   assert.match(code, /qr: DocContent\.`QR-Rechnung`/);
   assert.ok(!/``/.test(code), 'no doubled backticks');
 });
+
+test('renaming an enum value: not to an empty, unwritable or taken name', () => {
+  const types = [{ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'A B' }, { name: 'C' }] }];
+  for (const name of ['', ' A', 'a`b', 'a\nb', 'C']) assert.equal(renameEnumValue(types as never, 'e', 0, name), types, JSON.stringify(name));
+  assert.deepEqual(renameEnumValue(types as never, 'e', 0, 'AB')[0].values?.map(v => v.name), ['AB', 'C']);
+});
