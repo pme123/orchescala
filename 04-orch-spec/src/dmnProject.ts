@@ -65,33 +65,73 @@ export async function findDmnInProject(
   return null;
 }
 
+/** A table of a matched decision, found in the own project folder — not saved yet. */
+export interface FoundDmn {
+  iaId: string;
+  /** the interaction, e.g. `MapActionsFromSubStatusDmn` */
+  name: string;
+  decisionId: string;
+  /** file name in the project */
+  file: string;
+  xml: string;
+}
+
+export type SaveDmn = (slug: string, decisionId: string, xml: string, opts?: { createOnly?: boolean })
+  => Promise<{ ok: true } | { ok: false; message: string; exists?: boolean }>;
+
 /**
- * On create and on sync: fetch the tables of the matched decisions that the
- * spec does not hold yet from the own project folder — then the table can be
- * edited at the step right away. In and Out stay as they came from the
- * domain. What is not found or cannot be saved stays without a table (to be
- * fetched at the step).
+ * On create and on sync: the tables of the matched decisions that the spec
+ * does not hold yet, from the own project folder. Only reads — saving is
+ * `saveProjectDmns`, once it is clear the spec can be written.
  */
-export async function withProjectDmns(
-  spec: ProcessSpec, model: Model | null,
-  saveDmn: (slug: string, decisionId: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>,
-  onProgress?: (text: string) => void,
-): Promise<{ spec: ProcessSpec; loaded: string[] }> {
+export async function findProjectDmns(
+  spec: ProcessSpec, model: Model | null, onProgress?: (text: string) => void,
+): Promise<FoundDmn[]> {
   const open = (spec.interactions ?? []).filter(i => i.kind === 'decision' && !i.dmnFile && i.key);
-  if (!open.length) return { spec, loaded: [] };
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
-  const files = new Map<string, string>();
+  const found: FoundDmn[] = [];
   for (const ia of open) {
     try {
       const hit = await findDmnInProject(ia.key, spec.processId ?? '', model, spec.engine, onProgress, { ownOnly: true, roots });
-      if (hit && (await saveDmn(spec.slug, ia.key, hit.xml)).ok) files.set(ia.id, hit.file);
-    } catch { /* no access — the table is fetched at the step */ }
+      if (hit) found.push({ iaId: ia.id, name: ia.name, decisionId: ia.key, file: hit.file, xml: hit.xml });
+    } catch { /* no access — not found; the step offers to fetch it */ }
   }
-  if (!files.size) return { spec, loaded: [] };
-  return {
-    spec: { ...spec, interactions: (spec.interactions ?? []).map(i => (files.has(i.id) ? { ...i, dmnFile: files.get(i.id) } : i)) },
-    loaded: open.filter(i => files.has(i.id)).map(i => i.name),
-  };
+  return found;
+}
+
+export interface SavedDmns {
+  /** saved from the project */
+  saved: FoundDmn[];
+  /** `createOnly`: a table was already stored beside the spec — kept and linked, not overwritten */
+  kept: FoundDmn[];
+  /** not saved, with the reason (`MapActionsDmn: …`) */
+  failed: string[];
+}
+
+/**
+ * Save the found tables beside the spec. `createOnly` (on sync) never
+ * overwrites a stored table — it is linked as it is.
+ */
+export async function saveProjectDmns(slug: string, found: FoundDmn[], saveDmn: SaveDmn, opts: { createOnly?: boolean } = {}): Promise<SavedDmns> {
+  const out: SavedDmns = { saved: [], kept: [], failed: [] };
+  for (const f of found) {
+    try {
+      const w = await saveDmn(slug, f.decisionId, f.xml, opts.createOnly ? { createOnly: true } : undefined);
+      if (w.ok) out.saved.push(f);
+      else if (w.exists) out.kept.push(f);
+      else out.failed.push(`${f.name}: ${w.message}`);
+    } catch (e) {
+      out.failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return out;
+}
+
+/** The spec referencing the given tables (`dmnFile`). */
+export function withDmnFiles(spec: ProcessSpec, tables: FoundDmn[]): ProcessSpec {
+  if (!tables.length) return spec;
+  const files = new Map(tables.map(t => [t.iaId, t.file]));
+  return { ...spec, interactions: (spec.interactions ?? []).map(i => (files.has(i.id) ? { ...i, dmnFile: files.get(i.id) } : i)) };
 }
 
 /**

@@ -31,7 +31,7 @@ import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, ty
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
-import { withProjectDmns } from '../dmnProject';
+import { findProjectDmns, saveProjectDmns, withDmnFiles, type SavedDmns } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
@@ -1047,8 +1047,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
           onApply={async p => {
             setSync(null);
             setShowDiagram(true);
-            // the tables of the matched decisions right from the project — editable at the step then
-            const dmns = await withProjectDmns(p.spec, model, saveDmn);
+            // the tables of the matched decisions right from the project — editable at the step then.
+            // Only created, never overwritten: a table already stored beside the spec is linked as it is
+            let dmns: SavedDmns = { saved: [], kept: [], failed: [] };
+            try {
+              dmns = await saveProjectDmns(p.spec.slug, await findProjectDmns(p.spec, model), saveDmn, { createOnly: true });
+            } catch (e) {
+              dmns.failed.push(e instanceof Error ? e.message : String(e));
+            }
             // for the log: flow and data model reported separately
             const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
             const origin: AuditOrigin = {
@@ -1056,11 +1062,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
               report: {
                 ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}),
-                ...(dmns.loaded.length ? { 'DMN-Tabelle aus dem Projekt': dmns.loaded } : {}),
+                ...(dmns.saved.length ? { 'DMN-Tabelle aus dem Projekt': dmns.saved.map(d => d.name) } : {}),
+                ...(dmns.kept.length ? { 'DMN-Tabelle vorhanden, verknüpft': dmns.kept.map(d => d.name) } : {}),
+                ...(dmns.failed.length ? { 'DMN-Tabelle nicht gespeichert': dmns.failed } : {}),
               },
             };
+            const next = withDmnFiles(p.spec, [...dmns.saved, ...dmns.kept]);
             // all fields of the services as rows, required inputs checked — as when creating
-            void commitPlan(withServiceRows(dmns.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
+            void commitPlan(withServiceRows(next, model, { importing: true }).spec, p.text, p.report, p.renames, origin)
+              .catch(e => setSaveState({ error: e instanceof Error ? e.message : String(e) }));
           }} />
       )}
 

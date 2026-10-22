@@ -119,7 +119,8 @@ interface StoreCtx {
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** the table of a DMN decision — `processes/<slug>/<decisionId>.dmn` */
   loadDmn: (slug: string, decisionId: string) => Promise<string | null>;
-  saveDmn: (slug: string, decisionId: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** `createOnly`: never overwrite a stored table — then `exists` */
+  saveDmn: (slug: string, decisionId: string, xml: string, opts?: { createOnly?: boolean }) => Promise<{ ok: true } | { ok: false; message: string; exists?: boolean }>;
   /** `audit`: log entries for this state — appended as soon as the specification is written */
   saveSpec: (data: ProcessSpec, expectedVersion: string | null, audit?: AuditEntry[]) => Promise<SaveResult>;
   /** the change log, oldest first — null if it is not readable */
@@ -798,11 +799,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const saveDmn = useCallback(async (slug: string, decisionId: string, xml: string) => {
+  const saveDmn = useCallback(async (slug: string, decisionId: string, xml: string, opts: { createOnly?: boolean } = {}) => {
     const be = backendRef.current;
     if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
-    const w = await be.write(dmnPath(DIR, slug, decisionId), xml);
-    return w.ok ? { ok: true as const } : { ok: false as const, message: w.message };
+    const w = await be.write(dmnPath(DIR, slug, decisionId), xml, opts.createOnly ? { createOnly: true } : {});
+    return w.ok ? { ok: true as const } : { ok: false as const, message: w.message, ...(w.reason === 'exists' ? { exists: true } : {}) };
   }, []);
 
   const saveSpec = useCallback(async (data: ProcessSpec, expectedVersion: string | null, audit: AuditEntry[] = []): Promise<SaveResult> => {

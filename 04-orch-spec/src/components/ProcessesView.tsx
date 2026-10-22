@@ -36,7 +36,7 @@ import { EpicChip, PatternSummary, StatusChip, cls, epicTone } from '../ui';
 import { epicsOf } from '../epics';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
-import { withProjectDmns } from '../dmnProject';
+import { findProjectDmns, saveProjectDmns, withDmnFiles, type FoundDmn } from '../dmnProject';
 
 /** Bar colour per status — strong, because the bar carries no text. */
 const BAR: Record<Status, string> = {
@@ -207,19 +207,31 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     if (!pending) return;
     // all fields of the services as rows — mandatory inputs and used outputs checked
     const rows = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
-    // the tables of the matched decisions right from the project — editable at the step then
-    setBusy('DMN-Tabellen werden gesucht …');
-    const { spec } = await withProjectDmns(rows, model, saveDmn, setBusy);
-    setBusy(null);
-    const res = await createSpec(spec);
-    if (!res.ok) { setError(res.message); return; }
-    // The BPMN stays next to the specification — so it can be
-    // edited directly in the process view.
-    const w = await saveBpmn(spec.slug, pending.xml);
-    if (!w.ok) setError(w.message);
-    console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
-    setPending(null);
-    onOpen(spec.slug);
+    try {
+      // the tables of the matched decisions right from the project — editable at the step then.
+      // Only looked up here: they are written once the spec exists (no spec with this name before)
+      setBusy('DMN-Tabellen werden gesucht …');
+      let found: FoundDmn[] = [];
+      try { found = await findProjectDmns(rows, model, setBusy); } catch { /* no table — the step offers to fetch it */ }
+      const spec = withDmnFiles(rows, found);
+      setBusy(null);
+      const res = await createSpec(spec);
+      if (!res.ok) { setError(res.message); return; }
+      // a table that cannot be saved stays referenced — the step reports it missing and offers to fetch it
+      const dmns = await saveProjectDmns(spec.slug, found, saveDmn);
+      if (dmns.failed.length) console.warn('[orch-spec] DMN-Tabelle nicht gespeichert:', dmns.failed);
+      // The BPMN stays next to the specification — so it can be
+      // edited directly in the process view.
+      const w = await saveBpmn(spec.slug, pending.xml);
+      if (!w.ok) setError(w.message);
+      console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
+      setPending(null);
+      onOpen(spec.slug);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
   };
 
   // Both come from the template: the diagram and the tree from it. So

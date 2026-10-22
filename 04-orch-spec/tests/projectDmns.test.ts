@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { findDmnInProject, notFoundMessage, withProjectDmns } from '../src/dmnProject';
+import { findDmnInProject, findProjectDmns, notFoundMessage, saveProjectDmns, withDmnFiles, type SaveDmn } from '../src/dmnProject';
 import type { Model, ProcessSpec } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -77,29 +77,44 @@ fakeIndexedDb({
   }),
 });
 
-test('a matched decision without table gets the table of the own project', async () => {
-  const saved: Array<[string, string]> = [];
-  const r = await withProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model,
-    async (slug, id) => { saved.push([slug, id]); return { ok: true }; });
-  assert.deepEqual(r.loaded, ['ia1Dmn']);
-  assert.equal(r.spec.interactions?.[0].dmnFile, 'bpmn-map-actions.dmn');
-  assert.deepEqual(saved, [['acme-bpmn-sendevent', 'acme-bpmn-map-actions']]);
+test('a matched decision without table finds the table of the own project - without saving anything', async () => {
+  const found = await findProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model);
+  assert.deepEqual(found.map(f => [f.iaId, f.name, f.decisionId, f.file]), [['ia1', 'ia1Dmn', 'acme-bpmn-map-actions', 'bpmn-map-actions.dmn']]);
+  assert.match(found[0].xml, /decision id="acme-bpmn-map-actions"/);
+  const s = withDmnFiles(spec([decision('ia1', 'acme-bpmn-map-actions')]), found);
+  assert.equal(s.interactions?.[0].dmnFile, 'bpmn-map-actions.dmn');
 });
 
-test('a decision that already has a table, or one only another project has, stays as it is', async () => {
-  const saved: string[] = [];
+test('a decision that already has a table, or one only another project has, is not looked up', async () => {
   const s = spec([decision('ia1', 'acme-bpmn-map-actions', 'kept.dmn'), decision('ia2', 'acme-other-rules')]);
-  const r = await withProjectDmns(s, model, async (_slug, id) => { saved.push(id); return { ok: true }; });
-  assert.deepEqual(r.loaded, []);
-  assert.equal(r.spec, s);
-  assert.deepEqual(saved, []);
+  assert.deepEqual(await findProjectDmns(s, model), []);
+  assert.equal(withDmnFiles(s, []), s);
 });
 
-test('a table that cannot be saved is not referenced', async () => {
-  const r = await withProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model,
-    async () => ({ ok: false, message: 'read only' }));
-  assert.deepEqual(r.loaded, []);
-  assert.equal(r.spec.interactions?.[0].dmnFile, undefined);
+/** the tables found for one decision of the own project */
+const foundOne = () => findProjectDmns(spec([decision('ia1', 'acme-bpmn-map-actions')]), model);
+
+test('saving: created, kept when already stored (createOnly), failed with the reason', async () => {
+  const calls: Array<[string, string, boolean]> = [];
+  const ok: SaveDmn = async (slug, id, _xml, opts) => { calls.push([slug, id, !!opts?.createOnly]); return { ok: true }; };
+  const saved = await saveProjectDmns('acme-bpmn-sendevent', await foundOne(), ok, { createOnly: true });
+  assert.deepEqual([saved.saved.map(f => f.name), saved.kept, saved.failed], [['ia1Dmn'], [], []]);
+  assert.deepEqual(calls, [['acme-bpmn-sendevent', 'acme-bpmn-map-actions', true]]);
+
+  // a table already stored beside the spec is not overwritten — it is linked
+  const exists: SaveDmn = async () => ({ ok: false, message: 'Datei existiert bereits.', exists: true });
+  const kept = await saveProjectDmns('acme-bpmn-sendevent', await foundOne(), exists, { createOnly: true });
+  assert.deepEqual([kept.saved, kept.kept.map(f => f.name), kept.failed], [[], ['ia1Dmn'], []]);
+
+  const readOnly: SaveDmn = async () => ({ ok: false, message: 'read only' });
+  const failed = await saveProjectDmns('acme-bpmn-sendevent', await foundOne(), readOnly);
+  assert.deepEqual([failed.saved, failed.kept, failed.failed], [[], [], ['ia1Dmn: read only']]);
+});
+
+test('saving: a throwing write is reported, not swallowed', async () => {
+  const throws: SaveDmn = async () => { throw new Error('network down'); };
+  const r = await saveProjectDmns('acme-bpmn-sendevent', await foundOne(), throws);
+  assert.deepEqual(r.failed, ['ia1Dmn: network down']);
 });
 
 test('a folder without access is reported as such - not as a missing table', async () => {

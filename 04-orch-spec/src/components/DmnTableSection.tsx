@@ -25,6 +25,8 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id && i.kind === 'decision') ?? null;
   const decisionId = ia?.key || step.topic || '';
   const [stored, setStored] = useState<string | null>(null);
+  // referenced (`dmnFile`) but not stored beside the spec — e.g. its saving failed
+  const [missing, setMissing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
@@ -33,8 +35,9 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
   // the table the app maintains
   useEffect(() => {
     let alive = true;
+    setMissing(false);
     if (!ia?.dmnFile || !decisionId) { setStored(null); return; }
-    void loadDmn(spec.slug, decisionId).then(x => { if (alive) setStored(x); });
+    void loadDmn(spec.slug, decisionId).then(x => { if (alive) { setStored(x); setMissing(x == null); } });
     return () => { alive = false; };
   }, [ia?.dmnFile, decisionId, spec.slug, loadDmn]);
 
@@ -71,7 +74,7 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
     const named = { ...base.spec, interactions: (base.spec.interactions ?? []).map(i => (i.id === base.ia.id ? { ...i, dmnFile: file ?? dmnFileName(i, company) } : i)) };
     const r = syncDecision(named, base.ia.id, d);
     onSpecChange(r.spec);
-    setStored(xml);
+    setStored(xml); setMissing(false);
     setNotice({ tone: 'info', text: `${from} — ${r.changes.length ? r.changes.join(' · ') : 'In und Out passten schon'}.` });
   };
 
@@ -122,7 +125,9 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
         </button>
       ) : (
         <p className={`text-[10px] ${c.muted}`}>
-          {ia?.dmnFile ? 'Tabelle wird geladen …' : 'Noch keine Tabelle in der Spezifikation — aus dem Projekt holen, eine Datei wählen oder neu anlegen. In und Out folgen danach den Spalten.'}
+          {ia?.dmnFile
+            ? (missing ? `Die Tabelle «${ia.dmnFile}» liegt nicht neben der Spezifikation — aus dem Projekt holen, eine Datei wählen oder neu anlegen.` : 'Tabelle wird geladen …')
+            : 'Noch keine Tabelle in der Spezifikation — aus dem Projekt holen, eine Datei wählen oder neu anlegen. In und Out folgen danach den Spalten.'}
         </p>
       )}
       {canEdit && (
