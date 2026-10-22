@@ -113,11 +113,6 @@ export interface RebuildResult {
 }
 
 /**
- * Build the catalog from the projects **anew** — not extend it. Only this way
- * does reordering take effect: when extending, what was read earlier would
- * stay, no matter what the list looks like by now.
- */
-/**
  * The readable folder of a project. If it came from a folder above, its
  * access is used (confirmed once, applies to all below); otherwise
  * its own. `roots` remembers per root whether access is granted — so that a
@@ -138,9 +133,37 @@ export async function handleFor(
     }
   }
   const own = await getHandle(handleKey(p));
-  return own && (await ensureRead(own)) ? own : null;
+  if (!own || !(await ensureRead(own))) return null;
+  return intoProject(own, p.name);
 }
 
+/**
+ * A remembered folder that is not the project but the folder above it
+ * (`…/projects` instead of `…/projects/democompany-services`): the project
+ * inside it — otherwise the build reads all projects below through this one,
+ * and the others add nothing (same packages).
+ *
+ * A folder with the project's name, or one that is a project itself (renamed
+ * on disk, other case), stays. Without a subfolder of the project's name,
+ * the folder stays too (as before). Any other error
+ * (e.g. access to the subfolder denied) gives `null`: the project counts as
+ * missing instead of reading the projects next to it.
+ */
+export async function intoProject(dir: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle | null> {
+  if (dir.name === name || (await istProjekt(dir))) return dir;
+  try {
+    return await dir.getDirectoryHandle(name);
+  } catch (e) {
+    const notThere = e instanceof DOMException && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
+    return notThere ? dir : null;
+  }
+}
+
+/**
+ * Build the catalog from the projects **anew** — not extend it. Only this way
+ * does reordering take effect: when extending, what was read earlier would
+ * stay, no matter what the list looks like by now.
+ */
 export async function rebuild(
   projects: ProjectFolder[],
   onProgress: (text: string) => void,
@@ -196,7 +219,11 @@ export async function grantAccess(target: { root: string } | { project: ProjectF
   if (!pick) return false;
   const dir = await pick({ mode: 'read' }).catch(() => null);
   if (!dir) return false;
-  await putHandle(key, dir);
+  // for a project, the folder above it chosen by mistake: remember the project inside
+  // (no access to it: no grant — like the build, never the folder above instead)
+  const keep = 'project' in target ? await intoProject(dir, target.project.name) : dir;
+  if (!keep) return false;
+  await putHandle(key, keep);
   return true;
 }
 
