@@ -424,3 +424,8 @@ test('round trip: an ADT with a dot and a colon in case and field names - export
     ['Brief', [['a:b', 'String']]],
   ]);
 });
+
+test('an error of an enum value stands at the value, like its warning - also for an empty one', () => {
+  const issues = checkTypes([{ id: 'e', name: 'E', kind: 'enum', values: [{ name: 'a`b' }, { name: '' }, { name: 'ONLY GAMIFICATION' }] }] as never);
+  assert.deepEqual(issues.filter(i => i.value !== undefined).map(i => [i.value, !!i.warn]), [['a`b', false], ['', false], ['ONLY GAMIFICATION', true]]);
+});

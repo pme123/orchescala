@@ -996,7 +996,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 
   // the error first; a warning only if there is none
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId && !i.warn) ?? issues.find(i => i.field === fieldId);
-  const typeIssues = issues.filter(i => !i.field && !i.value);
+  // an issue of a value — also of an empty one (`value: ''`) — stands at the value
+  const typeIssues = issues.filter(i => !i.field && i.value === undefined);
   // the suggested name for the type (an enum value has its own, at the value)
   const suggest = (i: { suggestion?: string }) => i.suggestion && canEdit && (
     <SuggestButton name={i.suggestion} isDark={isDark} onTake={() => onPatch({ name: i.suggestion! })} />

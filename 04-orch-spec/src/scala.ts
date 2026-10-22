@@ -1485,7 +1485,7 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
         // `_` is the wildcard — not a name, not even in backticks
         if (!name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name) || name === '_') {
-          issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick oder Zeilenumbruch darin, kein Leerzeichen am Rand).` });
+          issues.push({ typeId: t.id, value: v, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick oder Zeilenumbruch darin, kein Leerzeichen am Rand).` });
         } else if (!plain) {
           // valid — the export writes it in backticks (`ONLY GAMIFICATION`, a case with fields
           // like `QR-Rechnung`(…) with its object and end too), but every use in Scala needs them
