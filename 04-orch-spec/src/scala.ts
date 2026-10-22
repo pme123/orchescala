@@ -1310,6 +1310,29 @@ export interface TypeIssue {
   typeId: string; field?: string; message: string;
   /** a hint, not a defect — shown amber, does not mark the type as faulty */
   warn?: boolean;
+  /** a better name, to take over with one click — for the field, the type or the enum value `value` */
+  suggestion?: string;
+  /** the enum value the suggestion is for */
+  value?: string;
+}
+
+/**
+ * A plain Scala name from what was typed: `Mein value` → `meinValue` (field),
+ * `meine Klasse` → `MeineKlasse` (type), `ONLY GAMIFICATION` → `ONLY_GAMIFICATION`
+ * (enum value in capitals), `Ohne Angabe` → `OhneAngabe`. `undefined` if none
+ * is better (e.g. `type` — a word, but reserved).
+ */
+export function nameSuggestion(kind: 'field' | 'type' | 'value', raw: string): string | undefined {
+  const name = raw.replace(/^`|`$/g, '');
+  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (!words.length) return undefined;
+  const pascal = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+  const lowerFirst = pascal.charAt(0).toLowerCase() + pascal.slice(1);
+  const out = kind === 'type' ? pascal
+    : kind === 'field' ? lowerFirst
+      : words.every(w => w === w.toUpperCase()) ? words.join('_')
+        : /^[a-z]/.test(words[0]) ? lowerFirst : pascal;
+  return out !== name && /^[A-Za-z_]\w*$/.test(out) && !/^\d/.test(out) && !RESERVED.has(out) ? out : undefined;
 }
 
 const SCALA_NAME = /^[a-z][A-Za-z0-9]*$/;
@@ -1399,9 +1422,11 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     // a type becomes a file, an object and an import — it needs a plain name; what only
     // deviates from the convention (lowercase first, underscore) is a hint
     if (!/^[A-Za-z_]\w*$/.test(displayName) || RESERVED.has(displayName)) {
-      issues.push({ typeId: t.id, message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Buchstaben, Ziffern, _ — keine Leer- oder Sonderzeichen: daraus werden Datei und Objekt).` });
+      const suggestion = displayName === t.name ? nameSuggestion('type', t.name) : undefined;
+      issues.push({ typeId: t.id, ...(suggestion ? { suggestion } : {}), message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Buchstaben, Ziffern, _ — keine Leer- oder Sonderzeichen: daraus werden Datei und Objekt).` });
     } else if (!TYPE_NAME.test(displayName)) {
-      issues.push({ typeId: t.id, warn: true, message: `«${t.name}»: Typnamen beginnen nach Konvention mit einem Grossbuchstaben, ohne _ (z. B. ${displayName.charAt(0).toUpperCase()}${displayName.slice(1).replace(/_(\w)/g, (_, c: string) => c.toUpperCase())}).` });
+      const suggestion = displayName === t.name ? nameSuggestion('type', t.name) : undefined;
+      issues.push({ typeId: t.id, warn: true, ...(suggestion ? { suggestion } : {}), message: `«${t.name}»: Typnamen beginnen nach Konvention mit einem Grossbuchstaben, ohne _.` });
     }
     if (t.kind === 'enum') {
       const vals = (t.values ?? []).map(v => v.name);
@@ -1414,10 +1439,12 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
           issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick darin, kein Leerzeichen am Rand).` });
         } else if (!plain && isAdt(t)) {
           // a case with fields becomes a class and an object — like a type it needs a plain name
-          issues.push({ typeId: t.id, message: `Fall «${name}» hat Felder und braucht einen einfachen Namen (Buchstaben, Ziffern, _).` });
+          const suggestion = nameSuggestion('type', name);
+          issues.push({ typeId: t.id, value: v, ...(suggestion ? { suggestion } : {}), message: `Fall «${name}» hat Felder und braucht einen einfachen Namen (Buchstaben, Ziffern, _).` });
         } else if (!plain) {
           // valid — the export writes it in backticks (`ONLY GAMIFICATION`), but every use in Scala needs them
-          issues.push({ typeId: t.id, warn: true, message: `Wert «${name}» steht in Scala in Backticks (${scalaName(name)}) — ${RESERVED.has(name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
+          const suggestion = nameSuggestion('value', name);
+          issues.push({ typeId: t.id, warn: true, value: v, ...(suggestion ? { suggestion } : {}), message: `Wert «${name}» steht in Scala in Backticks (${scalaName(name)}) — ${RESERVED.has(name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
         }
       }
       // An ADT: the fields per case are checked like class fields
@@ -1442,10 +1469,12 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       // (`display name`) — then only a backtick or a space at the edge cannot be written
       const quoted = !/^[A-Za-z_]\w*$/.test(f.name);
       if (quoted ? !f.name.trim() || f.name !== f.name.trim() || f.name.includes('`') : !SCALA_NAME.test(f.name)) {
-        issues.push({ typeId: t.id, field: f.id, message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick und ohne Leerzeichen am Rand).` });
+        const suggestion = nameSuggestion('field', f.name);
+        issues.push({ typeId: t.id, field: f.id, ...(suggestion ? { suggestion } : {}), message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick und ohne Leerzeichen am Rand).` });
       } else if (scalaName(f.name) !== f.name) {
         // valid, but every use in Scala needs the backticks — and FEEL cannot name it plainly
-        issues.push({ typeId: t.id, field: f.id, warn: true, message: `«${f.name}» steht in Scala in Backticks (${scalaName(f.name)}) — ${RESERVED.has(f.name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
+        const suggestion = nameSuggestion('field', f.name);
+        issues.push({ typeId: t.id, field: f.id, warn: true, ...(suggestion ? { suggestion } : {}), message: `«${f.name}» steht in Scala in Backticks (${scalaName(f.name)}) — ${RESERVED.has(f.name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
       }
       // in an ADT the same field name may appear in several cases
       if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });

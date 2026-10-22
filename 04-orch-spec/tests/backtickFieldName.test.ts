@@ -7,7 +7,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
-import { checkTypes, scalaFiles, scalaName } from '../src/scala';
+import { checkTypes, nameSuggestion, scalaFiles, scalaName } from '../src/scala';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -155,4 +155,29 @@ test('type names: spaces stay an error, a deviation from the convention is a war
 test('a case with fields needs a plain name - it becomes a class and an object', () => {
   const issues = checkTypes([{ id: 't', name: 'Out', kind: 'enum', values: [{ name: 'Per Post', fields: [{ id: 'f', name: 'street', type: 'String' }] }] }] as never);
   assert.ok(issues.some(i => !i.warn && i.message.includes('braucht einen einfachen Namen')));
+});
+
+test('suggestions: a plain name from what was typed', () => {
+  assert.equal(nameSuggestion('field', 'Mein value'), 'meinValue');
+  assert.equal(nameSuggestion('field', 'display name'), 'displayName');
+  assert.equal(nameSuggestion('field', 'GroupId'), 'groupId');
+  assert.equal(nameSuggestion('type', 'meine Klasse'), 'MeineKlasse');
+  assert.equal(nameSuggestion('type', 'IdentityLink Type'), 'IdentityLinkType');
+  assert.equal(nameSuggestion('type', 'receiving_system'), 'ReceivingSystem');
+  assert.equal(nameSuggestion('value', 'ONLY GAMIFICATION'), 'ONLY_GAMIFICATION');
+  assert.equal(nameSuggestion('value', '`Ohne Angabe`'), 'OhneAngabe');
+  // nothing better: a reserved word, or already plain
+  assert.equal(nameSuggestion('field', 'type'), undefined);
+  assert.equal(nameSuggestion('field', 'groupId'), undefined);
+});
+
+test('the issues carry the suggestion - for the field, the type and the enum value', () => {
+  const issues = checkTypes([
+    { id: 'c', name: 'meine Klasse', kind: 'case', fields: [{ id: 'f', name: 'Mein value', type: 'String' }] },
+    { id: 'e', name: 'ReceivingSystem', kind: 'enum', values: [{ name: 'ONLY GAMIFICATION' }] },
+  ] as never);
+  const of = (pred: (i: { typeId: string; field?: string; value?: string }) => boolean) => issues.find(pred)?.suggestion;
+  assert.equal(of(i => i.typeId === 'c' && !i.field), 'MeineKlasse');
+  assert.equal(of(i => i.field === 'f'), 'meinValue');
+  assert.equal(of(i => i.value === 'ONLY GAMIFICATION'), 'ONLY_GAMIFICATION');
 });

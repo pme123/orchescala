@@ -134,6 +134,17 @@ function usageCount(all: TypeDef[], id: string): number {
 
 const amber = (isDark: boolean) => (isDark ? 'text-amber-400' : 'text-amber-600');
 
+/** Take over the suggested name with one click — next to the message that proposes it. */
+function SuggestButton({ name, isDark, onTake }: { name: string; isDark: boolean; onTake: () => void }) {
+  return (
+    <button onClick={onTake} title={`Namen «${name}» übernehmen`}
+      className={`ml-1.5 inline-flex items-center gap-1 px-1.5 py-px rounded border font-mono ${
+        isDark ? 'border-white/20 text-white/80 hover:bg-white/10' : 'border-black/20 text-black/80 hover:bg-black/5'}`}>
+      → {name} übernehmen
+    </button>
+  );
+}
+
 /** color and symbol of the type chip of a field row. */
 function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>, model: Model | null, isDark: boolean):
   { cls: string; icon: React.ReactNode; ownId?: string; title?: string } {
@@ -952,7 +963,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   isDark: boolean; canEdit: boolean; model: Model | null;
-  issues: { field?: string; message: string; warn?: boolean }[];
+  issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   idx: ReturnType<typeof indexTypes>;
   onPatch: (patch: Partial<TypeDef>) => void;
   onRemove: () => void;
@@ -983,6 +994,12 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   // the error first; a warning only if there is none
   const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId && !i.warn) ?? issues.find(i => i.field === fieldId);
   const typeIssues = issues.filter(i => !i.field);
+  // the suggested name for the type — or for one of its enum values
+  const suggest = (i: { suggestion?: string; value?: string }) => i.suggestion && canEdit && (
+    <SuggestButton name={i.suggestion} isDark={isDark} onTake={() => onPatch(i.value
+      ? { values: (t.values ?? []).map(v => (v.name === i.value ? { ...v, name: i.suggestion! } : v)) }
+      : { name: i.suggestion! })} />
+  );
   // via the name in the catalog: a class of another domain is imported, not exported
   const origin = referencedClass(t, model, packageOf(spec, model));
   // the InConfig shows what results overall — own and generated fields
@@ -1052,13 +1069,13 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 
       {typeIssues.some(i => !i.warn) && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
-          {typeIssues.filter(i => !i.warn).map((i, k) => <div key={k}>{i.message}</div>)}
+          {typeIssues.filter(i => !i.warn).map((i, k) => <div key={k}>{i.message}{suggest(i)}</div>)}
         </div>
       )}
       {/* hints — valid, but worth a second look */}
       {typeIssues.some(i => i.warn) && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
-          {typeIssues.filter(i => i.warn).map((i, k) => <div key={k}>{i.message}</div>)}
+          {typeIssues.filter(i => i.warn).map((i, k) => <div key={k}>{i.message}{suggest(i)}</div>)}
         </div>
       )}
 
@@ -1109,7 +1126,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 // ── Field ────────────────────────────────────────────────────────────────────
 function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType, onOpenType }: {
   field: Field; index: number; last: boolean; types: TypeDef[]; selfId: string;
-  isDark: boolean; canEdit: boolean; issue?: { message: string; warn?: boolean }; model: Model | null;
+  isDark: boolean; canEdit: boolean; issue?: { message: string; warn?: boolean; suggestion?: string }; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
   onChange: (patch: Partial<Field>) => void;
   onRemove: () => void;
@@ -1301,7 +1318,12 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           className="flex-1 min-w-[10rem]" />
       </div>
 
-      {issue && <div className={`text-[10px] ${issue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue.message}</div>}
+      {issue && (
+        <div className={`text-[10px] ${issue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+          {issue.message}
+          {issue.suggestion && canEdit && <SuggestButton name={issue.suggestion} isDark={isDark} onTake={() => onChange({ name: issue.suggestion })} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -1378,7 +1400,7 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
-  issues: { field?: string; message: string; warn?: boolean }[];
+  issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   onPatch: (patch: Partial<TypeDef>) => void;
   onAddType: (kind: 'case' | 'enum') => string;
   onOpenType: (id: string) => void;
