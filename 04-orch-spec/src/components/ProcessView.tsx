@@ -50,10 +50,12 @@ import { collectDiagram, overlayPasted } from '../copyPaste';
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 // the chat of the AI mode with the Anthropic SDK - only loaded with a key
-/** The same process apart from the time of the last change (a draft against the state now). */
+const ProcessAiPanel = lazy(() => import('../ai/ProcessAiPanel').then(m => ({ default: m.ProcessAiPanel })));
+
+/** The same process apart from the time of the last change (a draft against the state now). Usually the
+  * same object; after a reload the JSON - a false «changed» only refuses an accept, it never overwrites. */
 const sameSpec = (a: ProcessSpec, b: ProcessSpec) =>
   a === b || JSON.stringify({ ...a, updatedAt: undefined }) === JSON.stringify({ ...b, updatedAt: undefined });
-const ProcessAiPanel = lazy(() => import('../ai/ProcessAiPanel').then(m => ({ default: m.ProcessAiPanel })));
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
@@ -971,10 +973,11 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     return ok ? undefined : { saveError: 'das Diagramm (BPMN) – siehe Speicherstatus oben' };
   };
   const aiUndoable = !!aiUndo && xml === aiUndo.acceptedXml && spec === aiUndo.acceptedSpec;
-  const undoAi = () => {
+  const undoAi = async (): Promise<AcceptOutcome> => {
     if (!aiUndo) return;
-    void commitPlan(aiUndo.spec, aiUndo.xml, null, [], { source: 'ai', note: 'KI-Änderung rückgängig gemacht' });
     setAiUndo(null);
+    const ok = await commitPlan(aiUndo.spec, aiUndo.xml, null, [], { source: 'ai', note: 'KI-Änderung rückgängig gemacht' });
+    return ok ? undefined : { saveError: 'das Diagramm (BPMN) – siehe Speicherstatus oben' };
   };
 
   return (

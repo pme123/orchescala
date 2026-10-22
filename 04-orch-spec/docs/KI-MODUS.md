@@ -41,7 +41,8 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Verbindungen nur zu `api.anthropic.com` (plus Login und SharePoint) zulässt.
 - **Wer den Key eingibt, bezahlt.** Ein Claude-Abo (Pro, Max) deckt die API
   nicht ab. Als Grenze dient das Guthaben in der Console mit ausgeschaltetem
-  Auto-Reload.
+  Auto-Reload. Besser noch ein Key aus einem eigenen Workspace mit
+  Ausgabenlimit: Kommt der Key abhanden, ist der Schaden begrenzt.
 
 ## Bedienung
 

@@ -50,7 +50,7 @@ export type AiChatProps<D> = {
   /** takes the draft over; `requests`: what the RE asked for it (for the log) */
   onAccept: (d: D, requests: string[]) => AcceptOutcome | Promise<AcceptOutcome>;
   /** undo of the last accepted draft - where the designer has no undo of its own (processes) */
-  undo?: { label: string; run: () => void } | null;
+  undo?: { label: string; run: () => AcceptOutcome | Promise<AcceptOutcome> } | null;
   /** «Übernommen – …» */
   acceptedText: string;
   hint: React.ReactNode;
@@ -177,6 +177,21 @@ export function AiChat<D>(p: AiChatProps<D>) {
       ? { kind: 'note', text: `Übernommen, aber nicht gespeichert: ${r.saveError}`, tone: 'error' }
       : { kind: 'note', text: p.acceptedText, tone: 'ok', undo: true });
   };
+  // undo of the last accepted draft: like accepting, a failed save is said as such
+  const undoLast = async () => {
+    if (!p.undo) return;
+    let r: AcceptOutcome;
+    try {
+      r = await p.undo.run();
+    } catch (e) {
+      r = { refused: `Rückgängig fehlgeschlagen: ${errorText(e)}` };
+    }
+    if (r && 'refused' in r) { add({ kind: 'note', text: r.refused, tone: 'error' }); return; }
+    note.current = 'Der RE hat deine letzte übernommene Änderung rückgängig gemacht.';
+    add(r && 'saveError' in r
+      ? { kind: 'note', text: `Rückgängig gemacht, aber nicht gespeichert: ${r.saveError}`, tone: 'error' }
+      : { kind: 'note', text: 'Rückgängig gemacht.' });
+  };
   const discard = () => {
     p.onDraft(null);
     requests.current = [];
@@ -253,7 +268,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
                 <div key={i} className={`flex items-start gap-1.5 text-[10px] ${tone(e.tone)}`}>
                   <Info size={10} className="mt-0.5 flex-shrink-0" /><span className="flex-1">{e.text}</span>
                   {e.undo && i === lastAccepted && p.undo && !draft && !busy && (
-                    <button onClick={() => { p.undo!.run(); add({ kind: 'note', text: 'Rückgängig gemacht.' }); note.current = 'Der RE hat deine letzte übernommene Änderung rückgängig gemacht.'; }}
+                    <button onClick={() => void undoLast()}
                       className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn}`} title={p.undo.label}>
                       <Undo2 size={10} /> Rückgängig
                     </button>
