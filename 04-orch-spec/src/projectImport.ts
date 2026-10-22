@@ -57,7 +57,8 @@ export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''
 export function readProjectZip(data: Uint8Array): ProjectFile[] {
   const dec = new TextDecoder();
   const entries = unzipSync(data, {
-    filter: f => isDomainSource(f.name) && !f.name.split('/').some(seg => IGNORE.has(seg)),
+    // like the folder: no build folders and no hidden ones (`.claude/worktrees/…` holds a second copy)
+    filter: f => isDomainSource(f.name) && !f.name.split('/').slice(0, -1).some(seg => IGNORE.has(seg) || seg.startsWith('.')),
   });
   return Object.entries(entries).map(([path, bytes]) => ({ path, text: dec.decode(bytes) }));
 }

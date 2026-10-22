@@ -65,7 +65,8 @@ function* walk(dir: string): Generator<string> {
   for (const e of readdirSync(dir)) {
     const p = join(dir, e);
     if (statSync(p).isDirectory()) {
-      if (['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules'].includes(e)) continue;
+      // hidden folders stay out — e.g. `.claude/worktrees/…` holds a second, older copy of the domain
+      if (['target', 'node_modules'].includes(e) || e.startsWith('.')) continue;
       yield* walk(p);
     } else if (isDomainSource(p)) yield p;
   }

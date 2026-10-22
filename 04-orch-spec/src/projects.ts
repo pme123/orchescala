@@ -85,7 +85,8 @@ export async function readSources(
   for await (const [name, handle] of dir.entries()) {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === 'directory') {
-      if (IGNORE.includes(name)) continue;
+      // hidden folders stay out — e.g. `.claude/worktrees/…` holds a second, older copy of the domain
+      if (IGNORE.includes(name) || name.startsWith('.')) continue;
       await readSources(handle as FileSystemDirectoryHandle, path, out, onProgress);
       continue;
     }
