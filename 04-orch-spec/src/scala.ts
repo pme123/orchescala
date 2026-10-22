@@ -1325,7 +1325,14 @@ export interface TypeIssue {
  */
 export function nameSuggestion(kind: 'field' | 'type' | 'value', raw: string): string | undefined {
   const name = raw.replace(/^`|`$/g, '');
-  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  // umlauts and accents written out (`Größe` → `Groesse`, `Café` → `Cafe`) — no letter may get lost
+  const ascii = name
+    .replace(/Ä(?=[a-z])/g, 'Ae').replace(/Ö(?=[a-z])/g, 'Oe').replace(/Ü(?=[a-z])/g, 'Ue')
+    .replace(/Ä/g, 'AE').replace(/Ö/g, 'OE').replace(/Ü/g, 'UE')
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/[\p{L}\p{N}]/u.test(ascii.replace(/[\x00-\x7f]/g, ''))) return undefined;
+  const words = ascii.split(/[^A-Za-z0-9]+/).filter(Boolean);
   if (!words.length) return undefined;
   const pascal = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
   const lowerFirst = pascal.charAt(0).toLowerCase() + pascal.slice(1);
@@ -1343,7 +1350,9 @@ const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
 /**
  * A field name as written in Scala: a reserved word (`type`) or a name that is
  * no plain identifier goes in backticks — the domain writes it so, the import
- * reads it without them.
+ * reads it without them. Plain means ASCII on purpose: `größe` is legal Scala, but it
+ * is written `` `größe` `` (the same name) and gets a warning — process variables
+ * and FEEL are safer in ASCII.
  */
 export function scalaName(name: string): string {
   return RESERVED.has(name) || !/^[A-Za-z_]\w*$/.test(name) ? `\`${name}\`` : name;

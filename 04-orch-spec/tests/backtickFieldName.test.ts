@@ -442,3 +442,13 @@ test('renaming an enum value: a longer path with the same ending stays', () => {
   const next = renameEnumValue(types as never, 'e', 0, 'Baz');
   assert.deepEqual(next[1].fields?.map(f => f.example), ['MyIn.Foo', 'In.Baz', 'X.In.Foo']);
 });
+
+test('suggestions: umlauts and accents are written out, no letter gets lost', () => {
+  assert.equal(nameSuggestion('field', 'Größe'), 'groesse');
+  assert.equal(nameSuggestion('type', 'Vermögens Verwaltung'), 'VermoegensVerwaltung');
+  assert.equal(nameSuggestion('value', 'ÜBER ALLES'), 'UEBER_ALLES');
+  assert.equal(nameSuggestion('field', 'Straße Nr'), 'strasseNr');
+  assert.equal(nameSuggestion('type', 'Café Bar'), 'CafeBar');
+  // nothing to write out — no suggestion rather than a mangled one
+  assert.equal(nameSuggestion('field', '名前 x'), undefined);
+});
