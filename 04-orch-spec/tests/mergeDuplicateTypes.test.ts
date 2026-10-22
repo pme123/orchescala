@@ -47,8 +47,20 @@ test('a reference from a stale type does not count - only what the root reaches'
   assert.deepEqual(values('t-unused'), []);
 });
 
-test('no field points to either copy: the first one gets the domain', () => {
+test('no field points to either copy: falls back to the first one (no better choice)', () => {
   const values = merge([root('t-other'), enumType('t-first'), enumType('t-second')]);
   assert.deepEqual(values('t-first'), ['ACTIVE', 'COMPLETED']);
   assert.deepEqual(values('t-second'), []);
+});
+
+test('a copy reachable only through an interaction or an ADT case wins', () => {
+  // no root points to the enum: In of an interaction → ADT case `Done(state)` → the used copy
+  const adt = { id: 't-adt', name: 'Result', kind: 'enum', status: 'implemented', values: [{ name: 'Done', fields: [{ id: 'f-s', name: 'state', type: 't-used' }] }] } as TypeDef;
+  const iaIn = { id: 't-ia-in', name: 'In', kind: 'case', status: 'implemented', fields: [{ id: 'f-r', name: 'result', type: 't-adt' }] } as TypeDef;
+  const previous = { ...spec([iaIn, adt, enumType('t-unused'), enumType('t-used')]), interactions: [{ id: 'ia1', stepId: 'step1', inTypeId: 't-ia-in' }] } as unknown as ProcessSpec;
+  const fresh = spec([enumType('t-fresh', ['ACTIVE', 'COMPLETED'])]);
+  const { spec: merged } = mergeDomain(previous, fresh, { status: { added: 'implemented', changed: 'changed' } });
+  const values = (id: string) => merged.types?.find(t => t.id === id)?.values?.map(v => v.name) ?? [];
+  assert.deepEqual(values('t-used'), ['ACTIVE', 'COMPLETED']);
+  assert.deepEqual(values('t-unused'), []);
 });
