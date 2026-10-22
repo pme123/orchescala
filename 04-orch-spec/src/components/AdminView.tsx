@@ -1,27 +1,27 @@
-// Admin: Auftritt, Katalog, Pattern, Epics, Anmeldung, Benachrichtigungen.
+// Admin: appearance, catalog, patterns, epics, sign-in, notifications.
 //
-// Sechs Bereiche, in der Reihenfolge, in der sie gebraucht werden:
+// Six sections, in the order in which they are needed:
 //
-//  1. **Auftritt** — Kunde und Logo für die Kopfzeile.
-//  2. **Katalog** — importieren, exportieren, nachschlagen. Das ist der
-//     Bereich, der in **jeder** Umgebung zählt; in der Bankenzone ist es der
-//     einzige. Das lokale Erzeugen daraus ist optional und zugeklappt.
-//  3. **Pattern** — wiederkehrende BPMN-Bausteine, an den Elementen wählbar.
-//  4. **Epics** — Klammern über mehrere Prozesse (z. B. ein Change), am
-//     Prozess zuzuordnen und in der Übersicht zu filtern.
-//  5. **Anmeldung** — Entra ID.
-//  6. **Benachrichtigungen** — Teams-Nachricht bei @-Erwähnungen in Kommentaren.
+//  1. **Appearance** — customer and logo for the header.
+//  2. **Catalog** — import, export, look up. This is the
+//     section that counts in **every** environment; in the banking zone it is the
+//     only one. Generating locally from it is optional and collapsed.
+//  3. **Patterns** — recurring BPMN building blocks, selectable on the elements.
+//  4. **Epics** — brackets over several processes (e.g. a change), to be
+//     assigned on the process and filtered in the overview.
+//  5. **Sign-in** — Entra ID.
+//  6. **Notifications** — Teams message on @-mentions in comments.
 //
-// Oben eine Statusleiste: je Bereich eine Karte mit dem Zustand, Klick
-// springt hin. So sieht man auf einen Blick, was eingerichtet ist.
+// At the top a status bar: one card per section with its state, a click
+// jumps there. So one sees at a glance what is set up.
 //
-// Die Stammdaten liegen in `config/model.json`, damit dort in SharePoint nur
-// Admins schreiben. Liegt sie noch im Hauptordner, steht oben ein Hinweis —
-// verschoben wird von Hand.
+// The master data lives in `config/model.json`, so that in SharePoint only
+// admins write there. If it is still in the main folder, a notice shows at the top —
+// moving it is done by hand.
 //
-// Kein Blättern durch den ganzen Katalog: die Klassen eines Prozesses stehen
-// in seiner Spezifikation unter «Datenmodell». Hier bleibt die Suche, für die
-// eine Frage, die sich hier stellt — steht das drin?
+// No browsing through the whole catalog: the classes of a process are
+// in its specification under «Datenmodell». What remains here is the search, for the one
+// question that comes up here — is it in there?
 import { useRef, useState } from 'react';
 import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
@@ -44,7 +44,7 @@ import { cls } from '../ui';
 
 interface Zustand { tone: AdminTone; label: string; detail?: string }
 
-/** Der Zustand je Bereich — für Statusleiste und Kartenkopf dieselbe Quelle. */
+/** The state per section — the same source for the status bar and the card header. */
 function zustaende(model: Model, generated: CatalogFile | null): Record<'branding' | 'catalog' | 'patterns' | 'epics' | 'auth' | 'teams', Zustand> {
   const services = (model.services ?? []).length, types = (model.domainTypes ?? []).length;
   const gen = generated ? (generated.services ?? []).length + (generated.domainTypes ?? []).length : 0;
@@ -103,7 +103,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <ModelLocation isDark={isDark} />
 
-      {/* Statusleiste: je Bereich eine Karte, Klick springt hin */}
+      {/* Status bar: one card per section, a click jumps there */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {bereiche.map(b => (
           <button key={b.id} onClick={() => springe(b.id)} title={b.z.detail || undefined}
@@ -164,8 +164,8 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 }
 
 /**
- * Zustandszeile des Katalogs: woher er kommt und was drin ist, je Art ein
- * Chip in den Farben des Datenmodells — dieselben wie in den Suchtreffern.
+ * Status row of the catalog: where it comes from and what is in it, one
+ * chip per kind in the colours of the data model — the same as in the search hits.
  */
 function CatalogState({ model, generated, isDark }: { model: Model; generated: CatalogFile | null; isDark: boolean }) {
   const c = cls(isDark);
@@ -190,14 +190,14 @@ function CatalogState({ model, generated, isDark }: { model: Model; generated: C
   );
 }
 
-// Teams-Benachrichtigung bei @-Erwähnungen und Antworten in Kommentaren —
-// dieselbe Mechanik wie im arch-review (siehe useTeamsNotify).
+// Teams notification on @-mentions and replies in comments —
+// the same mechanism as in arch-review (see useTeamsNotify).
 /**
- * Wo die Stammdaten liegen, wenn es nicht `config/model.json` ist — dort
- * bekommen in SharePoint nur Admins Schreibrecht (docs/SHAREPOINT-SETUP.md,
- * Teil 3b). Liegt sie noch im Hauptordner oder eine alte Kopie daneben,
- * steht hier ein Hinweis; verschoben wird von Hand (in SharePoint bleibt so
- * der Versionsverlauf erhalten).
+ * Where the master data lives if it is not `config/model.json` — there
+ * only admins get write permission in SharePoint (docs/SHAREPOINT-SETUP.md,
+ * part 3b). If it is still in the main folder or an old copy sits next to it,
+ * a notice shows here; moving is done by hand (that way SharePoint keeps
+ * the version history).
  */
 function ModelLocation({ isDark }: { isDark: boolean }) {
   const { modelPath, legacyModelLeftover, storage } = useStore();
@@ -261,10 +261,10 @@ function TeamsSettingsForm({ model, isDark, onSave, state }: {
   const speichern = async (next: TeamsNotifySettings) => {
     setFlash(flashOf(await onSave({ ...model, notifications: { ...(model.notifications ?? {}), teams: next } })));
   };
-  // Der Schalter in der Kopfzeile speichert sofort — mit dem, was im Entwurf steht
+  // The switch in the header saves immediately — with what is in the draft
   const schalten = (on: boolean) => { const next = { ...draft, enabled: on }; setDraft(next); void speichern(next); };
 
-  /** Platzhalter an der Cursorposition einfügen — ohne Vorlage zuerst den Standard übernehmen */
+  /** Insert a placeholder at the cursor position — without a template, first take over the default */
   const einfuegen = (ph: string) => {
     const el = areaRef.current;
     const text = draft.template ?? DEFAULT_TEAMS_TEMPLATE;
@@ -301,7 +301,7 @@ function TeamsSettingsForm({ model, isDark, onSave, state }: {
             onChange={e => update({ template: e.target.value || undefined })}
             placeholder={`Leer = Standard:\n${DEFAULT_TEAMS_TEMPLATE}`}
             className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y font-mono ${c.input}`} />
-          {/* Platzhalter als Chips — Klick fügt an der Cursorposition ein */}
+          {/* Placeholders as chips — a click inserts at the cursor position */}
           <div className="flex items-center gap-1 flex-wrap mt-1.5">
             <span className={`text-[10px] ${c.muted}`}>Platzhalter:</span>
             {PLATZHALTER.map(([ph, was]) => (
@@ -399,20 +399,20 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl, state }: {
   );
 }
 
-/** Der Zustand des Themes der App - für den Kopf des Abschnitts. */
+/** The state of the app's theme - for the section header. */
 function AppThemeState({ isDark }: { isDark: boolean }) {
   const { pagesApp } = useStore();
   const t = pagesApp?.data.theme;
   return <StateChip tone={t ? 'ok' : 'off'} label={t ? 'eigenes Theme' : 'z9nai-Stil'} isDark={isDark} />;
 }
 
-/** Das Theme der App bearbeiten und speichern - in pages/app.json, neben Titel, Startseite und Texten. */
+/** Edit and save the app's theme - in pages/app.json, next to title, start page and texts. */
 function AppThemeForm({ isDark }: { isDark: boolean }) {
   const { pagesApp, savePagesApp } = useStore();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
-  // erst eine Änderung macht einen Entwurf - bis dahin das Theme, wie es (auch später) geladen ist: ein
-  // pages/app.json, das nach dem Öffnen kommt, wird so nicht beim Speichern durch «kein Theme» ersetzt
+  // only a change creates a draft - until then the theme as it is loaded (also later): a
+  // pages/app.json that arrives after opening is thus not replaced by «kein Theme» on save
   const [draft, setDraft] = useState<{ theme: Theme | undefined } | null>(null);
   const theme = draft ? draft.theme : pagesApp?.data.theme;
   const [msg, setMsg] = useState<string | null>(null);
@@ -425,15 +425,15 @@ function AppThemeForm({ isDark }: { isDark: boolean }) {
           <button type="button" disabled={!changed}
             onClick={async () => {
               const app = { ...(pagesApp?.data ?? {}), theme };
-              // dieselbe Prüfung wie beim Laden und Bauen - sonst liesse sich die Datei danach nicht mehr öffnen
+              // the same check as on loading and building - otherwise the file could no longer be opened afterwards
               const problem = appProblem(app);
               if (problem) return setMsg(`So nicht speicherbar: ${problem}`);
-              // savePagesApp antwortet mit einem Status - fällt es trotzdem (ein Fehler der Ablage), sagen wir es
+              // savePagesApp answers with a status - if it still throws (an error of the storage), we say so
               const r = await savePagesApp(app, pagesApp?.version ?? null)
                 .catch((e: unknown) => ({ status: 'error' as const, message: e instanceof Error ? e.message : String(e) }));
-              // gespeichert ist, was beim Klick galt - eine Änderung seither bleibt ein Entwurf
-              // ohne geladenes pages/app.json (version null) legt das Speichern sie nur neu an - eine, die es
-              // gibt, überschreibt es nicht («Die Datei gibt es schon»)
+              // what is saved is what applied at the click - a change since then stays a draft
+              // without a loaded pages/app.json (version null) saving only creates it anew - one that
+              // exists it does not overwrite («Die Datei gibt es schon»)
               if (r.status === 'saved') setDraft((d) => draftAfterSave(d, theme));
               setMsg(r.status === 'saved' ? 'gespeichert' : r.status === 'conflict' ? 'pages/app.json wurde inzwischen geändert - neu laden.' : r.message);
             }}

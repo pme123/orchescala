@@ -1,6 +1,6 @@
-// Woran man erkennt, welcher Stand gerade läuft.
+// How to tell which version is currently running.
 //
-// Klingt nach Kleinigkeit, ist aber der Unterschied zwischen «der Fehler ist
-// noch da» und «der Browser hat die alte Datei». Der Wert steht als
-// Kurzinfo an der Kopfzeile — sichtbar nur beim Darüberfahren.
+// Sounds like a trifle, but it is the difference between «the bug is still
+// there» and «the browser has the old file». The value is shown as a
+// tooltip on the header — visible only on hover.
 export const APP_VERSION = '2026-08-25 · Kommentar-Navigation';

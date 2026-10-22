@@ -1,6 +1,6 @@
-// Ein Worker kann mehrere Fälle eines `In` unterstützen und beim Unmarshalling
-// selbst entscheiden, welcher es ist — «alle Ausprägungen» (`*`) auch bei den
-// Eingaben: die Felder aller Fälle sind erlaubt, Pflicht sind nur die gemeinsamen.
+// A worker can support several cases of an `In` and decide itself during
+// unmarshalling which one it is — «alle Ausprägungen» (`*`) for the
+// inputs too: the fields of all cases are allowed, only the common ones are required.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
@@ -45,7 +45,7 @@ test('inputs: choosing «alle Ausprägungen» keeps the checked state of the row
   const s = step(rows);
   const v = variantsOf(s, spec(s), model, 'inputs', null)!;
   assert.deepEqual(rowsForVariant(rows, v, ALL_VARIANTS, 'inputs'), rows);
-  // die Ausgaben lesen weiterhin alles
+  // the outputs still read everything
   assert.ok(rowsForVariant(rows, v, ALL_VARIANTS, 'outputs').every(m => !m.disabled));
 });
 

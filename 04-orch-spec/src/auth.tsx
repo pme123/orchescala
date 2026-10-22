@@ -1,22 +1,22 @@
-// Anmeldung über Microsoft Entra ID (MSAL, Authorization Code Flow + PKCE).
+// Sign-in via Microsoft Entra ID (MSAL, Authorization Code Flow + PKCE).
 //
-// Die App ist eine reine Client-App. Beim lokalen Ordner ist die Anmeldung
-// ein Zugangs-Gate für die Oberfläche (wer darf rein, wer ist Prüfer/in,
-// welche Stufe); beim SharePoint-Ordner liefert sie zusätzlich das Token für
-// Microsoft Graph — dort setzt SharePoint die Berechtigungen serverseitig
-// durch.
+// The app is a pure client app. With the local folder the sign-in is
+// an access gate for the UI (who may enter, who is a reviewer,
+// which level); with the SharePoint folder it additionally provides the token for
+// Microsoft Graph — there SharePoint enforces the permissions on the server
+// side.
 //
-// Konfiguration:
-// - Tenant-/Client-ID (öffentliche Werte): `auth` in der model.json (Admin)
-//   und lokal im Browser gemerkt (localStorage). Damit der SharePoint-Modus
-//   schon VOR dem Ordner anmelden kann, lassen sich die IDs pro Browser
-//   einmalig hinterlegen: über einen Einrichtungs-Link
-//   (?tenant=…&client=…), eine Konfigurationsdatei oder manuell — beides
-//   erzeugt der Admin in der App. Nichts davon liegt im Repo/Deployment.
-// - Rollen (Admin/Reviewer/Viewer) und enabled (Login-Pflicht beim lokalen
-//   Ordner): `auth` in der model.json.
-// Die lokal gemerkten IDs bleiben erhalten, auch wenn eine model.json ohne
-// IDs geladen wird. MSAL wird nur geladen, wenn eine Anmeldung ansteht.
+// Configuration:
+// - Tenant/client ID (public values): `auth` in the model.json (Admin)
+//   and remembered locally in the browser (localStorage). So that the SharePoint mode
+//   can sign in even BEFORE the folder, the IDs can be stored once
+//   per browser: via a setup link
+//   (?tenant=…&client=…), a configuration file or manually — the admin
+//   creates both in the app. None of it is in the repo/deployment.
+// - Roles (Admin/Reviewer/Viewer) and enabled (sign-in required for the local
+//   folder): `auth` in the model.json.
+// The locally remembered IDs are kept, even when a model.json without
+// IDs is loaded. MSAL is only loaded when a sign-in is due.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { AccountInfo, PublicClientApplication } from '@azure/msal-browser';
 import type { AuthSettings } from './types';
@@ -28,7 +28,7 @@ export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 export type AccessLevel = 'admin' | 'reviewer' | 'viewer' | 'none';
 
 export interface AuthUser {
-  /** Objekt-ID in Entra — für Graph (Teams-Chat) */
+  /** Object ID in Entra — for Graph (Teams chat) */
   id?: string;
   name: string;
   email: string;
@@ -48,28 +48,28 @@ interface AuthContextValue {
   user: AuthUser | null;
   error: string | null;
   config: AuthConfig | null;
-  /** Tenant-/Client-ID bekannt → Login möglich */
+  /** tenant/client ID known → login possible */
   loginAvailable: boolean;
-  /** wirksame IDs */
+  /** effective IDs */
   ids: { tenantId: string; clientId: string } | null;
-  /** IDs für diesen Browser hinterlegen (Einrichtung) */
+  /** store IDs for this browser (setup) */
   setLocalIds: (tenantId: string, clientId: string) => void;
   login: () => Promise<void>;
-  /** Anmeldung für den SharePoint-Modus (mit Graph-Berechtigung), auch ohne enabled.
-   *  'ready' = angemeldet mit Graph-Token; 'redirect' = Anmeldung läuft; 'setup' = IDs fehlen */
+  /** Sign-in for the SharePoint mode (with Graph permission), even without enabled.
+   *  'ready' = signed in with Graph token; 'redirect' = sign-in in progress; 'setup' = IDs missing */
   loginForSharePoint: () => Promise<'ready' | 'redirect' | 'setup'>;
   logout: () => Promise<void>;
-  /** Access-Token für die angegebenen Scopes (still, sonst Redirect) */
+  /** access token for the given scopes (silently, otherwise redirect) */
   getToken: (scopes: string[]) => Promise<string>;
   /**
-   * Access-Token nur still — nie ein Redirect. Für Zusatzberechtigungen
-   * (Verzeichnissuche, Teams), die fehlen dürfen: 'interaction' heisst,
-   * die Zustimmung fehlt noch (requestConsent holt sie nach).
+   * Access token only silently — never a redirect. For additional permissions
+   * (directory search, Teams) that may be missing: 'interaction' means
+   * the consent is still missing (requestConsent obtains it).
    */
   tryToken: (scopes: string[]) => Promise<{ ok: true; token: string } | { ok: false; reason: 'noAccount' | 'interaction' | 'error'; message: string }>;
-  /** Zustimmung zu weiteren Berechtigungen einholen (Redirect) */
+  /** obtain consent to further permissions (redirect) */
   requestConsent: (scopes: string[]) => Promise<void>;
-  /** Konfiguration aus der model.json übernehmen (beim Laden und nach Admin-Änderungen) */
+  /** take over the configuration from the model.json (on load and after admin changes) */
   applyConfig: (cfg: AuthSettings | null | undefined) => void;
 }
 
@@ -79,13 +79,13 @@ const LOGIN_SCOPES = ['openid', 'profile', 'email'];
 const GRAPH_LOGIN_SCOPES = ['openid', 'profile', 'email', 'Files.ReadWrite.All'];
 
 /**
- * Wo die App liegt — gegen die Dokument-URL aufgelöst, nicht den Origin: in
- * der Doku-Site wird mit relativer Basis (`./`) gebaut, `origin + BASE_URL`
- * ergäbe dort `https://host./`. Lokal `…/orch-spec/`, in der Site `…/site/spec/`.
+ * Where the app lives — resolved against the document URL, not the origin: in
+ * the docs site it is built with a relative base (`./`), `origin + BASE_URL`
+ * would give `https://host./` there. Locally `…/orch-spec/`, in the site `…/site/spec/`.
  */
 export const appUrl = () => new URL(import.meta.env.BASE_URL, document.baseURI);
 
-// Redirect-URI = die Adresse der App (ohne Query) — so in Entra eintragen
+// Redirect URI = the address of the app (without query) — register it like this in Entra
 const redirectUri = () => appUrl().href;
 
 const CACHE_KEY = 'orch-spec.auth';
@@ -104,14 +104,14 @@ function normalize(raw: unknown): AuthConfig | null {
   };
 }
 
-// Zugriffsstufe aus den App-Rollen im ID-Token
+// Access level from the app roles in the ID token
 export function levelOf(roles: string[], cfg: AuthConfig | null): AccessLevel {
   const adminRole = cfg?.adminRole, reviewerRole = cfg?.reviewerRole, viewerRole = cfg?.viewerRole;
   if (!adminRole && !reviewerRole && !viewerRole) return 'admin';
   if (adminRole && roles.includes(adminRole)) return 'admin';
   if (reviewerRole && roles.includes(reviewerRole)) return 'reviewer';
   if (viewerRole && roles.includes(viewerRole)) return 'viewer';
-  // keine passende Rolle: ohne konfigurierte Reviewer-Rolle gilt «angemeldet = Reviewer»
+  // no matching role: without a configured reviewer role «angemeldet = Reviewer» applies
   return reviewerRole ? 'none' : 'reviewer';
 }
 
@@ -127,8 +127,8 @@ function writeCache(cfg: AuthConfig | null) {
 
 export const PENDING_FOLDER_KEY = 'orch-spec.pendingFolder';
 
-// Einrichtungs-Link: ?tenant=…&client=…[&folder=…] einmalig übernehmen und aus
-// der URL entfernen. Der SharePoint-Ordner wird nach der Anmeldung verbunden.
+// Setup link: take over ?tenant=…&client=…[&folder=…] once and remove it from
+// the URL. The SharePoint folder is connected after the sign-in.
 function takeIdsFromUrl(): { tenantId: string; clientId: string } | null {
   try {
     const u = new URL(window.location.href);
@@ -147,7 +147,7 @@ function takeIdsFromUrl(): { tenantId: string; clientId: string } | null {
   }
 }
 
-// Einrichtungs-Link für die Weitergabe (Admin): IDs + SharePoint-Ordner
+// Setup link for passing on (admin): IDs + SharePoint folder
 export function setupLink(tenantId: string, clientId: string, folderUrl?: string): string {
   const u = appUrl();
   u.searchParams.set('tenant', tenantId);
@@ -156,8 +156,8 @@ export function setupLink(tenantId: string, clientId: string, folderUrl?: string
   return u.toString();
 }
 
-// Kein Umgehen der Anmeldung per URL — auch nicht im Dev-Server. Wer sich
-// ausgesperrt hat, setzt in der config/model.json `auth.enabled` auf false.
+// No bypassing the sign-in via URL — not even in the dev server. Whoever has
+// locked themselves out sets `auth.enabled` to false in the config/model.json.
 const isValidIds = (cfg: { tenantId: string; clientId: string } | null | undefined): cfg is { tenantId: string; clientId: string } =>
   !!cfg && GUID_RE.test(cfg.tenantId) && GUID_RE.test(cfg.clientId);
 const sharePointMode = () => { try { return localStorage.getItem(MODE_KEY) === 'sharepoint'; } catch { return false; } };
@@ -179,12 +179,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pcaRef = useRef<PublicClientApplication | null>(null);
   const accountRef = useRef<AccountInfo | null>(null);
   const configRef = useRef<AuthConfig | null>(null);
-  const runningKeyRef = useRef<string>(''); // IDs, mit denen MSAL läuft
+  const runningKeyRef = useRef<string>(''); // IDs MSAL runs with
 
   const effectiveIds = (cfg: AuthConfig | null) =>
     isValidIds(cfg) ? { tenantId: cfg.tenantId, clientId: cfg.clientId } : null;
 
-  // MSAL starten: Rückkehr vom Login verarbeiten, sonst vorhandenes Konto verwenden
+  // start MSAL: process the return from the login, otherwise use the existing account
   const startMsal = useCallback(async (ids: { tenantId: string; clientId: string }) => {
     const key = `${ids.tenantId}|${ids.clientId}`;
     if (runningKeyRef.current === key && pcaRef.current) return pcaRef.current;
@@ -205,10 +205,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await pca.initialize();
       pcaRef.current = pca;
       const result = await pca.handleRedirectPromise();
-      // Konto des konfigurierten Tenants bevorzugen (Browser kann mehrere kennen)
+      // prefer the account of the configured tenant (the browser may know several)
       const all = pca.getAllAccounts();
       const account = result?.account ?? all.find(a => a.tenantId === ids.tenantId) ?? all[0] ?? null;
-      if (runningKeyRef.current !== key) return pca; // inzwischen andere IDs
+      if (runningKeyRef.current !== key) return pca; // different IDs in the meantime
       if (account) {
         pca.setActiveAccount(account);
         accountRef.current = account;
@@ -232,7 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applyConfig = useCallback((raw: AuthSettings | null | undefined) => {
     let cfg = normalize(raw);
-    // Lokal bekannte IDs behalten, wenn die model.json keine (gültigen) liefert
+    // keep locally known IDs if the model.json provides no (valid) ones
     const prev = readCache();
     if (!isValidIds(cfg) && isValidIds(prev)) {
       cfg = { ...(cfg ?? { enabled: false, tenantId: '', clientId: '' }), tenantId: prev.tenantId, clientId: prev.clientId };
@@ -240,7 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     writeCache(cfg);
     setConfig(cfg);
     configRef.current = cfg;
-    // Stufe mit den neuen Rollen neu berechnen
+    // recompute the level with the new roles
     if (accountRef.current) setUser(toUser(accountRef.current, cfg));
     const needLogin = cfg?.enabled === true || sharePointMode();
     if (!needLogin) { setStatus('disabled'); return; }
@@ -257,16 +257,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void startMsal(ids);
   }, [startMsal]);
 
-  // IDs für diesen Browser hinterlegen (Einrichtungsdialog / Link / Datei)
+  // store IDs for this browser (setup dialog / link / file)
   const setLocalIds = useCallback((tenantId: string, clientId: string) => {
     const prev = readCache();
     const cfg: AuthConfig = { ...(prev ?? { enabled: false, tenantId: '', clientId: '' }), tenantId: tenantId.trim(), clientId: clientId.trim() };
     applyConfig(cfg);
   }, [applyConfig]);
 
-  // Start: Einrichtungs-Link auswerten, dann zuletzt bekannte Konfiguration
-  // anwenden (z. B. Rückkehr vom Microsoft-Login); die model.json des Ordners
-  // aktualisiert sie anschliessend über applyConfig
+  // Start: evaluate the setup link, then apply the last known configuration
+  // (e.g. return from the Microsoft login); the model.json of the folder
+  // then updates it via applyConfig
   const appliedRef = useRef(false);
   useEffect(() => {
     if (appliedRef.current) return;
@@ -296,8 +296,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const account = pca.getActiveAccount();
     try {
       if (account) {
-        // Schon angemeldet: Graph-Token still holen; klappt das nicht (z. B.
-        // fehlende Zustimmung oder fremde Browser-Sitzung), interaktiv nachholen
+        // Already signed in: get the Graph token silently; if that does not work (e.g.
+        // missing consent or a foreign browser session), catch up interactively
         try {
           await pca.acquireTokenSilent({ scopes: GRAPH_LOGIN_SCOPES, account });
           return 'ready';
@@ -331,8 +331,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       const code = (e as { errorCode?: string })?.errorCode ?? (e instanceof Error ? e.name : 'unbekannt');
       console.warn('[orch-spec] acquireTokenSilent:', code, e);
-      // Stille Erneuerung gescheitert (fehlende Zustimmung, abgelaufene oder
-      // fremde Browser-Sitzung) → einmal interaktiv; Schleifenschutz pro Sitzung
+      // Silent renewal failed (missing consent, expired or
+      // foreign browser session) → once interactively; loop protection per session
       const guardKey = `orch-spec.tokenRedirect:${scopes.join(' ')}`;
       const last = Number(sessionStorage.getItem(guardKey) ?? 0);
       if (Date.now() - last > 20_000) {
@@ -390,18 +390,18 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
-// Was darf die aktuelle Person? Ohne aktive Anmeldung: alles.
+// What may the current person do? Without active sign-in: everything.
 /**
- * Wer schreibt gerade? Für Kommentare. Ohne Anmeldung (Entwicklung, lokaler
- * Ordner ohne Entra) gibt es keinen Namen — dann steht «Ich» daneben, was
- * ehrlicher ist als ein erfundener.
+ * Who is writing right now? For comments. Without sign-in (development, local
+ * folder without Entra) there is no name — then «Ich» is shown, which
+ * is more honest than an invented one.
  */
 export function useAuthorName(): string {
   const { user } = useAuth();
   return user?.name?.trim() || 'Ich';
 }
 
-/** Name und — mit Anmeldung — E-Mail der schreibenden Person. */
+/** Name and — with sign-in — e-mail of the person writing. */
 export function useAuthor(): { name: string; email?: string } {
   const { user } = useAuth();
   const name = user?.name?.trim() || 'Ich';
@@ -416,8 +416,8 @@ export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEd
     canAdmin: level === 'admin',
     canEdit: level === 'admin' || level === 'reviewer',
     canView: level !== 'none',
-    // Löschen ganzer Spezifikationen: nur mit Admin-Rolle — oder ohne
-    // Anmeldepflicht, denn dann gilt ohnehin «alles erlaubt» (level admin).
+    // Deleting whole specifications: only with the admin role — or without
+    // mandatory sign-in, because then «everything allowed» applies anyway (level admin).
     canDelete: level === 'admin',
   };
 }

@@ -1,12 +1,12 @@
-// Admin: Epics — Klammern über mehrere Prozesse, z. B. ein Change.
+// Admin: epics — brackets over several processes, e.g. a change.
 //
-// Anlegen, umbenennen, abschliessen und löschen darf nur ein Admin (die
-// Liste liegt in der model.json); zuordnen kann am Prozess, wer bearbeitet.
-// Die ID entsteht beim Anlegen aus dem Namen und bleibt — ein Umbenennen
-// ändert nur die Anzeige, die Spezifikationen tragen weiter dieselbe ID.
+// Only an admin may create, rename, close and delete (the
+// list lives in the model.json); whoever edits can assign on the process.
+// The ID is created from the name on creation and stays — a rename
+// only changes the display, the specifications keep carrying the same ID.
 //
-// Abschliessen statt löschen: ein abgeschlossenes Epic lässt sich nicht mehr
-// zuweisen, bleibt aber am Prozess sichtbar und in der Übersicht filterbar.
+// Close instead of delete: a closed epic can no longer be
+// assigned, but stays visible on the process and filterable in the overview.
 import { useState } from 'react';
 import { ExternalLink, Flag, Plus, Trash2 } from 'lucide-react';
 import type { EpicDef, Model, ProcessSpec } from '../types';
@@ -17,7 +17,7 @@ import { useConfirm } from './Confirm';
 
 type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 
-/** Zustand für Statusleiste und Kartenkopf */
+/** State for the status bar and the card header */
 export function epicState(model: Model): { tone: AdminTone; label: string; detail?: string } {
   const all = model.epics ?? [];
   if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Epics angelegt' };
@@ -46,7 +46,7 @@ export default function EpicAdmin({ model, specs, isDark, onSave, state }: {
   const hinzufuegen = () => {
     const name = neu.trim();
     if (!name) return;
-    // auch IDs gelöschter Epics, die noch in Spezifikationen stehen, sind vergeben
+    // IDs of deleted epics that are still in specifications are taken too
     const taken = [...draft.map(e => e.id), ...specs.flatMap(s => s.epics ?? [])];
     setDraft(d => [...d, { id: newEpicId(name, taken), name }]);
     setNeu('');

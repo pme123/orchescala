@@ -1,13 +1,13 @@
-// Teams-Benachrichtigung über Microsoft Graph — wie im arch-review: die
-// kommentierende Person schickt der erwähnten Person eine persönliche
-// Chat-Nachricht (1:1-Chat). Delegiert — die Nachricht kommt von der Person
-// selbst, nicht von einem Dienst. Ablauf je Empfänger/in: Benutzer auflösen
-// (id für den @-Mention), 1:1-Chat anlegen (Graph gibt den bestehenden
-// zurück), Nachricht senden.
+// Teams notification via Microsoft Graph — like in arch-review: the
+// commenting person sends the mentioned person a personal
+// chat message (1:1 chat). Delegated — the message comes from the person
+// themselves, not from a service. Flow per recipient: resolve the user
+// (id for the @-mention), create the 1:1 chat (Graph returns the existing
+// one), send the message.
 //
-// Entwicklung: ?teamsmock simuliert Graph (Konsole statt Chat),
-// ?teamsfail=consent|forbidden simuliert fehlende Berechtigungen,
-// ?teamsdelay=<Sekunden> überschreibt die Wartezeit.
+// Development: ?teamsmock simulates Graph (console instead of chat),
+// ?teamsfail=consent|forbidden simulates missing permissions,
+// ?teamsdelay=<seconds> overrides the wait time.
 import type { TeamsNotifySettings } from './types';
 
 export const TEAMS_SCOPES = ['Chat.Create', 'ChatMessage.Send', 'User.ReadBasic.All'];
@@ -34,19 +34,19 @@ export const escapeHtml = (s: string) => s
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export interface TeamsCommentLine {
-  /** die Stelle, z. B. «Get Responsible User · Eingabe consultantQuery» */
+  /** the place, e.g. «Get Responsible User · Eingabe consultantQuery» */
   place: string;
   text: string;
-  /** Deep Link auf den Kommentar */
+  /** Deep link to the comment */
   link: string;
-  /** Antwort auf einen Kommentar der Empfängerin */
+  /** Reply to a comment of the recipient */
   reply?: boolean;
 }
 
 /**
- * Nachricht als HTML: Vorlage (Klartext mit Platzhaltern) → Zeilenumbrüche zu
- * `<br>`, `{{empfaenger}}` wird zum echten @-Mention (`<at id="0">`), die
- * Kommentare zu einem festen Block je Kommentar mit Link.
+ * Message as HTML: template (plain text with placeholders) → line breaks to
+ * `<br>`, `{{empfaenger}}` becomes a real @-mention (`<at id="0">`), the
+ * comments a fixed block per comment with a link.
  */
 export function buildTeamsHtml(opts: {
   template?: string;
@@ -70,7 +70,7 @@ export function buildTeamsHtml(opts: {
     kommentare,
     link: `<a href="${escapeHtml(opts.processLink)}">Prozess öffnen</a>`,
   };
-  // Vorlage escapen, Platzhalter danach durch (bereits sicheres) HTML ersetzen
+  // escape the template, then replace placeholders with (already safe) HTML
   return escapeHtml(tpl)
     .replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k: string) => (k in vars ? vars[k] : m))
     .replace(/\n/g, '<br>');
@@ -104,7 +104,7 @@ export async function resolveTeamsUser(token: string, email: string): Promise<{ 
   return { id: String(u.id), displayName: String(u.displayName ?? email) };
 }
 
-/** 1:1-Chat anlegen — existiert er schon, liefert Graph den bestehenden. */
+/** Create the 1:1 chat — if it already exists, Graph returns the existing one. */
 export async function ensureOneOnOneChat(token: string, myId: string, otherId: string): Promise<string> {
   if (teamsMock()) return `mock-chat-${otherId}`;
   const member = (id: string) => ({

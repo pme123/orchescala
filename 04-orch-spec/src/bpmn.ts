@@ -1,14 +1,14 @@
-// BPMN → Spezifikation.
+// BPMN → specification.
 //
-// Der Kern des PoC: aus der **Implementation** (der BPMN-Datei) wird die
-// Struktur der Spezifikation abgeleitet. Aus dem flachen BPMN-Graph wird ein
-// **Baum**: Gateways bekommen ihre Zweige bis zur Zusammenführung, Subprozesse
-// ihre Kinder, Rücksprünge werden als Schleife markiert. Das ist die Grundlage
-// für «guter Überblick», «Gateways und Loops sichtbar» und «Details einklappen».
+// The core of the PoC: the structure of the specification is derived from the
+// **implementation** (the BPMN file). The flat BPMN graph becomes a
+// **tree**: gateways get their branches up to the join, subprocesses
+// their children, jumps back are marked as a loop. This is the basis
+// for «guter Überblick», «Gateways und Loops sichtbar» and «Details einklappen».
 //
-// Fachliche Texte (description/notes/open) gehören der Spezifikation und
-// werden beim erneuten Import über die stabile BPMN-Element-ID **behalten**
-// (siehe `mergeSpec`) — die Implementation aktualisiert nur die Struktur.
+// Business texts (description/notes/open) belong to the specification and
+// are **kept** on re-import via the stable BPMN element ID
+// (see `mergeSpec`) — the implementation only updates the structure.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
 import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
@@ -23,8 +23,8 @@ const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
 const ZEEBE_NS = 'http://camunda.org/schema/zeebe/1.0';
 
-// Der Browser-DOMParser liefert `localName` ohne Prefix; einfachere
-// XML-Parser (Node-Werkzeuge) lassen den Prefix stehen — beides abfangen.
+// The browser DOMParser returns `localName` without prefix; simpler
+// XML parsers (Node tools) keep the prefix — handle both.
 const local = (el: Element): string => {
   const n = el.localName || el.tagName || '';
   const i = n.indexOf(':');
@@ -35,8 +35,8 @@ const childrenNamed = (el: Element, name: string) => kids(el).filter(c => local(
 const firstNamed = (el: Element, name: string): Element | null =>
   kids(el).find(c => local(c) === name) ?? null;
 
-// Attribut ohne Namespace-Gefrickel (Camunda-Attribute stehen im camunda-NS,
-// bei manchen Exporten aber auch unqualifiziert)
+// Attribute without namespace fiddling (Camunda attributes are in the camunda NS,
+// but in some exports also unqualified)
 function attr(el: Element, name: string): string | undefined {
   const ns = (uri: string) => {
     try { return el.getAttributeNS(uri, name); } catch { return null; }
@@ -51,11 +51,11 @@ function attr(el: Element, name: string): string | undefined {
 
 const text = (el: Element | null): string => (el?.textContent ?? '').trim();
 
-// `name=""` kommt in gezeichneten Modellen oft vor und muss wie «kein Name»
-// behandelt werden — sonst stehen leere Zeilen im Baum.
+// `name=""` is common in drawn models and must be treated like «no name»
+// — otherwise there are empty rows in the tree.
 const nameOf = (el: Element): string => (el.getAttribute('name') ?? '').trim();
 
-// alle Nachfahren mit diesem lokalen Namen (namespace-tolerant)
+// all descendants with this local name (namespace-tolerant)
 function elementsNamed(root: Element | null, name: string): Element[] {
   const out: Element[] = [];
   const visit = (el: Element) => {
@@ -66,7 +66,7 @@ function elementsNamed(root: Element | null, name: string): Element[] {
   return out;
 }
 
-// ── BPMN-Typ → Schritt-Art ───────────────────────────────────────────────────
+// ── BPMN type → step kind ────────────────────────────────────────────────────
 const KIND_BY_TAG: Record<string, StepKind> = {
   startEvent: 'start',
   endEvent: 'end',
@@ -101,7 +101,7 @@ const GATEWAY_TYPE: Record<string, GatewayType> = {
 
 const FLOW_NODE_TAGS = new Set(Object.keys(KIND_BY_TAG));
 
-// ── Ereignis-Details ─────────────────────────────────────────────────────────
+// ── Event details ────────────────────────────────────────────────────────────
 function eventKindOf(el: Element): Step['eventKind'] {
   for (const c of kids(el)) {
     const n = local(c);
@@ -119,14 +119,14 @@ function eventKindOf(el: Element): Step['eventKind'] {
 
 const TIMER_KINDS: Record<string, TimerSpec['kind']> = { timeDuration: 'duration', timeDate: 'date', timeCycle: 'cycle' };
 
-/** Die Variable eines Timers — `= timerEscalationCancel`; null bei festem Text oder einem Ausdruck */
+/** The variable of a timer — `= timerEscalationCancel`; null for fixed text or an expression */
 export function timerVariable(timer: TimerSpec | undefined): string | null {
   const m = /^=\s*([A-Za-z_]\w*)\s*$/.exec(timer?.expression?.trim() ?? '');
   return m ? m[1] : null;
 }
 
 
-/** Der Timer eines Ereignisses — als FEEL wie die Mappings: `${timerX}` → `= timerX`, `P7D` bleibt Text */
+/** The timer of an event — as FEEL like the mappings: `${timerX}` → `= timerX`, `P7D` stays text */
 function timerOf(el: Element): TimerSpec | undefined {
   const def = kids(el).find(c => local(c) === 'timerEventDefinition');
   if (!def) return undefined;
@@ -137,26 +137,26 @@ function timerOf(el: Element): TimerSpec | undefined {
   return { kind: 'duration', expression: '' };
 }
 
-/** Boundary-Events, die keine Fehler sind — sie haben einen eigenen Abschnitt am Schritt */
+/** Boundary events that are not errors — they have their own section on the step */
 const EVENT_BOUNDARY_KINDS = new Set<string>(['signal', 'message', 'escalation']);
 
-/** Ein Boundary-Event, das kein Fehler ist (Signal, Nachricht, Eskalation)? */
+/** A boundary event that is not an error (signal, message, escalation)? */
 export const isEventBoundary = (e: ErrorHandling): boolean =>
   !!e.boundary && EVENT_BOUNDARY_KINDS.has(e.eventKind ?? 'none');
 
-/** Wie ein Eintrag heisst — Fehler, Nebenpfad oder die Art des Ereignisses */
+/** What an entry is called — error, side path or the kind of event */
 export function boundaryLabel(e: ErrorHandling): string {
   if (isEventBoundary(e)) return EVENT_LABEL[e.eventKind!];
   return e.side ? 'Nebenpfad' : 'Fehler';
 }
 
-/** Der Korrelationsschlüssel der Nachricht, auf die das Element wartet (Camunda 8) */
+/** The correlation key of the message the element waits for (Camunda 8) */
 function correlationKeyOf(el: Element, ctx: Pick<BuildCtx, 'correlationKeys'>): string | undefined {
   const def = local(el) === 'receiveTask' ? el : kids(el).find(c => local(c) === 'messageEventDefinition');
   return ctx.correlationKeys.get(def?.getAttribute('messageRef') ?? '');
 }
 
-/** Name des Signals bzw. der Nachricht eines Ereignisses — über `signalRef` / `messageRef` */
+/** Name of the signal or message of an event — via `signalRef` / `messageRef` */
 function signalRefOf(el: Element, defs: Map<string, string>): string | undefined {
   for (const c of kids(el)) {
     const n = local(c);
@@ -167,7 +167,7 @@ function signalRefOf(el: Element, defs: Map<string, string>): string | undefined
   return undefined;
 }
 
-// `errorRef` zeigt auf ein <bpmn:error>; interessant ist dessen errorCode/name.
+// `errorRef` points to a <bpmn:error>; what matters is its errorCode/name.
 function errorCodeOf(el: Element, errors: Map<string, string>): string | undefined {
   for (const c of kids(el)) {
     if (!local(c).endsWith('EventDefinition')) continue;
@@ -179,10 +179,10 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
   return undefined;
 }
 
-// ── Ein-/Ausgaben ────────────────────────────────────────────────────────────
-/** Ein fachlicher Parameterwert: Text wird JUEL → FEEL; Skript, Liste und Map bleiben beschreibend. */
+// ── Inputs/outputs ───────────────────────────────────────────────────────────
+/** A business parameter value: text becomes JUEL → FEEL; script, list and map stay descriptive. */
 function fachlich(p: Element): string {
-  // ein Skript, das der Export aus FEEL gemacht hat (JSON für Camunda 7): das FEEL steht in der ersten Zeile
+  // a script the export made from FEEL (JSON for Camunda 7): the FEEL is in the first line
   const script = firstNamed(p, 'script');
   const fromFeel = script ? /^\s*\/\/ FEEL: (.+)$/m.exec(text(script).split('\n').find(l => l.trim()) ?? '') : null;
   if (fromFeel) return `= ${fromFeel[1].trim()}`;
@@ -201,10 +201,10 @@ function paramValue(p: Element): string {
 }
 
 /**
- * Der Mapping-Wert eines Parameters, so wie der Import ihn liest — für
- * `inputParameter`/`outputParameter`, `camunda:in`/`out` und `zeebe:input`/
- * `output`. Der Export vergleicht damit: was gleich geblieben ist, bleibt
- * im BPMN wörtlich stehen (samt Spin-Idiom, `#{…}` und Skript).
+ * The mapping value of a parameter, as the import reads it — for
+ * `inputParameter`/`outputParameter`, `camunda:in`/`out` and `zeebe:input`/
+ * `output`. The export compares against it: what stayed the same stays
+ * verbatim in the BPMN (including the Spin idiom, `#{…}` and script).
  */
 export function paramExpression(p: Element): string {
   const n = local(p);
@@ -217,9 +217,9 @@ export function paramExpression(p: Element): string {
   return /^=/.test(source) ? `= ${source.slice(1).trim()}` : source;
 }
 
-// Technische Orchescala-Parameter — nicht Teil der fachlichen Spezifikation,
-// aber für den Orchescala-Export relevant (deshalb separat gesammelt).
-/** Steuerparameter, die kein fachliches Mapping sind — bleiben beim Schreiben stehen. */
+// Technical Orchescala parameters — not part of the business specification,
+// but relevant for the Orchescala export (hence collected separately).
+/** Control parameters that are not a business mapping — kept when writing. */
 export const TECHNICAL = new Set([
   '_handledErrors', '_regexHandledErrors', '_outputVariables', '_outputMock',
   '_outputServiceMock', '_manualOutMapping', '_servicesMocked', '_mockedWorkers',
@@ -227,17 +227,17 @@ export const TECHNICAL = new Set([
 ]);
 
 /**
- * Die allgemeinen Variablen von Orchescala (`GeneralVariables`): jeder Worker
- * nimmt sie entgegen, sie dürfen in jedem Schritt überschrieben werden — z. B.
- * `_idempotentId = processInstanceId`. Darum keine Erweiterung des Katalogs,
- * auch wenn sie nicht im In des Services stehen.
- * `_identityCorrelationPending` fehlt bewusst: das setzt nur die Engine.
+ * The general variables of Orchescala (`GeneralVariables`): every worker
+ * accepts them, they may be overridden in any step — e.g.
+ * `_idempotentId = processInstanceId`. Hence no extension of the catalog,
+ * even though they are not in the service's In.
+ * `_identityCorrelationPending` is deliberately missing: only the engine sets it.
  */
 export const GENERAL_VARIABLES = new Set([
   '_servicesMocked', '_mockedWorkers', '_outputMock', '_outputServiceMock',
   '_manualOutMapping', '_outputVariables', '_handledErrors', '_regexHandledErrors',
   '_identityCorrelation', '_idempotentId',
-  // veraltet, werden noch gelesen
+  // deprecated, still read
   'impersonateUserId', 'servicesMocked', 'mockedWorkers', 'outputMock', 'outputServiceMock',
   'manualOutMapping', 'outputVariables', 'handledErrors', 'regexHandledErrors',
 ]);
@@ -247,37 +247,37 @@ interface IoResult {
   outputs: Mapping[];
   technical: Mapping[];
   handledErrors: string[];
-  /** `_regexHandledErrors`: reguläre Ausdrücke für die Codes */
+  /** `_regexHandledErrors`: regular expressions for the codes */
   regexErrors: string[];
   mock?: string;
   mockKind?: 'output' | 'service';
 }
 
-/** fester Text aus einer zeebe-Quelle: `="a, b"` → `a, b`; alles andere, wie es steht */
+/** fixed text from a zeebe source: `="a, b"` → `a, b`; everything else as it is */
 function feelText(source: string): string {
   const t = source.trim();
   const lit = /^=\s*"((?:[^"\\]|\\.)*)"$/.exec(t);
   return lit ? lit[1].replace(/\\(["\\])/g, '$1') : t;
 }
 
-/** Name des Mock-Felds im `InConfig` für einen Schritt: «Create Contract» → `createContractMock` */
+/** Name of the mock field in the `InConfig` for a step: «Create Contract» → `createContractMock` */
 export function mockField(name: string): string {
   return `${name.replace(/[^A-Za-z0-9]/g, '').replace(/^(.)/, c => c.toLowerCase())}Mock`;
 }
 
 /**
- * Das Feld im InConfig, auf das der Mock des Schritts zeigt — wie im BPMN:
+ * The field in the InConfig the step's mock points to — as in the BPMN:
  * `#{execution.getVariable('getPoasMock')}`, `${getPoasMock}`, `=getPoasMock`
- * oder `getPoasMock`. Ohne solchen Verweis der Name aus dem Schritt (`mockField`) —
- * ebenso, wenn der Verweis eine allgemeine Variable ist (`_outputMock`): die gehört
- * nicht ins InConfig.
+ * or `getPoasMock`. Without such a reference, the name from the step (`mockField`) —
+ * likewise if the reference is a general variable (`_outputMock`): that does not
+ * belong in the InConfig.
  */
 export function mockFieldOf(step: { name: string; mock?: string }): string {
   const v = mockRef(step.mock);
   return v && !GENERAL_VARIABLES.has(v) && !v.startsWith('_') ? v : mockField(step.name);
 }
 
-/** Die Variable, die ein Mock-Wert im BPMN liest (`getPoasMock`, auch `_outputMock`) — null ohne */
+/** The variable a mock value reads in the BPMN (`getPoasMock`, also `_outputMock`) — null if none */
 export function mockRef(mock: string | undefined): string | null {
   const m = mock?.trim() ?? '';
   const v = /^#\{\s*execution\.getVariable\(\s*['"](\w+)['"]\s*\)\s*\}$/.exec(m)
@@ -285,8 +285,8 @@ export function mockRef(mock: string | undefined): string | null {
   return v ? v[1] : null;
 }
 
-/** Service-Worker: ein Service aus dem Katalog — nur er kennt `_outputServiceMock` */
-/** Die Zuständigkeit einer Benutzeraufgabe — Camunda 7 am Element, Camunda 8 in `zeebe:assignmentDefinition` */
+/** Service worker: a service from the catalog — only it knows `_outputServiceMock` */
+/** The assignment of a user task — Camunda 7 on the element, Camunda 8 in `zeebe:assignmentDefinition` */
 export const ASSIGNMENT_KEYS = ['assignee', 'candidateGroups', 'candidateUsers'] as const;
 
 export const isServiceWorker = (s: Step): boolean => s.kind === 'service' && (!!s.serviceId || s.mockKind === 'service');
@@ -310,8 +310,8 @@ function readIo(el: Element): IoResult {
         if (source) res.mock = source;
         continue;
       }
-      // `source` ist ein Variablenname, `sourceExpression` ein JUEL-Ausdruck —
-      // beides wird zu FEEL, der Sprache der Spezifikation
+      // `source` is a variable name, `sourceExpression` a JUEL expression —
+      // both become FEEL, the language of the specification
       const plain = attr(c, 'source');
       const expression = plain != null ? `= ${plain}` : importExpression(source ?? '');
       const m: Mapping = { name: target, expression };
@@ -319,15 +319,15 @@ function readIo(el: Element): IoResult {
     }
   }
 
-  // Camunda 8: <zeebe:ioMapping><zeebe:input source="=…" target="x"/> — die
-  // Quelle ist FEEL (`=…`) oder ein fester Text, das Ziel die Variable.
+  // Camunda 8: <zeebe:ioMapping><zeebe:input source="=…" target="x"/> — the
+  // source is FEEL (`=…`) or a fixed text, the target the variable.
   const zio = firstNamed(ext, 'ioMapping');
   if (zio) {
     for (const p of childrenNamed(zio, 'input')) {
       const target = attr(p, 'target') ?? '';
       if (!target) continue;
       const source = attr(p, 'source') ?? '';
-      // Steuerparameter wie in Camunda 7: behandelte Fehler und Mock am Schritt
+      // Control parameters as in Camunda 7: handled errors and mock on the step
       if (target === '_handledErrors' || target === '_regexHandledErrors') {
         (target === '_handledErrors' ? res.handledErrors : res.regexErrors).push(...parseErrorList(source));
         continue;
@@ -365,16 +365,16 @@ function readIo(el: Element): IoResult {
   return res;
 }
 
-// ── Graph eines Scopes (Prozess oder Subprozess) ─────────────────────────────
+// ── Graph of a scope (process or subprocess) ─────────────────────────────────
 interface Flow { id: string; source: string; target: string; name?: string; condition?: string }
 
 interface Scope {
   nodes: Map<string, Element>;
   out: Map<string, Flow[]>;
   inCount: Map<string, number>;
-  boundaries: Map<string, Element[]>;   // attachedToRef → Boundary-Events
-  boundaryOut: Map<string, Flow[]>;     // Boundary-Event-ID → ausgehende Flows
-  /** fangende Ereignisse, die nur ein werfendes fortsetzen (kein eigener Schritt) */
+  boundaries: Map<string, Element[]>;   // attachedToRef → boundary events
+  boundaryOut: Map<string, Flow[]>;     // boundary event ID → outgoing flows
+  /** catching events that only continue a throwing one (not a step of their own) */
   linkedCatch: Set<string>;
   starts: string[];
 }
@@ -408,19 +408,19 @@ function readScope(container: Element): Scope {
   for (const el of childrenNamed(container, 'sequenceFlow')) {
     const source = el.getAttribute('sourceRef') ?? '';
     const target = el.getAttribute('targetRef') ?? '';
-    if (!nodes.has(source) || !nodes.has(target)) continue; // z. B. von Boundary-Events
+    if (!nodes.has(source) || !nodes.has(target)) continue; // e.g. from boundary events
     const f: Flow = {
       id: el.getAttribute('id') ?? '',
       source, target,
       name: nameOf(el) || undefined,
-      // die null-sichere Hülle von Camunda 8 (`(…) = true`) gehört dem Export, nicht der Spezifikation
+      // the null-safe wrapper of Camunda 8 (`(…) = true`) belongs to the export, not the specification
       condition: stripNullSafe(importExpression(text(firstNamed(el, 'conditionExpression')))) || undefined,
     };
     out.set(source, [...(out.get(source) ?? []), f]);
     inCount.set(target, (inCount.get(target) ?? 0) + 1);
   }
 
-  // Flows ab einem Boundary-Event beginnen einen eigenen Pfad (Fehlerbehandlung)
+  // Flows from a boundary event start a path of their own (error handling)
   for (const el of childrenNamed(container, 'sequenceFlow')) {
     const source = el.getAttribute('sourceRef') ?? '';
     if (!boundaryIds.has(source)) continue;
@@ -430,10 +430,10 @@ function readScope(container: Element): Scope {
     boundaryOut.set(source, [...(boundaryOut.get(source) ?? []), f]);
   }
 
-  // Orchescala-Muster: ein **werfendes** Zwischenereignis ohne Ausgang wird von
-  // dem gleichnamigen **fangenden** Zwischenereignis ohne Eingang fortgesetzt
-  // (kein eventDefinition, die Paarung läuft über den Namen). Ohne diese Kante
-  // brechen Pfade wie «output-mocked» oder «send Process Event» mittendrin ab.
+  // Orchescala pattern: a **throwing** intermediate event without outgoing flow is
+  // continued by the **catching** intermediate event of the same name without incoming flow
+  // (no eventDefinition, the pairing goes via the name). Without this edge
+  // paths like «output-mocked» or «send Process Event» break off midway.
   const catchByName = new Map<string, string>();
   for (const [id, el] of nodes) {
     if (local(el) !== 'intermediateCatchEvent' || inCount.get(id)) continue;
@@ -450,28 +450,28 @@ function readScope(container: Element): Scope {
   }
 
   if (!starts.length && nodes.size) {
-    // kein Start-Event: Knoten ohne eingehende Kante nehmen
+    // no start event: take nodes without incoming edge
     for (const id of nodes.keys()) if (!inCount.get(id)) starts.push(id);
   }
   return { nodes, out, inCount, boundaries, boundaryOut, linkedCatch, starts };
 }
 
-// Zusammenführung eines Splits finden.
+// Find the join of a split.
 //
-// Gesucht ist nicht irgendein gemeinsam erreichbarer Knoten, sondern der
-// nächste, den **jeder** Pfad ab dem Gateway passieren muss (Post-Dominator).
-// Nur so bleibt der Zweig genau der Block bis zur Zusammenführung — sonst
-// steht der halbe Prozess in jedem Zweig.
+// What we want is not just any commonly reachable node, but the
+// next one that **every** path from the gateway must pass (post-dominator).
+// Only then the branch stays exactly the block up to the join — otherwise
+// half of the process ends up in every branch.
 function postDominates(scope: Scope, splitId: string, m: string, stops: Set<string>): boolean {
   const seen = new Set<string>();
   const stack = (scope.out.get(splitId) ?? []).map(f => f.target);
   while (stack.length) {
     const id = stack.pop()!;
-    if (id === m || id === splitId || seen.has(id)) continue; // Ziel bzw. Schleife
+    if (id === m || id === splitId || seen.has(id)) continue; // target or loop
     seen.add(id);
-    if (stops.has(id)) return false;              // Block verlassen, ohne m
+    if (stops.has(id)) return false;              // left the block without m
     const outs = scope.out.get(id) ?? [];
-    if (!outs.length) return false;               // Ende erreicht, ohne m
+    if (!outs.length) return false;               // reached the end without m
     for (const f of outs) stack.push(f.target);
   }
   return true;
@@ -481,7 +481,7 @@ function findMerge(scope: Scope, splitId: string, stops: Set<string> = new Set()
   const branchTargets = (scope.out.get(splitId) ?? []).map(f => f.target);
   if (branchTargets.length < 2) return null;
 
-  // je Zweig die erreichbaren Knoten, in Breitensuche-Reihenfolge (nah zuerst)
+  // per branch the reachable nodes, in breadth-first order (near first)
   const reach = branchTargets.map(t => {
     const seen = new Set<string>();
     const order: string[] = [];
@@ -500,32 +500,32 @@ function findMerge(scope: Scope, splitId: string, stops: Set<string> = new Set()
     if (!reach.every(r => r.seen.has(id))) continue;
     if (postDominates(scope, splitId, id, stops)) return id;
   }
-  // Kein gemeinsamer Punkt (z. B. Zweige enden je in einem eigenen Ende):
-  // dann endet der Zweig am nächsten Stopp des umschliessenden Blocks.
+  // No common point (e.g. branches each end in their own end):
+  // then the branch ends at the next stop of the enclosing block.
   for (const id of reach[0].order) if (stops.has(id)) return id;
   return null;
 }
 
-// ── Struktur aufbauen ────────────────────────────────────────────────────────
+// ── Build the structure ──────────────────────────────────────────────────────
 interface BuildCtx {
   doc: Document;
-  /** Prozess-ID — der Schritt mit diesem Topic ist der Init-Worker */
+  /** Process ID — the step with this topic is the init worker */
   processId: string;
-  /** Ausgaben des Init-Workers, der nicht als Schritt erscheint */
+  /** Outputs of the init worker, which does not appear as a step */
   initOutputs: Mapping[];
   byId: Map<string, Step>;
   order: string[];
-  /** <bpmn:error> id → errorCode bzw. name */
+  /** <bpmn:error> id → errorCode or name */
   errors: Map<string, string>;
   /** <bpmn:signal> / <bpmn:message> id → name */
   signals: Map<string, string>;
-  /** <bpmn:message> id → Korrelationsschlüssel (Camunda 8: `zeebe:subscription`) */
+  /** <bpmn:message> id → correlation key (Camunda 8: `zeebe:subscription`) */
   correlationKeys: Map<string, string>;
-  /** alle Knoten aller Ebenen — für die Meldung «nicht erreichbar» */
+  /** all nodes of all levels — for the message «nicht erreichbar» */
   allNodes: Map<string, string>;
-  /** Element-ID → Pattern, zu dem es gehört (Pfade und Blöcke eines Patterns) */
+  /** element ID → pattern it belongs to (paths and blocks of a pattern) */
   owned: Map<string, string>;
-  /** Knoten → einziger Nachfolger (löst entfernte Zusammenführungen auf) */
+  /** node → single successor (resolves removed joins) */
   succ: Map<string, string>;
 }
 
@@ -536,17 +536,17 @@ function branchLabel(f: Flow, isDefault: boolean, index: number): string {
   return `Pfad ${index + 1}`;
 }
 
-// Nicht verbundene Blöcke anhängen.
+// Attach unconnected blocks.
 //
-// Ereignis-Subprozesse und die Ziele von Link-Ereignissen, deren Gegenstück
-// nicht über den Namen zu erkennen war, hängen an keinem Sequenzfluss. Sie
-// gehören trotzdem zum Prozess — sie kommen als eigene Blöcke ans Ende, statt
-// stillschweigend zu verschwinden.
+// Event subprocesses and the targets of link events whose counterpart
+// could not be recognized by name hang on no sequence flow. They
+// still belong to the process — they are appended as blocks of their own at the end
+// instead of silently disappearing.
 function appendOrphans(ctx: BuildCtx, scope: Scope, steps: Step[]) {
   for (let guard = 0; guard < 50; guard++) {
     const missing = [...scope.nodes.keys()].filter(id => !ctx.byId.has(id));
     if (!missing.length) return;
-    // bevorzugt echte Einstiegspunkte (ohne eingehende Kante), sonst irgendeinen
+    // prefers real entry points (without incoming edge), otherwise any
     const roots = missing.filter(id => !scope.inCount.get(id));
     const before = ctx.byId.size;
     for (const id of roots.length ? roots : [missing[0]]) {
@@ -555,7 +555,7 @@ function appendOrphans(ctx: BuildCtx, scope: Scope, steps: Step[]) {
       if (block[0]) block[0].orphan = true;
       steps.push(...block);
     }
-    if (ctx.byId.size === before) return; // kein Fortschritt — abbrechen
+    if (ctx.byId.size === before) return; // no progress — abort
   }
 }
 
@@ -576,9 +576,9 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     id,
     kind,
     name: nameOf(el) || defaultName(tag, id),
-    status: 'implemented', // aus der Implementation gelesen
+    status: 'implemented', // read from the implementation
   };
-  // früh registrieren: Rücksprünge aus Fehlerpfaden markieren die Schleife hier
+  // register early: jumps back from error paths mark the loop here
   ctx.byId.set(id, step);
   ctx.order.push(id);
 
@@ -604,18 +604,18 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const name = ref ? ctx.signals.get(ref) : undefined;
     if (name) step.messageName = name;
   }
-  // wer auf eine Nachricht wartet, wird in Camunda 8 über ihren Schlüssel gefunden
+  // whoever waits for a message is found in Camunda 8 via its key
   if (kind === 'receive' || (kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch')) {
     const key = correlationKeyOf(el, ctx);
     if (key) step.correlationKey = key;
   }
 
   const ext = firstNamed(el, 'extensionElements');
-  // Benutzeraufgabe: wer sie bearbeiten darf
-  // (Camunda 7 am Element, Camunda 8 in zeebe:assignmentDefinition)
+  // User task: who may work on it
+  // (Camunda 7 on the element, Camunda 8 in zeebe:assignmentDefinition)
   if (kind === 'user') {
     const assign = ext ? firstNamed(ext, 'assignmentDefinition') : null;
-    // als FEEL, wie die Mappings: `${kokRole}` → `= kokRole`, fester Text bleibt Text
+    // as FEEL, like the mappings: `${kokRole}` → `= kokRole`, fixed text stays text
     for (const key of ASSIGNMENT_KEYS) {
       const value = attr(el, key) ?? (assign ? attr(assign, key) : undefined);
       if (value?.trim()) step[key] = importExpression(value);
@@ -624,28 +624,28 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 
   const template = attr(el, 'modelerTemplate');
   if (template) step.serviceId = template;
-  // Camunda 7: camunda:topic am Element; Camunda 8: zeebe:taskDefinition type="…"
+  // Camunda 7: camunda:topic on the element; Camunda 8: zeebe:taskDefinition type="…"
   const taskDef = ext ? firstNamed(ext, 'taskDefinition') : null;
   const topic = attr(el, 'topic') ?? (taskDef ? attr(taskDef, 'type') : undefined);
   if (topic) step.topic = topic;
-  // Entscheidung: die Decision Reference ist der Schlüssel in den DMN-Katalog
-  // (Camunda 7 am Element, Camunda 8 in zeebe:calledDecision)
+  // Decision: the decision reference is the key into the DMN catalog
+  // (Camunda 7 on the element, Camunda 8 in zeebe:calledDecision)
   const calledDecision = ext ? firstNamed(ext, 'calledDecision') : null;
   const decisionRef = attr(el, 'decisionRef') ?? (calledDecision ? attr(calledDecision, 'decisionId') : undefined);
   if (decisionRef && !step.topic) step.topic = decisionRef;
-  // … und wohin das Ergebnis geht, in welcher Form (Camunda 7: Vorgabe resultList)
+  // … and where the result goes, in which form (Camunda 7: default resultList)
   const resultVariable = attr(el, 'resultVariable') ?? (calledDecision ? attr(calledDecision, 'resultVariable') : undefined);
   if (decisionRef && resultVariable) step.resultVariable = resultVariable;
   const mapping = attr(el, 'mapDecisionResult');
   if (decisionRef && mapping && ['singleEntry', 'singleResult', 'collectEntries', 'resultList'].includes(mapping)) step.decisionResult = mapping as Step['decisionResult'];
-  // Camunda 7: calledElement am Element; Camunda 8: zeebe:calledElement processId="…"
+  // Camunda 7: calledElement on the element; Camunda 8: zeebe:calledElement processId="…"
   const calledEl = ext ? firstNamed(ext, 'calledElement') : null;
   const called = el.getAttribute('calledElement') ?? (calledEl ? attr(calledEl, 'processId') : undefined);
   if (called) step.calledProcess = called;
 
   const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
   if (mi) {
-    // Camunda 7: collection / elementVariable am Element; Camunda 8: zeebe:loopCharacteristics
+    // Camunda 7: collection / elementVariable on the element; Camunda 8: zeebe:loopCharacteristics
     const lc = firstNamed(mi, 'extensionElements');
     const zb = lc ? firstNamed(lc, 'loopCharacteristics') : null;
     const coll = (zb ? attr(zb, 'inputCollection') : undefined) ?? attr(mi, 'collection');
@@ -661,14 +661,14 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 
   if (io.inputs.length) step.inputs = io.inputs;
   if (io.outputs.length) step.outputs = io.outputs;
-  // `_outputVariables`: was der Service liefert und der Prozess braucht — ohne
-  // eigene Ausgaben (kein manuelles Mapping) sind das die Ausgaben selbst
+  // `_outputVariables`: what the service returns and the process needs — without
+  // own outputs (no manual mapping) these are the outputs themselves
   const ov = io.technical.find(m => m.name === '_outputVariables');
   const outVars = ov ? parseErrorList(ov.expression).filter(n => n && n.toUpperCase() !== 'NONE' && !n.startsWith('=')) : [];
-  // `NONE` (nichts) merken — fehlt `_outputVariables` oder ist es leer, liefert der Worker alles
+  // remember `NONE` (nothing) — if `_outputVariables` is missing or empty, the worker returns everything
   if (ov && (outVars.length || /^\s*NONE\s*$/i.test(ov.expression))) step.outputVariables = outVars;
   if (outVars.length && !io.outputs.length) step.outputs = outVars.map(name => ({ name, expression: `= ${name}`, fromService: true }));
-  // wie der Service seine Ausgaben zurückgibt — der Export behält es
+  // how the service returns its outputs — the export keeps it
   if (kind === 'service') {
     const mo = io.technical.find(m => m.name === '_manualOutMapping');
     step.manualOutMapping = !!mo && /true/i.test(mo.expression);
@@ -685,29 +685,29 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     step.children = children;
   }
 
-  // Fehlerbehandlung: `_handledErrors` plus die Pfade der Boundary-Events
+  // Error handling: `_handledErrors` plus the paths of the boundary events
   const errors: ErrorHandling[] = io.handledErrors.map(code => ({ code, declared: true }));
   for (const b of scope.boundaries.get(id) ?? []) {
     const bid = b.getAttribute('id') ?? '';
     const interrupting = b.getAttribute('cancelActivity') !== 'false';
-    // Pfad ab dem Boundary-Event. Der angehängte Schritt gilt dabei als
-    // «Vorgänger»: führt der Pfad dorthin zurück, ist das eine Wiederholung
-    // (Retry) und keine Zusammenführung.
-    // Läuft er in den Hauptfluss zurück (z. B. über ein Gateway vor dem
-    // nächsten Schritt), endet er dort mit «weiter bei …» — sonst nähme er den
-    // Rest des Prozesses mit, der hier noch nicht aufgebaut ist.
+    // Path from the boundary event. The attached step counts as
+    // «predecessor»: if the path leads back there, that is a repetition
+    // (retry) and not a join.
+    // If it runs back into the main flow (e.g. via a gateway before the
+    // next step), it ends there with «weiter bei …» — otherwise it would take the
+    // rest of the process with it, which is not built yet at this point.
     const flows = scope.boundaryOut.get(bid) ?? [];
     const steps = flows.length
       ? walk(ctx, scope, flows[0].target, mainFlowAfter(ctx, scope, id), new Set([...path, id]), id, {}, true)
       : undefined;
-    // Ohne Namen und ohne Fehlerbezug ist es kein Fehlerfall, sondern ein
-    // Nebenpfad — dann beschriftet ihn sein erster Schritt statt der Element-ID.
+    // Without a name and without an error reference it is not an error case but a
+    // side path — then its first step labels it instead of the element ID.
     const named = nameOf(b) || errorCodeOf(b, ctx.errors);
     const side = !named;
     const code = named || steps?.[0]?.name || bid;
     if (!code) continue;
     const pattern = ctx.owned.get(bid);
-    // Signal, Nachricht, Eskalation: kein Fehler — mit Art, Name und (wartende Nachricht) Schlüssel
+    // Signal, message, escalation: not an error — with kind, name and (waiting message) key
     const ev = eventKindOf(b);
     const event: Partial<ErrorHandling> = EVENT_BOUNDARY_KINDS.has(ev ?? 'none') ? {
       eventKind: ev,
@@ -719,10 +719,10 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
       errors.push({ code, interrupting, boundary: true, ...(side ? { side: true } : {}), ...(pattern ? { pattern } : {}), ...event, ...(steps?.length ? { steps } : {}) });
       continue;
     }
-    // ein Timer samt seinem Element — der Export schreibt ihn dorthin zurück
+    // a timer together with its element — the export writes it back there
     const timer = timerOf(b);
-    // zwei Boundary-Events mit demselben Code: mit Timer bleibt jedes ein eigener
-    // Eintrag (sonst ginge ein Timer verloren) — den doppelten Code melden die Befunde
+    // two boundary events with the same code: with a timer each stays an entry of its own
+    // (otherwise a timer would get lost) — the findings report the duplicate code
     const existing = errors.find(e => e.code === code && !(e.boundary && (timer || e.timer)));
     if (existing) {
       existing.interrupting = interrupting;
@@ -747,26 +747,26 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
 const JOIN_NAME = '\u0000join';
 
 /**
- * Ein Schritt ohne Label im BPMN heisst wie seine ID (`Activity_04tlno2`) — ausser
- * Start, Ende und Gateways, die einen eigenen Ersatznamen bekommen (siehe defaultName).
- * Ein Name, den die Spezifikation setzt, bleibt beim Abgleich und geht beim Export ins BPMN.
+ * A step without a label in the BPMN is named like its ID (`Activity_04tlno2`) — except
+ * start, end and gateways, which get a substitute name of their own (see defaultName).
+ * A name the specification sets is kept on reconciliation and goes into the BPMN on export.
  */
 export const unnamed = (step: Pick<Step, 'id' | 'kind' | 'name'>): boolean =>
   step.kind !== 'goto' && (!step.name?.trim() || step.name === step.id);
 
 function defaultName(tag: string, id: string): string {
-  // Namenlose Gateways sind fast immer Zusammenführungen — sie tragen keine
-  // Information und werden nach dem Aufbau entfernt (siehe pruneJoins).
+  // Unnamed gateways are almost always joins — they carry no
+  // information and are removed after building (see pruneJoins).
   if (tag.endsWith('Gateway')) return JOIN_NAME;
   if (tag === 'startEvent') return 'Start';
   if (tag === 'endEvent') return 'Ende';
   return id;
 }
 
-// Namenlose Zusammenführungen entfernen — sie tragen keine Information.
-// Ausnahme: der Einstieg einer Schleife, der heisst «Wiederholung ab hier».
-// Verweise, die auf eine entfernte Zusammenführung zeigten, wandern auf den
-// nächsten echten Schritt weiter («weiter bei ‹has Account Iban?›»).
+// Remove unnamed joins — they carry no information.
+// Exception: the entry of a loop, which is called «Wiederholung ab hier».
+// References that pointed to a removed join move on to the
+// next real step («weiter bei ‹has Account Iban?›»).
 function pruneJoins(steps: Step[], pruned: Set<string>): Step[] {
   const out: Step[] = [];
   for (const s of steps) {
@@ -787,8 +787,8 @@ function pruneJoins(steps: Step[], pruned: Set<string>): Step[] {
   return out;
 }
 
-// Verweise auflösen: entfernte Zusammenführungen überspringen, Namen nachziehen.
-// Landet ein Verweis nirgends mehr, fällt er weg (der Pfad endet dort schlicht).
+// Resolve references: skip removed joins, update names.
+// If a reference lands nowhere anymore, it is dropped (the path simply ends there).
 function fixGotos(steps: Step[], ctx: BuildCtx, pruned: Set<string>): Step[] {
   const out: Step[] = [];
   for (const s of steps) {
@@ -809,13 +809,13 @@ function fixGotos(steps: Step[], ctx: BuildCtx, pruned: Set<string>): Step[] {
   return out;
 }
 
-// Läuft den Graph von `startId` ab und liefert den Block als Baum.
-// `stops` = Knoten, an denen dieser Block endet (die eigene Zusammenführung und
-// die aller umschliessenden Verzweigungen — ohne das laufen Zweige über ihre
-// Zusammenführung hinaus und der Rest des Prozesses wird vervielfacht).
-// `path` = Kette der offenen Knoten; ein Treffer darin ist eine Schleife.
-// Erreichbarkeit inkl. der Pfade ab Boundary-Events — sonst wird der Retry
-// («Fehler → warten → nochmal») nicht als Schleife erkannt.
+// Walks the graph from `startId` and returns the block as a tree.
+// `stops` = nodes where this block ends (its own join and
+// those of all enclosing branchings — without that, branches run past their
+// join and the rest of the process is multiplied).
+// `path` = chain of open nodes; a hit in it is a loop.
+// Reachability incl. the paths from boundary events — otherwise the retry
+// («Fehler → warten → nochmal») is not recognized as a loop.
 function canReach(scope: Scope, from: string, to: string): boolean {
   const seen = new Set<string>();
   const stack = [from];
@@ -833,17 +833,17 @@ function canReach(scope: Scope, from: string, to: string): boolean {
   return false;
 }
 
-// Hinweise für die Beschriftung einer Schleife (Sparkonto-Muster: ein Timer-Ereignis
-// «wait ${timer}» und ein Gateway «Tried ${max} times?»)
+// Hints for labelling a loop (savings account pattern: a timer event
+// «wait ${timer}» and a gateway «Tried ${max} times?»)
 interface LoopHint { cond?: string; wait?: string }
 const MAX_RE = /\$\{([^}]+)\}/;
 
 /**
- * Was der Hauptfluss ab `id` noch erreicht (nur Sequenzflüsse) und noch nicht
- * aufgebaut ist — dort endet ein Pfad ab einem Boundary-Event von `id`.
- * Schon aufgebaute Knoten erkennt `walk` selbst (Schleife bzw. Zusammenlauf).
- * Ohne die Paarung werfendes → fangendes Ereignis: ein gemeinsamer Abschluss
- * wie «activation-canceled» steht beim ersten Pfad, der ihn braucht.
+ * What the main flow still reaches from `id` (sequence flows only) and is not
+ * built yet — that is where a path from a boundary event of `id` ends.
+ * Already built nodes are recognized by `walk` itself (loop or merge).
+ * Without the pairing throwing → catching event: a shared ending
+ * like «activation-canceled» goes with the first path that needs it.
  */
 function mainFlowAfter(ctx: BuildCtx, scope: Scope, id: string): Set<string> {
   const seen = new Set<string>();
@@ -858,7 +858,7 @@ function mainFlowAfter(ctx: BuildCtx, scope: Scope, id: string): Set<string> {
   return seen;
 }
 
-/** Name des Schritts, bei dem es ab `id` weitergeht — namenlose Zusammenführungen übersprungen */
+/** Name of the step where it continues from `id` — unnamed joins skipped */
 function continuesAt(scope: Scope, id: string): string {
   const seen = new Set<string>();
   let cur: string | undefined = id;
@@ -874,8 +874,8 @@ function continuesAt(scope: Scope, id: string): string {
   return id;
 }
 
-// `rejoin`: der Block ist ein Pfad ab einem Boundary-Event und `stops` ist der
-// Hauptfluss — endet er dort, steht am Schluss ein Verweis «weiter bei …».
+// `rejoin`: the block is a path from a boundary event and `stops` is the
+// main flow — if it ends there, a reference «weiter bei …» stands at the end.
 function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<string>, path: Set<string>,
               prev: string | null = null, hint: LoopHint = {}, rejoin = false): Step[] {
   const out: Step[] = [];
@@ -885,9 +885,9 @@ function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<st
   while (cur && !stops.has(cur)) {
     const known = ctx.byId.get(cur);
     if (known) {
-      // Schon gezeigt: Rücksprung (Schleife) oder Zusammenlauf zweier Pfade.
-      // Beides als Verweis — so bleibt der Baum frei von Dubletten.
-      // Rücksprung heisst: von dort führt ein Weg wieder hierher.
+      // Already shown: jump back (loop) or merge of two paths.
+      // Both as a reference — that keeps the tree free of duplicates.
+      // Jump back means: from there a path leads back here.
       const back = path.has(cur) || localSeen.has(cur) || (!!prev && canReach(scope, cur, prev));
       out.push({
         id: `${cur}__${back ? 'loop' : 'join'}__${out.length}`,
@@ -915,7 +915,7 @@ function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<st
       const branchStops = new Set(stops);
       if (merge) branchStops.add(merge);
       const defaultFlow = attr(el, 'default') ?? el.getAttribute('default');
-      // Ein Gateway wie «Tried ${max} times?» beschriftet die Schleife dahinter
+      // A gateway like «Tried ${max} times?» labels the loop behind it
       const branchHint: LoopHint = /tried|versuch|retry|nochmal|max/i.test(step.name)
         ? { ...hint, cond: step.name } : { ...hint };
       step.branches = flows.map((f, i) => ({
@@ -933,13 +933,13 @@ function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<st
 
     const step = buildStep(ctx, scope, el, path);
     if (step.kind === 'event' && step.eventKind === 'timer') hint.wait = step.name;
-    // Der Init-Worker (sein Topic ist der Prozess selbst): seine Ausgaben sind
-    // die Felder des `InitIn` und werden hier eingesammelt. Er bleibt ein
-    // Schritt — im Diagramm wählbar, das Pattern «Init Process» hängt an ihm;
-    // eine Interaktion oder ein Mock-Feld wird er nicht (interactions.ts).
+    // The init worker (its topic is the process itself): its outputs are
+    // the fields of the `InitIn` and are collected here. It stays a
+    // step — selectable in the diagram, the pattern «Init Process» hangs on it;
+    // it does not become an interaction or a mock field (interactions.ts).
     if (isInitWorker(step, ctx.processId)) ctx.initOutputs = step.outputs ?? [];
-    // Das fangende Gegenstück eines werfenden Ereignisses ist reine Verdrahtung
-    // — es trägt denselben Namen und keine eigene Aussage.
+    // The catching counterpart of a throwing event is pure wiring
+    // — it carries the same name and no statement of its own.
     if (!scope.linkedCatch.has(cur)) out.push(step);
     prev = cur;
     cur = flows[0]?.target ?? null;
@@ -950,21 +950,21 @@ function walk(ctx: BuildCtx, scope: Scope, startId: string | null, stops: Set<st
   return out;
 }
 
-// ── Öffentliche API ──────────────────────────────────────────────────────────
+// ── Public API ───────────────────────────────────────────────────────────────
 export interface ImportResult {
   spec: ProcessSpec;
-  /** Anzahl Schritte im Baum (ohne goto) */
+  /** Number of steps in the tree (without goto) */
   stepCount: number;
-  /** im BPMN gefundene, aber nicht erreichbare Knoten */
+  /** nodes found in the BPMN but not reachable */
   unreachable: string[];
 }
 
 export interface ImportOptions {
-  /** Pattern aus dem Admin — erkannte stehen am Schritt bzw. am Prozess */
+  /** Patterns from the admin — recognized ones are on the step or on the process */
   patterns?: PatternDef[];
 }
 
-/** Der Init-Worker: ein Service-Task mit dem Prozess selbst als Topic */
+/** The init worker: a service task with the process itself as topic */
 export const isInitWorker = (step: Step, processId: string | undefined): boolean =>
   step.kind === 'service' && !!processId && step.topic === processId;
 
@@ -1003,9 +1003,9 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
     const id = m.getAttribute('id');
     if (id && key?.trim()) correlationKeys.set(id, key.trim());
   }
-  // Camunda 8 erkennt man am zeebe-Namensraum bzw. der Modeler-Angabe
+  // Camunda 8 is recognized by the zeebe namespace or the modeler info
   const engine = detectEngine(xml);
-  // Pattern zuerst: was zu einem gehört, wird im Baum als Pattern gezeigt
+  // Patterns first: what belongs to one is shown as a pattern in the tree
   const detected = detectPatterns(doc, opts.patterns, engine);
   const ctx: BuildCtx = {
     doc, processId, initOutputs: [],
@@ -1027,7 +1027,7 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
     .filter(([id]) => !ctx.byId.has(id) && !ctx.order.includes(id))
     .map(([id, name]) => `${name} (${id})`);
 
-  // Prozessname/Projekt aus der ID ableiten: `globex-savings-openSavingsV1`
+  // Derive process name/project from the ID: `globex-savings-openSavingsV1`
   const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(processId);
   const project = m?.[1] ?? processId.split('-').slice(0, 2).join('-');
   const name = m?.[2] || nameOf(proc) || fileName.replace(/\.bpmn$/i, '');
@@ -1053,7 +1053,7 @@ export function importBpmn(xml: string, fileName = 'prozess.bpmn', opts: ImportO
   return { spec, stepCount: ctx.byId.size, unreachable };
 }
 
-/** Erkannte Pattern an die Schritte schreiben; Schritte eines Pattern-Blocks markieren */
+/** Write recognized patterns to the steps; mark steps of a pattern block */
 function markPatterns(steps: Step[], hits: Array<{ patternId: string; targetId: string | null; params: Record<string, string> }>, owned: Map<string, string>) {
   const at = new Map<string, AppliedPattern[]>();
   for (const h of hits) {
@@ -1068,46 +1068,46 @@ function markPatterns(steps: Step[], hits: Array<{ patternId: string; targetId: 
   }
 }
 
-// ── Erneuter Import: fachliche Texte behalten ────────────────────────────────
-// Struktur kommt aus der Implementation, Prosa aus der Spezifikation. Schritte,
-// die es nicht mehr gibt, verschwinden; neue kommen als «Entwurf» dazu;
-// geänderte (anderer Service/Topic/Mapping) werden auf «Angepasst» gesetzt.
+// ── Re-import: keep business texts ───────────────────────────────────────────
+// Structure comes from the implementation, prose from the specification. Steps
+// that no longer exist disappear; new ones are added as «Entwurf»;
+// changed ones (different service/topic/mapping) are set to «Angepasst».
 export interface MergeReport {
   added: string[];
   removed: string[];
   changed: string[];
-  /** nur umbenannt — «alt → neu» */
+  /** only renamed — «alt → neu» */
   renamed: string[];
-  /** standen auf «Angepasst», sind unverändert — bekommen den gewählten Status */
+  /** were on «Angepasst», are unchanged — get the chosen status */
   confirmed: string[];
   kept: number;
 }
 
 /**
- * Welchen Status der Abgleich setzt: `added` für neue Schritte, `changed`
- * für technisch geänderte. Ohne Angabe Entwurf bzw. Angepasst — wer das BPMN
- * aus der Implementation holt, kann beides z. B. auf «Umgesetzt» setzen.
- * Ist `changed` nicht «Angepasst», gilt er auch für das, was schon von einem
- * früheren Abgleich auf «Angepasst» steht und jetzt mit dem BPMN
- * übereinstimmt — der Abgleich bestätigt es (siehe `settle`).
+ * Which status the reconciliation sets: `added` for new steps, `changed`
+ * for technically changed ones. Without a value Entwurf or Angepasst — whoever fetches the BPMN
+ * from the implementation can set both e.g. to «Umgesetzt».
+ * If `changed` is not «Angepasst», it also applies to what is already on «Angepasst»
+ * from an earlier reconciliation and now matches the BPMN
+ * — the reconciliation confirms it (see `settle`).
  */
 export interface MergeStatus {
   added: Status;
   changed: Status;
   /**
-   * Mappings und Mock der Schritte aus dem BPMN übernehmen — auch wo das
-   * Diagramm sie nicht geändert hat. Für Spezifikationen, deren gespeicherte
-   * Zeilen veraltet sind; die Bedeutung der Zeilen bleibt.
+   * Take over mappings and mock of the steps from the BPMN — also where the
+   * diagram did not change them. For specifications whose stored
+   * rows are outdated; the meaning of the rows stays.
    */
   mappingsFromBpmn?: boolean;
 }
 export const DEFAULT_MERGE_STATUS: MergeStatus = { added: 'draft', changed: 'changed' };
 
-/** Status eines unveränderten Elements: «Angepasst» wird bestätigt, sonst bleibt er. */
+/** Status of an unchanged element: «Angepasst» is confirmed, otherwise it stays. */
 export const settle = (prev: Status | undefined, st: MergeStatus): Status | undefined =>
   prev === 'changed' && st.changed !== 'changed' ? st.changed : prev;
 
-// Was die Spezifikation festlegt, überlebt den Abgleich mit dem BPMN.
+// What the specification defines survives the reconciliation with the BPMN.
 const KEEP_KEYS = ['description', 'candidateGroups', 'candidateUsers', 'assignee', 'inVariant', 'outVariant'] as const;
 
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
@@ -1120,9 +1120,9 @@ function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<str
   return into;
 }
 
-// Der technische Vertrag eines Schritts. **Ohne Namen**: ein Umbenennen ist
-// keine Änderung der Implementation, sondern dieselbe Sache anders beschriftet
-// — es wird separat gemeldet (`renamed`), setzt den Status aber nicht zurück.
+// The technical contract of a step. **Without name**: a rename is
+// not a change of the implementation, but the same thing labelled differently
+// — it is reported separately (`renamed`), but does not reset the status.
 function sig(s: Step): string {
   return JSON.stringify([s.kind, s.serviceId ?? '', s.topic ?? '', s.calledProcess ?? '',
     (s.inputs ?? []).map(i => `${i.name}=${i.expression}`),
@@ -1130,18 +1130,18 @@ function sig(s: Step): string {
 }
 
 /**
- * Was die Spezifikation am Schritt einstellt — Service, Topic, gerufener
- * Prozess, Mappings, Mock. Ins BPMN kommt das erst beim Export; bis dahin
- * steht im Diagramm der alte Stand. Ein Abgleich darf es darum nur ersetzen,
- * wo das **Diagramm selbst** es geändert hat (Drei-Wege-Abgleich gegen das
- * vorige BPMN) — sonst gingen Einstellungen verloren, sobald jemand im
- * Diagramm etwas verschiebt oder die App es angleicht.
+ * What the specification sets on the step — service, topic, called
+ * process, mappings, mock. It only goes into the BPMN on export; until then
+ * the diagram has the old state. A reconciliation may therefore only replace it
+ * where the **diagram itself** changed it (three-way reconciliation against the
+ * previous BPMN) — otherwise settings would be lost as soon as someone moves
+ * something in the diagram or the app aligns it.
  */
 const SPEC_OWNED = ['serviceId', 'topic', 'calledProcess', 'inputs', 'outputs', 'mock', 'mockKind', 'timer', 'messageName', 'correlationKey'] as const;
-/** liest erst ein neuerer Import — eine ältere Spezifikation ohne sie bekommt sie aus dem Diagramm */
+/** only read by a newer import — an older specification without them gets them from the diagram */
 const LATER_READ = new Set<string>(['timer', 'messageName', 'correlationKey']);
 
-/** Ein Wert unabhängig von seiner Engine-Form: `${x}` wie `=x`, `text` wie `="text"` */
+/** A value independent of its engine form: `${x}` like `=x`, `text` like `="text"` */
 function normExpr(e: string): string {
   const f = feelIfPossible(e.trim());
   const lit = /^=\s*"((?:[^"\\]|\\.)*)"$/.exec(f);
@@ -1151,18 +1151,18 @@ function normExpr(e: string): string {
 
 const norm = (k: string, v: unknown): unknown =>
   (k === 'mock' || k === 'correlationKey') && typeof v === 'string' ? normExpr(v)
-    // die Vorgabe fürs InConfig steht nicht im Diagramm
+    // the default for the InConfig is not in the diagram
     : k === 'timer' && v && !Array.isArray(v) ? [(v as TimerSpec).kind, normExpr((v as TimerSpec).expression ?? '')]
     : (k === 'inputs' || k === 'outputs') && Array.isArray(v) ? (v as Mapping[]).map(m => [m.name, normExpr(m.expression)])
       : v;
 
-/** hat das Diagramm dasselbe — gleich bis auf die Schreibweise der Engine? */
+/** does the diagram have the same — equal except for the engine's notation? */
 const same = (k: string, a: unknown, b: unknown): boolean =>
   JSON.stringify(norm(k, a) ?? null) === JSON.stringify(norm(k, b) ?? null);
 
 /**
- * Was davon im Diagramm steht: abgewählte Zeilen und Ausgaben des Services
- * (`fromService`, ein Eintrag in `_outputVariables`) kennt es nicht.
+ * What of it is in the diagram: deselected rows and outputs of the service
+ * (`fromService`, an entry in `_outputVariables`) are unknown to it.
  */
 const inDiagram = (k: string, v: unknown): unknown =>
   (k === 'inputs' || k === 'outputs') && Array.isArray(v)
@@ -1171,22 +1171,22 @@ const inDiagram = (k: string, v: unknown): unknown =>
 
 function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
   for (const k of SPEC_OWNED) {
-    // ohne voriges BPMN: nur nicht verlieren, was das Diagramm nicht kennt —
-    // und steht im Diagramm genau, was die Spezifikation hineinschreibt, hat es
-    // nichts geändert, auch wenn der Bezug fehlt oder veraltet ist (sonst gingen
-    // die abgewählten Zeilen verloren und der Schritt sprünge auf «Angepasst»)
+    // without previous BPMN: just don't lose what the diagram does not know —
+    // and if the diagram contains exactly what the specification writes into it, it has
+    // changed nothing, even if the reference is missing or outdated (otherwise
+    // the deselected rows would be lost and the step would jump to «Angepasst»)
     const diagramUnchanged = (base ? same(k, s[k], base[k]) : s[k] == null || same(k, s[k], []))
       || (prev[k] != null && same(k, s[k], inDiagram(k, prev[k])));
     if (!diagramUnchanged) continue;
-    // den Timer liest erst ein neuerer Import — eine ältere Spezifikation ohne ihn bekommt ihn
+    // the timer is only read by a newer import — an older specification without it gets it
     if (prev[k] === undefined) { if (!LATER_READ.has(k)) delete s[k]; }
     else (s as Record<string, unknown>)[k] = prev[k];
   }
 }
 
 /**
- * Die Vorgabe des Timers fürs InConfig kennt das Diagramm nicht — sie bleibt, solange
- * er dieselbe Variable (gleicher Art) liest; eine andere hat ihre eigene Vorgabe.
+ * The diagram does not know the timer's default for the InConfig — it stays as long as
+ * it reads the same variable (of the same kind); a different one has its own default.
  */
 function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSpec {
   const name = timerVariable(timer);
@@ -1196,11 +1196,11 @@ function withPrevDefault(timer: TimerSpec, prev: TimerSpec | undefined): TimerSp
 }
 
 /**
- * Dasselbe Boundary-Event in einer anderen Fassung der Liste (`list`): über
- * seine ID — ohne sie (eine Spezifikation von vor dem Import der IDs) über den
- * Code, bei gleichem Code der Reihe nach. Das nur, wenn beide Seiten gleich
- * viele ohne Gegenstück über die ID haben — sonst ist unklar, welches entfiel.
- * `own` ist die Liste, in der `e` steht.
+ * The same boundary event in another version of the list (`list`): via
+ * its ID — without it (a specification from before the import of the IDs) via the
+ * code, with equal code in order. Only if both sides have the same
+ * number without a counterpart via the ID — otherwise it is unclear which one was dropped.
+ * `own` is the list that contains `e`.
  */
 export function sameBoundary(list: ErrorHandling[] | undefined, e: ErrorHandling, own: ErrorHandling[]): ErrorHandling | undefined {
   if (!list) return undefined;
@@ -1215,11 +1215,11 @@ export function sameBoundary(list: ErrorHandling[] | undefined, e: ErrorHandling
 }
 
 /**
- * Der Timer eines Boundary-Events gehört wie der eines Ereignisses der
- * Spezifikation (siehe `SPEC_OWNED`): hat das Diagramm ihn nicht geändert,
- * bleibt er, wie er in ihr steht — und seine Vorgabe fürs InConfig bleibt.
- * Zugeordnet wird über das Boundary-Event, in einer älteren Spezifikation
- * ohne dessen ID über den Code.
+ * The timer of a boundary event, like that of an event, belongs to the
+ * specification (see `SPEC_OWNED`): if the diagram did not change it,
+ * it stays as it is in the specification — and its default for the InConfig stays.
+ * It is matched via the boundary event, in an older specification
+ * without its ID via the code.
  */
 function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdits: boolean) {
   if (!s.errors?.some(e => e.timer)) return;
@@ -1239,9 +1239,9 @@ function keepBoundaryTimers(s: Step, prev: Step, base: Step | undefined, keepEdi
 }
 
 /**
- * Signal bzw. Nachricht eines Boundary-Events (Name, Korrelationsschlüssel)
- * gehören wie am Ereignis der Spezifikation: hat das Diagramm sie gegenüber dem
- * vorigen BPMN nicht geändert, bleibt, was in ihr steht.
+ * Signal or message of a boundary event (name, correlation key)
+ * belong to the specification as on the event: if the diagram did not change them
+ * compared to the previous BPMN, what is in the specification stays.
  */
 function keepBoundaryMessages(s: Step, prev: Step, base: Step | undefined) {
   if (!s.errors?.some(isEventBoundary)) return;
@@ -1261,9 +1261,9 @@ function keepBoundaryMessages(s: Step, prev: Step, base: Step | undefined) {
 }
 
 /**
- * Art, Signal bzw. Nachricht der Boundary-Events — eine Spezifikation von vor
- * ihrem Import führt sie als Fehler; sie bekommt sie aus dem Diagramm. Was sie
- * schon hat, bleibt. Null, wenn nichts fehlt.
+ * Kind, signal or message of the boundary events — a specification from before
+ * their import has them as errors; it gets them from the diagram. What it
+ * already has stays. Null if nothing is missing.
  */
 export function syncBoundaryEvents(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
@@ -1292,9 +1292,9 @@ export function syncBoundaryEvents(current: ProcessSpec, fresh: ProcessSpec): Pr
 }
 
 /**
- * Leere Einträge bei den behandelten Fehlern — ein eben hinzugefügter oder
- * geleerter Regex bzw. Fehlercode — kommen nicht ins BPMN. Der Abgleich darf
- * sie darum nicht verwerfen, solange das Diagramm die übrigen unverändert hat.
+ * Empty entries among the handled errors — a just added or
+ * cleared regex or error code — do not go into the BPMN. The reconciliation
+ * must therefore not discard them as long as the diagram has the others unchanged.
  */
 function keepEmptyErrors(s: Step, prev: Step) {
   const regex = prev.regexHandledErrors ?? [];
@@ -1311,7 +1311,7 @@ function keepEmptyErrors(s: Step, prev: Step) {
   s.errors = errs.map(e => (blank(e) ? e : fresh.get(e.code) ?? e));
 }
 
-/** `= "[6026, 102]"` (JSON als Text) gegenüber dem Literal aus dem Diagramm `= [6026, 102]` — dasselbe, nur richtig gelesen */
+/** `= "[6026, 102]"` (JSON as text) versus the literal from the diagram `= [6026, 102]` — the same, just read correctly */
 function jsonTextUpgrade(stored: string, fromDiagram: string | undefined): boolean {
   const m = /^=\s*("(?:[^"\\]|\\.)*")\s*$/.exec(stored.trim());
   if (!m || !fromDiagram) return false;
@@ -1324,16 +1324,16 @@ function jsonTextUpgrade(stored: string, fromDiagram: string | undefined): boole
 }
 
 /**
- * `= number(a.b)` — ein älterer Import machte so aus `….intValue()` einen Aufruf, den
- * FEEL nur für Text kennt; heute liest das Diagramm `= a.b`. Gleich bis auf `number(…)`
- * um Pfade: dann gilt das Diagramm.
+ * `= number(a.b)` — an older import turned `….intValue()` into a call that
+ * FEEL only knows for text; today the diagram reads `= a.b`. Equal except for `number(…)`
+ * around paths: then the diagram wins.
  */
 function numberUpgrade(stored: string, fromDiagram: string | undefined): boolean {
   if (!fromDiagram || !/(?<![\w.])number\(/.test(stored)) return false;
   const without = stored.replace(/(?<![\w.])number\(([A-Za-z_][\w.]*)\)/g, '$1');
   return without !== stored && without.trim() === fromDiagram.trim();
 }
-/** Ein Wert, den ein älterer Import falsch las — das Diagramm liest ihn heute richtig */
+/** A value an older import read wrongly — the diagram reads it correctly today */
 const importUpgrade = (stored: string, fromDiagram: string | undefined): boolean =>
   jsonTextUpgrade(stored, fromDiagram) || numberUpgrade(stored, fromDiagram);
 
@@ -1350,8 +1350,8 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (s.timer) s.timer = withPrevDefault(s.timer, prev.timer);
       keepBoundaryTimers(s, prev, base?.get(s.id), !st.mappingsFromBpmn);
       keepBoundaryMessages(s, prev, base?.get(s.id));
-      // `JSON('[6026, 102]')` kam früher als Text `= "[6026, 102]"` herein, `….intValue()`
-      // als `number(…)` — liest das Diagramm es heute richtig, gilt das
+      // `JSON('[6026, 102]')` used to come in as text `= "[6026, 102]"`, `….intValue()`
+      // as `number(…)` — if the diagram reads it correctly today, that wins
       for (const list of ['inputs', 'outputs'] as const) {
         const now = new Map((fresh[list] ?? []).map(m => [m.name, m.expression]));
         if (s[list] && s[list] !== fresh[list]) {
@@ -1359,11 +1359,11 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
         }
       }
       keepEmptyErrors(s, prev);
-      // ohne Label im BPMN gilt der Name aus der Spezifikation (der Export schreibt ihn hinein)
+      // without a label in the BPMN the name from the specification wins (the export writes it in)
       if (unnamed(s) && !unnamed(prev)) s.name = prev.name;
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
-      // Fachliche Bedeutung und Abwahl der Mappings gehören der Spezifikation —
-      // mit `mappingsFromBpmn` gilt die Abwahl nicht: was im BPMN steht, ist an
+      // Business meaning and deselection of the mappings belong to the specification —
+      // with `mappingsFromBpmn` the deselection does not apply: what is in the BPMN is enabled
       for (const list of ['inputs', 'outputs'] as const) {
         const before = new Map((prev[list] ?? []).map(m => [m.name, m]));
         for (const m of s[list] ?? []) {
@@ -1372,9 +1372,9 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
           if (p?.disabled && !st.mappingsFromBpmn) m.disabled = true;
         }
       }
-      // Status gehört der Spezifikation: er bleibt, wie er gesetzt wurde.
-      // Nur wenn sich technisch etwas geändert hat, springt er auf «Angepasst»
-      // (bzw. den gewählten Status) — das Signal, das jemand prüfen muss.
+      // The status belongs to the specification: it stays as it was set.
+      // Only if something changed technically does it jump to «Angepasst»
+      // (or the chosen status) — the signal that someone has to check.
       if (prev.name !== s.name && s.kind !== 'goto') report.renamed.push(`${prev.name} → ${s.name}`);
       const changed = sig(prev) !== sig(s);
       if (changed && s.kind !== 'goto') report.changed.push(s.name);
@@ -1384,17 +1384,17 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     }
     if (s.children) applyOld(s.children, old, report, seen, base, st);
     for (const b of s.branches ?? []) applyOld(b.steps, old, report, seen, base, st);
-    // Fehler- und Nebenpfade gehören dazu — sonst gehen ihre fachlichen Texte
-    // beim erneuten Import verloren und sie gelten fälschlich als entfallen.
+    // Error and side paths belong to it — otherwise their business texts get
+    // lost on re-import and they wrongly count as dropped.
     for (const e of s.errors ?? []) if (e.steps) applyOld(e.steps, old, report, seen, base, st);
   }
 }
 
 /**
- * Das neu eingelesene BPMN (`fresh`) mit der Spezifikation (`previous`)
- * zusammenführen. `base` ist der Import des **vorigen** BPMN: was das
- * Diagramm gegenüber ihm nicht geändert hat, bleibt, wie es in der
- * Spezifikation steht (siehe `SPEC_OWNED`).
+ * Merge the freshly read BPMN (`fresh`) with the specification (`previous`).
+ * `base` is the import of the **previous** BPMN: what the
+ * diagram did not change compared to it stays as it is in the
+ * specification (see `SPEC_OWNED`).
  */
 export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: ProcessSpec | null = null,
                           st: MergeStatus = DEFAULT_MERGE_STATUS): { spec: ProcessSpec; report: MergeReport } {
@@ -1413,10 +1413,10 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: Proce
     epics: previous.epics,
     variables: previous.variables ?? [],
     ...(fresh.initOutputs?.length ? { initOutputs: fresh.initOutputs } : {}),
-    // Pattern am Prozess kommen aus dem BPMN — wie die Struktur
+    // Patterns on the process come from the BPMN — like the structure
     patterns: fresh.patterns,
     timeToLive: previous.timeToLive ?? fresh.timeToLive,
-    // der Prozess springt nur auf «Angepasst», wenn das auch für die Schritte gilt
+    // the process only jumps to «Angepasst» if that also applies to the steps
     status: previous.status === 'draft' ? 'draft'
       : st.changed !== 'changed' ? settle(previous.status, st)!
         : (report.added.length || report.changed.length || report.removed.length ? 'changed' : previous.status),
@@ -1426,14 +1426,14 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: Proce
   return { spec, report };
 }
 
-// ── Hilfen für die Oberfläche ────────────────────────────────────────────────
+// ── Helpers for the UI ───────────────────────────────────────────────────────
 const EVENT_LABEL: Record<NonNullable<Step['eventKind']>, string> = {
   timer: 'Timer', signal: 'Signal', message: 'Nachricht', error: 'Fehler', escalation: 'Eskalation', none: 'Ereignis',
 };
 
 /**
- * Wie ein eigener Block anfängt — für die Klammer im Baum und im Export:
- * «startet mit Signal «send»» bzw. der Hinweis auf ein Link-Ziel.
+ * How a block of its own starts — for the bracket in the tree and in the export:
+ * «startet mit Signal «send»» or the hint to a link target.
  */
 export function blockStart(first: Step): string {
   if (first.kind === 'start') {
@@ -1444,9 +1444,9 @@ export function blockStart(first: Step): string {
 }
 
 /**
- * Die Schritte einer Ebene in Gruppen: ein Schritt mit `orphan` beginnt
- * eine neue; `head` ist gesetzt, wenn die Gruppe eine Klammer braucht (ein
- * Ereignis-Subprozess hat seinen eigenen Container und bleibt für sich).
+ * The steps of a level in groups: a step with `orphan` starts
+ * a new one; `head` is set if the group needs a bracket (an
+ * event subprocess has its own container and stays on its own).
  */
 export function blockGroups(steps: Step[]): Array<{ head: Step | null; steps: Step[] }> {
   const groups: Array<{ head: Step | null; steps: Step[] }> = [];
@@ -1459,12 +1459,12 @@ export function blockGroups(steps: Step[]): Array<{ head: Step | null; steps: St
   return groups;
 }
 
-/** In welchem eigenen Block oder Ereignis-Subprozess ein Schritt steht. */
+/** In which block of its own or event subprocess a step is. */
 export interface BlockRef { head: Step; eventSub: boolean }
 
 /**
- * Je Schritt-ID der Block, zu dem er gehört — für die Klammer im Datenmodell.
- * Schritte des Hauptablaufs fehlen in der Map.
+ * Per step ID the block it belongs to — for the bracket in the data model.
+ * Steps of the main flow are missing in the map.
  */
 export function blockIndex(steps: Step[], into = new Map<string, BlockRef>(), ctx: BlockRef | null = null): Map<string, BlockRef> {
   const mark = (s: Step, ref: BlockRef | null) => {
@@ -1492,10 +1492,10 @@ export function allSteps(steps: Step[] | undefined, out: Step[] = []): Step[] {
 }
 
 /**
- * Einen Status für alles setzen, was ein Import anlegt: Prozess, Schritte auf
- * allen Ebenen (Unterschritte, Zweige, Fehlerpfade) und das Datenmodell aus
- * der Domain. Vorbereitetes ohne Domain-Objekt bleibt Entwurf — das ist
- * nirgends umgesetzt.
+ * Set one status for everything an import creates: process, steps on
+ * all levels (sub-steps, branches, error paths) and the data model from
+ * the domain. Prepared items without a domain object stay Entwurf — that is
+ * not implemented anywhere.
  */
 export function withStatus(spec: ProcessSpec, status: Status): ProcessSpec {
   const walk = (steps: Step[]): Step[] => steps.map(s => ({
@@ -1516,18 +1516,18 @@ export function withStatus(spec: ProcessSpec, status: Status): ProcessSpec {
 }
 
 export function statusCounts(spec: ProcessSpec): Record<Status, number> {
-  // aus STATUSES aufgebaut, damit ein neuer Status nirgends vergessen wird
+  // built from STATUSES, so that a new status is never forgotten anywhere
   const counts = Object.fromEntries(STATUSES.map(s => [s, 0])) as Record<Status, number>;
   for (const s of allSteps(spec.steps)) if (s.kind !== 'goto') counts[s.status] = (counts[s.status] ?? 0) + 1;
   return counts;
 }
 
-// ── Pattern im Überblick ─────────────────────────────────────────────────────
+// ── Patterns at a glance ─────────────────────────────────────────────────────
 
-/** Ein angewandtes Pattern und wo es steht — `stepId` null: am Prozess. */
+/** An applied pattern and where it is — `stepId` null: on the process. */
 export interface PatternUse { id: string; stepId: string | null; where: string; params: Record<string, string> }
 
-/** Alle Pattern einer Spezifikation: am Prozess und an den Schritten (nicht deren Teile). */
+/** All patterns of a specification: on the process and on the steps (not their parts). */
 export function patternUses(spec: ProcessSpec): PatternUse[] {
   const out: PatternUse[] = (spec.patterns ?? []).map(p => ({ id: p.id, stepId: null, where: 'Prozess', params: p.params ?? {} }));
   for (const s of allSteps(spec.steps)) {
@@ -1537,7 +1537,7 @@ export function patternUses(spec: ProcessSpec): PatternUse[] {
   return out;
 }
 
-/** Je Pattern: wie oft und wo — in der Reihenfolge des ersten Auftretens. */
+/** Per pattern: how often and where — in the order of first occurrence. */
 export function patternSummary(spec: ProcessSpec): Array<{ id: string; where: string[] }> {
   const by = new Map<string, string[]>();
   for (const u of patternUses(spec)) by.set(u.id, [...(by.get(u.id) ?? []), u.where]);
@@ -1547,14 +1547,14 @@ export function patternSummary(spec: ProcessSpec): Array<{ id: string; where: st
 export interface PatternDiff {
   added: PatternUse[];
   removed: PatternUse[];
-  /** gleiches Pattern an gleicher Stelle, andere Parameter */
+  /** same pattern at the same place, different parameters */
   changed: Array<{ use: PatternUse; before: Record<string, string> }>;
 }
 
 /**
- * Was sich an den Pattern geändert hat — je Stelle (Prozess bzw. Schritt-ID)
- * verglichen. Kommt ein Pattern an einer Stelle mehrmals vor (zwei
- * Mail-Timer), werden die Vorkommen der Reihe nach gepaart.
+ * What changed in the patterns — compared per place (process or step ID).
+ * If a pattern occurs several times at one place (two
+ * mail timers), the occurrences are paired in order.
  */
 export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDiff {
   const key = (u: PatternUse) => `${u.stepId ?? ''}\u0000${u.id}`;
@@ -1580,10 +1580,10 @@ export function patternDiff(before: ProcessSpec, after: ProcessSpec): PatternDif
 }
 
 /**
- * Timer aus dem Diagramm, wo die Spezifikation noch keinen hat — sie stammt von
- * vor dem Import der Timer (am Boundary-Event auch nur ohne dessen ID). Was
- * sie schon hat (samt Vorgabe fürs InConfig), bleibt; geändert wird ein Timer
- * über den Abgleich. Null, wenn nichts fehlt.
+ * Timers from the diagram where the specification has none yet — it dates from
+ * before the import of the timers (on the boundary event also only without its ID). What
+ * it already has (including the default for the InConfig) stays; a timer is changed
+ * via the reconciliation. Null if nothing is missing.
  */
 export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
@@ -1592,8 +1592,8 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
     const f = neu.get(s.id);
     let next = s;
     if (!s.timer && f?.timer) { changed = true; next = { ...next, timer: f.timer }; }
-    // am Boundary-Event der Timer samt dem Element, in das ihn der Export schreibt
-    // gleicher Code an mehreren Boundary-Events: der Reihe nach (siehe sameBoundary)
+    // on the boundary event the timer together with the element the export writes it into
+    // same code on several boundary events: in order (see sameBoundary)
     const fill = (e: ErrorHandling, all: ErrorHandling[]): Partial<ErrorHandling> | undefined => {
       if (!e.boundary || (e.timer && e.boundaryId)) return undefined;
       const fe = sameBoundary(f?.errors, e, all);
@@ -1613,10 +1613,10 @@ export function syncTimers(current: ProcessSpec, fresh: ProcessSpec): ProcessSpe
 }
 
 /**
- * Der Korrelationsschlüssel einer wartenden Nachricht (`zeebe:subscription`):
- * eine Spezifikation von vor seinem Import bekommt ihn aus dem Diagramm. Was sie
- * schon hat, bleibt — geändert wird er am Schritt, der Export schreibt ihn.
- * Null, wenn nichts fehlt.
+ * The correlation key of a waiting message (`zeebe:subscription`):
+ * a specification from before its import gets it from the diagram. What it
+ * already has stays — it is changed on the step, the export writes it.
+ * Null if nothing is missing.
  */
 export function syncCorrelationKeys(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s.correlationKey]));
@@ -1638,9 +1638,9 @@ export function syncCorrelationKeys(current: ProcessSpec, fresh: ProcessSpec): P
 }
 
 /**
- * Nur die Pattern-Angaben aus einem frischen Import übernehmen — für eine
- * gespeicherte Spezifikation, deren Pattern sich im Admin geändert haben.
- * Alles andere bleibt, wie es ist. `null`: nichts zu tun.
+ * Take over only the pattern information from a fresh import — for a
+ * stored specification whose patterns changed in the admin.
+ * Everything else stays as it is. `null`: nothing to do.
  */
 export function syncPatterns(current: ProcessSpec, fresh: ProcessSpec): ProcessSpec | null {
   const neu = new Map(allSteps(fresh.steps).map(s => [s.id, s]));
@@ -1673,9 +1673,9 @@ export function syncPatterns(current: ProcessSpec, fresh: ProcessSpec): ProcessS
 }
 
 /**
- * JUEL aus einem älteren Stand (oder dem Katalog) nach FEEL: Mappings,
- * Zweigbedingungen und Zuständigkeit, soweit übersetzbar — der Rest bleibt JUEL und wird am
- * Feld gemeldet. Nichts zu tun → null.
+ * JUEL from an older state (or the catalog) to FEEL: mappings,
+ * branch conditions and assignment, as far as translatable — the rest stays JUEL and is
+ * reported on the field. Nothing to do → null.
  */
 export function healJuel(spec: ProcessSpec): ProcessSpec | null {
   let changed = false;

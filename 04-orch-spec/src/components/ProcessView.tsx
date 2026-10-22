@@ -1,9 +1,9 @@
-// Die Prozess-Ansicht: links der Ablauf als einklappbarer Baum, rechts die
-// Details des gewählten Schritts.
+// The process view: on the left the flow as a collapsible tree, on the right the
+// details of the selected step.
 //
-// Der Baum ist der Kern des PoC — Verzweigungen als farbige, beschriftete
-// Zweige, Schleifen und Fehlerpfade sichtbar, Details standardmässig
-// eingeklappt. Änderungen werden automatisch gespeichert (wie im arch-review).
+// The tree is the core of the PoC — branches as coloured, labelled
+// paths, loops and error paths visible, details collapsed
+// by default. Changes are saved automatically (as in arch-review).
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { projectColor } from '../projects';
 import {
@@ -43,33 +43,33 @@ import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
 import { collectDiagram, overlayPasted } from '../copyPaste';
 
-// Der Modeler ist gross — er kommt erst, wenn das Diagramm gezeigt wird.
+// The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
 const COMMENTS_W_KEY = 'orch-spec.commentsWidth';
-/** darunter legt sich das Kommentar-Panel über die rechte Spalte, statt Platz zu nehmen */
+/** below this the comment panel overlays the right column instead of taking space */
 const OVERLAY_BELOW = 1100;
 
 interface Props {
   slug: string;
   onBack: () => void;
-  /** Deep Link: das Kommentar-Panel an der Stelle dieses Kommentars öffnen */
+  /** Deep link: open the comment panel at the location of this comment */
   focusCommentId?: string;
 }
 
-/** Die Entra-Suche einmal pro Sitzung erklären, nicht bei jedem «@». */
+/** Explain the Entra search once per session, not on every «@». */
 let directoryWarned = false;
 
-/** Attributwert für einen CSS-Selektor. */
+/** Attribute value for a CSS selector. */
 const cssAttr = (s: string) => s.replace(/["\\]/g, '\\$&');
 
-// Alle Schritt-IDs, die Kinder haben (für «alles ein-/ausklappen»)
-/** Schlüssel eines Pattern-Blocks im Baum (PatternFold) — über seinen ersten Schritt */
+// All step IDs that have children (for «alles ein-/ausklappen»)
+/** Key of a pattern block in the tree (PatternFold) — via its first step */
 const foldKey = (steps: Step[]) => `fold:${steps[0]?.id ?? ''}`;
 
-/** Die Pattern-Blöcke im Baum: gemeinsame Blöcke (Schritte mit `pattern`) und Fehlerpfade eines Patterns */
+/** The pattern blocks in the tree: shared blocks (steps with `pattern`) and error paths of a pattern */
 function foldIds(steps: Step[], out: string[] = []): string[] {
   for (const s of steps) {
     if (s.pattern) out.push(foldKey([s]));
@@ -92,8 +92,8 @@ function containerIds(steps: Step[], out: string[] = []): string[] {
 }
 
 /**
- * Zu jedem Schritt seine Vorfahren — nur so lässt sich ein Schritt zeigen,
- * der in einem eingeklappten Zweig steckt.
+ * For every step its ancestors — the only way to show a step
+ * that sits in a collapsed branch.
  */
 function ancestorsOf(steps: Step[], oben: string[] = [], out = new Map<string, string[]>()): Map<string, string[]> {
   for (const s of steps) {
@@ -106,11 +106,11 @@ function ancestorsOf(steps: Step[], oben: string[] = [], out = new Map<string, s
   return out;
 }
 
-// Was der Fachbereich hier festlegt, gehört auch ins BPMN — sonst überschreibt
-// es der nächste Abgleich mit der Datei wieder.
+// What the business department sets here also belongs in the BPMN — otherwise
+// the next sync with the file overwrites it again.
 const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined, bpmn: BpmnHandle | null, engine?: EngineId, juel: JuelOptions = {}) => {
   if (!bpmn) return;
-  // Zuständigkeit: FEEL in der Spezifikation, im Diagramm in der Form der Engine
+  // Assignment: FEEL in the specification, in the diagram in the form of the engine
   const assignment = ASSIGNMENT_KEYS.filter(k => k in patch);
   if (assignment.length) {
     bpmn.setAssignment(id, Object.fromEntries(assignment.map(k =>
@@ -121,13 +121,13 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
     for (const b of patch.branches) {
       const old = alt.get(b.id);
       if (old?.label !== b.label) bpmn.setProps(b.id, { name: b.label });
-      // in der Form der Engine — ein rohes `= …` wäre in Camunda 7 ein fester Text
+      // in the form of the engine — a raw `= …` would be a fixed text in Camunda 7
       if (old?.condition !== b.condition) bpmn.setCondition(b.id, b.condition?.trim() ? engineExpression(b.condition, engine, juel).text : undefined);
     }
   }
   if (patch.errors || 'regexHandledErrors' in patch) {
-    // `_handledErrors` führt, was **nicht** allein am Boundary-Event hängt:
-    // die schon deklarierten und die hier neu erfassten.
+    // `_handledErrors` lists what does **not** hang on the boundary event alone:
+    // the ones already declared and the ones newly entered here.
     const held = (patch.errors ?? before?.errors ?? []).filter(e => e.code && (e.declared || !e.boundary));
     const regex = 'regexHandledErrors' in patch ? patch.regexHandledErrors : before?.regexHandledErrors;
     bpmn.setHandledErrors(id, held.map(e => e.code), (regex ?? []).map(r => r.trim()).filter(Boolean), engine);
@@ -141,7 +141,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const author = useAuthor();
   const authorRef = useRef(author);
   authorRef.current = author;
-  /** Hinweis über dem Inhalt — z. B. fehlende Berechtigung für Teams */
+  /** Notice above the content — e.g. missing permission for Teams */
   const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn'; scopes?: string[] } | null>(null);
   const c = cls(isDark);
 
@@ -151,24 +151,24 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<Status | null>(null);
-  /** nur Schritte mit Befund (rotes oder oranges Dreieck) */
+  /** only steps with findings (red or orange triangle) */
   const [findingsOnly, setFindingsOnly] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [engineOpen, setEngineOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
-  /** gewähltes BPMN, das in der Vorschau wartet («Mit BPMN abgleichen») */
+  /** selected BPMN waiting in the preview («Mit BPMN abgleichen») */
   const [sync, setSync] = useState<{ raw: string; from: string; mode?: 'bpmn' | 'domain' } | null>(null);
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
-  /** Sprung aus dem Ablauf ins Datenmodell — dort wird dieser Typ gezeigt */
+  /** Jump from the flow into the data model — this type is shown there */
   const [focusType, setFocusType] = useState<string | null>(null);
-  /** Sprung aus den Kommentaren zu einer Interaktion im Datenmodell */
+  /** Jump from the comments to an interaction in the data model */
   const [focusIa, setFocusIa] = useState<string | null>(null);
-  /** Kommentar-Panel: offen? welche Stelle? (null = Übersicht) */
+  /** Comment panel: open? which location? (null = overview) */
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
-  /** Änderungsprotokoll: offen? für welches Element? (null = alle) */
+  /** Change log: open? for which element? (null = all) */
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditFocus, setAuditFocus] = useState<string | null>(null);
   const [xml, setXml] = useState<string | null>(null);
@@ -179,15 +179,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const bpmnRef = useRef<BpmnHandle | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── Eigenschaften-Panel: Breite an der Trennlinie ziehbar (wie die Höhe
-  // zwischen Diagramm und Ablauf) — die Einstellung bleibt über die Sitzung.
+  // ── Properties panel: width draggable at the divider (like the height
+  // between diagram and flow) — the setting persists for the session.
   const [panelW, setPanelW] = useState(() => {
     const n = Number(localStorage.getItem(PANEL_W_KEY));
     return Number.isFinite(n) && n >= 320 ? Math.min(n, 800) : 416;
   });
-  // Kommentar-Panel: eigene Breite, ebenfalls ziehbar; bei schmalem Fenster
-  // legt es sich über die rechte Spalte, sonst nimmt es sich seinen Platz
-  // vom Eigenschaften-Panel — der Ablauf links bleibt, wie er ist
+  // Comment panel: its own width, also draggable; in a narrow window
+  // it overlays the right column, otherwise it takes its space
+  // from the properties panel — the flow on the left stays as it is
   const [commentsW, setCommentsW] = useState(() => {
     const n = Number(localStorage.getItem(COMMENTS_W_KEY));
     return Number.isFinite(n) && n >= 300 ? Math.min(n, 640) : 380;
@@ -210,8 +210,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       auditBase.current = r.data;
       latest.current = r.data;
       auditQueue.current = [...r.audit];
-      // Subprozesse und Fehlerpfade zu Beginn zugeklappt: erst der Überblick
-      // die Pattern-Blöcke ebenso — ihre Verdrahtung zeigt man nur bei Bedarf
+      // Subprocesses and error paths collapsed at first: overview first
+      // the pattern blocks too — their wiring is only shown when needed
       const start = new Set<string>(foldIds(r.data.steps));
       for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       setCollapsed(start);
@@ -220,9 +220,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     return () => { alive = false; };
   }, [slug, loadSpec, loadBpmn]);
 
-  // Blosse Typnamen aus einem Import ohne Katalog: sobald der Katalog sie
-  // kennt, werden sie zu Verweisen — gespeichert wird das mit dem nächsten
-  // Autosave. Nichts zu tun → null, kein Update, keine Schleife.
+  // Bare type names from an import without a catalog: as soon as the catalog
+  // knows them, they become references — this is saved with the next
+  // autosave. Nothing to do → null, no update, no loop.
   useEffect(() => {
     if (!spec || !model || !canEdit) return;
     const healed = healLooseTypes(spec.types ?? [], model);
@@ -230,12 +230,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec?.types, model, canEdit]);
 
-  // Alle Felder eines Service-Aufrufs als Zeilen — Pflicht-Eingaben und gebrauchte
-  // Ausgaben angehakt (wie beim Import und Abgleich) — einmal beim Öffnen, sobald
-  // der Katalog da ist; gespeichert mit dem Autosave
+  // All fields of a service call as rows — required inputs and used
+  // outputs checked (as on import and sync) — once on opening, as soon as
+  // the catalog is there; saved with the autosave
   const requiredHealed = useRef<string | null>(null);
   useEffect(() => {
-    // der Katalog kann nach der Spezifikation kommen — dann noch einmal
+    // the catalog may arrive after the specification — then once more
     const key = `${slug}:${model?.services.length ?? 0}`;
     if (!spec || !model || !canEdit || requiredHealed.current === key) return;
     requiredHealed.current = key;
@@ -244,9 +244,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec, model, canEdit, slug]);
 
-  // JUEL aus einem älteren Stand bzw. Katalog: was sich übersetzen lässt,
-  // wird FEEL — gespeichert mit dem nächsten Autosave; der Rest bleibt JUEL
-  // (einmal beim Öffnen — nicht mitten im Tippen)
+  // JUEL from an older state or catalog: what can be translated
+  // becomes FEEL — saved with the next autosave; the rest stays JUEL
+  // (once on opening — not in the middle of typing)
   const juelHealed = useRef<string | null>(null);
   useEffect(() => {
     if (!spec || !canEdit || juelHealed.current === slug) return;
@@ -262,14 +262,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const versionRef = useRef<string | null>(null);
   versionRef.current = version;
 
-  // ── Änderungsprotokoll (siehe audit.ts) ───────────────────────────────────
-  // `auditBase` ist der Stand beim letzten Schnitt. Geschnitten wird bei jedem
-  // Speichern (alles bis dahin war Handarbeit) und vor wie nach einer
-  // Änderung mit Herkunft (Abgleich, Umwandlung …) — die wird ein eigener
-  // Eintrag. Die Einträge warten, bis die Spezifikation gespeichert ist.
+  // ── Change log (see audit.ts) ─────────────────────────────────────────────
+  // `auditBase` is the state at the last cut. A cut is made on every
+  // save (everything up to then was manual work) and before and after a
+  // change with an origin (sync, conversion …) — that becomes its own
+  // entry. The entries wait until the specification is saved.
   const auditBase = useRef<ProcessSpec | null>(null);
   const auditQueue = useRef<AuditEntry[]>([]);
-  /** der neueste Stand — auch zwischen update() und dem nächsten Rendern */
+  /** the latest state — also between update() and the next render */
   const latest = useRef<ProcessSpec | null>(null);
   const cutAudit = useCallback((to: ProcessSpec | null, origin: AuditOrigin = { source: 'manual' }) => {
     const from = auditBase.current;
@@ -286,7 +286,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     cutAudit(data);
     const audit = auditQueue.current.splice(0);
     const res = await saveSpec(data, versionRef.current, audit);
-    // nicht gespeichert (oder nur das Protokoll nicht): mit dem nächsten Speichern nochmals
+    // not saved (or only the log was not): again with the next save
     if (res.status !== 'saved' || res.auditError) auditQueue.current.unshift(...audit);
     if (res.status === 'saved') {
       setVersion(res.version);
@@ -300,12 +300,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }, [saveSpec, cutAudit]);
 
   /**
-   * Jede Änderung geht hier durch. `origin` sagt, woher eine Änderung kommt,
-   * die nicht von Hand ist (oder einen Grund hat) — sie wird ein eigener
-   * Eintrag im Protokoll; ohne gilt sie als Handarbeit.
+   * Every change goes through here. `origin` says where a change comes from
+   * that is not manual (or has a reason) — it becomes its own
+   * entry in the log; without it, it counts as manual work.
    */
   const update = useCallback((next: ProcessSpec, origin?: AuditOrigin) => {
-    // der Status der Spezifikation ist der kleinste ihrer Teile — nie von Hand
+    // the status of the specification is the lowest of its parts — never set by hand
     const data = { ...next, status: overallStatus(next), updatedAt: nowIsoWithTimezone() };
     if (origin) {
       cutAudit(latest.current);
@@ -318,8 +318,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     timer.current = window.setTimeout(() => { void flush(); }, 1000);
   }, [flush, cutAudit]);
 
-  // beim Verlassen ausstehende Änderungen noch wegschreiben — auch wenn die
-  // Seite neu lädt oder in den Hintergrund geht (dann gibt es kein Unmount)
+  // on leaving, still write out pending changes — even when the
+  // page reloads or goes into the background (then there is no unmount)
   useEffect(() => {
     const now = () => { if (pending.current) void flush(); };
     const hidden = () => { if (document.visibilityState === 'hidden') now(); };
@@ -332,12 +332,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     };
   }, [flush]);
 
-  // Einen Schritt im Baum ersetzen (unveränderlich)
+  // Replace a step in the tree (immutably)
   const patchStep = useCallback((id: string, patch: Partial<Step>) => {
     if (!spec) return;
     if (typeof patch.name === 'string') bpmnRef.current?.rename(id, patch.name);
     applyToBpmn(id, patch, byIdRef.current.get(id), bpmnRef.current, spec.engine, juelOptions(spec, model));
-    // Worker oder Teilprozess gewählt → das Element bekommt die Farbe seines Projekts
+    // Worker or subprocess selected → the element gets the colour of its project
     if ('serviceId' in patch || 'topic' in patch || 'calledProcess' in patch) {
       const s = { ...byIdRef.current.get(id), ...patch };
       if (s.kind === 'service' || s.kind === 'call') {
@@ -345,8 +345,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         bpmnRef.current?.setColor(id, projectColor(ref, spec.project, model?.projects, model?.projectColors));
       }
     }
-    // Ein neuer Status gilt auch für alles darunter — Pfade, Subprozess, Fehler- und Nebenpfade —
-    // und für das Datenmodell dieser Schritte (Interaktion samt In/Out; beim Start die Klassen des Prozesses)
+    // A new status also applies to everything below — paths, subprocess, error and side paths —
+    // and to the data model of these steps (interaction with In/Out; at the start the classes of the process)
     const status = patch.status;
     let below = 0;
     const touched = new Set<string>([id]);
@@ -382,14 +382,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       : undefined);
   }, [spec, update]);
 
-  // Ein im Baum gewählter Schritt wird im Diagramm mitgewählt
+  // A step selected in the tree is also selected in the diagram
   useEffect(() => { bpmnRef.current?.select(selected); }, [selected]);
 
   /**
-   * ID nach Hauskonvention aus dem fachlichen Namen ableiten und überall
-   * nachziehen — Diagramm, Baum, Interaktionen, Kommentare. Läuft beim
-   * Verlassen des Namensfelds (nicht je Tastendruck) und nach Umbenennungen
-   * im Diagramm.
+   * Derive the ID from the business name according to house convention and
+   * update it everywhere — diagram, tree, interactions, comments. Runs on
+   * leaving the name field (not per keystroke) and after renames
+   * in the diagram.
    */
   const syncStepId = useCallback((id: string) => {
     const current = specRef.current;
@@ -402,8 +402,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     const res = bpmnRef.current?.setId(id, neu) ?? 'absent';
     if (res === 'conflict') return;
     if (res === 'absent' && xmlRef.current) {
-      // Modeler nicht offen — das gespeicherte BPMN direkt nachziehen, sonst
-      // fände der nächste Abgleich den Schritt nicht mehr
+      // Modeler not open — update the saved BPMN directly, otherwise
+      // the next sync would no longer find the step
       const next = renameIdInXml(xmlRef.current, id, neu, step.name);
       if (!next) return;
       setXml(next);
@@ -420,16 +420,16 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     });
   }, [update, saveBpmn, slug]);
 
-  // ── Firma/Projekt wechseln ────────────────────────────────────────────────
-  // Alle bekannten `company-projekt`-Prefixe für die Auswahl am Prozess
+  // ── Change company/project ────────────────────────────────────────────────
+  // All known `company-projekt` prefixes for the selection on the process
   const projectPrefixes = useMemo(
     () => knownPrefixes(model, specs.map(s => s.data.project)),
     [model, specs]);
 
   /**
-   * Der neue Prefix ersetzt den alten in allen fachlichen IDs
-   * (`{company}-{project}-*`) — in der Spezifikation und im BPMN. Der
-   * Dateiname bleibt; Dateien benennt die App bewusst nicht um.
+   * The new prefix replaces the old one in all business IDs
+   * (`{company}-{project}-*`) — in the specification and in the BPMN. The
+   * file name stays; the app deliberately does not rename files.
    */
   const renameProject = useCallback((newPrefix: string) => {
     const current = specRef.current;
@@ -441,7 +441,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (xmlRef.current) {
       const nx = renamePrefixInXml(xmlRef.current, oldPrefix, newPrefix);
       if (nx) {
-        setXml(nx);   // der offene Modeler lädt das neue XML selbst nach
+        setXml(nx);   // the open modeler reloads the new XML itself
         void saveBpmn(slug, nx).then(w => { if (!w.ok) setSaveState({ error: w.message }); });
       }
     }
@@ -452,17 +452,17 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const byId = useMemo(() => new Map(allSteps(spec?.steps).map(s => [s.id, s])), [spec]);
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
-  // je Status die Schritte (samt Interaktion und deren Klassen) und die Klassen ohne Schritt —
-  // so findet jeder Gesamtstatus seinen Filter
+  // per status the steps (with interaction and its classes) and the classes without a step —
+  // so every overall status finds its filter
   const counts = useMemo(() => (spec ? statusParts(spec) : null), [spec]);
   const containers = useMemo(() => (spec ? [...containerIds(spec.steps), ...foldIds(spec.steps)] : []), [spec]);
   const ancestors = useMemo(() => (spec ? ancestorsOf(spec.steps) : new Map<string, string[]>()), [spec]);
   const ancestorsRef = useRef(ancestors);
   ancestorsRef.current = ancestors;
-  // Das gewählte Element im Baum zeigen — auch wenn es im Diagramm gewählt
-  // wurde: eingeklappte Zweige darüber öffnen, dann in den Blick scrollen
-  // (`nearest`: was schon zu sehen ist, bleibt, wo es ist). Eine eingeklappte
-  // Pattern-Zeile öffnet sich selbst (PatternFold).
+  // Show the selected element in the tree — also when it was selected in the
+  // diagram: open collapsed branches above it, then scroll it into view
+  // (`nearest`: what is already visible stays where it is). A collapsed
+  // pattern row opens itself (PatternFold).
   useEffect(() => {
     if (!selected) return;
     const oben = ancestorsRef.current.get(selected) ?? [];
@@ -473,13 +473,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     return () => timers.forEach(t => window.clearTimeout(t));
   }, [selected]);
 
-  // ── Kommentare ───────────────────────────────────────────────────────────
+  // ── Comments ─────────────────────────────────────────────────────────────
   const commentCounts = useMemo(() => (spec ? countIndex(spec) : { exact: new Map(), under: new Map() }), [spec]);
   const targets = useMemo(() => (spec ? commentTargets(spec, allSteps(spec.steps)) : []), [spec]);
 
   /**
-   * Zur Stelle eines Kommentars: Ansicht wechseln, eingeklappte Zweige
-   * öffnen, das Element wählen und die Sprechblase in den Blick scrollen.
+   * To the location of a comment: switch view, open collapsed
+   * branches, select the element and scroll the speech bubble into view.
    */
   const gotoTarget = useCallback((key: string) => {
     const ziel = locate(key);
@@ -489,7 +489,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       setTab('flow');
       if (ziel.kind === 'process') setSelected(null);
       else {
-        // Der Schritt kann in einem eingeklappten Zweig stecken
+        // The step may sit in a collapsed branch
         const oben = ancestors.get(ziel.id) ?? [];
         if (oben.length) setCollapsed(prev => {
           const next = new Set(prev);
@@ -504,7 +504,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         if (ziel.kind === 'step') {
           document.querySelector(`[data-step="${CSS.escape(ziel.id)}"]`)?.scrollIntoView({ block: 'nearest' });
         }
-        // die rechte Spalte scrollt für sich — dort steht die Stelle vielleicht weit unten
+        // the right column scrolls on its own — the location may be far down there
         const bubbles = document.querySelectorAll(`[data-ctarget="${CSS.escape(key)}"]`);
         bubbles[bubbles.length - 1]?.scrollIntoView({ block: 'nearest' });
       }, nach);
@@ -517,8 +517,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }, [gotoTarget]);
 
   /**
-   * Klick auf eine Sprechblase. Im Baum zählt sie das ganze Element; hat es
-   * selbst nichts Offenes, wohl aber ein Teil davon, geht es gleich dorthin.
+   * Click on a speech bubble. In the tree it counts the whole element; if it
+   * has nothing open itself, but one of its parts does, go straight there.
    */
   const openComment = useCallback((key: string, aggregate?: boolean) => {
     let ziel = key;
@@ -537,7 +537,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }), [commentCounts, commentsOpen, activeComment, openComment, isDark]);
   const offeneKommentare = spec?.comments?.filter(t => !t.resolved).length ?? 0;
 
-  // Deep Link: einmal, sobald die Spezifikation da ist
+  // Deep link: once, as soon as the specification is there
   const focusedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!spec || !focusCommentId || focusedRef.current === focusCommentId) return;
@@ -548,7 +548,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     openComment(faden.target);
   }, [spec, focusCommentId, openComment]);
 
-  // Personen für «@»: users.json plus Kommentar-Autoren mit E-Mail plus ich
+  // People for «@»: users.json plus comment authors with e-mail plus me
   const mentionUsers = useMemo(() => {
     const seen = new Set<string>();
     const out: { name: string; email: string }[] = [];
@@ -564,7 +564,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     return out.sort((a, b) => a.name.localeCompare(b.name, 'de'));
   }, [knownUsers, author.name, author.email, spec?.comments]);
 
-  // Entra-Suche nicht möglich: einmal pro Sitzung erklären; bekannte Personen bleiben wählbar
+  // Entra search not possible: explain once per session; known people remain selectable
   const onDirectoryProblem = useCallback((r: Extract<DirectorySearchResult, { ok: false }>) => {
     if (r.reason === 'noLogin' || directoryWarned) return;
     directoryWarned = true;
@@ -574,8 +574,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     });
   }, []);
 
-  // Teams-Versand (Wartezeit, gesammelt, einmalig). Das Quittieren läuft auch
-  // nach dem Verlassen noch — deshalb auf dem letzten Stand und sofort gespeichert.
+  // Teams sending (delay, batched, once). Acknowledging still runs
+  // after leaving — therefore on the latest state and saved immediately.
   const teamsSettings = model?.notifications?.teams;
   const targetLabel = useCallback((t: string) => targets.find(x => x.key === t)?.label ?? t, [targets]);
   useTeamsNotify({
@@ -598,7 +598,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     onSent: names => setNotice({ tone: 'info', message: `Teams-Nachricht an ${names.join(', ')} gesendet.` }),
     onFailed: message => setNotice({ tone: 'warn', message }),
   });
-  // Erfolgsmeldungen verschwinden von selbst
+  // Success messages disappear by themselves
   useEffect(() => {
     if (notice?.tone !== 'info') return;
     const t = window.setTimeout(() => setNotice(null), 5000);
@@ -606,9 +606,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }, [notice]);
 
   /**
-   * Blauer Rahmen um das Element des aktiven Kommentars: die Stelle selbst
-   * (`data-cframe`) und — im Baum, in der Typliste — die Zeile des Elements
-   * (`data-cframe-base`), damit man es auch dort wiederfindet.
+   * Blue frame around the element of the active comment: the location itself
+   * (`data-cframe`) and — in the tree, in the type list — the row of the element
+   * (`data-cframe-base`), so that it can be found there too.
    */
   const aktiv = commentsOpen ? activeComment : null;
   const frameCss = aktiv
@@ -616,22 +616,22 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       + `{outline:2px solid ${isDark ? 'rgb(96 165 250)' : 'rgb(59 130 246)'};outline-offset:2px;border-radius:4px;background:${isDark ? 'rgb(59 130 246 / 0.12)' : 'rgb(59 130 246 / 0.07)'}}`
     : '';
 
-  // Befunde je Schritt — dieselben Regeln wie im Panel rechts, für das Dreieck
-  // in der Zeile; einmal je Stand der Spezifikation gerechnet. Zurückgestellt
-  // (useDeferredValue): sie prüfen jeden FEEL-Ausdruck gegen die Typen — das
-  // soll das Tippen nicht bremsen, sie folgen, sobald man innehält
+  // Findings per step — the same rules as in the panel on the right, for the triangle
+  // in the row; computed once per state of the specification. Deferred
+  // (useDeferredValue): they check every FEEL expression against the types — that
+  // should not slow down typing, they follow as soon as one pauses
   const deferredSpec = useDeferredValue(spec);
   const findings = useMemo(
     () => (deferredSpec ? collectFindings(deferredSpec, model, allSteps(deferredSpec.steps)) : new Map<string, Finding>()),
     [deferredSpec, model],
   );
 
-  // Suche/Filter: passt ein Schritt selbst — und (matches) er oder einer seiner Nachfahren?
+  // Search/filter: does a step match itself — and (matches) it or one of its descendants?
   const matchesSelf = useCallback((s: Step): boolean => {
     const q = query.trim().toLowerCase();
-    // gesucht wird auch im Objektnamen der Interaktion und im Namen des
-    // Katalog-Services — so findet «Approve» die Aufgabe, deren Schritt
-    // «Kartenbestellung prüfen» heisst
+    // the search also covers the object name of the interaction and the name of the
+    // catalog service — so «Approve» finds the task whose step
+    // is called «Kartenbestellung prüfen»
     const ia = spec?.interactions?.find(i => i.stepId === s.id);
     const svc = catalogEntry(s, model);
     const haystack = `${s.name} ${s.description ?? ''} ${s.serviceId ?? ''} ${s.topic ?? ''} ${ia?.name ?? ''} ${svc?.name ?? ''} ${s.calledProcess ?? ''}`.toLowerCase();
@@ -653,38 +653,38 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     return next;
   });
 
-  // ── BPMN abgleichen ───────────────────────────────────────────────────────
-  // Ein Weg für beides: die gewählte Datei und die Änderung im Modeler.
+  // ── Sync BPMN ─────────────────────────────────────────────────────────────
+  // One path for both: the selected file and the change in the modeler.
   const specRef = useRef<ProcessSpec | null>(null);
   specRef.current = spec;
   const modelRef = useRef(model);
   modelRef.current = model;
 
   /**
-   * Das Diagramm `raw` mit der Spezifikation zusammenführen — ohne zu
-   * speichern. Kommt es aus dem Modeler (`from === 'Diagramm'`), benennt der
-   * die Schritte gleich mit um; sonst ist das hier ohne Nebenwirkung und
-   * lässt sich für die Vorschau beliebig oft rechnen.
+   * Merge the diagram `raw` with the specification — without
+   * saving. If it comes from the modeler (`from === 'Diagramm'`), the modeler
+   * renames the steps right away; otherwise this has no side effects and
+   * can be computed for the preview as often as needed.
    */
   const planXml = useCallback((raw: string, from: string, st: MergeStatus = DEFAULT_MERGE_STATUS, pasted?: PastedElements) => {
     const current = specRef.current;
     if (!current) return null;
-    // Prozess-ID und -Name folgen dem Pool (Konvention, siehe poolIds.ts);
-    // eine gewählte Prozess-ID nur, wenn der Name im Diagramm geändert wurde.
-    // Ein offener Modeler lädt das angeglichene XML nach.
+    // Process ID and name follow the pool (convention, see poolIds.ts);
+    // a chosen process ID only if the name was changed in the diagram.
+    // An open modeler reloads the aligned XML.
     const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
     let text = alignPoolIds(raw, { renameProcess: renamed }).xml;
     const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
-    // das vorige BPMN als Bezug: was das Diagramm nicht geändert hat, bleibt
-    // wie in der Spezifikation (Service, Mappings — die kommen erst beim Export hinein)
+    // the previous BPMN as reference: what the diagram did not change stays
+    // as in the specification (service, mappings — they only go in on export)
     let base = null;
-    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unlesbar — ohne Bezug */ }
+    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unreadable — without reference */ }
     const { spec: merged0, report } = mergeSpec(fresh, current, base, st);
-    // Im Diagramm umbenannte Schritte: die ID folgt dem Namen (Konvention).
-    // Kommt die Änderung aus dem Modeler, benennt er um — das löst den
-    // nächsten Speicherlauf aus, der das BPMN mit den neuen IDs ablegt.
-    // Sonst (Pattern, Datei, Titel) zeigt der Modeler noch den alten Stand:
-    // dann im neuen XML umbenennen, das er gleich lädt.
+    // Steps renamed in the diagram: the ID follows the name (convention).
+    // If the change comes from the modeler, it renames — that triggers the
+    // next save run, which stores the BPMN with the new IDs.
+    // Otherwise (pattern, file, title) the modeler still shows the old state:
+    // then rename in the new XML, which it loads right away.
     let merged = merged0;
     const renames: Array<[string, string]> = [];
     const vorher = new Map(allSteps(current.steps).map(s => [s.id, s.name]));
@@ -701,12 +701,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         if (!nx) continue;
         text = nx;
       }
-      // samt Interaktionen und Kommentaren an diesem Schritt
+      // including interactions and comments on this step
       merged = renameStepId(merged, s.id, neu);
       renames.push([s.id, neu]);
     }
-    // Im Modeler eingefügt: die Angaben der Quelle an die neuen Schritte. Die
-    // ID der Quelle bleibt, wenn sie hier frei ist — sonst nach Konvention.
+    // Pasted in the modeler: the details of the source go to the new steps. The
+    // ID of the source stays if it is free here — otherwise by convention.
     const placed: string[] = [];
     if (pasted && from === 'Diagramm') {
       const o = overlayPasted(merged, pasted);
@@ -730,9 +730,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }, []);
 
   /**
-   * Das Ergebnis übernehmen und das BPMN ablegen. Kommentare bleiben alle —
-   * auch die an Stellen, die es nicht mehr gibt: die stehen im Panel unter
-   * «Ohne Stelle», bis jemand sie erledigt.
+   * Apply the result and store the BPMN. All comments stay —
+   * also those on locations that no longer exist: they appear in the panel under
+   * «Ohne Stelle» until someone resolves them.
    */
   const commitPlan = useCallback(async (next: ProcessSpec, text: string, r: MergeReport | null, renames: Array<[string, string]>, origin: AuditOrigin) => {
     for (const [alt, neu] of renames) setSelected(prev => (prev === alt ? neu : prev));
@@ -745,11 +745,11 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }, [update, saveBpmn, slug]);
 
   /**
-   * `quiet`: Bericht nur bei Änderungen; `silent`: gar keiner (Pattern melden selbst).
-   * `origin`: woher das Diagramm kommt — ohne ist es «Mit BPMN abgleichen» mit einer Datei.
+   * `quiet`: report only on changes; `silent`: none at all (patterns report themselves).
+   * `origin`: where the diagram comes from — without it, it is «Mit BPMN abgleichen» with a file.
    */
   const applyXml = useCallback(async (raw: string, from: string, quiet: boolean | 'silent' = false, origin?: AuditOrigin, pasted?: PastedElements,
-    /** was mit derselben Änderung ins Datenmodell gehört (das `Out` eines Patterns …) */
+    /** what belongs in the data model with the same change (the `Out` of a pattern …) */
     adjust?: (s: ProcessSpec) => ProcessSpec) => {
     try {
       const planned = planXml(raw, from, DEFAULT_MERGE_STATUS, pasted);
@@ -764,15 +764,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       await commitPlan(plan.spec, plan.text, show ? r : null, plan.renames,
         { ...(origin ?? { source: 'bpmn-sync', note: `Mit BPMN abgleichen: ${from}` }), ...(note ? { note } : {}), report: bpmnReport(r) });
       if (plan.placed.length) {
-        // Aus der anderen Engine kam nichts Technisches mit: Zuständigkeit,
-        // Bedingungen und behandelte Fehler in der Form dieser Engine ins Diagramm
+        // Nothing technical came along from the other engine: assignment,
+        // conditions and handled errors into the diagram in the form of this engine
         const engine = plan.spec.engine;
         if (src && (src.engine ?? 'c7') !== (engine ?? 'c7')) {
           const byId = new Map(allSteps(plan.spec.steps).map(s => [s.id, s]));
           for (const id of plan.placed) {
             const s = byId.get(id);
             if (!s) continue;
-            // behandelte Fehler nur, wo es welche ohne Boundary-Event gibt — sonst bliebe ein leeres ioMapping
+            // handled errors only where there are some without a boundary event — otherwise an empty ioMapping would remain
             const held = (s.errors ?? []).some(e => e.code && (e.declared || !e.boundary)) || !!s.regexHandledErrors?.length;
             const patch: Partial<Step> = {
               ...Object.fromEntries(ASSIGNMENT_KEYS.filter(k => s[k]).map(k => [k, s[k]])),
@@ -789,9 +789,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     }
   }, [planXml, commitPlan]);
 
-  // ── Kopieren ──────────────────────────────────────────────────────────────
-  // Im Modeler kopiert (Ctrl+C): zum Baum von bpmn-js kommt, was nur in der
-  // Spezifikation steht — eingefügt wird in diesem oder einem anderen Prozess.
+  // ── Copy ──────────────────────────────────────────────────────────────────
+  // Copied in the modeler (Ctrl+C): bpmn-js's tree gets what only exists in the
+  // specification — it is pasted into this or another process.
   const copyDiagram = useCallback((ids: string[]) => {
     const cur = specRef.current;
     if (!cur) return;
@@ -800,9 +800,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const clip = useClipboard();
 
   // ── Pattern ───────────────────────────────────────────────────────────────
-  // Ein Pattern wird direkt ins BPMN geschrieben — nicht erst beim Export.
-  // Danach liest der Abgleich das Diagramm neu: so steht am Schritt, was im
-  // Diagramm steht, und ein offener Modeler lädt das neue XML nach.
+  // A pattern is written directly into the BPMN — not only on export.
+  // Afterwards the sync reads the diagram again: so the step shows what is in the
+  // diagram, and an open modeler reloads the new XML.
   const changePattern = useCallback(async (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params: Record<string, string> = {}, previous?: Record<string, string>) => {
     const x = xmlRef.current, cur = specRef.current, defs = modelRef.current?.patterns ?? [];
     const def = defs.find(d => d.id === patternId);
@@ -816,15 +816,15 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         : updatePattern(x, def, engine, targetId, params, defs, previous);
     if (!r.changed) { setNotice({ tone: 'warn', message: r.issues.join(' ') || 'Nichts geändert.' }); return; }
     const was = action === 'add' ? 'eingefügt' : action === 'remove' ? 'entfernt' : 'angepasst';
-    // setzt das Pattern am Ende eine Variable (`processStatus`), gehört sie ins Out
+    // if the pattern sets a variable at the end (`processStatus`), it belongs in the Out
     const ends = action === 'remove' ? [] : endVariables(def, engine, params);
     await applyXml(r.xml, `Pattern ${def.name}`, 'silent', { source: 'manual', note: `Pattern «${def.name}» ${was}` }, undefined,
       ends.length ? s => withEndOutFields(s, ends) : undefined);
     setNotice({ tone: r.issues.length ? 'warn' : 'info', message: [`Pattern «${def.name}» im Diagramm ${was}.`, ...r.issues].join(' ') });
   }, [applyXml]);
 
-  // Pattern im Admin geändert (oder die Spezifikation stammt von vorher):
-  // die Pattern-Angaben aus dem Diagramm nachziehen, sonst nichts
+  // Pattern changed in the admin (or the specification dates from before):
+  // update the pattern details from the diagram, nothing else
   const patternDefs = model?.patterns;
   const loaded = !!spec;
   useEffect(() => {
@@ -833,20 +833,20 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     try {
       const fresh = importBpmn(xml, cur.slug, { patterns: patternDefs }).spec;
       const withPatterns = syncPatterns(cur, fresh);
-      // eine Spezifikation von vor dem Import der Timer bekommt sie aus dem Diagramm
+      // a specification from before the import of timers gets them from the diagram
       const withTimers = syncTimers(withPatterns ?? cur, fresh);
-      // ebenso die Korrelationsschlüssel der wartenden Nachrichten
+      // likewise the correlation keys of the waiting messages
       const withKeys = syncCorrelationKeys(withTimers ?? withPatterns ?? cur, fresh);
-      // und Signal / Nachricht an Boundary-Events — eine ältere führte sie als Fehler
+      // and signal / message on boundary events — an older one listed them as errors
       const withEvents = syncBoundaryEvents(withKeys ?? withTimers ?? withPatterns ?? cur, fresh);
       const next = withEvents ?? withKeys ?? withTimers ?? withPatterns;
       const what = [withPatterns && 'Pattern', withTimers && 'Timer', withKeys && 'Korrelations', withEvents && 'Ereignis'].filter(Boolean).join('- und ');
       if (next) update(next, { source: 'load', note: `${what}-Angaben aus dem Diagramm nachgezogen` });
-    } catch { /* unlesbares BPMN — meldet der Abgleich */ }
+    } catch { /* unreadable BPMN — the sync reports it */ }
   }, [loaded, xml, patternDefs, update]);
 
-  // Engine wechseln: das umgewandelte Diagramm geht den Weg jeder Änderung —
-  // der Abgleich liest Engine, Topics und Mappings daraus neu ein
+  // Switch engine: the converted diagram goes the way of every change —
+  // the sync reads engine, topics and mappings from it again
   const convertEngine = useCallback(async (next: string | null, target: EngineId) => {
     const cur = specRef.current;
     if (!cur) return;
@@ -856,8 +856,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     setNotice({ tone: 'info', message: `${conversionNote(target)}.` });
   }, [applyXml, update]);
 
-  // Ein Diagramm von vorher, dessen Prozess noch anders heisst als sein Pool:
-  // einmal beim Öffnen angleichen (gespeichert wird es wie jede Änderung)
+  // A diagram from before whose process is still named differently from its pool:
+  // align once on opening (it is saved like every change)
   const aligned = useRef<string | null>(null);
   useEffect(() => {
     if (!loaded || !xml || !canEdit || aligned.current === slug) return;
@@ -866,20 +866,20 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (next.xml !== xml) void applyXml(next.xml, 'Pool', 'silent', { source: 'load', note: 'Prozess-ID und -Name an den Pool angeglichen' });
   }, [loaded, xml, canEdit, slug, applyXml]);
 
-  // Die Prozess-ID hat ihr eigenes Feld (der Titel ist fachlich). Sie wird
-  // beim Verlassen des Feldes übernommen — nur, wenn sie dem Muster
-  // company-projekt-prozessVersion folgt; im Diagramm folgen Prozess-Name
-  // und Pool (siehe poolIds.ts).
+  // The process ID has its own field (the title is business-facing). It is
+  // applied on leaving the field — only if it follows the pattern
+  // company-projekt-prozessVersion; in the diagram the process name
+  // and pool follow (see poolIds.ts).
   const [idDraft, setIdDraft] = useState('');
   useEffect(() => { setIdDraft(spec?.processId ?? ''); }, [spec?.processId]);
-  // gegen die bekannten company-projekt — ohne diese Spezifikation, sonst
-  // bestätigte ein Tippfehler sich selbst
+  // against the known company-projekt — without this specification, otherwise
+  // a typo would confirm itself
   const otherPrefixes = useMemo(
     () => knownPrefixes(model, specs.filter(s => s.slug !== slug).map(s => s.data.project)),
     [model, specs, slug]);
   const legacyId = !!spec?.legacyProcessId;
   const idProblem = idDraft.trim() ? checkProcessId(idDraft, otherPrefixes, legacyId) : null;
-  // die Markierung nur dort anbieten, wo sie etwas ändert: die Konvention passt nicht (oder sie ist schon gesetzt)
+  // only offer the marker where it changes something: the convention does not fit (or it is already set)
   const offerLegacy = legacyId || (!!idDraft.trim() && !!checkProcessId(idDraft, [], false) && !checkProcessId(idDraft, [], true));
   const commitProcessId = () => {
     const cur = specRef.current, x = xmlRef.current;
@@ -890,13 +890,13 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
       if (next !== x) void applyXml(next, 'Prozess-ID', 'silent', { source: 'manual', note: `Prozess-ID geändert: ${cur.processId} → ${id}` });
       return;
     }
-    // ohne Diagramm: nur die Spezifikation
+    // without a diagram: only the specification
     const m = /^(.*?)-([A-Za-z][A-Za-z0-9]*V\d+)$/.exec(id) ?? (cur.legacyProcessId ? /^(.*)-([^-]+)$/.exec(id) : null);
     update({ ...cur, processId: id, ...(m ? { project: m[1] } : {}) });
   };
 
-  // Eine gewählte Datei geht nicht direkt hinein: erst die Vorschau mit
-  // Domain, Datenmodell und Status — wie beim Anlegen
+  // A selected file does not go in directly: first the preview with
+  // domain, data model and status — as when creating
   const onFile = async (file: File) => {
     setSync({ raw: await file.text(), from: file.name });
   };
@@ -907,14 +907,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* ── Werkzeugleiste: Navigation, Ansicht, Werkzeuge, Status ─────────── */}
+      {/* ── Toolbar: navigation, view, tools, status ─────────────────────────── */}
       <div className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b ${c.border} ${c.top}`}>
         <button onClick={onBack} className={`flex items-center gap-1 text-[11px] flex-shrink-0 ${c.muted} hover:underline`}>
           <ChevronLeft size={12} /> Prozesse
         </button>
         <Divider isDark={isDark} />
 
-        {/* Ansicht */}
+        {/* View */}
         {([['flow', 'Ablauf', ListTree], ['model', 'Datenmodell', Braces]] as const).map(([id, label, Icon]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
@@ -974,7 +974,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
           </>
         )}
 
-        {/* rechts: Speicherstand, Export, Status */}
+        {/* right: save state, export, status */}
         <div className="ml-auto flex items-center gap-2 min-w-0">
           {saveState && (
             'error' in saveState
@@ -987,8 +987,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   <Save size={11} /> {saveState.at}
                 </span>
           )}
-          {/* Kommentare: Übersicht und Schrittfolge im Panel rechts */}
-          {/* Änderungsprotokoll — für den gewählten Schritt, sonst für alles */}
+          {/* Comments: overview and step sequence in the panel on the right */}
+          {/* Change log — for the selected step, otherwise for everything */}
           <button onClick={() => {
             if (auditOpen) { setAuditOpen(false); return; }
             setAuditFocus(tab === 'flow' && selected ? stepTarget(selected) : null);
@@ -1013,17 +1013,17 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
             <Download size={12} /> Export
           </button>
-          {/* der Stand des Ganzen: der kleinste Status der Schritte und des Datenmodells — ein Klick filtert danach */}
+          {/* the state of the whole: the lowest status of the steps and the data model — a click filters by it */}
           <StatusChip status={overallStatus(spec)} isDark={isDark}
             title={`Status der Spezifikation: der kleinste Status aller Schritte und Klassen (${STATUSES.map(s => STATUS_META[s].label).join(' → ')}) — klicken zeigt, welche`}
             onClick={() => setStatusFilter(overallStatus(spec))} />
         </div>
       </div>
 
-      {/* Bericht des letzten Abgleichs — über die volle Breite, wegklickbar */}
+      {/* Report of the last sync — across the full width, dismissible */}
       {frameCss && <style>{frameCss}</style>}
 
-      {/* Hinweis: fehlende Berechtigung, Teams gesendet … */}
+      {/* Notice: missing permission, Teams sent … */}
       {notice && (
         <div className={`flex-shrink-0 flex items-center gap-2 text-[10px] px-3 py-1.5 border-b ${c.border} ${
           notice.tone === 'warn'
@@ -1046,14 +1046,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
           onApply={p => {
             setSync(null);
             setShowDiagram(true);
-            // fürs Protokoll: Ablauf und Datenmodell getrennt berichtet
+            // for the log: flow and data model reported separately
             const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
             const origin: AuditOrigin = {
               source: sync.mode === 'domain' ? 'domain-sync' : 'bpmn-sync',
               note: sync.mode === 'domain' ? 'Mit Domain abgleichen' : `Mit BPMN abgleichen: ${sync.from}`,
               report: { ...teil('Ablauf', bpmnReport(p.report)), ...(p.domain ? teil('Datenmodell', domainReport(p.domain)) : {}) },
             };
-            // alle Felder der Services als Zeilen, Pflicht-Eingaben angehakt — wie beim Anlegen
+            // all fields of the services as rows, required inputs checked — as when creating
             void commitPlan(withServiceRows(p.spec, model, { importing: true }).spec, p.text, p.report, p.renames, origin);
           }} />
       )}
@@ -1074,12 +1074,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
         </div>
       )}
 
-      {/* ── Inhalt ─────────────────────────────────────────────────────────── */}
+      {/* ── Content ──────────────────────────────────────────────────────────── */}
       <CommentsContext.Provider value={commentsCtx}>
       <div className="flex-1 flex min-h-0 relative">
         {tab === 'flow' ? (
           <>
-            {/* links: Diagramm über dem Ablauf */}
+            {/* left: diagram above the flow */}
             <div className="flex-1 min-w-0 flex flex-col min-h-0">
               {showDiagram && xml && (
                 <div className={`flex-shrink-0 border-b ${c.border} relative`} style={{ height }}>
@@ -1120,8 +1120,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               </div>
             </div>
 
-            {/* rechts: Titel und Filter über den Eigenschaften — die Breite
-                lässt sich an der Trennlinie ziehen */}
+            {/* right: title and filter above the properties — the width
+                can be dragged at the divider */}
             <div style={{ width: (commentsOpen || auditOpen) && !narrow ? Math.max(360, panelW - commentsW + 120) : panelW }}
               className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
               <PanelWidthHandle isDark={isDark} width={panelW} onWidth={w => {
@@ -1196,7 +1196,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                         {STATUS_META[s].label} {counts[s].steps}{counts[s].model.length ? ` · ${counts[s].model.length} Datenmodell` : ''}
                       </button>
                     ))}
-                    {/* Befunde: nur die Schritte mit Dreieck — rot, wenn Fehler dabei sind */}
+                    {/* Findings: only the steps with a triangle — red if there are errors */}
                     {findings.size > 0 && (() => {
                       const errs = [...findings.values()].filter(f => f.errors.length).length;
                       const tone = errs
@@ -1273,12 +1273,12 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   );
 }
 
-// Senkrechter Trenner in der Werkzeugleiste
+// Vertical separator in the toolbar
 function Divider({ isDark }: { isDark: boolean }) {
   return <div className={`w-px h-4 flex-shrink-0 ${isDark ? 'bg-white/15' : 'bg-black/15'}`} />;
 }
 
-// Höhe des Diagramms ziehen — die Einstellung bleibt über die Sitzung hinaus.
+// Drag the height of the diagram — the setting persists beyond the session.
 function ResizeHandle({ isDark, height, onHeight }: { isDark: boolean; height: number; onHeight: (h: number) => void }) {
   const c = cls(isDark);
   const start = useRef<{ y: number; h: number } | null>(null);
@@ -1304,30 +1304,30 @@ function ResizeHandle({ isDark, height, onHeight }: { isDark: boolean; height: n
   );
 }
 
-// Breite der Eigenschaften ziehen — dasselbe Muster wie zwischen Diagramm
-// und Ablauf, nur senkrecht: die linke Kante des Panels ist der Griff.
-// ── Baum ─────────────────────────────────────────────────────────────────────
+// Drag the width of the properties — the same pattern as between diagram
+// and flow, only vertical: the left edge of the panel is the handle.
+// ── Tree ─────────────────────────────────────────────────────────────────────
 interface ListProps {
   steps: Step[];
   depth: number;
   isDark: boolean;
-  /** Befunde je Schritt-ID — Fehler rot, Warnungen orange (siehe findings.ts) */
+  /** Findings per step ID — errors red, warnings orange (see findings.ts) */
   findings: Map<string, Finding>;
-  /** die Interaktion eines Schritts — eigener Vertrag, im Baum hervorgehoben */
+  /** the interaction of a step — its own contract, highlighted in the tree */
   interactionOf: (id: string) => Interaction | null;
-  /** das Datenmodell des Schritts (Interaktion samt Klassen, beim Start die des Prozesses), wenn es tiefer steht */
+  /** the data model of the step (interaction with classes, at the start those of the process), if it ranks lower */
   dataBelowOf: (step: Step) => { status: Status; typeId: string | null; label: string } | null;
-  /** springt ins Datenmodell zu einer Klasse */
+  /** jumps into the data model to a class */
   onOpenType: (id: string) => void;
-  /** am Start des Prozesses: In, InitIn, InConfig (und tiefer stehende Klassen) — siehe status.ts */
+  /** at the start of the process: In, InitIn, InConfig (and lower-ranking classes) — see status.ts */
   startClassesOf: (step: Step) => Array<{ id: string; name: string; status: Status | null; below: boolean }>;
-  /** Katalog-Eintrag eines fremden Services — teal; fehlt er, rot */
+  /** Catalog entry of an external service — teal; if missing, red */
   serviceOf: (step: Step) => ServiceDef | null;
-  /** springt ins Datenmodell zur Interaktion */
+  /** jumps into the data model to the interaction */
   onOpenInteraction: (ia: Interaction) => void;
-  /** die eigene Prozess-ID — trennt eigene Worker von fremden Services */
+  /** the own process ID — separates own workers from external services */
   processId: string;
-  /** gibt es überhaupt einen Katalog? Ohne ihn ist ein fehlender Eintrag kein Befund */
+  /** is there a catalog at all? Without one, a missing entry is not a finding */
   hasCatalog: boolean;
   collapsed: Set<string>;
   toggle: (id: string) => void;
@@ -1335,28 +1335,28 @@ interface ListProps {
   onSelect: (id: string) => void;
   byId: Map<string, Step>;
   matches: (s: Step) => boolean;
-  /** passt der Schritt selbst (ohne Nachfahren)? */
+  /** does the step itself match (without descendants)? */
   matchesSelf: (s: Step) => boolean;
   filterActive: boolean;
   onStatus?: (id: string, s: Status) => void;
-  /** Anzeigename eines Patterns (aus dem Admin) */
+  /** Display name of a pattern (from the admin) */
   patternName: (id: string) => string;
 }
 
 /**
- * Was ein Pattern ins Diagramm bringt — Timer, Link, gemeinsamer Block —
- * ist Verdrahtung, keine Fachlichkeit. Im Baum steht es deshalb als eine
- * Zeile in der Pattern-Farbe; die Schritte darunter erst auf Klick.
+ * What a pattern brings into the diagram — timer, link, shared block —
+ * is wiring, not business logic. In the tree it is therefore shown as one
+ * row in the pattern colour; the steps below only on click.
  */
 function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
   const c = cls(p.isDark);
-  // auf und zu wie jede Ebene (collapsed) — «Alles ausklappen» erreicht auch ihn
+  // opens and closes like every level (collapsed) — «Alles ausklappen» reaches it too
   const key = foldKey(steps);
   const open = !p.collapsed.has(key);
   const setOpen = (next: boolean) => { if (next !== open) p.toggle(key); };
-  // steckt das gewählte Element darin, geht die Zeile auf — sonst sähe man es nicht
+  // if the selected element is inside, the row opens — otherwise it would not be visible
   const holdsSelected = useMemo(() => !!p.selected && allSteps(steps).some(s => s.id === p.selected), [steps, p.selected]);
-  // nur beim Wechsel der Auswahl — sonst ginge der Block nach dem Zuklappen gleich wieder auf
+  // only when the selection changes — otherwise the block would reopen right after collapsing
   useEffect(() => { if (holdsSelected && p.collapsed.has(key)) p.toggle(key); }, [holdsSelected]);
   const n = countSteps(steps);
   return (
@@ -1378,9 +1378,9 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
 }
 
 /**
- * Die Schritte einer Ebene — eigene Blöcke (zweiter Start, Link-Ziel) in
- * einer Klammer: der Block beginnt beim Schritt mit `orphan` und reicht
- * bis zum nächsten. Ein Ereignis-Subprozess hat seine Klammer schon selbst.
+ * The steps of a level — own blocks (second start, link target) in
+ * a bracket: the block begins at the step with `orphan` and extends
+ * to the next one. An event subprocess already has its own bracket.
  */
 function StepList(p: ListProps) {
   const c = cls(p.isDark);
@@ -1424,7 +1424,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   const Icon = stepIcon(step);
   const isOpen = !p.collapsed.has(step.id);
   const hasChildren = !!(step.branches?.length || step.children?.length || step.errors?.some(e => e.steps?.length));
-  // beim Filtern: ein Pfad bleibt, wenn darin etwas passt — oder der Schritt selbst passt
+  // when filtering: a path stays if something in it matches — or the step itself matches
   const shows = (steps: Step[] | undefined) => !p.filterActive || p.matchesSelf(step) || (steps ?? []).some(p.matches);
   const isSelected = p.selected === step.id;
 
@@ -1441,15 +1441,15 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
   }
 
   const ia = p.interactionOf(step.id);
-  // das Datenmodell (Interaktion samt Klassen, beim Start die des Prozesses) steht tiefer — sein Status am Chip
+  // the data model (interaction with classes, at the start those of the process) ranks lower — its status on the chip
   const below = p.dataBelowOf(step);
   const iaBelow = below?.status ?? null;
   const finding = p.findings.get(step.id) ?? null;
-  // fremder Service: Katalog-Kennung oder Topic — nicht der eigene Worker, nicht der Init-Worker
+  // external service: catalog identifier or topic — not the own worker, not the init worker
   const foreign = !ia && (step.serviceId || step.topic) && step.topic !== p.processId ? (step.serviceId ?? step.topic ?? '') : '';
   const svc = foreign ? p.serviceOf(step) : null;
   const hasCatalog = p.hasCatalog;
-  // Ereignisse, Start und Ende sind Verdrahtung — leise
+  // Events, start and end are wiring — quiet
   const quiet = step.kind === 'event' || step.kind === 'start' || step.kind === 'end';
   return (
     <div className="flex flex-col">
@@ -1462,7 +1462,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
         </button>
         <Icon size={12} className={`flex-shrink-0 ${quiet ? c.muted : c.muted2}`} />
         <span className={`text-xs truncate ${quiet ? c.muted2 : c.text} ${step.kind === 'gateway' ? 'italic' : ''} ${ia ? 'font-semibold' : ''}`}>{step.name}</span>
-        {/* Eigener Vertrag: das Objekt als Chip, klickbar ins Datenmodell */}
+        {/* Own contract: the object as a chip, clickable into the data model */}
         {ia && (
           <button onClick={e => { e.stopPropagation(); p.onOpenInteraction(ia); }}
             title={`${INTERACTION_META[ia.kind].label} «${ia.name}»${iaBelow ? ` — im Datenmodell erst «${STATUS_META[iaBelow].label}»` : ''} — zum Datenmodell`}
@@ -1472,7 +1472,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             {iaBelow && <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[iaBelow].dark : STATUS_META[iaBelow].light}`}>{STATUS_META[iaBelow].label}</span>}
           </button>
         )}
-        {/* der Start des Prozesses: In, InitIn, InConfig — mit Status, wo er tiefer steht als der Start */}
+        {/* the start of the process: In, InitIn, InConfig — with status where it ranks lower than the start */}
         {!ia && p.startClassesOf(step).map(k => (
           <button key={k.id} onClick={e => { e.stopPropagation(); p.onOpenType(k.id); }}
             title={`Datenmodell des Prozesses: «${k.name}»${k.below && k.status ? ` erst «${STATUS_META[k.status].label}»` : ''} — zum Datenmodell`}
@@ -1482,11 +1482,11 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             {k.below && k.status && <span className={`flex-shrink-0 px-1 rounded border ${p.isDark ? STATUS_META[k.status].dark : STATUS_META[k.status].light}`}>{STATUS_META[k.status].label}</span>}
           </button>
         ))}
-        {/* Pattern am Schritt */}
+        {/* Pattern on the step */}
         {step.patterns?.map((pt, i) => (
           <span key={`${pt.id}-${i}`} className="hidden md:inline-flex"><PatternChip name={p.patternName(pt.id)} params={pt.params} isDark={p.isDark} /></span>
         ))}
-        {/* Fremder Service: die Katalog-Kennung — teal, wenn der Katalog ihn kennt, sonst rot */}
+        {/* External service: the catalog identifier — teal if the catalog knows it, otherwise red */}
         {!ia && foreign && (
           <span title={svc ? `${svc.name} — im Katalog` : `«${foreign}» steht nicht im Katalog`}
             className={`hidden md:inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[16rem] ${
@@ -1497,8 +1497,8 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-          {/* Befund: rot = Fehler, orange = Warnung — die ersten Meldungen im Tooltip.
-              Zugeklappt zählen die Befunde der Schritte darunter mit, sonst sähe man sie nicht */}
+          {/* Finding: red = error, orange = warning — the first messages in the tooltip.
+              When collapsed, the findings of the steps below are counted too, otherwise they would not be visible */}
           {(() => {
             const below = hasChildren && !isOpen ? nestedFindings(stepsBelow(step), p.findings) : { errors: 0, warnings: 0, texts: [] };
             const own = { errors: finding?.errors.length ?? 0, warnings: finding?.warnings.length ?? 0 };
@@ -1508,7 +1508,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
               title={`${texts.join('\n')}${nBelow ? `\n— davon ${nBelow} in den Schritten darunter (zugeklappt)` : ''}`} />;
           })()}
           {step.description && <span className={`text-[9px] ${c.muted}`} title="fachlich beschrieben">✎</span>}
-          {/* Kommentare am Schritt samt seiner Teile — ohne erst beim Überfahren */}
+          {/* Comments on the step including its parts — without waiting for hover */}
           <CommentBubble target={stepTarget(step.id)} aggregate quiet />
           <BlockChip step={step} isDark={p.isDark} />
           <LoopChip step={step} isDark={p.isDark} />
@@ -1520,11 +1520,11 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
 
       {isOpen && hasChildren && (
         <div className="flex flex-col">
-          {/* Verzweigungen */}
-          {/* beim Filtern nur die Pfade mit einem Treffer — passt das Gateway selbst, alle */}
+          {/* Branches */}
+          {/* when filtering only the paths with a hit — if the gateway itself matches, all */}
           {step.branches?.map((b, i) => (shows(b.steps) ? <BranchBlock key={b.id} branch={b} index={i} gatewayId={step.id} {...p} /> : null))}
 
-          {/* Fehler- und Nebenpfade */}
+          {/* Error and side paths */}
           {step.errors?.filter(e => e.steps?.length && e.pattern && shows(e.steps)).map(e => (
             <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} p={p} />
           ))}
@@ -1546,7 +1546,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
             </div>
           ))}
 
-          {/* Subprozess */}
+          {/* Subprocess */}
           {!!step.children?.length && (
             <div className={`ml-6 pl-3 border-l-2 ${p.isDark ? 'border-white/15' : 'border-black/15'}`}>
               <StepList {...p} steps={step.children} depth={p.depth + 1} />
@@ -1562,14 +1562,14 @@ function BranchBlock({ branch, index, gatewayId, ...p }: ListProps & { branch: B
   const c = cls(p.isDark);
   const col = BRANCH_COLORS[index % BRANCH_COLORS.length];
   const tint = p.isDark ? col.dark : col.light;
-  // Die Bedingung als FEEL, ohne das «=» davor — gekürzt, ganz im Tooltip
+  // The condition as FEEL, without the «=» in front — shortened, in full in the tooltip
   const cond = branch.condition ? branch.condition.replace(/^\s*=\s*/, '') : '';
   const n = countSteps(branch.steps);
   return (
     <div className={`ml-6 pl-3 border-l-2 ${tint.split(' ')[0]}`}>
       <div data-cframe={sub(stepTarget(gatewayId), `branch:${branch.id}`)}
         className={`group flex items-center gap-1.5 py-1 text-[10px] ${tint.split(' ')[1]}`}>
-        {/* Zweig-Kopf: Beschriftung als Chip in der Zweigfarbe, Standardzweig gestrichelt */}
+        {/* Branch header: label as a chip in the branch colour, default branch dashed */}
         <span className={`px-1.5 py-0.5 rounded border font-semibold ${tint.split(' ')[0]} ${branch.isDefault ? 'border-dashed' : ''}`}>
           {branch.label}
         </span>
@@ -1587,10 +1587,10 @@ function BranchBlock({ branch, index, gatewayId, ...p }: ListProps & { branch: B
   );
 }
 
-/** Schritte eines Blocks — ohne Rücksprünge, über alle Ebenen. */
+/** Steps of a block — without jumps back, across all levels. */
 const countSteps = (steps: Step[] | undefined): number => allSteps(steps).filter(s => s.kind !== 'goto').length;
 
-/** Befunde in den Schritten darunter (alle Ebenen) — für Zeilen, die zugeklappt sind */
+/** Findings in the steps below (all levels) — for rows that are collapsed */
 function nestedFindings(steps: Step[] | undefined, findings: Map<string, Finding>): { errors: number; warnings: number; texts: string[] } {
   let errors = 0, warnings = 0;
   const texts: string[] = [];
@@ -1602,11 +1602,11 @@ function nestedFindings(steps: Step[] | undefined, findings: Map<string, Finding
   }
   return { errors, warnings, texts };
 }
-/** die Schritte unter einem Schritt — Zweige, Fehler- und Nebenpfade, Subprozess */
+/** the steps below a step — branches, error and side paths, subprocess */
 const stepsBelow = (step: Step): Step[] =>
   [...(step.branches ?? []).flatMap(b => b.steps), ...(step.errors ?? []).flatMap(e => e.steps ?? []), ...(step.children ?? [])];
 
-/** Dreieck mit Zahl: rot bei Fehlern, sonst orange */
+/** Triangle with number: red for errors, otherwise orange */
 function FindingCount({ errors, warnings, title, isDark }: { errors: number; warnings: number; title: string; isDark: boolean }) {
   if (!errors && !warnings) return null;
   return (

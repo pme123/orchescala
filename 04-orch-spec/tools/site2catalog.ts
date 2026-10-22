@@ -1,10 +1,10 @@
-// CLI: Prozesse von der Orchescala-Doku-Site in den Domain-Katalog.
+// CLI: processes from the Orchescala docs site into the domain catalog.
 //
 //   node tools/site2catalog.ts <url-oder-datei> [--out sample-data/model.json]
 //
-// Nimmt die Startseite der Site (`.../site/`) oder direkt eine `catalog.html`.
-// In Node greift kein CORS — wo der Browser scheitert, kommt man hier immer
-// an den Katalog und exportiert ihn anschliessend als Datei.
+// Takes the start page of the site (`.../site/`) or a `catalog.html` directly.
+// In Node no CORS applies — where the browser fails, you can always get
+// to the catalog here and then export it as a file.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { mergeDomainTypes } from '../src/domainScan.ts';
 import { countByKind, fillGapsOnly, readSite } from '../src/siteCatalog.ts';
@@ -34,7 +34,7 @@ console.log(`gefunden: ${counts.process} Prozesse, ${counts.worker} Worker, ${co
 
 const model = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : { version: 1, services: [] };
 const before = model.domainTypes ?? [];
-// Was aus den Quellen kommt, ist exakt — die Site füllt nur Lücken
+// What comes from the sources is exact — the site only fills gaps
 const neu = fillGapsOnly(types, before);
 const { types: next, discarded } = mergeDomainTypes(before, neu);
 model.domainTypes = next;

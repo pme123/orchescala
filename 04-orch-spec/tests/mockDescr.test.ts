@@ -1,5 +1,5 @@
-// Ein Mock im InConfig beschreibt sich wie in den Projekten: mit einem Beispiel
-// seines Typs als JSON — `@description(serviceOrProcessMockDescr(GetEventStatus.Out.example))`.
+// A mock in the InConfig describes itself as in the projects: with an example
+// of its type as JSON — `@description(serviceOrProcessMockDescr(GetEventStatus.Out.example))`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { renderInConfig } from '../src/scala';

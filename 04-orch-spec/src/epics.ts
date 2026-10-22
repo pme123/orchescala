@@ -1,19 +1,19 @@
-// Epics: eine Klammer über mehrere Prozesse, z. B. ein Change.
+// Epics: a bracket over several processes, e.g. a change.
 //
-// Die Definitionen liegen in der `model.json` (nur Admins schreiben dort),
-// der Prozess trägt nur ihre IDs. Fehlt eine ID im Modell (gelöscht), wird
-// sie nicht gezeigt — die Spezifikationen bleiben unberührt, ein erneut
-// angelegtes Epic mit derselben ID taucht dort wieder auf.
+// The definitions live in the `model.json` (only admins write there),
+// the process only carries their IDs. If an ID is missing in the model (deleted), it is
+// not shown — the specifications stay untouched, an epic created again
+// with the same ID shows up there again.
 import type { EpicDef, Model, ProcessSpec } from './types.ts';
 import { slugify } from './util.ts';
 
-/** Die Epics eines Prozesses — in der Reihenfolge des Modells, unbekannte IDs fallen weg. */
+/** The epics of a process — in the order of the model, unknown IDs are dropped. */
 export function epicsOf(spec: Pick<ProcessSpec, 'epics'>, model: Model | null): EpicDef[] {
   const ids = new Set(spec.epics ?? []);
   return ids.size ? (model?.epics ?? []).filter(e => ids.has(e.id)) : [];
 }
 
-/** Eine freie ID aus dem Namen: `Change XY` → `change-xy`, sonst `change-xy-2` … */
+/** A free ID from the name: `Change XY` → `change-xy`, otherwise `change-xy-2` … */
 export function newEpicId(name: string, taken: Iterable<string>): string {
   const used = new Set(taken);
   const base = slugify(name) || 'epic';
@@ -22,7 +22,7 @@ export function newEpicId(name: string, taken: Iterable<string>): string {
   return id;
 }
 
-/** Zuordnen oder entfernen — die Liste bleibt ohne Doppel, leer heisst `undefined`. */
+/** Assign or remove — the list stays without duplicates, empty means `undefined`. */
 export function toggleEpic(spec: ProcessSpec, id: string, on: boolean): ProcessSpec {
   const cur = spec.epics ?? [];
   const next = on ? (cur.includes(id) ? cur : [...cur, id]) : cur.filter(x => x !== id);

@@ -1,9 +1,9 @@
-// Auftritt: Kunde und Logo in der Kopfzeile.
+// Branding: customer and logo in the header.
 //
-// Beides liegt in der `model.json` — das Logo als Data-URI. Eine zweite
-// Datei im geteilten Ordner wäre umständlicher (SharePoint, Rechte,
-// Verweise), und eine Adresse von aussen gäbe es in der Bankenzone nicht.
-// Dafür muss die Datei klein bleiben; grosse werden abgewiesen.
+// Both live in the `model.json` — the logo as a data URI. A second
+// file in the shared folder would be more cumbersome (SharePoint, permissions,
+// references), and an external address would not exist in the bank zone.
+// In return the file must stay small; large ones are rejected.
 import { useRef, useState } from 'react';
 import { Image, Trash2, Upload } from 'lucide-react';
 import type { Model } from '../types';
@@ -11,7 +11,7 @@ import { cls } from '../ui';
 import { FieldLabel, StateChip, flashOf, useFlash } from './adminUi';
 import { useConfirm } from './Confirm';
 
-/** Grenze für das Logo. Ein PNG dieser Grösse ist für eine Kopfzeile üppig. */
+/** Limit for the logo. A PNG of this size is plenty for a header. */
 const MAX = 200 * 1024;
 const TYPES = /^image\/(png|jpeg|svg\+xml|webp|gif)$/;
 

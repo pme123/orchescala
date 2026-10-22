@@ -1,23 +1,23 @@
-// BPMN wählen — die Domain findet die App über den Schlüssel.
+// Choose a BPMN — the app finds the domain via the key.
 //
-// Ein Orchescala-Prozess trägt seine ID in beiden Welten: im BPMN als
-// Prozess-ID, in der Domain als `val processName`. Wer also ein BPMN wählt,
-// muss die Domain nicht mehr suchen — die App tut es:
+// An Orchescala process carries its ID in both worlds: in the BPMN as
+// process ID, in the domain as `val processName`. So whoever chooses a BPMN
+// no longer has to search for the domain — the app does it:
 //
-//   1. im **Domain-Katalog** (model.json bzw. catalog.generated.json),
-//   2. in den **gemerkten Projekt-Ordnern** (Admin → Katalog → Projekt-Ordner),
-//   3. sonst fragt sie nach dem Projekt-Ordner oder einem ZIP.
+//   1. in the **domain catalog** (model.json or catalog.generated.json),
+//   2. in the **remembered project folders** (Admin → Katalog → Projekt-Ordner),
+//   3. otherwise it asks for the project folder or a ZIP.
 //
-// Aus der gefundenen Domain entstehen das **Datenmodell** (In, InitIn, Out
-// und die eigenen Typen dahinter) und die **Interaktionen** (Benutzeraufgaben,
-// eigene Worker, Signale, Nachrichten) samt deren In/Out — zugeordnet ohne
-// Raten: eine Benutzeraufgabe über `val name` (= Element-ID), ein Worker
-// über `val topicName`, Signal und Nachricht über den Namen im BPMN.
+// From the domain found, the **data model** (In, InitIn, Out
+// and the own types behind them) and the **interactions** (user tasks,
+// own workers, signals, messages) including their In/Out are created — mapped without
+// guessing: a user task via `val name` (= element ID), a worker
+// via `val topicName`, signal and message via the name in the BPMN.
 //
-// Typen aus dem Projekt selbst werden **eigene Typen** der Spezifikation;
-// Typen aus anderen Projekten (`CrmConsultant`) zeigen auf den
-// Domain-Katalog, wenn er sie kennt — sonst bleibt der Name stehen und wird
-// gemeldet.
+// Types from the project itself become **own types** of the specification;
+// types from other projects (`CrmConsultant`) point to the
+// domain catalog if it knows them — otherwise the name stays and is
+// reported.
 
 import { unzipSync } from 'fflate';
 import type { DomainField, DomainType, Field, Interaction, InteractionKind, Model, ProcessSpec, ProjectFolder, Step, TypeDef } from './types.ts';
@@ -38,7 +38,7 @@ export interface ProjectFile { path: string; text: string }
 
 const IGNORE = new Set(['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules', '.idea', 'dist', '__MACOSX']);
 
-/** Ordner rekursiv lesen — nur Domain-Quellen, Build-Ordner bleiben draussen. */
+/** Read a folder recursively — only domain sources, build folders stay out. */
 export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''): Promise<ProjectFile[]> {
   const out: ProjectFile[] = [];
   for await (const [name, handle] of dir.entries()) {
@@ -53,7 +53,7 @@ export async function readProjectDir(dir: FileSystemDirectoryHandle, prefix = ''
   return out;
 }
 
-/** ZIP lesen — dieselbe Auswahl wie beim Ordner. */
+/** Read a ZIP — the same selection as for the folder. */
 export function readProjectZip(data: Uint8Array): ProjectFile[] {
   const dec = new TextDecoder();
   const entries = unzipSync(data, {
@@ -62,34 +62,34 @@ export function readProjectZip(data: Uint8Array): ProjectFile[] {
   return Object.entries(entries).map(([path, bytes]) => ({ path, text: dec.decode(bytes) }));
 }
 
-/** Domain-Typen aus Quelldateien. */
+/** Domain types from source files. */
 export const scanDomain = (files: ProjectFile[]): DomainType[] => scanFiles(files.filter(f => isDomainSource(f.path))).types;
 
-/** Kennt diese Domain den Prozess? */
+/** Does this domain know the process? */
 export const hasProcess = (domain: DomainType[], processId: string): boolean =>
   domain.some(t => t.processName === processId && t.owner);
 
 export interface DomainHit {
   domain: DomainType[];
-  /** woher: `Katalog` oder `Ordner <name>` */
+  /** where from: `Katalog` or `Ordner <name>` */
   source: string;
-  /** Vorbehalt zur Quelle, z. B. ein älterer Katalog ohne die Fälle der enums */
+  /** Caveat about the source, e.g. an older catalog without the cases of the enums */
   note?: string;
 }
 
 /**
- * Kennt der Katalog die Angaben des heutigen Scanners (Art des Objekts,
- * Schlüssel, Fälle und gemeinsame Felder der enums)? Ein älterer Katalog
- * hat nur Namen und Felder — daraus wird kein ADT und keine Zuordnung über
+ * Does the catalog know the details of today's scanner (kind of object,
+ * key, cases and shared fields of the enums)? An older catalog
+ * only has names and fields — that yields no ADT and no mapping via
  * `val name`.
  */
 const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || t.keyName || t.cases?.length);
 
 /**
- * Die Domain zum Prozess suchen: der Katalog, wenn er den Prozess **mit
- * allen Angaben** kennt; sonst die gemerkten Projekt-Ordner — Ordner, deren
- * Name zur Prozess-ID passt, zuerst (die Leseberechtigung fragt der Browser
- * je Ordner nach); sonst ein älterer Katalog mit Vorbehalt. `null` = nichts.
+ * Find the domain for the process: the catalog, if it knows the process **with
+ * all details**; otherwise the remembered project folders — folders whose
+ * name matches the process ID first (the browser asks for read permission
+ * per folder); otherwise an older catalog with a caveat. `null` = nothing.
  */
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
   const catalog = model?.domainTypes ?? [];
@@ -104,9 +104,9 @@ export async function findDomain(processId: string, model: Model | null, onProgr
     const domain = scanDomain(files);
     return hasProcess(domain, processId) ? { domain, source: `Ordner ${p.name}` } : null;
   };
-  // Zuerst der eigene Projekt-Ordner: dort steht der aktuelle Stand — der
-  // Katalog ist so alt wie sein letzter Aufbau (Admin → Katalog, prepareDocs),
-  // eine Änderung an der Domain sähe der Abgleich sonst erst danach.
+  // First the own project folder: it holds the current state — the
+  // catalog is as old as its last build (Admin → Katalog, prepareDocs),
+  // otherwise the sync would only see a change to the domain after that.
   const folders = model?.projects ?? [];
   const own = folders.filter(p => processId.startsWith(`${p.name}-`));
   for (const p of own) {
@@ -127,41 +127,41 @@ export async function findDomain(processId: string, model: Model | null, onProgr
   return null;
 }
 
-// ── Domain → eigene Typen ────────────────────────────────────────────────────
+// ── Domain → own types ───────────────────────────────────────────────────────
 
 const isScalar = (t: string) => (SCALA_TYPES as readonly string[]).includes(t);
 
 /**
- * Übersetzt Domain-Typen des Projekts in Typen der Spezifikation. Was zum
- * Projekt gehört, wird ein eigener Typ; Fremdes zeigt in den Katalog.
+ * Translates domain types of the project into types of the specification. What belongs
+ * to the project becomes an own type; foreign ones point into the catalog.
  */
 class Converter {
   readonly types: TypeDef[] = [];
   readonly unresolved = new Set<string>();
-  /** was der Import über das Erkannte zu sagen hat, z. B. erkannte gemeinsame Felder */
+  /** what the import has to say about what was recognized, e.g. recognized shared fields */
   readonly notes: string[] = [];
   private readonly ids = new Map<string, string>();
 
   constructor(
     private readonly domain: DomainType[], private readonly pkg: string, private readonly model: Model | null,
-    /** Objekte, die im Prozess eine Interaktion sind — deren In/Out bleiben **ein** Typ, `Objekt.In` */
+    /** Objects that are an interaction in the process — their In/Out stay **one** type, `Objekt.In` */
     private readonly interactionOwners: Set<string> = new Set(),
-    /** das Prozess-Objekt selbst (`OrderCard`) — was darin steht, gehört zur Spezifikation */
+    /** the process object itself (`OrderCard`) — what is in it belongs to the specification */
     private readonly processOwner?: string,
   ) {}
 
-  /** Gehört der Typ zum Projekt des Prozesses (gleicher Paketstamm)? */
+  /** Does the type belong to the project of the process (same package root)? */
   private own(t: DomainType): boolean {
     const stem = this.pkg.replace(/\.domain\..*$/, '.domain');
     return t.pkg === this.pkg || t.pkg.startsWith(`${stem}.`) || t.pkg === stem;
   }
 
   /**
-   * Eine Klasse **dieses Prozesses** — nur sie kommt ins Datenmodell: freistehend
-   * im Paket oder direkt im Prozess-Objekt (`OrderCard.CustomProcessStatus`).
-   * Klassen anderer Prozesse des Projekts und solche, die in einem anderen
-   * Objekt stehen (`ResolveTimerDueDateWithOverwrite.DueDateSpec`), gibt es
-   * schon: sie werden referenziert (der Export schrieb sie sonst nochmals).
+   * A class **of this process** — only it gets into the data model: free-standing
+   * in the package or directly in the process object (`OrderCard.CustomProcessStatus`).
+   * Classes of other processes of the project and those that live in another
+   * object (`ResolveTimerDueDateWithOverwrite.DueDateSpec`) already
+   * exist: they are referenced (otherwise the export would write them again).
    */
   private ownProcess(t: DomainType): boolean {
     const inProcessObject = !!t.owner && t.owner === this.processOwner;
@@ -169,10 +169,10 @@ class Converter {
   }
 
   /**
-   * Ein Typ über die Imports seiner Datei: `LoadPoas.Out` mit
-   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` — zuerst die
-   * ausdrücklichen, dann die mit `*`; ein relativer Import (`schema.*`) auch
-   * vom Paket aus.
+   * A type via the imports of its file: `LoadPoas.Out` with
+   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` — first the
+   * explicit ones, then those with `*`; a relative import (`schema.*`) also
+   * from the package.
    */
   private viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
     if (!imports?.length) return null;
@@ -186,27 +186,27 @@ class Converter {
     return null;
   }
 
-  /** Typ eines Feldes: Grundtyp ohne Option/Seq → Feldtyp der Spezifikation. */
+  /** Type of a field: base type without Option/Seq → field type of the specification. */
   fieldType(base: string, pkg: string, depth = 0, scope?: string, imports?: string[]): { type: string; constraint?: string; enumCase?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
-    // `MockedServiceResponse[GetX.Out]` — eine Hülle aus Orchescala (der Mock eines
-    // Services): sie bleibt als Scala-Typ stehen; aufgelöst und gemeldet wird das Innere
+    // `MockedServiceResponse[GetX.Out]` — a wrapper from Orchescala (the mock of a
+    // service): it stays as a Scala type; the inner part is resolved and reported
     const wrapped = /^(MockedServiceResponse)\[(.+)\]$/.exec(base);
     if (wrapped) {
       this.fieldType(typeShape(wrapped[2]).base, pkg, depth + 1, scope, imports);
       return { type: base };
     }
-    // Was die Datei ausdrücklich importiert, gilt — auch wenn das eigene Projekt
-    // eine gleichnamige Klasse hat (`LoadPoas` aus vollmacht, nicht aus product).
-    // Nur für Klassen anderer Pakete; im selben Objekt geht das Eigene vor.
+    // What the file imports explicitly applies — even if the own project
+    // has a class of the same name (`LoadPoas` from vollmacht, not from product).
+    // Only for classes of other packages; in the same object the own one comes first.
     const inObject = scope ? this.domain.find(t => t.id === `${pkg}.${scope}.${base}`) : undefined;
     const imported = inObject ? null : this.viaImports(base, pkg, imports);
     if (imported && imported.pkg !== this.pkg && imported.kind !== 'alias') {
       return { type: this.domain.includes(imported) && this.ownProcess(imported) ? this.convert(imported, {}) : domainRef(imported.id) };
     }
-    // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums:
-    // das Feld zeigt auf das enum und nennt den Fall
+    // `CustomDocContents.\`QI-Deklaration\`` — a variant of an ADT enum:
+    // the field points to the enum and names the case
     const split = splitEnumCase(base);
     if (split && !/\.(In|Out)$/.test(base)) {
       const en = (scope ? this.domain.find(t => t.id === `${pkg}.${scope}.${split.base}`) : undefined)
@@ -218,10 +218,10 @@ class Converter {
         return { type, enumCase: split.enumCase };
       }
     }
-    // im Projekt: dasselbe Objekt zuerst (`OrderCard.CustomProcessStatus` für ein
-    // Feld von `OrderCard.Out` — nicht das gleichnamige eines anderen Objekts),
-    // dann das gleiche Paket, dann der Projektstamm — dort ein freistehender Typ
-    // vor einem verschachtelten
+    // in the project: the same object first (`OrderCard.CustomProcessStatus` for a
+    // field of `OrderCard.Out` — not the one with the same name in another object),
+    // then the same package, then the project root — there a free-standing type
+    // before a nested one
     const own = (scope ? this.domain.find(t => t.id === `${pkg}.${scope}.${base}`) : undefined)
       ?? this.domain.find(t => t.id === `${pkg}.${base}`)
       ?? this.domain.find(t => this.own(t) && t.name === base)
@@ -229,10 +229,10 @@ class Converter {
     if (own) {
       if (own.kind === 'alias') {
         if (!own.target) { this.unresolved.add(base); return { type: base }; }
-        // `type ReceivingSystems = Option[String] | Seq[X]` — ein Union-Typ hat in der App
-        // kein Gegenstück: das Feld behält den Alias (voll qualifiziert, der Export übernimmt ihn wörtlich)
+        // `type ReceivingSystems = Option[String] | Seq[X]` — a union type has no
+        // counterpart in the app: the field keeps the alias (fully qualified, the export takes it over verbatim)
         if (isCompoundType(own.target)) {
-          // ohne Objekt ist der Name kein Scala-Pfad, der sich ohne Import auflöst — melden
+          // without an object the name is not a Scala path that resolves without an import — report
           if (!own.owner) { this.unresolved.add(base); return { type: base }; }
           return { type: own.name };
         }
@@ -241,10 +241,10 @@ class Converter {
         return shape.constraint ? { ...inner, constraint: inner.constraint ?? shape.constraint } : inner;
       }
       if (own.kind === 'member' && !own.fields?.length) { this.unresolved.add(base); return { type: base }; }
-      // `MergeContractsForCAM.In` als Feldtyp: das In/Out eines Objekts. Ist
-      // das Objekt eine Interaktion dieses Prozesses, ist es derselbe Typ wie
-      // dort — mit vollem Namen. Sonst gehört es einem fremden Objekt (DMN,
-      // Service) und zeigt in den Katalog, wenn der es kennt.
+      // `MergeContractsForCAM.In` as a field type: the In/Out of an object. If
+      // the object is an interaction of this process, it is the same type as
+      // there — with its full name. Otherwise it belongs to a foreign object (DMN,
+      // service) and points into the catalog if that knows it.
       if (own.owner && /\.(In|Out)$/.test(own.name)) {
         if (this.interactionOwners.has(own.owner)) return { type: this.convert(own, {}, own.name) };
         const ext = resolveType(base, this.model, pkg);
@@ -252,23 +252,23 @@ class Converter {
         this.unresolved.add(base);
         return { type: base };
       }
-      // eine Klasse eines anderen Prozesses oder in einem Objekt: gibt es schon
+      // a class of another process or in an object: already exists
       if (!this.ownProcess(own)) return { type: domainRef(own.id) };
       return { type: this.convert(own, {}) };
     }
-    // fremdes Projekt: der Katalog kennt es vielleicht
+    // foreign project: the catalog may know it
     const ext = resolveType(base, this.model, pkg);
     if (ext) return { type: domainRef(ext.id) };
     this.unresolved.add(base);
     return { type: base };
   }
 
-  /** Einen Domain-Typ als eigenen Typ anlegen (je Domain-Typ genau einmal). */
+  /** Create a domain type as an own type (exactly once per domain type). */
   convert(dom: DomainType, flags: Partial<TypeDef>, copyAs?: string): string {
     const memo = copyAs ? `${dom.id}→${copyAs}` : dom.id;
     const known = this.ids.get(memo);
     if (known) {
-      // schon da (etwa als Feldtyp) — die Rolle kommt nachträglich dazu
+      // already there (e.g. as a field type) — the role is added afterwards
       const existing = this.types.find(t => t.id === known);
       if (existing) Object.assign(existing, flags);
       return known;
@@ -282,15 +282,15 @@ class Converter {
       kind: dom.kind === 'enum' ? 'enum' : 'case',
       status: 'implemented',
       ...(dom.descr ? { description: dom.descr } : {}),
-      // ein Typ im Prozess-Objekt (nicht dessen In/Out/InitIn/InConfig) bleibt beim Export dort
+      // a type in the process object (not its In/Out/InitIn/InConfig) stays there on export
       ...(dom.owner && dom.owner === this.processOwner && !/^(In|Out|InitIn|InConfig)$/.test(name) ? { inProcessObject: true } : {}),
-      // woher — dann gilt sie als Klasse des Prozesses, auch gegen einen älteren Katalog
+      // where from — then it counts as a class of the process, even against an older catalog
       domainId: dom.id,
       ...flags,
     };
-    this.types.push(t); // vor den Feldern — gegen Zyklen
+    this.types.push(t); // before the fields — against cycles
     const toFields = (ps: DomainField[] | undefined, pkg: string): Field[] =>
-      // `InConfig` ist Implementations-Detail — weder als Typ noch als Feld
+      // `InConfig` is an implementation detail — neither as a type nor as a field
       (ps ?? []).filter(p => !/^InConfig$|\.InConfig$/.test(typeShape(p.type).base)).map(p => {
         const shape = typeShape(p.type);
         const ft = this.fieldType(shape.base, pkg, 0, dom.owner, dom.imports);
@@ -305,24 +305,24 @@ class Converter {
         if (p.description) f.description = p.description;
         if (p.descriptionExpr) {
           f.descriptionExpr = p.descriptionExpr;
-          // die Objekte darin brauchen ihre Imports — so, wie sie in der Datei stehen
+          // the objects in it need their imports — as they are in the file
           const imports = importsForExpression(p.descriptionExpr, dom.imports);
           if (imports.length) f.descriptionImports = imports;
         }
         const example = exampleOf(p);
         if (example) f.example = example;
-        // die Beispielwerte (`defaultValidUntil`) mit den Imports ihrer Datei — welcher
-        // gilt, entscheidet die Datei, nicht der Katalog
+        // the example values (`defaultValidUntil`) with the imports of their file — which one
+        // applies is decided by the file, not the catalog
         const named = example?.match(/\bdefault[A-Z]\w*/g) ?? [];
         if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => i.endsWith(`.${n}`)));
         return f;
       });
     if (dom.kind === 'enum') {
-      // Gemeinsame Felder (`def x: T` im Rumpf) — sie stehen in jedem Fall
-      // nochmals; dort bleiben nur die speziellen
+      // Shared fields (`def x: T` in the body) — they appear again in every
+      // case; only the specific ones stay there
       const common = toFields(dom.fields, dom.pkg);
-      // ein `def` hat weder Beschreibung noch Beispiel — sie stehen in den
-      // Fällen (`@description(clientKeyDescr)`, `example`); die des ersten gelten
+      // a `def` has neither description nor example — they are in the
+      // cases (`@description(clientKeyDescr)`, `example`); those of the first apply
       const inCases = (dom.cases ?? []).flatMap(c => c.fields ?? []);
       for (const f of common) {
         const described = inCases.find(p => p.name === f.name && p.description);
@@ -338,11 +338,11 @@ class Converter {
       const cases = new Map((dom.cases ?? []).map(c => [c.name, c.fields]));
       const perCase = (dom.values ?? []).map(v => ({
         name: v, fields: toFields((cases.get(v) ?? []).filter(p => !commonNames.has(p.name)), dom.pkg),
-        // die Reihenfolge im Code — der Export schreibt die Parameter wieder so
+        // the order in the code — the export writes the parameters that way again
         order: (cases.get(v) ?? []).map(p => p.name),
       }));
-      // Was in **allen** Fällen mit gleichem Namen und gleichem Typ steht, ist
-      // ebenfalls gemeinsam — auch wenn die Domain es nicht als `def` führt
+      // What appears in **all** cases with the same name and the same type is
+      // shared as well — even if the domain does not declare it as `def`
       const shared = sharedFields(perCase.filter(c => c.fields.length).map(c => c.fields));
       if (shared.length) {
         const names = new Set(shared.map(f => f.name));
@@ -363,9 +363,9 @@ class Converter {
 }
 
 /**
- * Klassen des Datenmodells, die es in der Domain (noch) nicht gibt — weder im
- * `schema` noch im Prozess-Objekt noch anderswo. Neu, oder der Import fehlt.
- * Nur, wenn die Domain den Prozess kennt (sonst wäre alles «neu»).
+ * Classes of the data model that do not (yet) exist in the domain — neither in the
+ * `schema` nor in the process object nor anywhere else. New, or the import is missing.
+ * Only if the domain knows the process (otherwise everything would be «neu»).
  */
 export function classesNotInDomain(spec: ProcessSpec, model: Model | null): string[] {
   const domain = model?.domainTypes ?? [];
@@ -380,10 +380,10 @@ export function classesNotInDomain(spec: ProcessSpec, model: Model | null): stri
 }
 
 /**
- * Klassen, die es in der Domain schon gibt (siehe `referencedClass`), aus dem
- * Datenmodell nehmen: ältere Importe kopierten Klassen anderer Prozesse und
- * solche aus einem Objekt hinein. Die Felder zeigen danach auf den Katalog-
- * Eintrag (`dom:`), die Kopie fällt weg — der Export legte sie sonst nochmals an.
+ * Remove classes that already exist in the domain (see `referencedClass`) from the
+ * data model: older imports copied in classes of other processes and
+ * ones from an object. The fields then point to the catalog
+ * entry (`dom:`), the copy is dropped — otherwise the export would create it again.
  */
 export function referenceExistingClasses(spec: ProcessSpec, model: Model | null): { spec: ProcessSpec; moved: string[] } {
   const ownPkg = packageOf(spec, model);
@@ -404,10 +404,10 @@ export function referenceExistingClasses(spec: ProcessSpec, model: Model | null)
 }
 
 /**
- * Felder, die in allen Fällen gleich sind: gleicher Name, gleicher Typ und
- * dieselben Hüllen (optional, mehrfach, Map, Ausprägung, Einschränkung).
- * Beschreibung und Vorgabe kommen vom ersten Fall, der sie hat. Bei einem
- * einzigen Fall gibt es nichts Gemeinsames zu erkennen.
+ * Fields that are the same in all cases: same name, same type and
+ * the same wrappers (optional, multiple, map, variant, constraint).
+ * Description and default come from the first case that has them. With a
+ * single case there is nothing shared to recognize.
  */
 export function sharedFields(cases: Field[][]): Field[] {
   if (cases.length < 2) return [];
@@ -426,42 +426,42 @@ export function sharedFields(cases: Field[][]): Field[] {
   });
 }
 
-// ── Spezifikation anreichern ─────────────────────────────────────────────────
+// ── Enrich the specification ─────────────────────────────────────────────────
 
 export interface Enriched {
   spec: ProcessSpec;
-  /** Domain-Objekt des Prozesses */
+  /** Domain object of the process */
   object: string;
-  /** zugeordnete Interaktionen (Objektnamen) */
+  /** mapped interactions (object names) */
   matched: string[];
-  /** Interaktions-Objekte des Pakets ohne passenden Schritt */
+  /** Interaction objects of the package without a matching step */
   unmatched: string[];
-  /** Typnamen, die weder das Projekt noch der Katalog kennt */
+  /** Type names that neither the project nor the catalog knows */
   unresolved: string[];
   warnings: string[];
-  /** Hinweise ohne Handlungsbedarf, z. B. erkannte gemeinsame Felder */
+  /** Notes that need no action, e.g. recognized shared fields */
   notes: string[];
-  /** Schritte ohne Domain-Objekt — als Interaktion im Entwurf vorbereitet, mit In/Out */
+  /** Steps without a domain object — prepared as an interaction in draft, with In/Out */
   prepared: string[];
 }
 
 /**
- * Schritte, die eine Interaktion brauchen, die Domain aber nicht kennt:
- * Benutzeraufgaben, eigene Worker, Signale, Nachrichten ohne Objekt. Sie
- * werden **vorbereitet** — Interaktion im Entwurf, `In` und `Out` als
- * Klassen mit den Feldern aus dem Katalog, sonst aus den Mappings des
- * Schritts — damit die Domain daraus entstehen kann statt umgekehrt.
+ * Steps that need an interaction the domain does not know:
+ * user tasks, own workers, signals, messages without an object. They
+ * are **prepared** — interaction in draft, `In` and `Out` as
+ * classes with the fields from the catalog, otherwise from the mappings of the
+ * step — so that the domain can be created from them instead of the other way round.
  */
 export function prepareInteractions(spec0: ProcessSpec, model: Model | null): { spec: ProcessSpec; prepared: string[] } {
-  // eine früher vorbereitete Interaktion an einem Pattern-Schritt fällt weg (siehe wiringSteps)
+  // an interaction prepared earlier at a pattern step is dropped (see wiringSteps)
   const spec = withoutWiringInteractions(spec0);
   const offen = missingInteractions(spec, model);
   if (!offen.length) return { spec, prepared: [] };
   const types = [...(spec.types ?? [])];
   const interactions = [...(spec.interactions ?? [])];
   const prepared: string[] = [];
-  // Dasselbe Objekt an zwei Stellen im Ablauf (ein Signal, das zweimal
-  // geworfen wird) ist **ein** Objekt: die zweite Stelle teilt die Klassen
+  // The same object at two places in the flow (a signal that is thrown
+  // twice) is **one** object: the second place shares the classes
   const byName = new Map<string, Interaction>(interactions.map(i => [i.name, i]));
   for (const s of offen) {
     const ia: Interaction = { ...withOrigin(toInteraction(s), model, packageOf(spec, model)), status: 'draft' };
@@ -488,7 +488,7 @@ export function prepareInteractions(spec0: ProcessSpec, model: Model | null): { 
   return { spec: { ...spec, types, interactions }, prepared };
 }
 
-/** `In`/`Out` einer vorbereiteten Interaktion: Katalog, sonst die Mappings des Schritts, sonst leer. */
+/** `In`/`Out` of a prepared interaction: catalog, otherwise the mappings of the step, otherwise empty. */
 function memberFromStep(ia: Interaction, member: 'In' | 'Out', step: Step, entry: ReturnType<typeof catalogEntry>, model: Model | null, ownPkg: string): TypeDef {
   const t = createMemberType(ia, member, entry, model, ownPkg);
   if (!(t.fields ?? []).some(f => f.name)) {
@@ -510,8 +510,8 @@ const DSL_KIND: Record<string, InteractionKind> = {
 };
 
 /**
- * Art eines Domain-Objekts. Ein älterer Katalog kennt das DSL nicht — dann
- * verraten Topic und Namensendung (`…UT`, `…SE`, `…ME`), was es ist.
+ * Kind of a domain object. An older catalog does not know the DSL — then
+ * topic and name suffix (`…UT`, `…SE`, `…ME`) reveal what it is.
  */
 function objectKind(t: DomainType): InteractionKind | null {
   if (t.dsl) return DSL_KIND[t.dsl] ?? null;
@@ -524,8 +524,8 @@ function objectKind(t: DomainType): InteractionKind | null {
 }
 
 /**
- * Eine aus dem BPMN gelesene Spezifikation um Datenmodell und Interaktionen
- * aus der Domain ergänzen. `null`, wenn die Domain den Prozess nicht kennt.
+ * Complete a specification read from the BPMN with data model and interactions
+ * from the domain. `null` if the domain does not know the process.
  */
 export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model | null): Enriched | null {
   const warnings: string[] = [];
@@ -533,32 +533,32 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   if (!procType) return null;
   const owner = procType.owner!;
   const pkg = procType.pkg;
-  // Objekte mit Interaktions-Art — deren In/Out bleiben ein Typ mit vollem Namen
+  // Objects with an interaction kind — their In/Out stay a type with full name
   const interactionOwners = new Set(domain.filter(t => t.owner && objectKind(t)).map(t => t.owner!));
   const conv = new Converter(domain, pkg, model, interactionOwners, owner);
   const member = (obj: string, name: string) => domain.find(t => t.id === `${pkg}.${obj}.${name}`) ?? null;
 
-  // Prozess: In · InitIn · Out · InConfig
+  // Process: In · InitIn · Out · InConfig
   const inT = member(owner, 'In');
   if (inT && (inT.kind === 'case' || inT.kind === 'enum')) conv.convert(inT, { root: true }, 'In');
   const initT = member(owner, 'InitIn');
   if (initT?.kind === 'case') conv.convert(initT, { initIn: true }, 'InitIn');
-  // das InConfig, wie es in der Domain steht — mit den Mocks und den
-  // Einstellungen der Schleifen; der Generator ergänzt nur, was ihm fehlt
-  // (gleichnamige eigene Felder gehen vor)
+  // the InConfig as it is in the domain — with the mocks and the
+  // settings of the loops; the generator only adds what it lacks
+  // (own fields of the same name come first)
   const cfgT = member(owner, 'InConfig');
   if (cfgT?.kind === 'case' && cfgT.fields?.length) conv.convert(cfgT, { inConfig: true }, 'InConfig');
   const outT = member(owner, 'Out');
   if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
 
-  // Die Klassen im `schema`-Paket des Prozesses gehören immer dazu — auch die,
-  // die In und Out (noch) nicht brauchen
+  // The classes in the `schema` package of the process always belong to it — even those
+  // that In and Out do not need (yet)
   for (const d of domain) {
     if (!d.owner && d.pkg === `${pkg}.schema` && (d.kind === 'case' || d.kind === 'enum')) conv.convert(d, {});
   }
 
-  // Interaktionen: die Objekte mit Interaktions-Art — die des eigenen Pakets
-  // zuerst, damit bei gleichem Namen diese gewinnen
+  // Interactions: the objects with an interaction kind — those of the own package
+  // first, so that they win on equal names
   const objects = [...new Map(domain
     .filter(t => t.owner && objectKind(t))
     .sort((a, b) => Number(b.pkg === pkg) - Number(a.pkg === pkg))
@@ -568,14 +568,14 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const processId = spec.processId ?? '';
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
 
-  /** `type In = OrderCardUT.In`: aufgelöst, wenn alle Interaktionen da sind — siehe unten */
+  /** `type In = OrderCardUT.In`: resolved once all interactions are there — see below */
   const aliases: Array<{ iaId: string; member: 'In' | 'Out'; target: DomainType; copyId: string }> = [];
   const memberType = (o: DomainType, name: 'In' | 'Out', iaId: string): string | undefined => {
     const t = domain.find(x => x.id === `${o.pkg}.${o.owner}.${name}`);
     if (!t) return undefined;
     if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${o.owner}.${name}`);
     if (t.kind === 'alias' && t.target && t.target !== 'NoInput' && t.target !== 'NoOutput') {
-      // `type In = AdjustOrderUT.In` — dieselben Felder unter eigenem Namen
+      // `type In = AdjustOrderUT.In` — the same fields under its own name
       const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
         const copyId = conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
@@ -589,12 +589,12 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
 
   for (const step of allSteps(spec.steps)) {
     if (step.kind === 'goto' || step.id === startId) continue;
-    // Ein Worker des Projekts erkennt man am Topic — auch wenn es nicht mit
-    // der Prozess-ID beginnt (Worker eines Nachbarpakets)
+    // A worker of the project is recognized by its topic — even if it does not
+    // start with the process ID (worker of a neighbouring package)
     const byTopic = step.kind === 'service' && step.topic && step.topic !== processId
       ? objects.find(o => objectKind(o) === 'customTask' && o.topicName === step.topic) : undefined;
-    // Ein Signal beschreibt das Objekt auch, wenn der Prozess es **fängt**
-    // (Startereignis eines Ereignis-Subprozesses, Zwischenereignis)
+    // A signal describes the object also when the process **catches** it
+    // (start event of an event subprocess, intermediate event)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
     const kind = byTopic ? 'customTask' : (interactionKind(step, processId) ?? caughtSignal);
     if (!kind) continue;
@@ -603,10 +603,10 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       if (kind === 'customTask') return o.topicName === step.topic;
       if (kind === 'userTask' && o.key) return o.key === step.id;
       if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase();
-      // Signal / Nachricht: über den Namen im BPMN (bis zum dynamischen Teil)
+      // Signal / message: via the name in the BPMN (up to the dynamic part)
       const key = (o.key ?? '').split('${')[0];
       if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
-      // sonst die Namenskonvention (`KartenbestellungPrufenBackofficeTask` → `KartenbestellungPrufenBackofficeUT`)
+      // otherwise the naming convention (`KartenbestellungPrufenBackofficeTask` → `KartenbestellungPrufenBackofficeUT`)
       return o.owner === suggestName(step, kind, processId, model);
     });
     if (!obj) continue;
@@ -615,7 +615,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       key: obj.key ?? obj.topicName ?? (kind === 'userTask' ? step.id : step.messageName ?? ''),
       ...(kind === 'decision' && obj.decisionResult ? { decisionResult: obj.decisionResult } : {}),
       ...(obj.ownerDescr ? { descr: obj.ownerDescr } : {}),
-      // ein Ausdruck (`s"…${X.processName}…"`) bleibt einer — mit den Imports seiner Datei
+      // an expression (`s"…${X.processName}…"`) stays one — with the imports of its file
       ...(obj.ownerDescrExpr ? { descrExpr: obj.ownerDescrExpr } : {}),
       ...(obj.ownerDescrExpr && importsForExpression(obj.ownerDescrExpr, obj.imports).length
         ? { descrImports: importsForExpression(obj.ownerDescrExpr, obj.imports) } : {}),
@@ -627,7 +627,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       const outId = memberType(obj, 'Out', ia.id);
       if (outId) ia.outTypeId = outId;
     }
-    // `userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)` — die abweichenden Werte
+    // `userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)` — the differing values
     if (obj.exampleCopies?.In) ia.inExample = obj.exampleCopies.In;
     if (obj.exampleCopies?.Out) ia.outExample = obj.exampleCopies.Out;
     interactions.push(ia);
@@ -635,9 +635,9 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   }
   const unmatched = objects.filter(o => o.pkg === pkg).map(o => o.owner!).filter(o => !matched.includes(o));
 
-  // Ein Alias bleibt einer: das Mitglied einer Interaktion des Prozesses teilt
-  // deren Felder (die Kopie fällt weg), sonst verweist er auf den Typ der Domain
-  // und behält die Kopie für die Felder
+  // An alias stays one: the member of an interaction of the process shares
+  // its fields (the copy is dropped), otherwise it refers to the type of the domain
+  // and keeps the copy for the fields
   const dropped = new Set<string>();
   for (const a of aliases) {
     const ia = interactions.find(i => i.id === a.iaId);
@@ -659,12 +659,12 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const enriched: ProcessSpec = {
     ...spec,
     ...(procType.ownerDescr && !spec.description ? { description: procType.ownerDescr } : {}),
-    // die Bezeichnung je Sprache kommt aus der Domain — der Export gibt sie mit
+    // the label per language comes from the domain — the export passes it along
     ...(procType.processLabels ? { processLabels: procType.processLabels } : {}),
     types: dropped.size ? conv.types.filter(t => !dropped.has(t.id)) : conv.types,
     interactions,
   };
-  // was die Domain nicht kennt, wird vorbereitet — als Entwurf, zum Nachziehen
+  // what the domain does not know is prepared — as a draft, to catch up later
   const { spec: built, prepared } = prepareInteractions(enriched, model);
   return { spec: built, object: owner, matched, unmatched, unresolved: [...conv.unresolved].sort(), warnings, notes: conv.notes, prepared };
 }

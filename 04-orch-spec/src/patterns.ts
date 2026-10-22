@@ -1,31 +1,31 @@
-// Pattern — wiederkehrende BPMN-Bausteine einfügen, erkennen, entfernen.
+// Patterns — insert, recognise and remove recurring BPMN building blocks.
 //
-// Ein Pattern ist ein kleines BPMN (siehe `PatternDef` in types.ts):
+// A pattern is a small BPMN (see `PatternDef` in types.ts):
 //
 //   ┌──────────────────────┐
-//   │ PatternTarget        │  der Anker — sein Typ (userTask, callActivity …)
-//   │  · Listener, Eingaben│  ist der Typ, an den das Pattern passt; was an
-//   └──◯───────────────────┘  ihm hängt, kommt an **jedes** gewählte Element
+//   │ PatternTarget        │  the anchor — its type (userTask, callActivity …)
+//   │  · listeners, inputs │  is the type the pattern fits; whatever hangs on
+//   └──◯───────────────────┘  it goes onto **every** selected element
 //      ↓ Timer {{timer}}
-//      ◉ Link «{{link}}»      Boundary-Ereignis samt Pfad: ebenso je Element
+//      ◉ Link «{{link}}»      boundary event with its path: likewise per element
 //
-//   ◉ Link «{{link}}» → [Call Activity] → ○     losgelöster Block: braucht der
-//                                               Prozess **einmal** — fehlt er,
-//                                               kommt er dazu, sonst nicht
+//   ◉ Link «{{link}}» → [Call Activity] → ○     detached block: the process needs
+//                                               it **once** — if it is missing,
+//                                               it is added, otherwise not
 //
-// Parameter stehen als `{{name}}` im BPMN — in Attributen, Texten, Skripten.
-// Eingebaut sind `{{targetId}}`, `{{targetName}}` und `{{processId}}`.
+// Parameters appear as `{{name}}` in the BPMN — in attributes, texts, scripts.
+// Built in are `{{targetId}}`, `{{targetName}}` and `{{processId}}`.
 //
-// Aus demselben BPMN folgt die **Erkennung**: ein Element trägt das Pattern,
-// wenn alles, was am Anker hängt, auch an ihm hängt — die Parameter werden
-// dabei aus den Werten zurückgelesen. Verglichen wird tolerant: Reihenfolge,
-// IDs, Namen der Flussknoten und Gross-/Kleinschreibung zählen nicht, und
-// was das Element darüber hinaus trägt, stört nicht. Drückt ein älterer
-// Prozess dasselbe anders aus, erkennt die Erkennung auch die weiteren
-// Schreibweisen (`variants`) — eingefügt wird immer das Pattern-BPMN.
+// The **recognition** follows from the same BPMN: an element carries the pattern
+// if everything that hangs on the anchor also hangs on it — the parameters are
+// read back from the values. The comparison is tolerant: order,
+// IDs, names of the flow nodes and upper/lower case don't count, and
+// whatever else the element carries does no harm. If an older
+// process expresses the same thing differently, the recognition also recognises the further
+// notations (`variants`) — what is inserted is always the pattern BPMN.
 //
-// Ein Pattern am **Prozess** (`appliesTo: ['process']`) hat keinen Anker:
-// sein Inhalt sind die Blöcke und die Erweiterungen des Prozesses selbst.
+// A pattern on the **process** (`appliesTo: ['process']`) has no anchor:
+// its content is the blocks and the extensions of the process itself.
 
 import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
@@ -36,27 +36,27 @@ import { engineLabel } from './engineLabels.ts';
 import { parseErrorList } from './errorCodes.ts';
 
 export const ANCHOR_ID = 'PatternTarget';
-/** Name des Ankers in einem neuen Pattern — ein Platzhalter, kein Name für das Element */
+/** Name of the anchor in a new pattern — a placeholder, not a name for the element */
 const STARTER_NAME = 'Element mit dem Pattern';
 export const PROCESS_TARGET = 'process';
-/** Platzhalter, die die App selbst füllt */
+/** Placeholders the app fills itself */
 export const BUILTIN_PARAMS = ['targetId', 'targetName', 'processId', 'startMessage'] as const;
 
-// ── Pattern von Orchescala ───────────────────────────────────────────────────
-// Fest dabei, nicht im Admin gepflegt und nicht im BPMN: ihre Werte stehen in
-// der Spezifikation und gehen über den Export in die Domain.
+// ── Patterns of Orchescala ───────────────────────────────────────────────────
+// Always included, not maintained in the admin and not in the BPMN: their values are in
+// the specification and go into the domain via the export.
 
 /**
- * Die Bezeichnung des Prozesses — `override lazy val processLabels` im
- * Prozess-Objekt. Der Init-Worker setzt daraus die Prozessvariablen
- * `callingProcessKeyDE` und `callingProcessKeyFR` (ProcessLabels in
- * Orchescala); Pattern wie «Benutzer per Mail informieren» lesen sie, und
- * das `Out` des Prozesses gibt sie zurück. Gespeichert in `spec.processLabels`;
- * die Felder im `Out` gehören dazu, solange das Pattern gewählt ist.
+ * The label of the process — `override lazy val processLabels` in the
+ * process object. From it the init worker sets the process variables
+ * `callingProcessKeyDE` and `callingProcessKeyFR` (ProcessLabels in
+ * Orchescala); patterns like «Benutzer per Mail informieren» read them, and
+ * the process's `Out` returns them. Stored in `spec.processLabels`;
+ * the fields in the `Out` belong to it as long as the pattern is selected.
  */
 export const PROCESS_LABELS_PATTERN = 'process-labels';
 
-/** Die Felder, die das Pattern ins `Out` bringt */
+/** The fields the pattern brings into the `Out` */
 const LABEL_FIELDS = (['DE', 'FR'] as const).map(lang => ({
   name: `callingProcessKey${lang}`,
   description: `Bezeichnung des Prozesses (${lang === 'DE' ? 'deutsch' : 'französisch'}) — aus processLabels`,
@@ -78,19 +78,19 @@ export const ORCHESCALA_PATTERNS: PatternDef[] = [{
 }];
 
 /**
- * Das Pattern von Orchescala, zu dem ein Feld gehört — `callingProcessKeyDE/FR`
- * im `Out`, solange «Prozess-Bezeichnung» gewählt ist; auch wenn die Felder
- * aus der Domain kommen. Sonst `null`.
+ * The Orchescala pattern a field belongs to — `callingProcessKeyDE/FR`
+ * in the `Out`, as long as «Prozess-Bezeichnung» is selected; even if the fields
+ * come from the domain. Otherwise `null`.
  */
 export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, field: Field): PatternDef | null {
   if (!spec.processLabels || !type?.processOut) return null;
   return LABEL_FIELDS.some(l => l.name === field.name) ? ORCHESCALA_PATTERNS[0] : null;
 }
 
-/** Die Pattern von Orchescala und die aus dem Admin */
+/** The patterns of Orchescala and those from the admin */
 export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...(defs ?? [])];
 
-/** Die Pattern am Prozess — die von Orchescala aus der Spezifikation, die übrigen aus dem Diagramm */
+/** The patterns on the process — those of Orchescala from the specification, the others from the diagram */
 export function processPatterns(spec: ProcessSpec): AppliedPattern[] {
   const labels = spec.processLabels;
   return [
@@ -100,10 +100,10 @@ export function processPatterns(spec: ProcessSpec): AppliedPattern[] {
 }
 
 /**
- * Ein Pattern von Orchescala wählen, ändern oder entfernen — ohne Diagramm.
- * «Prozess-Bezeichnung» bringt dabei `callingProcessKeyDE/FR` ins `Out` (das
- * `Out` entsteht, wenn es fehlt) und nimmt sie beim Entfernen wieder weg; ein
- * Feld, das es dort schon gibt (aus der Domain), bleibt, wie es ist.
+ * Select, change or remove an Orchescala pattern — without a diagram.
+ * «Prozess-Bezeichnung» brings `callingProcessKeyDE/FR` into the `Out` (the
+ * `Out` is created if it is missing) and removes them again on removal; a
+ * field that already exists there (from the domain) stays as it is.
  */
 export function changeBuiltinPattern(spec: ProcessSpec, id: string, action: 'add' | 'remove' | 'update', params: Record<string, string> = {}): ProcessSpec {
   if (id !== PROCESS_LABELS_PATTERN) return spec;
@@ -131,7 +131,7 @@ export function changeBuiltinPattern(spec: ProcessSpec, id: string, action: 'add
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 
-// ── DOM-Helfer (namespace-tolerant wie in bpmn.ts) ───────────────────────────
+// ── DOM helpers (namespace-tolerant as in bpmn.ts) ───────────────────────────
 const local = (el: Element): string => {
   const n = el.localName || el.tagName || '';
   const i = n.indexOf(':');
@@ -146,26 +146,26 @@ function descendants(root: Element, out: Element[] = []): Element[] {
 const textOf = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
 const num = (el: Element | null, a: string) => Number(el?.getAttribute(a) ?? 0) || 0;
 
-/** Knoten im Ablauf — was einen Platz im Diagramm hat und Sequenzflüsse trägt */
+/** Nodes in the flow — whatever has a place in the diagram and carries sequence flows */
 const FLOW_NODES = new Set([
   'startEvent', 'endEvent', 'intermediateCatchEvent', 'intermediateThrowEvent', 'boundaryEvent',
   'task', 'serviceTask', 'userTask', 'sendTask', 'receiveTask', 'businessRuleTask', 'scriptTask', 'manualTask',
   'callActivity', 'subProcess', 'transaction', 'adHocSubProcess',
   'exclusiveGateway', 'parallelGateway', 'inclusiveGateway', 'eventBasedGateway', 'complexGateway',
 ]);
-/** Inhalt eines Prozesses, der nicht zu den Erweiterungen des Ankers zählt */
+/** Content of a process that does not count among the anchor's extensions */
 const SCOPE_CONTENT = new Set([...FLOW_NODES, 'sequenceFlow', 'laneSet', 'textAnnotation', 'association', 'group',
   'dataObject', 'dataObjectReference', 'dataStoreReference']);
-/** Kinder, die nur Verdrahtung sind */
+/** Children that are only wiring */
 const STRUCTURAL = new Set(['incoming', 'outgoing', 'documentation']);
-/** Sammelelemente in `extensionElements`, deren Einträge einzeln zählen */
+/** Container elements in `extensionElements` whose entries count individually */
 const CONTAINERS = new Set(['inputOutput', 'properties', 'ioMapping', 'taskHeaders']);
-/** Attribute, die auf ein Root-Element zeigen — verglichen wird dessen Name */
+/** Attributes that point to a root element — its name is compared */
 const REF_ATTRS = new Set(['signalRef', 'messageRef', 'errorRef', 'escalationRef']);
-/** Attribute, die nie zählen */
+/** Attributes that never count */
 const SKIP_ATTRS = new Set(['id', 'attachedToRef', 'sourceRef', 'targetRef', 'default', 'isExecutable']);
 
-/** Die BPMN-Typen, die die Oberfläche anbietet — für Auswahl und Anzeige */
+/** The BPMN types the UI offers — for selection and display */
 export const PATTERN_TARGETS: Array<{ tag: string; label: string }> = [
   { tag: 'process', label: 'Prozess' },
   { tag: 'userTask', label: 'Benutzeraufgabe' },
@@ -187,10 +187,10 @@ export const PATTERN_TARGETS: Array<{ tag: string; label: string }> = [
 ];
 export const targetLabel = (tag: string) => PATTERN_TARGETS.find(t => t.tag === tag)?.label ?? tag;
 
-// ── Platzhalter ──────────────────────────────────────────────────────────────
+// ── Placeholders ─────────────────────────────────────────────────────────────
 const PH = /\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}/g;
 
-/** Die Parameter eines Pattern-BPMN (ohne die eingebauten), in Reihenfolge */
+/** The parameters of a pattern BPMN (without the built-in ones), in order */
 export function placeholders(xml: string): string[] {
   const out: string[] = [];
   for (const m of xml.matchAll(PH)) {
@@ -200,9 +200,9 @@ export function placeholders(xml: string): string[] {
 }
 
 /**
- * Die Parameter, wie sie am Element erscheinen: nur die, die im BPMN dieser
- * Engine vorkommen. `inBlock`: steht nur im gemeinsamen Block — wirkt beim
- * ersten Einfügen, danach gehört der Block dem Prozess (im Diagramm ändern).
+ * The parameters as they appear on the element: only those occurring in the BPMN of this
+ * engine. `inBlock`: appears only in the shared block — takes effect on the
+ * first insertion, after that the block belongs to the process (change it in the diagram).
  */
 export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: boolean): Array<PatternParam & { inBlock?: boolean; textOnly?: boolean; options?: string[] }> {
   const x = fragmentFor(def, engine);
@@ -219,10 +219,10 @@ export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: b
 }
 
 /**
- * Parameter, die im Pattern in einer Zeichenkette eines Ausdrucks stehen
- * (`setVariable("processStatus", "{{processStatus}}")`) — dort geht nur Text,
- * kein FEEL. Ausser dem FEEL-Text von Camunda 8 (`source="=&#34;{{p}}&#34;"`),
- * den ein Ausdruck ganz ersetzt (siehe QUOTED_PH).
+ * Parameters that appear in the pattern inside a string of an expression
+ * (`setVariable("processStatus", "{{processStatus}}")`) — only text works there,
+ * no FEEL. Except for the FEEL text of Camunda 8 (`source="=&#34;{{p}}&#34;"`),
+ * which an expression replaces entirely (see QUOTED_PH).
  */
 function textOnlyParams(xml: string): Set<string> {
   const rest = xml.replace(QUOTED_PH, '');
@@ -230,9 +230,9 @@ function textOnlyParams(xml: string): Set<string> {
 }
 
 /**
- * Die Werte zur Auswahl: was der Admin beim Parameter nennt (`values`), für
- * `processStatus` die Status von Orchescala (`ProcessStatus`) — eigene Status
- * (`CustomProcessStatus.ordered`) lassen sich trotzdem eintippen.
+ * The values to choose from: what the admin lists for the parameter (`values`), for
+ * `processStatus` the statuses of Orchescala (`ProcessStatus`) — custom statuses
+ * (`CustomProcessStatus.ordered`) can still be typed in.
  */
 function paramOptions(p: PatternParam): string[] | undefined {
   if (Array.isArray(p.values) && p.values.every(v => typeof v === 'string')) return p.values as string[];
@@ -241,9 +241,9 @@ function paramOptions(p: PatternParam): string[] | undefined {
 }
 
 /**
- * Ein Wert für einen Parameter, der nur Text nimmt: `= "succeeded"`,
- * `= ProcessStatus.succeeded` (ein Fall) und was die Übersetzung nach JUEL
- * daraus gemacht hatte (`${ProcessStatus.prop("succeeded")}`) — alles `succeeded`.
+ * A value for a parameter that only takes text: `= "succeeded"`,
+ * `= ProcessStatus.succeeded` (a case) and what the translation to JUEL
+ * had made of it (`${ProcessStatus.prop("succeeded")}`) — all `succeeded`.
  */
 export function paramText(value: string): string {
   let t = value.trim();
@@ -258,7 +258,7 @@ export function paramText(value: string): string {
   return value;
 }
 
-/** Alle Parameter eines Patterns: gepflegte plus die, die nur im BPMN stehen */
+/** All parameters of a pattern: maintained ones plus those that only appear in the BPMN */
 export function patternParams(def: PatternDef): PatternParam[] {
   const known = def.params ?? [];
   const names = new Set(known.map(p => p.name));
@@ -270,16 +270,16 @@ export function patternParams(def: PatternDef): PatternParam[] {
 const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /**
- * Ein Parameter mit FEEL-Ausdruck (`=x`, Camunda 8) passt nicht in einen
- * FEEL-Text des Patterns (`source="=&#34;{{p}}&#34;"`) — dort ersetzt er den
- * ganzen Wert: `source="=x"`. Ein fester Text bleibt im Text.
+ * A parameter with a FEEL expression (`=x`, Camunda 8) does not fit into a
+ * FEEL text of the pattern (`source="=&#34;{{p}}&#34;"`) — there it replaces the
+ * whole value: `source="=x"`. A fixed text stays inside the text.
  */
 const QUOTED_PH = /="=\s*(?:&#34;|&quot;)\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}(?:&#34;|&quot;)"/g;
 const isFeelValue = (v: string | undefined): v is string => !!v && /^=/.test(v.trim()) && !/^=\s*"[^"]*"$/.test(v.trim());
 
-/** Platzhalter füllen; was keinen Wert hat, wird leer */
+/** Fill placeholders; whatever has no value becomes empty */
 export function fillPlaceholders(xml: string, values: Record<string, string | undefined>): string {
-  // eine Vorgabe darf die eingebauten nennen (`{{processId}}-inform`)
+  // a default may name the built-in ones (`{{processId}}-inform`)
   const resolved: Record<string, string> = {};
   for (const [k, v] of Object.entries(values)) resolved[k] = (v ?? '').replace(PH, (_, n: string) => values[n] ?? '');
   return xml
@@ -291,15 +291,15 @@ type Binding = ReadonlyMap<string, string>;
 const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Einen Text gegen eine Vorlage mit `{{name}}` halten. Schon gebundene
- * Namen müssen denselben Wert haben; neue werden gebunden.
+ * Match a text against a template with `{{name}}`. Names already bound
+ * must have the same value; new ones are bound.
  */
 function matchText(tpl: string, actual: string, b: Binding): Binding | null {
-  // `#{…}` und `${…}` sind in Camunda 7 dasselbe; Leerraum zählt nicht
+  // `#{…}` and `${…}` are the same in Camunda 7; whitespace doesn't count
   const norm = (s: string) => s.replace(/#\{/g, '${').replace(/\s+/g, ' ').trim();
   const t = norm(tpl), a = norm(actual);
-  // `="{{p}}"` im Pattern, aber ein FEEL-Ausdruck im Diagramm (siehe fillPlaceholders):
-  // der Parameter ist der ganze Ausdruck
+  // `="{{p}}"` in the pattern, but a FEEL expression in the diagram (see fillPlaceholders):
+  // the parameter is the whole expression
   const quoted = /^=\s*"\{\{\s*([A-Za-z_][\w.-]*)\s*\}\}"$/.exec(t);
   if (quoted && isFeelValue(a)) {
     const bound = b.get(quoted[1]);
@@ -331,11 +331,11 @@ function matchText(tpl: string, actual: string, b: Binding): Binding | null {
   return next;
 }
 
-/** Wörtliche Zeichen einer Vorlage — Mass für «wie bestimmt» ein Pattern ist */
+/** Literal characters of a template — a measure of «how specific» a pattern is */
 const literalLength = (s: string) => s.replace(PH, '').replace(/\s+/g, '').length;
 
-// ── Vergleich zweier Elemente ────────────────────────────────────────────────
-/** Attribut-Schlüssel ohne beliebige Prefixe — `camunda:` und `zeebe:` bleiben stehen */
+// ── Comparing two elements ───────────────────────────────────────────────────
+/** Attribute key without arbitrary prefixes — `camunda:` and `zeebe:` are kept */
 function attrKey(a: Attr): string {
   const i = a.name.indexOf(':');
   if (i < 0) return a.name;
@@ -359,7 +359,7 @@ function attrOf(el: Element, key: string): string | null {
   return null;
 }
 
-/** Name eines Root-Elements (Signal, Nachricht, Fehler) über seine ID */
+/** Name of a root element (signal, message, error) via its ID */
 function refName(doc: Document, id: string): string {
   const el = byIdIn(doc.documentElement, id);
   return el ? (el.getAttribute('errorCode') || el.getAttribute('escalationCode') || el.getAttribute('name') || id) : id;
@@ -372,9 +372,9 @@ function byIdIn(root: Element, id: string): Element | null {
 }
 
 /**
- * Passt `t` zur Vorlage `f`? Gleiche Art, jedes Attribut und jedes Kind der
- * Vorlage findet sein Gegenstück (Reihenfolge egal); was `t` darüber hinaus
- * hat, stört nicht.
+ * Does `t` match the template `f`? Same kind, every attribute and every child of the
+ * template finds its counterpart (order doesn't matter); whatever else `t`
+ * has does no harm.
  */
 function matchEl(f: Element, t: Element, b: Binding): Binding | null {
   if (local(f) !== local(t)) return null;
@@ -390,7 +390,7 @@ function matchEl(f: Element, t: Element, b: Binding): Binding | null {
     cur = matchText(want, tv, cur);
     if (!cur) return null;
   }
-  // Text zählt nur an Blättern — sonst stünden die IDs aus <incoming> darin
+  // text only counts at leaves — otherwise the IDs from <incoming> would be in it
   if (!kids(f).length) {
     const ft = textOf(f);
     return ft ? matchText(ft, textOf(t), cur) : cur;
@@ -412,14 +412,14 @@ function matchEl(f: Element, t: Element, b: Binding): Binding | null {
   return cur;
 }
 
-/** `_handledErrors` / `_regexHandledErrors` — eine Liste von Fehlern */
+/** `_handledErrors` / `_regexHandledErrors` — a list of errors */
 const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
 
 /**
- * Dieselben behandelten Fehler, nur anders geschrieben? In Camunda 8 ist es
- * eine Liste (`=["output-mocked"]`, so schreibt sie die Umwandlung), ein
- * älteres Pattern hat oft einen Text (`="output-mocked"`) — beides meint
- * dasselbe. Nur ohne Parameter in der Vorlage; mit ihnen gilt der Textvergleich.
+ * The same handled errors, just written differently? In Camunda 8 it is
+ * a list (`=["output-mocked"]`, that is how the conversion writes it), an
+ * older pattern often has a text (`="output-mocked"`) — both mean
+ * the same. Only without parameters in the template; with them the text comparison applies.
  */
 function sameErrorList(f: Element, t: Element): boolean {
   if (local(f) !== 'input') return false;
@@ -431,15 +431,15 @@ function sameErrorList(f: Element, t: Element): boolean {
   return norm(fs) === norm(ts);
 }
 
-// ── Graph eines Scopes ───────────────────────────────────────────────────────
+// ── Graph of a scope ─────────────────────────────────────────────────────────
 interface Graph {
   container: Element;
   nodes: Element[];
   byId: Map<string, Element>;
-  /** Knoten-ID → ausgehende Flüsse */
+  /** node ID → outgoing flows */
   out: Map<string, Element[]>;
   inCount: Map<string, number>;
-  /** Knoten-ID → Boundary-Ereignisse daran */
+  /** node ID → boundary events on it */
   boundaries: Map<string, Element[]>;
 }
 
@@ -466,7 +466,7 @@ function graphOf(container: Element): Graph {
   return g;
 }
 
-/** Alles, was ab einem Knoten über Flüsse (und Boundary-Ereignisse) erreichbar ist */
+/** Everything reachable from a node via flows (and boundary events) */
 function reach(g: Graph, start: Element, stop: Set<Element> = new Set()): { nodes: Element[]; flows: Element[] } {
   const nodes: Element[] = [], flows: Element[] = [];
   const seen = new Set<Element>(stop);
@@ -490,8 +490,8 @@ function reach(g: Graph, start: Element, stop: Set<Element> = new Set()): { node
 type Mapping = Map<Element, Element>;
 
 /**
- * Den Pfad ab `f` (Vorlage) auf den ab `t` (Diagramm) legen: Knoten für
- * Knoten, Fluss für Fluss. Liefert die Zuordnung Vorlage → Diagramm.
+ * Lay the path from `f` (template) onto the one from `t` (diagram): node by
+ * node, flow by flow. Returns the mapping template → diagram.
  */
 function matchGraph(fg: Graph, f: Element, tg: Graph, t: Element, b: Binding, map: Mapping, claimed: Set<Element>): { b: Binding; map: Mapping } | null {
   const had = map.get(f);
@@ -501,7 +501,7 @@ function matchGraph(fg: Graph, f: Element, tg: Graph, t: Element, b: Binding, ma
   if (!b1) return null;
   let cur = { b: b1, map: new Map(map).set(f, t) };
   const fid = f.getAttribute('id') ?? '', tid = t.getAttribute('id') ?? '';
-  // Boundary-Ereignisse an Knoten des Pfads
+  // boundary events on nodes of the path
   for (const fb of fg.boundaries.get(fid) ?? []) {
     let hit = null;
     for (const tb of tg.boundaries.get(tid) ?? []) {
@@ -529,16 +529,16 @@ function matchGraph(fg: Graph, f: Element, tg: Graph, t: Element, b: Binding, ma
   return cur;
 }
 
-// ── Das Pattern-BPMN ─────────────────────────────────────────────────────────
+// ── The pattern BPMN ─────────────────────────────────────────────────────────
 interface Item {
   el: Element;
-  /** Sammelelement in `extensionElements` (inputOutput …) oder '' */
+  /** Container element in `extensionElements` (inputOutput …) or '' */
   container: string;
-  /** direkt in `extensionElements` bzw. am Element selbst */
+  /** directly in `extensionElements` or on the element itself */
   inExt: boolean;
 }
 
-/** Was ein Element über seine Verdrahtung hinaus trägt: Erweiterungen, Ereignisdefinitionen … */
+/** What an element carries beyond its wiring: extensions, event definitions … */
 function itemsOf(el: Element): Item[] {
   const out: Item[] = [];
   for (const c of kids(el)) {
@@ -555,8 +555,8 @@ function itemsOf(el: Element): Item[] {
 }
 const sameSlot = (a: Item, b: Item) => a.inExt === b.inExt && a.container === b.container;
 /**
- * Welche Variable ein Mapping belegt (`camunda:in`/`out`, Input-/Output-Parameter,
- * `zeebe:input`/`output`) — `null` für alles andere und für `variables="all"`.
+ * Which variable a mapping assigns (`camunda:in`/`out`, input/output parameter,
+ * `zeebe:input`/`output`) — `null` for everything else and for `variables="all"`.
  */
 function mappingKey(el: Element): string | null {
   const n = local(el);
@@ -569,23 +569,23 @@ function mappingKey(el: Element): string | null {
 export interface Fragment {
   doc: Document;
   process: Element;
-  /** null: das Pattern gilt dem Prozess selbst */
+  /** null: the pattern applies to the process itself */
   anchor: Element | null;
-  /** Typ des Ankers, bzw. `process` */
+  /** Type of the anchor, or `process` */
   anchorTag: string;
   graph: Graph;
   items: Item[];
   attrs: Array<[string, string]>;
-  /** je Boundary-Ereignis am Anker: das Ereignis samt Pfad */
+  /** per boundary event on the anchor: the event with its path */
   attached: Array<{ boundary: Element; nodes: Element[]; flows: Element[] }>;
-  /** losgelöste Blöcke — braucht der Prozess einmal */
+  /** detached blocks — the process needs them once */
   blocks: Array<{ entry: Element; nodes: Element[]; flows: Element[] }>;
-  /** wie bestimmt der Anker ist (wörtliche Zeichen) — bei Konkurrenz gewinnt der bestimmtere */
+  /** how specific the anchor is (literal characters) — in a tie, the more specific wins */
   score: number;
-  /** Platzhalter am Element (Anker, Pfade) bzw. nur in den gemeinsamen Blöcken */
+  /** Placeholders on the element (anchor, paths) or only in the shared blocks */
   elementParams: Set<string>;
   blockParams: Set<string>;
-  /** Hinweise für den Admin */
+  /** Hints for the admin */
   warnings: string[];
 }
 
@@ -600,7 +600,7 @@ export function parseXml(xml: string): Document | null {
 function processes(doc: Document): Element[] {
   return descendants(doc.documentElement).filter(e => local(e) === 'process');
 }
-/** Der Prozess, den auch der Import nimmt: der erste mit Elementen */
+/** The process the import also takes: the first one with elements */
 function mainProcess(doc: Document): Element | null {
   const all = processes(doc);
   return all.find(p => kids(p).some(c => FLOW_NODES.has(local(c)))) ?? all[0] ?? null;
@@ -608,7 +608,7 @@ function mainProcess(doc: Document): Element | null {
 
 const fragCache = new Map<string, Fragment | string>();
 
-/** Das Pattern-BPMN lesen: Anker, was an ihm hängt, und die Blöcke daneben */
+/** Read the pattern BPMN: anchor, what hangs on it, and the blocks beside it */
 export function parseFragment(xml: string): Fragment | { error: string } {
   const hit = fragCache.get(xml);
   if (hit) return typeof hit === 'string' ? { error: hit } : hit;
@@ -640,7 +640,7 @@ function parseFragmentUncached(xml: string): Fragment | { error: string } {
       attached.push({ boundary: bd, nodes: r.nodes.slice(1), flows: r.flows });
     }
   }
-  // Blöcke: der Rest, zusammenhängend über Flüsse; Einstieg ist der Knoten ohne Eingang
+  // blocks: the rest, connected via flows; the entry is the node without an incoming flow
   const blocks: Fragment['blocks'] = [];
   const rest = graph.nodes.filter(n => !taken.has(n) && local(n) !== 'boundaryEvent');
   for (const n of rest) {
@@ -653,7 +653,7 @@ function parseFragmentUncached(xml: string): Fragment | { error: string } {
   if (leftover.length) warnings.push(`${leftover.length} Element(e) ohne Einstieg (nur im Kreis verbunden) — nicht übernommen.`);
   const items = itemsOf(anchor ?? process);
   const attrs = anchor ? attrsOf(anchor, true) : attrsOf(process, true);
-  // Inhalt eines Elements als Text — Namen, Attribute, Texte (ohne XMLSerializer, auch für die CLI)
+  // content of an element as text — names, attributes, texts (without XMLSerializer, also for the CLI)
   const ser = (el: Element): string => [local(el), ...Array.from(el.attributes).map(x => `${x.name}=${x.value}`),
     ...(el.children.length ? kids(el).map(ser) : [el.textContent ?? ''])].join(' ');
   const score = items.reduce((s, i) => s + literalLength(ser(i.el)), 0)
@@ -663,7 +663,7 @@ function parseFragmentUncached(xml: string): Fragment | { error: string } {
   const elementParams = new Set([...phs(items.map(i => i.el)), ...attrs.flatMap(([, v]) => placeholders(v)),
     ...phs(attached.flatMap(a => [a.boundary, ...a.nodes, ...a.flows]))]);
   const inBlocks = phs(blocks.flatMap(b => [...b.nodes, ...b.flows]));
-  // was die Blöcke über Signale/Nachrichten nennen, steht in den Root-Elementen
+  // what the blocks reference via signals/messages is in the root elements
   for (const r of kids(doc.documentElement)) if (!['process', 'collaboration', 'BPMNDiagram'].includes(local(r))) for (const n of placeholders(ser(r))) inBlocks.add(n);
   const blockParams = new Set([...inBlocks].filter(n => !elementParams.has(n)));
   if (anchor && !items.length && !attrs.length && !attached.length) {
@@ -672,7 +672,7 @@ function parseFragmentUncached(xml: string): Fragment | { error: string } {
   return { doc, process, anchor, anchorTag: anchor ? local(anchor) : PROCESS_TARGET, graph, items, attrs, attached, blocks, score, warnings, elementParams, blockParams };
 }
 
-/** Zusammenfassung für die Admin-Ansicht */
+/** Summary for the admin view */
 export function describeFragment(fr: Fragment): string[] {
   const out: string[] = [];
   const name = (e: Element) => e.getAttribute('name') || local(e);
@@ -691,17 +691,17 @@ export function describeFragment(fr: Fragment): string[] {
   return out;
 }
 
-// ── Erkennen ─────────────────────────────────────────────────────────────────
+// ── Recognising ──────────────────────────────────────────────────────────────
 export interface PatternHit {
   patternId: string;
-  /** Element-ID, oder null für den Prozess */
+  /** element ID, or null for the process */
   targetId: string | null;
   params: Record<string, string>;
 }
 
 export interface Detection {
   hits: PatternHit[];
-  /** Element-ID → Pattern-ID: alles, was zu einem Pattern gehört (Pfade, Blöcke) */
+  /** element ID → pattern ID: everything that belongs to a pattern (paths, blocks) */
   owned: Map<string, string>;
 }
 
@@ -709,11 +709,11 @@ interface AnchorMatch {
   b: Binding;
   items: Element[];
   attrs: string[];
-  /** Boundary-Ereignisse samt Pfad: Knoten und Flüsse im Diagramm, je Vorlage-Element */
+  /** Boundary events with their path: nodes and flows in the diagram, per template element */
   attached: Mapping;
 }
 
-/** Trägt `t` alles, was am Anker hängt? */
+/** Does `t` carry everything that hangs on the anchor? */
 function matchAnchor(fr: Fragment, t: Element, tg: Graph | null, claimed: Set<Element>, base: Binding): AnchorMatch | null {
   let b: Binding | null = base;
   const attrs: string[] = [];
@@ -755,9 +755,9 @@ function matchAnchor(fr: Fragment, t: Element, tg: Graph | null, claimed: Set<El
 }
 
 /**
- * Was ab einem Einstieg **nur** zu ihm gehört: ein Knoten zählt dazu, wenn
- * alle seine Eingänge aus dem Block kommen. So bleibt ein Pfad, der in den
- * Hauptablauf zurückführt, beim Entfernen unangetastet.
+ * What belongs **only** to an entry: a node counts if
+ * all its incoming flows come from the block. That way a path leading back into the
+ * main flow stays untouched on removal.
  */
 function reachOwned(g: Graph, start: Element): Element[] {
   const inFlows = new Map<string, Element[]>();
@@ -786,11 +786,11 @@ function reachOwned(g: Graph, start: Element): Element[] {
 }
 
 /**
- * Die gemeinsamen Blöcke des Patterns im Scope suchen. Massgebend ist der
- * **Einstieg**: ein Link-Ziel mit demselben Namen, ein Ereignis-Subprozess
- * mit demselben Start — was dahinter kommt, gehört dazu, auch wenn es vom
- * Pattern abweicht. Sonst stünde ein zweites, gleichnamiges Link-Ziel im
- * Prozess, sobald ein Block ein Feld mehr oder weniger hat.
+ * Find the pattern's shared blocks in the scope. What matters is the
+ * **entry**: a link target with the same name, an event subprocess
+ * with the same start — whatever comes after it belongs to it, even if it deviates from the
+ * pattern. Otherwise a second link target with the same name would end up in the
+ * process as soon as a block has one field more or less.
  */
 function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Binding): Array<{ b: Binding; elements: Element[]; entry: Element } | null> {
   return fr.blocks.map(block => {
@@ -801,7 +801,7 @@ function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Bindi
       let b: Binding | null = base;
       if (esp) {
         if (tn.getAttribute('triggeredByEvent') !== 'true') continue;
-        // ein Ereignis-Subprozess ist, was ihn auslöst: sein Startereignis
+        // an event subprocess is defined by what triggers it: its start event
         for (const fs of kids(entry).filter(c => local(c) === 'startEvent')) {
           let hit: Binding | null = null;
           for (const ts of kids(tn).filter(c => local(c) === 'startEvent')) { hit = matchEl(fs, ts, b!); if (hit) break; }
@@ -820,7 +820,7 @@ const builtins = (t: Element | null, proc: Element | null): Map<string, string> 
   if (t) { m.set('targetId', t.getAttribute('id') ?? ''); m.set('targetName', t.getAttribute('name') ?? ''); }
   if (proc) {
     m.set('processId', proc.getAttribute('id') ?? '');
-    // Name der Nachricht, mit der der Prozess startet (Nachrichten-Startereignis)
+    // name of the message the process starts with (message start event)
     const start = kids(proc).find(c => local(c) === 'startEvent' && kids(c).some(d => local(d) === 'messageEventDefinition'));
     const ref = start ? kids(start).find(d => local(d) === 'messageEventDefinition')?.getAttribute('messageRef') : null;
     if (ref) m.set('startMessage', refName(proc.ownerDocument, ref));
@@ -837,18 +837,18 @@ const paramsOf = (b: Binding, def: PatternDef): Record<string, string> => {
   return out;
 };
 
-/** Das Pattern-BPMN für die Engine, oder null */
+/** The pattern BPMN for the engine, or null */
 export const fragmentFor = (def: PatternDef, engine: EngineId): string | null => def.bpmn[engine]?.trim() || null;
 
-/** Was die Erkennung annimmt: das Pattern-BPMN, dahinter die weiteren Schreibweisen */
+/** What the recognition accepts: the pattern BPMN, followed by the further notations */
 export const recognisedFor = (def: PatternDef, engine: EngineId): string[] => {
   const main = fragmentFor(def, engine);
   return main ? [main, ...(def.variants?.[engine] ?? []).map(x => x?.trim()).filter((x): x is string => !!x)] : [];
 };
 
 /**
- * Welche Pattern trägt das Diagramm, und wo? Bestimmtere Pattern zuerst —
- * was eines für sich beansprucht, kann kein anderes mehr haben.
+ * Which patterns does the diagram carry, and where? More specific patterns first —
+ * what one claims for itself cannot be had by another.
  */
 export function detectPatterns(docOrXml: Document | string, defs: PatternDef[] | undefined, engine: EngineId): Detection {
   const doc = typeof docOrXml === 'string' ? parseXml(docOrXml) : docOrXml;
@@ -858,17 +858,17 @@ export function detectPatterns(docOrXml: Document | string, defs: PatternDef[] |
 }
 
 interface InternalHit extends PatternHit {
-  /** was im Diagramm dazugehört — Elemente dieses Dokuments */
+  /** what belongs to it in the diagram — elements of this document */
   match: AnchorMatch;
-  /** die Schreibweise, die gepasst hat */
+  /** the notation that matched */
   fr: Fragment;
 }
 
 /**
- * Die Erkennung selbst. Entfernen arbeitet auf ihrem Ergebnis — so nimmt es
- * genau das heraus, was die Erkennung dem Pattern zugeordnet hat, und nicht
- * das erste, was irgendwie passt (ein allgemeiner Timer → Link könnte sonst
- * den Timer der Eskalation treffen).
+ * The recognition itself. Removal works on its result — that way it takes out
+ * exactly what the recognition assigned to the pattern, and not
+ * the first thing that somehow matches (a generic timer → link could otherwise
+ * hit the escalation's timer).
  */
 function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineId): { hits: InternalHit[]; owned: Map<string, string> } {
   const res: { hits: InternalHit[]; owned: Map<string, string> } = { hits: [], owned: new Map() };
@@ -909,15 +909,15 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
     for (const t of all) {
       if (!tags.has(local(t)) || !t.getAttribute('id') || !t.parentElement) continue;
       const tg = graph(t.parentElement);
-      // dasselbe Pattern kann mehrmals am Element hängen (zwei Mail-Timer) —
-      // was schon zugeordnet ist, steht dem nächsten nicht mehr zur Verfügung
+      // the same pattern can hang on the element several times (two mail timers) —
+      // whatever is already assigned is no longer available to the next one
       for (let i = 0; i < 10; i++) {
         const m = matchAnchor(fr, t, tg, claimed, builtins(t, proc));
         if (!m) break;
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
         res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
-        // gemeinsame Blöcke einmal je Scope zuordnen
+        // assign shared blocks once per scope
         if (fr.blocks.length) {
           for (const x of matchBlocks(fr, tg, claimed, m.b)) if (x) own(x.elements, def.id);
         }
@@ -928,9 +928,9 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
   return res;
 }
 
-// ── Einfügen ─────────────────────────────────────────────────────────────────
+// ── Inserting ────────────────────────────────────────────────────────────────
 export interface PatternResult {
-  /** unverändert, wenn nichts geschrieben wurde */
+  /** unchanged if nothing was written */
   xml: string;
   changed: boolean;
   issues: string[];
@@ -949,7 +949,7 @@ function translate(di: Element, dx: number, dy: number) {
     e.setAttribute('y', String(Math.round(num(e, 'y') + dy)));
   }
 }
-/** Rahmen um die Formen und Kanten */
+/** Bounding box around the shapes and edges */
 function extent(dis: Element[]): Box | null {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const di of dis) {
@@ -967,7 +967,7 @@ function extent(dis: Element[]): Box | null {
   return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
 
-/** DI-Elemente (Formen und Kanten) je bpmnElement */
+/** DI elements (shapes and edges) per bpmnElement */
 function diIndex(doc: Document): Map<string, Element> {
   const m = new Map<string, Element>();
   for (const e of descendants(doc.documentElement)) {
@@ -996,7 +996,7 @@ class Writer {
     this.ids.add(id);
     return id;
   }
-  /** Namensräume des Pattern-BPMN auch im Diagramm deklarieren */
+  /** Declare the namespaces of the pattern BPMN in the diagram too */
   declareFrom(frag: Document) {
     for (const a of Array.from(frag.documentElement.attributes)) {
       if (!a.name.startsWith('xmlns:')) continue;
@@ -1004,8 +1004,8 @@ class Writer {
     }
   }
   /**
-   * Neue IDs vorab vergeben — sonst zeigt ein <outgoing> eines Knotens noch
-   * auf die alte ID eines Flusses, der erst danach übernommen wird.
+   * Assign new IDs up front — otherwise an <outgoing> of a node still points
+   * to the old ID of a flow that is only taken over afterwards.
    */
   reserve(els: Element[], prefix: string, idMap: Map<string, string>) {
     for (const el of els) for (const e of [el, ...descendants(el)]) {
@@ -1013,7 +1013,7 @@ class Writer {
       if (id && !idMap.has(id)) idMap.set(id, this.newId(prefix ? `${prefix}_${id}` : id));
     }
   }
-  /** Element aus dem Pattern-BPMN übernehmen — alle IDs darin neu (`prefix_id`, ohne prefix die ID selbst), Verweise nachgezogen */
+  /** Take over an element from the pattern BPMN — all IDs in it new (`prefix_id`, without prefix the ID itself), references updated */
   adopt(src: Element, prefix: string, idMap: Map<string, string>, frag: Document): Element {
     const el = this.doc.importNode(src, true) as Element;
     for (const e of [el, ...descendants(el)]) {
@@ -1038,7 +1038,7 @@ class Writer {
       if (v) e.setAttribute(k, this.rootRef(v, frag));
     }
   }
-  /** Signal, Nachricht, Fehler: den gleichnamigen im Diagramm nehmen, sonst übernehmen */
+  /** Signal, message, error: take the one with the same name in the diagram, otherwise take it over */
   rootRef(fragId: string, frag: Document): string {
     const src = byIdIn(frag.documentElement, fragId);
     if (!src) return fragId;
@@ -1054,7 +1054,7 @@ class Writer {
     } else appendEl(this.defs, el);
     return el.getAttribute('id')!;
   }
-  /** DI des Pattern-BPMN übernehmen: verschoben, auf die neuen IDs gezogen */
+  /** Take over the DI of the pattern BPMN: shifted, moved to the new IDs */
   adoptDi(fragDi: Map<string, Element>, fragId: string, idMap: Map<string, string>, plane: Element, dx: number, dy: number): Element | null {
     const src = fragDi.get(fragId);
     const id = idMap.get(fragId);
@@ -1069,7 +1069,7 @@ class Writer {
     return di;
   }
   serialize(original: string): string {
-    // die Reihenfolge des Schemas — sonst lehnt Camunda 7 das Deployment ab
+    // the order of the schema — otherwise Camunda 7 rejects the deployment
     orderBpmn(this.doc);
     let out = new XMLSerializer().serializeToString(this.doc);
     const decl = /^<\?xml[^>]*\?>/.exec(original)?.[0];
@@ -1079,10 +1079,10 @@ class Writer {
 }
 
 /**
- * Den Start des Prozesses zum Nachrichten-Startereignis machen: das leere
- * Startereignis bekommt eine Nachricht mit der Prozess-ID als Namen (die
- * vorhandene gleichen Namens, sonst eine neue). Liefert einen Hinweis, wenn
- * es kein leeres Startereignis gibt.
+ * Make the process start a message start event: the empty
+ * start event gets a message with the process ID as its name (the
+ * existing one of the same name, otherwise a new one). Returns a hint if
+ * there is no empty start event.
  */
 function ensureMessageStart(w: Writer, proc: Element): string | null {
   const starts = kids(proc).filter(c => local(c) === 'startEvent');
@@ -1094,7 +1094,7 @@ function ensureMessageStart(w: Writer, proc: Element): string | null {
   }
   const start = plain.find(s => s.getAttribute('id') === 'StartStartEvent') ?? plain[0];
   const name = proc.getAttribute('id') ?? '';
-  // Präfix aus dem Tag (`bpmn:startEvent`) — `prefix` setzt nicht jedes DOM
+  // prefix from the tag (`bpmn:startEvent`) — not every DOM sets `prefix`
   const pre = start.tagName.includes(':') ? start.tagName.slice(0, start.tagName.indexOf(':') + 1) : '';
   let msg = kids(w.defs).find(e => local(e) === 'message' && e.getAttribute('name') === name) ?? null;
   if (!msg) {
@@ -1114,26 +1114,26 @@ function ensureMessageStart(w: Writer, proc: Element): string | null {
   return null;
 }
 
-/** Die Ebene (BPMNPlane), in der ein Element gezeichnet ist */
+/** The plane (BPMNPlane) in which an element is drawn */
 function planeOf(w: Writer, id: string | null): Element | null {
   const di = id ? w.di.get(id) : null;
   if (di?.parentElement && local(di.parentElement) === 'BPMNPlane') return di.parentElement;
   return descendants(w.defs).find(e => local(e) === 'BPMNPlane') ?? null;
 }
 
-/** Pool (Participant) eines Prozesses im Diagramm */
+/** Pool (participant) of a process in the diagram */
 function participantOf(w: Writer, proc: Element): Element | null {
   const pid = proc.getAttribute('id');
   return descendants(w.defs).find(e => local(e) === 'participant' && e.getAttribute('processRef') === pid) ?? null;
 }
 
-/** Pool und unterste Bahn so weit aufziehen, dass die neuen Formen darin liegen */
+/** Expand the pool and bottom lane far enough for the new shapes to fit inside */
 function growPool(w: Writer, proc: Element, added: Element[], laneFor: (id: string) => Element | null, newIds: string[]) {
   const part = participantOf(w, proc);
   const pShape = part ? w.di.get(part.getAttribute('id') ?? '') : null;
   const pb = pShape ? firstNamed(pShape, 'Bounds') : null;
   const box = extent(added);
-  // Bahnen: neue Knoten gehören in eine Bahn — die des Ziels, sonst die unterste
+  // lanes: new nodes belong in a lane — the target's, otherwise the bottom one
   const lanes = descendants(proc).filter(e => local(e) === 'lane');
   if (lanes.length) {
     for (const id of newIds) {
@@ -1148,7 +1148,7 @@ function growPool(w: Writer, proc: Element, added: Element[], laneFor: (id: stri
   const oldBottom = num(pb, 'y') + num(pb, 'height'), oldRight = num(pb, 'x') + num(pb, 'width');
   const grow = Math.max(0, bottom - oldBottom), widen = Math.max(0, right - oldRight);
   if (!grow && !widen) return;
-  // was unter dem Pool liegt (weitere Pools, Nachrichtenflüsse), rückt mit nach unten
+  // whatever lies below the pool (further pools, message flows) moves down too
   if (grow) {
     const neu = new Set(added);
     for (const di of w.di.values()) {
@@ -1173,7 +1173,7 @@ function growPool(w: Writer, proc: Element, added: Element[], laneFor: (id: stri
   }
 }
 
-/** Vorgaben der Parameter plus die eingebauten */
+/** Defaults of the parameters plus the built-in ones */
 function valuesFor(def: PatternDef, params: Record<string, string>, t: Element | null, proc: Element | null): Record<string, string> {
   const v: Record<string, string> = {};
   for (const p of patternParams(def)) if (p.default != null) v[p.name] = p.default;
@@ -1183,10 +1183,10 @@ function valuesFor(def: PatternDef, params: Record<string, string>, t: Element |
 }
 
 /**
- * Was ein Pattern an einem Endereignis setzt — in Camunda 7 ein Listener
- * `execution.setVariable("processStatus", "canceled")`, in Camunda 8 eine
- * Ausgabe `processStatus = "canceled"`. Das ist das Ergebnis des Prozesses und
- * gehört in sein `Out` (siehe withEndOutFields).
+ * What a pattern sets at an end event — in Camunda 7 a listener
+ * `execution.setVariable("processStatus", "canceled")`, in Camunda 8 an
+ * output `processStatus = "canceled"`. That is the result of the process and
+ * belongs in its `Out` (see withEndOutFields).
  */
 export function endVariables(def: PatternDef, engine: EngineId, params: Record<string, string> = {}): Array<{ name: string; value: string }> {
   const src = fragmentFor(def, engine);
@@ -1207,17 +1207,17 @@ export function endVariables(def: PatternDef, engine: EngineId, params: Record<s
 }
 
 /**
- * Die Variablen eines Patterns am Ende (endVariables) als Felder des `Out`:
- * `processStatus` mit einem Status von Orchescala als fester Fall
- * (`ProcessStatus.canceled.type`), mit verschiedenen Status der Typ selbst;
- * sonst Text. `output-mocked` zählt nicht — dann liefert der Prozess den Mock.
+ * The variables of a pattern at the end (endVariables) as fields of the `Out`:
+ * `processStatus` with an Orchescala status as a fixed case
+ * (`ProcessStatus.canceled.type`), with different statuses the type itself;
+ * otherwise text. `output-mocked` doesn't count — then the process returns the mock.
  */
 export function withEndOutFields(spec: ProcessSpec, vars: Array<{ name: string; value: string }>): ProcessSpec {
   const wanted = vars.filter(v => v.value !== 'output-mocked');
   if (!wanted.length) return spec;
   const types = spec.types ?? [];
   const out = types.find(t => t.processOut);
-  // ein Out mit Fällen: welcher Fall, weiss nur das Modell — dort von Hand
+  // an Out with cases: which case, only the model knows — do it by hand there
   if (out?.kind === 'enum') return spec;
   const status = ORCHESCALA_TYPES.find(t => t.name === 'ProcessStatus')!;
   let fields = [...(out?.fields ?? [])];
@@ -1226,13 +1226,13 @@ export function withEndOutFields(spec: ProcessSpec, vars: Array<{ name: string; 
     const have = fields.find(f => f.name === v.name);
     const isCase = v.name === 'processStatus' && (status.fixedCases ?? status.values ?? []).includes(v.value);
     if (have) {
-      // vorher als Text angelegt (der Status war kein Fall): jetzt der feste Fall
+      // previously created as text (the status was not a case): now the fixed case
       if (isCase && have.type === 'String' && !fields.some(f => f !== have && f.name === v.name)) {
         fields = fields.map(f => (f === have ? { ...f, type: domainRef(status.id), enumCase: v.value } : f));
         changed = true;
         continue;
       }
-      // ein anderer Status am anderen Ende: kein fester Fall mehr
+      // a different status at the other end: no fixed case any more
       if (have.enumCase && have.enumCase !== v.value) {
         const { enumCase: _, ...rest } = have;
         fields = fields.map(f => (f === have ? rest : f));
@@ -1255,9 +1255,9 @@ export function withEndOutFields(spec: ProcessSpec, vars: Array<{ name: string; 
 }
 
 /**
- * Die Erweiterungen der Vorlage an `t` ergänzen, soweit sie fehlen. Belegt `t`
- * eine Variable schon anders, gilt das Pattern — sonst stünde sie doppelt da.
- * `fext`: das `extensionElements` der Vorlage (Muster für ein neues).
+ * Add the template's extensions to `t` where they are missing. If `t` already
+ * assigns a variable differently, the pattern wins — otherwise it would appear twice.
+ * `fext`: the template's `extensionElements` (model for a new one).
  */
 function addItems(w: Writer, items: Item[], fext: Element | null, t: Element, prefix: string, idMap: Map<string, string>, fragDoc: Document): boolean {
   let changed = false;
@@ -1298,8 +1298,8 @@ function addItems(w: Writer, items: Item[], fext: Element | null, t: Element, pr
 }
 
 /**
- * Ein vorhandener gemeinsamer Block und der des Patterns, Knoten für Knoten —
- * vom Einstieg den Flüssen nach, gepaart nach Art des Knotens.
+ * An existing shared block and the pattern's one, node by node —
+ * following the flows from the entry, paired by kind of node.
  */
 function pairBlock(fg: Graph, fEntry: Element, tg: Graph, tEntry: Element): Array<[Element, Element]> {
   const pairs: Array<[Element, Element]> = [];
@@ -1321,10 +1321,10 @@ function pairBlock(fg: Graph, fEntry: Element, tg: Graph, tEntry: Element): Arra
 }
 
 /**
- * Ein Pattern an ein Element (bzw. den Prozess, `targetId === null`)
- * hängen. Das XML bleibt sonst, wie es ist; die neuen Teile stehen dort, wo
- * sie im Pattern-BPMN relativ zum Anker stehen, gemeinsame Blöcke unten
- * rechts im Diagramm.
+ * Attach a pattern to an element (or the process, `targetId === null`).
+ * Otherwise the XML stays as it is; the new parts are placed where
+ * they are relative to the anchor in the pattern BPMN, shared blocks at the bottom
+ * right of the diagram.
  */
 export function applyPattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, params: Record<string, string> = {}): PatternResult {
   const same = (issues: string[]): PatternResult => ({ xml, changed: false, issues });
@@ -1337,8 +1337,8 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   if (!t || !proc) return same([targetId ? `«${targetId}» steht nicht im Diagramm.` : 'Kein Prozess im Diagramm.']);
   const scope = targetId ? t.parentElement! : proc;
   const w = new Writer(doc);
-  // `{{startMessage}}` braucht ein Nachrichten-Startereignis — fehlt es, wird
-  // der Start des Prozesses eines (Nachricht = Prozess-ID, die Konvention)
+  // `{{startMessage}}` needs a message start event — if it is missing,
+  // the process start becomes one (message = process ID, the convention)
   let changed = false;
   if (/\{\{\s*startMessage\s*\}\}/.test(src) && !builtins(null, proc).has('startMessage')) {
     const issue = ensureMessageStart(w, proc);
@@ -1356,7 +1356,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   const idMap = new Map<string, string>();
   const newDi: Element[] = [];
   const newIds: string[] = [];
-  /** DI eines übernommenen Elements — samt allem darin (Inhalt eines Subprozesses) */
+  /** DI of a taken-over element — including everything inside it (content of a subprocess) */
   const adoptDiAll = (e: Element, dx: number, dy: number) => {
     if (!plane) return;
     for (const x of [e, ...descendants(e)]) {
@@ -1365,7 +1365,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     }
   };
 
-  // 1. am Element: Attribute und Erweiterungen, soweit sie fehlen
+  // 1. on the element: attributes and extensions, where missing
   for (const [k, v] of fr.attrs) {
     const a = fr.anchor ? Array.from(fr.anchor.attributes).find(x => attrKey(x) === k) : null;
     if (!a || attrOf(t, k) === v) continue;
@@ -1374,7 +1374,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   }
   if (addItems(w, fr.items, firstNamed(fr.anchor ?? fr.process, 'extensionElements'), t, targetId ?? 'process', idMap, fr.doc)) changed = true;
 
-  // 2. am Element hängend: Boundary-Ereignisse samt Pfad — relativ zum Anker
+  // 2. hanging on the element: boundary events with their path — relative to the anchor
   const tBox = targetId ? boundsOf(w.di.get(targetId)) : null;
   const aBox = fr.anchor ? boundsOf(fragDi.get(ANCHOR_ID)) : null;
   const laneOfTarget = targetId ? descendants(proc).find(e => local(e) === 'lane' && kids(e).some(r => local(r) === 'flowNodeRef' && textOf(r) === targetId)) ?? null : null;
@@ -1382,13 +1382,13 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   if (fr.attached.length) {
     const already = targetId ? matchAnchor({ ...fr, items: [], attrs: [] }, t, tg, new Set(), builtins(t, proc)) : null;
     if (!already) {
-      // belegte Stellen am Rand: bestehende Boundary-Ereignisse
+      // occupied spots on the border: existing boundary events
       const taken = (tg.boundaries.get(targetId ?? '') ?? []).map(b => boundsOf(w.di.get(b.getAttribute('id') ?? ''))).filter((b): b is Box => !!b);
       for (const a of fr.attached) {
         const bb = boundsOf(fragDi.get(a.boundary.getAttribute('id') ?? ''));
         let dx = 0, dy = 0;
         if (tBox && aBox && bb) {
-          // Mittelpunkt relativ zur Grösse des Ankers — passt auch an grössere Elemente
+          // centre relative to the anchor's size — also fits larger elements
           const cx = bb.x + bb.w / 2, cy = bb.y + bb.h / 2;
           const nx = tBox.x + ((cx - aBox.x) / (aBox.w || 1)) * tBox.w, ny = tBox.y + ((cy - aBox.y) / (aBox.h || 1)) * tBox.h;
           dx = nx - cx; dy = ny - cy;
@@ -1414,10 +1414,10 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     }
   }
 
-  // 3. einmal im Prozess: Blöcke, die es im Scope noch nicht gibt — unten rechts ins Diagramm
+  // 3. once in the process: blocks that don't exist in the scope yet — into the diagram at the bottom right
   const matched = matchBlocks(fr, tg, new Set(), builtins(targetId ? t : null, proc));
   const missing = fr.blocks.filter((_, i) => !matched[i]);
-  // ein Block, den es schon gibt: an seinen Knoten ergänzen, was fehlt (der Listener am Ende …)
+  // a block that already exists: add to its nodes what is missing (the listener at the end …)
   fr.blocks.forEach((b, i) => {
     const m = matched[i];
     if (!m || local(b.entry) === 'subProcess') return;
@@ -1433,12 +1433,12 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     const tb = extent([...content, ...newDi]);
     const part = participantOf(w, proc);
     const pBox = part ? boundsOf(w.di.get(part.getAttribute('id') ?? '')) : null;
-    // unten rechts — bündig mit dem Ablauf, damit die Hilfsblöcke nicht am Anfang stehen
+    // bottom right — aligned with the flow, so the helper blocks are not at the beginning
     const right = tb ? tb.x + tb.w : pBox ? pBox.x + pBox.w - 60 : (fbox?.w ?? 0);
     const x0 = Math.max(pBox ? pBox.x + 60 : tb?.x ?? 0, right - (fbox?.w ?? 0));
     const y0 = (tb ? tb.y + tb.h : pBox ? pBox.y : 0) + 70;
     const dx = fbox ? x0 - fbox.x : 0, dy = fbox ? y0 - fbox.y : 0;
-    // gemeinsame Blöcke behalten die IDs aus dem Pattern-BPMN (Hauskonvention) — nur bei Kollision mit Zähler
+    // shared blocks keep the IDs from the pattern BPMN (house convention) — only on collision with a counter
     const prefix = '';
     for (const b of missing) {
       w.reserve([...b.nodes, ...b.flows], prefix, idMap);
@@ -1452,7 +1452,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     changed = true;
   }
   if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`]);
-  // ein namenloses Element heisst wie der Anker («Init Process») — sonst bliebe es ohne Beschriftung
+  // an unnamed element is named like the anchor («Init Process») — otherwise it would have no label
   const anchorName = fr.anchor?.getAttribute('name')?.trim();
   if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
   if (!plane && (fr.attached.length || missing.length)) w.issues.push('Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.');
@@ -1460,10 +1460,10 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
 }
 
-// ── Entfernen ────────────────────────────────────────────────────────────────
-/** Element samt DI und Verweisen darauf aus dem Diagramm nehmen */
+// ── Removing ─────────────────────────────────────────────────────────────────
+/** Remove an element including its DI and the references to it from the diagram */
 function drop(w: Writer, el: Element) {
-  // der Inhalt (eines Subprozesses) hat eigene Formen
+  // the content (of a subprocess) has its own shapes
   for (const x of descendants(el)) {
     const xid = x.getAttribute('id');
     const di = xid ? w.di.get(xid) : null;
@@ -1473,7 +1473,7 @@ function drop(w: Writer, el: Element) {
   if (id) {
     const di = w.di.get(id);
     if (di) { removeEl(di); w.di.delete(id); }
-    // Verweise in Bahnen und an den Nachbarn
+    // references in lanes and on the neighbours
     for (const e of descendants(w.defs)) {
       const n = local(e);
       if ((n === 'flowNodeRef' || n === 'incoming' || n === 'outgoing') && textOf(e) === id) removeEl(e);
@@ -1483,8 +1483,8 @@ function drop(w: Writer, el: Element) {
 }
 
 /**
- * Ein Pattern von einem Element (bzw. dem Prozess) nehmen: was am Element
- * hängt, und die gemeinsamen Blöcke, wenn es sonst niemand mehr braucht.
+ * Remove a pattern from an element (or the process): what hangs on the element,
+ * and the shared blocks if nobody else needs them any more.
  */
 const sameParams = (a: Record<string, string> | undefined, b: Record<string, string> | undefined) => {
   const norm = (x?: Record<string, string>) => JSON.stringify(Object.entries(x ?? {}).filter(([, v]) => v !== '').sort());
@@ -1492,7 +1492,7 @@ const sameParams = (a: Record<string, string> | undefined, b: Record<string, str
 };
 
 /**
- * `params` wählt die Instanz, wenn dasselbe Pattern mehrmals am Element hängt.
+ * `params` selects the instance if the same pattern hangs on the element several times.
  */
 export function removePattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, defs?: PatternDef[], params?: Record<string, string>): PatternResult {
   const same = (issues: string[]): PatternResult => ({ xml, changed: false, issues });
@@ -1510,7 +1510,7 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
   const mine = detectIn(doc, all, engine).hits.filter(h => h.patternId === def.id && h.targetId === targetId);
   const hit = (params && mine.find(h => sameParams(h.params, params))) || mine[0];
   if (!hit) return same([`«${def.name}» ist hier nicht (mehr) vollständig vorhanden — im Diagramm von Hand entfernen.`]);
-  // die Schreibweise, die erkannt wurde — auch eine ältere
+  // the notation that was recognised — even an older one
   const { match: m, fr } = hit;
   const w = new Writer(doc);
   for (const k of m.attrs) {
@@ -1525,10 +1525,10 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
   const ext = firstNamed(t, 'extensionElements');
   if (ext && !ext.children.length) removeEl(ext);
   for (const el of m.attached.values()) drop(w, el);
-  // gemeinsame Blöcke: nur, wenn kein anderes Element im Scope das Pattern noch trägt
+  // shared blocks: only if no other element in the scope still carries the pattern
   if (fr.blocks.length) {
-    // am Prozess sind die Blöcke das Pattern selbst; an einem Element bleiben
-    // sie, solange ein anderes Element im Scope das Pattern noch trägt
+    // on the process the blocks are the pattern itself; on an element they stay
+    // as long as another element in the scope still carries the pattern
     const others = targetId ? detectIn(doc, all, engine).hits
       .filter(h => h.patternId === def.id && h.targetId && byIdIn(doc.documentElement, h.targetId)?.parentElement === scope) : [];
     if (!others.length) {
@@ -1541,14 +1541,14 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
   return { xml: w.serialize(xml), changed: true, issues: [] };
 }
 
-/** Parameter ändern: herausnehmen und mit den neuen Werten wieder einfügen — an derselben Stelle */
+/** Change parameters: take out and insert again with the new values — at the same place */
 export function updatePattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, params: Record<string, string>, defs?: PatternDef[], previous?: Record<string, string>): PatternResult {
   const before = parseXml(xml);
   const r1 = removePattern(xml, def, engine, targetId, defs, previous);
   if (!r1.changed) return r1;
   const r2 = applyPattern(r1.xml, def, engine, targetId, params);
   if (!r2.changed || !before) return r2;
-  // Lage der Formen behalten: gleiche IDs bekommen ihre alten Koordinaten zurück
+  // keep the position of the shapes: same IDs get their old coordinates back
   const after = parseXml(r2.xml);
   if (!after) return r2;
   const old = diIndex(before), now = diIndex(after);
@@ -1567,24 +1567,24 @@ export function updatePattern(xml: string, def: PatternDef, engine: EngineId, ta
   return { ...r2, xml: w.serialize(xml) };
 }
 
-// ── Für die Oberfläche ───────────────────────────────────────────────────────
-/** Name → Pattern-ID der Ein- bzw. Ausgaben, die Pattern an einem Element beisteuern */
+// ── For the UI ───────────────────────────────────────────────────────────────
+/** name → pattern ID of the inputs or outputs that patterns contribute to an element */
 export interface PatternMappings {
   inputs: Map<string, string>;
   outputs: Map<string, string>;
   /**
-   * Wie oft ein Name vom Pattern kommen darf — die ältere Prozess-Event-Form
-   * trägt `processInstanceId` als lokale Eingabe **und** als `camunda:in`;
-   * das ist kein Doppel. Fehlt der Name, gilt einmal.
+   * How often a name may come from the pattern — the older process event form
+   * carries `processInstanceId` as a local input **and** as `camunda:in`;
+   * that is not a duplicate. If the name is missing, once applies.
    */
   times: { inputs: Map<string, number>; outputs: Map<string, number> };
 }
 
 /**
- * Welche Ein- und Ausgaben kommen von den Pattern am Element? Das ist
- * Implementation (Definition und Instanz des Prozesses, Rückgaben) und je
- * BPMN verschieden — die Oberfläche blendet sie aus; was fachlich zählt,
- * steht als Parameter am Pattern. Gelesen aus dem Anker aller Schreibweisen.
+ * Which inputs and outputs come from the patterns on the element? That is
+ * implementation (definition and instance of the process, return values) and differs per
+ * BPMN — the UI hides them; what matters for the business
+ * is a parameter on the pattern. Read from the anchor of all notations.
  */
 export function patternMappings(defs: PatternDef[] | undefined, applied: AppliedPattern[] | undefined, engine: EngineId): PatternMappings {
   const res: PatternMappings = { inputs: new Map(), outputs: new Map(), times: { inputs: new Map(), outputs: new Map() } };
@@ -1614,7 +1614,7 @@ export function patternMappings(defs: PatternDef[] | undefined, applied: Applied
   return res;
 }
 
-/** BPMN-Typen eines Schritts — wofür ein Pattern passen muss */
+/** BPMN types of a step — what a pattern must fit */
 export function stepTags(kind: string, eventDirection?: string, gatewayType?: string): string[] {
   switch (kind) {
     case 'user': return ['userTask'];
@@ -1634,7 +1634,7 @@ export function stepTags(kind: string, eventDirection?: string, gatewayType?: st
   }
 }
 
-/** Wofür ein Pattern taugt: gepflegt, sonst der Typ seines Ankers */
+/** What a pattern is good for: maintained, otherwise the type of its anchor */
 export function appliesTo(def: PatternDef): string[] {
   if (def.appliesTo?.length) return def.appliesTo;
   for (const x of Object.values(def.bpmn)) {
@@ -1645,12 +1645,12 @@ export function appliesTo(def: PatternDef): string[] {
   return [];
 }
 
-/** Die Pattern, die an einen Schritt (bzw. den Prozess) passen und für die Engine ein BPMN haben */
+/** The patterns that fit a step (or the process) and have a BPMN for the engine */
 export function patternsFor(defs: PatternDef[] | undefined, tags: string[], engine: EngineId): PatternDef[] {
   return (defs ?? []).filter(d => (d.builtin || fragmentFor(d, engine)) && appliesTo(d).some(t => tags.includes(t)));
 }
 
-/** Ein leeres Pattern-BPMN mit Anker — der Anfang im Admin */
+/** An empty pattern BPMN with an anchor — the starting point in the admin */
 export function starterFragment(tag: string, engine: EngineId): string {
   const c8 = engine === 'c8';
   const ns = c8

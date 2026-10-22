@@ -1,6 +1,6 @@
-// Ein Element ohne Label im BPMN heisst im Ablauf wie seine ID (`Activity_04tlno2`) —
-// das meldet eine Warnung; ein Name aus der Spezifikation bleibt beim Abgleich und
-// geht beim Export als Label ins BPMN.
+// An element without a label in the BPMN is named in the flow like its ID (`Activity_04tlno2`) —
+// that reports a warning; a name from the specification is kept on reconciliation and
+// goes into the BPMN as a label on export.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -9,7 +9,7 @@ import { writeBpmn } from '../src/bpmnWrite';
 import { collectFindings } from '../src/findings';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
-// linkedom hat keinen XMLSerializer — `toString()` liefert das XML
+// linkedom has no XMLSerializer — `toString()` returns the XML
 (globalThis as unknown as { XMLSerializer: unknown }).XMLSerializer = class { serializeToString(n: Node) { return String(n); } };
 
 const bpmn = `<?xml version="1.0" encoding="UTF-8"?>
@@ -42,9 +42,9 @@ test('a step without label warns; start and end do not', () => {
 test('a name from the spec stays on merge and goes into the BPMN on export', () => {
   const previous = importBpmn(bpmn, 'unnamed').spec;
   sub(previous).name = 'Check Age';
-  // der Abgleich mit dem unveränderten BPMN behält den Namen
+  // reconciling with the unchanged BPMN keeps the name
   assert.equal(sub(mergeSpec(importBpmn(bpmn, 'unnamed').spec, previous).spec).name, 'Check Age');
-  // der Export schreibt ihn als Label — Start und Ende bekommen keinen Ersatznamen
+  // the export writes it as a label — start and end get no substitute name
   const xml = writeBpmn(bpmn, previous).xml;
   assert.match(xml, /<bpmn:subProcess [^>]*name="Check Age"/);
   assert.match(xml, /<bpmn:startEvent id="StartEvent">/);

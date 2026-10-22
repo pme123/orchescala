@@ -1,6 +1,6 @@
-// Ein Pattern mit `_handledErrors` als Text (`="output-mocked"`) erkennt auch
-// die Liste, die die Umwandlung nach Camunda 8 schreibt (`=["output-mocked"]`) —
-// sonst ginge das Pattern (Init Process) beim Wechsel der Engine verloren.
+// A pattern with `_handledErrors` as text (`="output-mocked"`) also recognizes
+// the list the conversion to Camunda 8 writes (`=["output-mocked"]`) —
+// otherwise the pattern (Init Process) would get lost when switching the engine.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';

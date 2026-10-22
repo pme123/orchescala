@@ -1,4 +1,4 @@
-// Export-Dialog: Zielgruppe wählen, Ergebnis prüfen, kopieren oder speichern.
+// Export dialog: choose the audience, check the result, copy or save.
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Copy, Download, Terminal, X } from 'lucide-react';
 import { EXPORT_META, exportBpmnFor, exportFileName, exportSpec, helperCommand, type ExportKind, type HelperDmn } from '../exporters';
@@ -15,7 +15,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   const c = cls(isDark);
   const { loadDmn } = useStore();
   const [kind, setKind] = useState<ExportKind>('orchescala');
-  // die Tabellen der DMN Decisions — vorab geladen, damit das Kopieren im Klick bleibt
+  // the tables of the DMN Decisions — loaded in advance so that copying stays within the click
   const [dmns, setDmns] = useState<HelperDmn[]>([]);
   useEffect(() => {
     let alive = true;
@@ -25,14 +25,14 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
     return () => { alive = false; };
   }, [spec.interactions, spec.slug, loadDmn]);
   const [copied, setCopied] = useState(false);
-  // Grösse des kopierten Helper-Befehls in KB — null, solange nichts kopiert ist
+  // Size of the copied helper command in KB — null as long as nothing is copied
   const [helperCopied, setHelperCopied] = useState<number | null>(null);
-  // Zwischenablage gesperrt: der Befehl steht dann im Feld, zum Markieren und Kopieren
+  // Clipboard blocked: the command is then in the field, for selecting and copying
   const [helperShown, setHelperShown] = useState<string | null>(null);
-  // BPMN für die andere Engine: on the fly umgewandelt, die Spezifikation bleibt, wie sie ist
+  // BPMN for the other engine: converted on the fly, the specification stays as it is
   const own: EngineId = spec.engine ?? 'c7';
   const [engine, setEngine] = useState<EngineId>(own);
-  // samt dem, was beim Schreiben ins BPMN nicht sauber ging (FEEL ohne JUEL-Gegenstück …)
+  // including what did not go cleanly when writing into the BPMN (FEEL without a JUEL counterpart …)
   const bpmnOut = useMemo(
     () => (kind === 'bpmn' && bpmn ? exportBpmnFor(spec, bpmn, engine, model) : null),
     [spec, kind, bpmn, engine, model]);
@@ -48,13 +48,13 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // restriktive Umgebung: Text ist im Feld markierbar
+      // restrictive environment: text can be selected in the field
     }
   };
 
-  // BPMN und Scala-Klassen in einem Befehl — `./helper.scala processFromSpec orchspec:…`
+  // BPMN and Scala classes in one command — `./helper.scala processFromSpec orchspec:…`
   const copyForHelper = async () => {
-    // das BPMN für die Engine, die im BPMN-Reiter gewählt ist
+    // the BPMN for the engine chosen in the BPMN tab
     const command = helperCommand(spec, model, bpmn, engine, dmns);
     try {
       await navigator.clipboard.writeText(command);

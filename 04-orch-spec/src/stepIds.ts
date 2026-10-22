@@ -1,8 +1,8 @@
-// Element-IDs nach Hauskonvention — abgelesen an den bestehenden
-// Globex-Prozessen: PascalCase des fachlichen Namens plus Typ-Suffix,
-// OHNE company-projekt-Prefix. Den Prefix tragen nur Prozess-IDs, Topics,
-// Message-Namen und DMN-Referenzen — Ablauf-Elemente (auch Benutzeraufgaben)
-// heissen nur nach ihrem Namen:
+// Element IDs according to house convention — read off the existing
+// Globex processes: PascalCase of the business name plus type suffix,
+// WITHOUT the company-projekt prefix. Only process IDs, topics,
+// message names and DMN references carry the prefix — flow elements (including user tasks)
+// are named only after their name:
 //
 //   Get Account           (service) → GetAccountTask
 //   Approval              (user)    → ApprovalTask
@@ -12,10 +12,10 @@
 //   Account opened        (end)     → AccountOpenedEndEvent
 //   start                 (start)   → StartStartEvent
 //
-// Umlaute verlieren dabei nur ihre Zeichen («Kartenbestellung prüfen (Backoffice)» →
-// KartenbestellungPrufenBackofficeTask) — genau wie in den bestehenden IDs, und anders
-// als bei den Scala-Objektnamen (dort ä → ae, siehe `pascal` in
-// interactions.ts). Doppelte IDs zählen ohne Trenner hoch (HeatmapEvent1).
+// Umlauts just lose their marks («Kartenbestellung prüfen (Backoffice)» →
+// KartenbestellungPrufenBackofficeTask) — exactly as in the existing IDs, and unlike
+// the Scala object names (there ä → ae, see `pascal` in
+// interactions.ts). Duplicate IDs count up without a separator (HeatmapEvent1).
 
 import type { Model, ProcessSpec, Step, StepKind } from './types';
 
@@ -43,9 +43,9 @@ export function idPascal(text: string): string {
 }
 
 /**
- * Die ID, die dieser Schritt nach Konvention trägt — oder null, wenn sich
- * keine ableiten lässt (Verweis-Schritte, leerer Name). `taken` sagt, ob eine
- * Kandidaten-ID schon vergeben ist; die eigene ID zählt dabei nicht.
+ * The ID this step carries by convention — or null if none
+ * can be derived (reference steps, empty name). `taken` says whether a
+ * candidate ID is already taken; the own ID does not count.
  */
 export function conventionalId(
   step: Pick<Step, 'kind' | 'name'>,
@@ -55,8 +55,8 @@ export function conventionalId(
   if (!suffix) return null;
   const base = idPascal(step.name ?? '');
   if (!base) return null;
-  // Endet der Name schon auf das Suffix («Approval Task»), nicht doppeln —
-  // und eine ID darf nicht mit einer Ziffer beginnen (XML-NCName).
+  // If the name already ends with the suffix («Approval Task»), do not double it —
+  // and an ID must not start with a digit (XML NCName).
   let id = base.endsWith(suffix) ? base : `${base}${suffix}`;
   if (/^\d/.test(id)) id = `N${id}`;
   if (!taken(id)) return id;
@@ -65,10 +65,10 @@ export function conventionalId(
 }
 
 /**
- * Ein Name, den niemand gewählt hat: leer, die eigene ID (Import-Fallback)
- * oder genau eine vom Modeler vergebene ID (`Activity_14pc7cv` — Elementart,
- * Unterstrich, sieben Zeichen). Ein angepasster Name zählt nie dazu, auch
- * nicht einer mit Unterstrich (`Check_balance`).
+ * A name nobody chose: empty, the own ID (import fallback)
+ * or exactly an ID assigned by the modeler (`Activity_14pc7cv` — element kind,
+ * underscore, seven characters). An adjusted name never counts, not
+ * even one with an underscore (`Check_balance`).
  */
 const MODELER_ID = /^(Activity|Task|Event|Gateway|StartEvent|EndEvent|SubProcess|CallActivity|Process)_[0-9a-z]{7}$/;
 export function unnamed(step: Pick<Step, 'name' | 'id'>): boolean {
@@ -77,39 +77,39 @@ export function unnamed(step: Pick<Step, 'name' | 'id'>): boolean {
 }
 
 /**
- * Der Name eines Schritts aus dem gewählten Service bzw. Prozess — die
- * Kennung in Wörtern, ohne Projekt, Version und Platzhalter:
+ * The name of a step from the selected service or process — the
+ * identifier in words, without project, version and placeholders:
  *
  *   valiant-fil-is-accountAndPortfolioV3.GetAccountsAccountKey → Get Accounts Account Key
  *   valiant-vollmacht-getAccountsV2                            → Get Accounts
  *   valiant-documents-print-document                           → Print Document
  *   valiant-depot-updateContractsV1-UpdateContract             → Update Contract
  *
- * `prefixes`: die bekannten `firma-projekt` (siehe knownPrefixes) — ohne sie
- * gelten die ersten beiden Teile als Projekt.
+ * `prefixes`: the known `firma-projekt` (see knownPrefixes) — without them
+ * the first two parts count as the project.
  */
 export function nameFromService(ref: string, prefixes: string[] = []): string {
   let tail: string;
   const p0 = [...prefixes].sort((a, b) => b.length - a.length).find(x => ref.startsWith(`${x}-`));
-  // Signal, Nachricht, Benutzeraufgabe: was hinter dem letzten Punkt steht
+  // Signal, message, user task: whatever is after the last dot
   if (/\.(signal|message|userTask)\./.test(ref)) tail = ref.slice(ref.lastIndexOf('.') + 1);
   else if (ref.includes('.')) {
-    // Service und Operation (`…accountAndPortfolioV3.GetAccounts`, `…eventStatus.get`)
+    // Service and operation (`…accountAndPortfolioV3.GetAccounts`, `…eventStatus.get`)
     const own = p0 ? ref.slice(p0.length + 1) : ref.split('-').slice(2).join('-') || ref;
     const dot = own.indexOf('.');
     const service = own.slice(0, dot), op = own.slice(dot + 1);
-    // nur ein Verb (`get`, `post`) sagt allein nichts — dann mit dem Service davor
+    // a verb alone (`get`, `post`) says nothing — then with the service in front
     tail = /^[a-z]+$/.test(op) ? `${service.replace(/V\d+$/, '')} ${op}` : op;
   }
-  // der Prozess ist das Projekt selbst (`valiant-addresschange`)
+  // the process is the project itself (`valiant-addresschange`)
   else if (prefixes.includes(ref)) tail = ref.slice(ref.lastIndexOf('-') + 1);
   else {
     const rest = p0 ? ref.slice(p0.length + 1) : ref.split('-').slice(2).join('-') || ref;
-    // eigener Worker eines Prozesses: `<prozess>[V1]-<Operation>` → die Operation
+    // own worker of a process: `<prozess>[V1]-<Operation>` → the operation
     tail = /^[a-z][A-Za-z0-9]*-([A-Z].*)$/.exec(rest)?.[1] ?? /^[A-Za-z0-9]*V\d+-(.+)$/.exec(rest)?.[1] ?? rest;
   }
   const words = tail
-    .replace(/-?\{+[^}]*\}+/g, '')               // Platzhalter ({{…}}, {…})
+    .replace(/-?\{+[^}]*\}+/g, '')               // placeholders ({{…}}, {…})
     .replace(/V\d+$/, '')                          // Version
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
@@ -118,20 +118,20 @@ export function nameFromService(ref: string, prefixes: string[] = []): string {
 }
 
 /**
- * Lohnt es sich, für diesen Schritt eine ID abzuleiten? Nicht bei Namen, die
- * nur der Import-Fallback sind (namenlose Elemente tragen ihre ID als Namen,
- * siehe `defaultName` in bpmn.ts).
+ * Is it worth deriving an ID for this step? Not for names that
+ * are only the import fallback (nameless elements carry their ID as name,
+ * see `defaultName` in bpmn.ts).
  */
 export function derivable(step: Pick<Step, 'kind' | 'name' | 'id'>): boolean {
   return !!step.name && step.name !== step.id && step.kind !== 'goto';
 }
 
 /**
- * Eine Element-ID direkt im BPMN-XML umbenennen — für den Fall, dass der
- * Modeler gerade nicht offen ist. Ersetzt wird jedes Attribut, das die ID
- * exakt trägt (`id`, `sourceRef`, `targetRef`, `attachedToRef`,
- * `bpmnElement`, …) — so bleiben alle Verweise stimmig. Gibt null zurück,
- * wenn die alte ID nicht vorkommt oder die neue schon vergeben ist.
+ * Rename an element ID directly in the BPMN XML — for the case that the
+ * modeler is not open right now. Every attribute that carries the ID
+ * exactly is replaced (`id`, `sourceRef`, `targetRef`, `attachedToRef`,
+ * `bpmnElement`, …) — so all references stay consistent. Returns null
+ * if the old ID does not occur or the new one is already taken.
  */
 export function renameIdInXml(xml: string, oldId: string, newId: string, name?: string): string | null {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -145,9 +145,9 @@ export function renameIdInXml(xml: string, oldId: string, newId: string, name?: 
       if (attr.value === oldId) {
         el.setAttribute(attr.name, newId);
         found = true;
-        // Der fachliche Name gehört auch ins BPMN — ohne offenen Modeler wäre
-        // die Umbenennung sonst nur in der Spezifikation und fiele beim
-        // nächsten Abgleich zurück.
+        // The business name also belongs in the BPMN — without an open modeler the
+        // rename would otherwise only be in the specification and would revert on the
+        // next sync.
         if (attr.name === 'id' && name !== undefined) el.setAttribute('name', name);
       }
     }
@@ -159,9 +159,9 @@ export function renameIdInXml(xml: string, oldId: string, newId: string, name?: 
 }
 
 /**
- * Eine Schritt-ID überall in der Spezifikation nachziehen: im Baum (samt
- * `gotoId`-Verweisen), in den Interaktionen (bei Benutzeraufgaben ist die ID
- * auch der Schlüssel) und in den Kommentar-Zielen.
+ * Update a step ID everywhere in the specification: in the tree (including
+ * `gotoId` references), in the interactions (for user tasks the ID is
+ * also the key) and in the comment targets.
  */
 export function renameStepId<T extends {
   steps: Step[];
@@ -186,7 +186,7 @@ export function renameStepId<T extends {
         : i)),
     } : {}),
     ...(spec.comments ? {
-      // auch die Teile des Schritts: `step:<id>#in:name` …
+      // also the parts of the step: `step:<id>#in:name` …
       comments: spec.comments.map(t => (t.target === `step:${oldId}` || t.target.startsWith(`step:${oldId}#`)
         ? { ...t, target: `step:${newId}${t.target.slice(`step:${oldId}`.length)}` }
         : t)),
@@ -194,7 +194,7 @@ export function renameStepId<T extends {
   };
 }
 
-// ── Firma und Projekt (`company-projekt`-Prefix) ─────────────────────────────
+// ── Company and project (`company-projekt` prefix) ───────────────────────────
 
 /** `globex-core-banking` → { company: 'globex', project: 'core-banking' } */
 export function splitPrefix(prefix: string): { company: string; project: string } {
@@ -203,9 +203,9 @@ export function splitPrefix(prefix: string): { company: string; project: string 
 }
 
 /**
- * Alle bekannten `company-projekt`-Prefixe: die Projekt-Ordner des Katalogs
- * (model.projects), die Prozesse im Domain-Katalog (`processName`) und die
- * Projekte der vorhandenen Spezifikationen.
+ * All known `company-projekt` prefixes: the project folders of the catalog
+ * (model.projects), the processes in the domain catalog (`processName`) and the
+ * projects of the existing specifications.
  */
 export function knownPrefixes(model: Model | null, specProjects: Array<string | undefined>): string[] {
   const out = new Set<string>();
@@ -219,12 +219,12 @@ export function knownPrefixes(model: Model | null, specProjects: Array<string | 
 }
 
 /**
- * Firma/Projekt eines Prozesses wechseln: der alte Prefix wird in allen
- * fachlichen IDs ersetzt — Prozess-ID, Topics eigener Worker, DMN-Referenzen,
- * gerufene eigene Prozesse, Nachrichten-/Signalnamen, Interaktions-Schlüssel,
- * und auch in Beschreibungen, wo die IDs erwähnt sind. Fremde Services tragen
- * einen anderen Prefix und bleiben unberührt. Der Dateiname (slug) bleibt —
- * Dateien benennt die App bewusst nicht um.
+ * Change the company/project of a process: the old prefix is replaced in all
+ * business IDs — process ID, topics of own workers, DMN references,
+ * called own processes, message/signal names, interaction keys,
+ * and also in descriptions where the IDs are mentioned. External services carry
+ * a different prefix and stay untouched. The file name (slug) stays —
+ * the app deliberately does not rename files.
  */
 export function renamePrefix(spec: ProcessSpec, oldPrefix: string, newPrefix: string): ProcessSpec {
   const alt = `${oldPrefix}-`;
@@ -244,9 +244,9 @@ export function renamePrefix(spec: ProcessSpec, oldPrefix: string, newPrefix: st
 }
 
 /**
- * Dasselbe im BPMN: der Prefix steckt in Attributen (Prozess-ID, Pool,
- * Topics, decisionRef, calledElement, Message-Namen) und vereinzelt in
- * Ausdrücken (Text-Knoten). Gibt null zurück, wenn nichts zu ersetzen war.
+ * The same in the BPMN: the prefix sits in attributes (process ID, pool,
+ * topics, decisionRef, calledElement, message names) and occasionally in
+ * expressions (text nodes). Returns null if there was nothing to replace.
  */
 export function renamePrefixInXml(xml: string, oldPrefix: string, newPrefix: string): string | null {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');

@@ -1,14 +1,14 @@
-// Projekt-Ordner des Domain-Katalogs.
+// Project folders of the domain catalog.
 //
-// Der Katalog entsteht aus mehreren Orchescala-Projekten. Liegt dasselbe
-// Paket in zweien (`initech.core.banking.domain.client` und
-// `globex.core.banking.domain.client`), muss entschieden sein, welches gilt — und
-// diese Entscheidung gehört nicht in die Reihenfolge zufälliger Klicks,
-// sondern in eine Liste, die man sieht und umsortieren kann.
+// The catalog is built from several Orchescala projects. If the same
+// package is in two of them (`initech.core.banking.domain.client` and
+// `globex.core.banking.domain.client`), it must be decided which one wins — and
+// this decision does not belong to the order of random clicks,
+// but in a list that you can see and reorder.
 //
-// **Oben steht, was gewinnt.** Der Aufbau liest die Projekte in dieser
-// Reihenfolge; `mergeDomainTypes` behält das zuerst Gelesene und meldet, was
-// es dabei verworfen hat.
+// **What is on top wins.** The build reads the projects in this
+// order; `mergeDomainTypes` keeps what was read first and reports what
+// it discarded in doing so.
 
 import { isDomainSource, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
 import { delHandle, ensureRead, getHandle, putHandle } from './handles.ts';
@@ -17,14 +17,14 @@ import { uid } from './util.ts';
 
 const IGNORE = ['target', '.bloop', '.scala-build', '.bsp', '.git', 'node_modules', '.idea'];
 
-/** Schlüssel des gemerkten Ordner-Zugriffs. */
+/** Key of the remembered folder access. */
 export const handleKey = (p: ProjectFolder) => `project:${p.id}`;
-/** Schlüssel des Ordners über den Projekten. */
+/** Key of the folder above the projects. */
 export const rootKey = (root: string) => `root:${root}`;
 
 /**
- * Sieht dieser Ordner nach einem Orchescala-Projekt aus? Kennzeichen ist ein
- * `01-domain` daneben; hilfsweise ein `src` mit Scala darin.
+ * Does this folder look like an Orchescala project? The indicator is a
+ * `01-domain` next to it; alternatively a `src` with Scala in it.
  */
 async function istProjekt(dir: FileSystemDirectoryHandle): Promise<boolean> {
   for await (const [name, handle] of dir.entries()) {
@@ -35,9 +35,9 @@ async function istProjekt(dir: FileSystemDirectoryHandle): Promise<boolean> {
 }
 
 /**
- * Was der Nutzer gewählt hat, in Projekte übersetzen: entweder **ein**
- * Projekt oder ein Ordner darüber (`~/dev-mycompany/projects`), dessen
- * Unterordner die Projekte sind. Der zweite Fall ist der übliche.
+ * Translate what the user chose into projects: either **one**
+ * project or a folder above (`~/dev-mycompany/projects`) whose
+ * subfolders are the projects. The second case is the usual one.
  */
 export async function projectsInFolder(
   dir: FileSystemDirectoryHandle,
@@ -45,10 +45,10 @@ export async function projectsInFolder(
   if (await istProjekt(dir)) {
     return [{ project: { id: uid('p'), name: dir.name }, handle: dir }];
   }
-  // Der Ordner darüber wird als `root` gemerkt: ein Zugriff für alle
-  // Projekte darunter — der Browser fragt dann einmal, nicht je Projekt.
-  // Zwei Ordner gleichen Namens (`~/dev-a/projects`, `~/dev-b/projects`)
-  // bekommen je einen eigenen Schlüssel: «projects», «projects (2)» …
+  // The folder above is remembered as `root`: one access for all
+  // projects below — the browser then asks once, not per project.
+  // Two folders with the same name (`~/dev-a/projects`, `~/dev-b/projects`)
+  // each get a key of their own: «projects», «projects (2)» …
   const root = await rootLabelFor(dir);
   await putHandle(rootKey(root), dir);
   const gefunden: Array<{ project: ProjectFolder; handle: FileSystemDirectoryHandle }> = [];
@@ -62,20 +62,20 @@ export async function projectsInFolder(
 }
 
 /**
- * Der Name, unter dem ein Ordner über den Projekten gemerkt wird: sein
- * eigener — ausser ein **anderer** Ordner gleichen Namens ist schon gemerkt;
- * dann «Name (2)», «Name (3)» … Derselbe Ordner behält seinen Namen.
+ * The name under which a folder above the projects is remembered: its
+ * own — unless a **different** folder with the same name is already remembered;
+ * then «Name (2)», «Name (3)» … The same folder keeps its name.
  */
 async function rootLabelFor(dir: FileSystemDirectoryHandle): Promise<string> {
   for (let n = 1; ; n++) {
     const label = n === 1 ? dir.name : `${dir.name} (${n})`;
     const known = await getHandle(rootKey(label));
     if (!known) return label;
-    try { if (await known.isSameEntry(dir)) return label; } catch { /* nicht vergleichbar — weiter */ }
+    try { if (await known.isSameEntry(dir)) return label; } catch { /* not comparable — continue */ }
   }
 }
 
-/** Rekursiv alle Scala-Quellen eines Ordners lesen. */
+/** Recursively read all Scala sources of a folder. */
 export async function readSources(
   dir: FileSystemDirectoryHandle,
   prefix: string,
@@ -97,17 +97,17 @@ export async function readSources(
 
 export interface RebuildResult {
   types: DomainType[];
-  /** Beispielwerte `default…` — in der Reihenfolge der Projekte */
+  /** Example values `default…` — in the order of the projects */
   defaults: DomainDefault[];
-  /** je Projekt die Zahl der beigesteuerten Typen */
+  /** per project the number of contributed types */
   projects: ProjectFolder[];
   discarded: DiscardedPackage[];
-  /** Projekte, deren Ordner nicht (mehr) lesbar ist */
+  /** Projects whose folder is not readable (anymore) */
   missing: ProjectFolder[];
   /**
-   * Ordner über den Projekten (`root`), auf die der Zugriff fehlt. Ein
-   * fehlendes Projekt, dessen Wurzel lesbar ist, liegt dort nicht (z. B. ein
-   * zweiter Ordner gleichen Namens) — es braucht seinen eigenen Zugriff.
+   * Folders above the projects (`root`) that access is missing for. A
+   * missing project whose root is readable is not in it (e.g. a
+   * second folder with the same name) — it needs its own access.
    */
   rootsWithoutAccess: string[];
   files: number;
@@ -115,15 +115,15 @@ export interface RebuildResult {
 }
 
 /**
- * Den Katalog aus den Projekten **neu** aufbauen — nicht ergänzen. Nur so
- * wirkt sich ein Umsortieren aus: beim Ergänzen bliebe das früher Gelesene
- * ja stehen, egal wie die Liste inzwischen aussieht.
+ * Build the catalog from the projects **anew** — not extend it. Only this way
+ * does reordering take effect: when extending, what was read earlier would
+ * stay, no matter what the list looks like by now.
  */
 /**
- * Der lesbare Ordner eines Projekts. Kam es aus einem Ordner darüber, wird
- * dessen Zugriff genommen (einmal bestätigt, gilt für alle darunter); sonst
- * der eigene. `roots` merkt sich je Wurzel, ob der Zugriff steht — damit ein
- * Aufbau über 17 Projekte nicht 17 Dialoge auslöst.
+ * The readable folder of a project. If it came from a folder above, its
+ * access is used (confirmed once, applies to all below); otherwise
+ * its own. `roots` remembers per root whether access is granted — so that a
+ * build over 17 projects does not trigger 17 dialogs.
  */
 export async function handleFor(
   p: ProjectFolder,
@@ -136,7 +136,7 @@ export async function handleFor(
     }
     const root = roots.get(p.root);
     if (root) {
-      try { return await root.getDirectoryHandle(p.name); } catch { /* umbenannt oder weg — eigener Zugriff */ }
+      try { return await root.getDirectoryHandle(p.name); } catch { /* renamed or gone — own access */ }
     }
   }
   const own = await getHandle(handleKey(p));
@@ -154,7 +154,7 @@ export async function rebuild(
   const gezaehlt: ProjectFolder[] = [];
   let files = 0;
   let skipped = 0;
-  // Zugriff je Wurzel zuerst — solange der Klick noch als Nutzeraktion zählt
+  // access per root first — while the click still counts as a user action
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
   for (const p of projects) if (p.root && !roots.has(p.root)) await handleFor(p, roots);
 
@@ -184,11 +184,11 @@ export async function rebuild(
 }
 
 /**
- * Zugriff **jetzt** erteilen — aus einem Klick heraus, sonst fragt der Browser
- * nicht. Ist ein Zugriff gemerkt, bestätigt man ihn; ist keiner da (anderer
- * Browser, andere Adresse der App — gemerkt wird je Adresse), wählt man den
- * Ordner gleich hier. `target` ist der Ordner über den Projekten (`root`)
- * oder ein einzeln gemerktes Projekt.
+ * Grant access **now** — from within a click, otherwise the browser does
+ * not ask. If an access is remembered, you confirm it; if there is none (different
+ * browser, different address of the app — remembered per address), you choose the
+ * folder right here. `target` is the folder above the projects (`root`)
+ * or an individually remembered project.
  */
 export async function grantAccess(target: { root: string } | { project: ProjectFolder }): Promise<boolean> {
   const key = 'root' in target ? rootKey(target.root) : handleKey(target.project);
@@ -202,11 +202,11 @@ export async function grantAccess(target: { root: string } | { project: ProjectF
   return true;
 }
 
-/** Einen Projekt-Ordner merken, damit der Aufbau ihn ohne Wählen wiederfindet. */
+/** Remember a project folder, so that the build finds it again without choosing. */
 export const rememberProject = (p: ProjectFolder, h: FileSystemDirectoryHandle) => putHandle(handleKey(p), h);
 export const forgetProject = (p: ProjectFolder) => delHandle(handleKey(p));
 
-/** Ein Element in der Liste verschieben — `dir` ist −1 (hoch) oder +1 (runter). */
+/** Move an element in the list — `dir` is −1 (up) or +1 (down). */
 export function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
   const ziel = index + dir;
   if (ziel < 0 || ziel >= list.length) return list;
@@ -216,10 +216,10 @@ export function move<T>(list: T[], index: number, dir: -1 | 1): T[] {
 }
 
 /**
- * Farbe für einen gerufenen Worker oder Teilprozess — wie `colorForId` in
- * Orchescala: das Projekt, mit dessen Namen die Kennung beginnt, ausser dem
- * eigenen. Die Farbe am Projekt-Ordner (Admin) geht vor der aus dem
- * generierten Katalog (`prepareDocs`). Ohne Treffer keine Farbe.
+ * Colour for a called worker or subprocess — like `colorForId` in
+ * Orchescala: the project whose name the identifier starts with, except the
+ * own one. The colour on the project folder (admin) takes precedence over the one from the
+ * generated catalog (`prepareDocs`). Without a match no colour.
  */
 export function projectColor(ref: string | undefined, ownProject: string | undefined, projects: ProjectFolder[] | undefined, generated?: Record<string, string>): string | undefined {
   if (!ref) return undefined;

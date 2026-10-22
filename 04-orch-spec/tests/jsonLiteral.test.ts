@@ -1,5 +1,5 @@
-// `${JSON('[6026, 102]')}` im BPMN (Camunda 7, Spin) ist in FEEL die Liste
-// `[6026, 102]` — nicht der Text "[6026, 102]". Und zurück.
+// `${JSON('[6026, 102]')}` in the BPMN (Camunda 7, Spin) is the list
+// `[6026, 102]` in FEEL — not the text "[6026, 102]". And back.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -41,7 +41,7 @@ test('merge: a row stored as JSON text earlier becomes the list the diagram has'
   const fresh = importBpmn(bpmn, 'load').spec;
   const step = (s: typeof fresh) => allSteps(s.steps).find(x => x.id === 'LoadPoasCallActivity')!;
   assert.equal(step(fresh).inputs?.find(m => m.name === 'poaStatuses')?.expression, '= [90]');
-  // die Spezifikation von früher: derselbe Wert als Text
+  // the specification from before: the same value as text
   const previous = structuredClone(fresh);
   step(previous).inputs = step(previous).inputs!.map(m => (m.name === 'poaStatuses' ? { ...m, expression: '= "[90]"' } : m));
   const merged = mergeSpec(importBpmn(bpmn, 'load').spec, previous, fresh).spec;

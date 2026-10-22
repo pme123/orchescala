@@ -1,27 +1,27 @@
-// Änderungsprotokoll — wer hat wann was an einer Spezifikation geändert, und
-// warum. Seit der Abgleich mit BPMN und Domain Werte der Spezifikation
-// überschreibt, muss das nachvollziehbar bleiben.
+// Change log — who changed what in a specification and when, and
+// why. Since the sync with BPMN and domain overwrites values of the specification,
+// this has to remain traceable.
 //
-// **Ablage**: neben der Spezifikation, nie in ihr — `processes/<slug>.audit.jsonl`,
-// eine Zeile je Eintrag, nur angehängt. Die Liste der Spezifikationen liest
-// nur `.json`, die Exporte kennen die Datei nicht. Angehängt wird mit Lesen
-// und Schreiben gegen die Version (ETag) — wie bei `users.json`, bei einem
-// Konflikt nochmals. Wird die Datei zu lang, wandert der ältere Teil in ein
-// Archiv `processes/<slug>.audit-<Zeitstempel>.jsonl` (siehe `appendAudit`).
+// **Storage**: next to the specification, never in it — `processes/<slug>.audit.jsonl`,
+// one line per entry, append only. The list of specifications only reads
+// `.json`, the exports do not know the file. Appending is done by reading
+// and writing against the version (ETag) — as with `users.json`, on a
+// conflict once more. If the file gets too long, the older part moves to an
+// archive `processes/<slug>.audit-<timestamp>.jsonl` (see `appendAudit`).
 //
-// **Was protokolliert wird**, ergibt sich aus dem Vergleich zweier Stände
-// (`diffSpecs`) — eine Stelle, die alles erfasst: Felder am Schritt, Mappings,
-// Fehler, Mocks, Typen und Felder, Prozess-ID, Status, Pattern … Die
-// Prozess-Ansicht schneidet die Stände (siehe ProcessView): was zwischen zwei
-// Speicherläufen von Hand geändert wurde, wird ein Eintrag `manual`; eine
-// automatische Änderung (Abgleich, Umwandlung, Laden) wird ein eigener
-// Eintrag mit ihrer Quelle, Notiz und — beim Abgleich — dem Bericht.
+// **What is logged** results from comparing two states
+// (`diffSpecs`) — one place that captures everything: fields on the step, mappings,
+// errors, mocks, types and fields, process ID, status, pattern … The
+// process view slices the states (see ProcessView): what was changed by hand between two
+// save runs becomes an entry `manual`; an
+// automatic change (sync, conversion, loading) becomes a separate
+// entry with its source, note and — for a sync — the report.
 //
-// Die Stellen sind dieselben Schlüssel wie bei den Kommentaren
-// (`step:<id>#in:<name>`, `type:<id>#field:<id>` …), dazu der lesbare Name
-// zum Zeitpunkt der Änderung — die Stelle kann später verschwinden.
+// The places are the same keys as for the comments
+// (`step:<id>#in:<name>`, `type:<id>#field:<id>` …), plus the readable name
+// at the time of the change — the place can disappear later.
 //
-// Kommentare stehen nicht im Protokoll: sie sind selbst ein Verlauf.
+// Comments are not in the log: they are a history themselves.
 
 import type { Branch, ErrorHandling, Field, Interaction, Mapping, ProcessSpec, Step, TypeDef, Variable } from './types.ts';
 import { STATUS_META, type Status } from './types.ts';
@@ -40,18 +40,18 @@ export const SOURCE_LABEL: Record<AuditSource, string> = {
 };
 
 export interface AuditChange {
-  /** Stelle wie bei den Kommentaren */
+  /** place as for the comments */
   target: string;
-  /** lesbarer Name der Stelle, als es sie gab */
+  /** readable name of the place, when it existed */
   label: string;
   op: 'add' | 'remove' | 'change';
-  /** das geänderte Feld, lesbar — fehlt bei add/remove der ganzen Stelle */
+  /** the changed field, readable — missing for add/remove of the whole place */
   field?: string;
   before?: string;
   after?: string;
 }
 
-/** Bericht eines Abgleichs — Überschrift → Namen (z. B. «neu» → [«Check data»]) */
+/** report of a sync — heading → names (e.g. «neu» → [«Check data»]) */
 export type AuditReport = Record<string, string[]>;
 
 export interface AuditEntry {
@@ -60,15 +60,15 @@ export interface AuditEntry {
   author: string;
   email?: string;
   source: AuditSource;
-  /** warum — z. B. «Mit BPMN abgleichen: openSavings-impl.bpmn» */
+  /** why — e.g. «Mit BPMN abgleichen: openSavings-impl.bpmn» */
   note?: string;
   report?: AuditReport;
   changes: AuditChange[];
-  /** so viele Änderungen mehr, als im Eintrag stehen (siehe MAX_CHANGES) */
+  /** this many more changes than are in the entry (see MAX_CHANGES) */
   more?: number;
 }
 
-/** Was ein Aufrufer über eine automatische (oder benannte) Änderung weiss. */
+/** what a caller knows about an automatic (or named) change. */
 export interface AuditOrigin {
   source: AuditSource;
   note?: string;
@@ -80,16 +80,16 @@ export interface AuditAuthor { name: string; email?: string }
 export const auditPath = (dir: string, slug: string) => `${dir}/${slug}.audit.jsonl`;
 const archivePath = (dir: string, slug: string, stamp: string) => `${dir}/${slug}.audit-${stamp}.jsonl`;
 
-/** höchstens so viele Änderungen je Eintrag — ein Abgleich kann Hunderte bringen */
+/** at most this many changes per entry — a sync can bring hundreds */
 const MAX_CHANGES = 300;
-/** ein Wert im Protokoll — ein ganzer Mock braucht dort nicht zu stehen */
+/** a value in the log — a whole mock need not be in there */
 const MAX_VALUE = 400;
-/** ab so vielen Einträgen wird archiviert … */
+/** from this many entries on, archiving starts … */
 const MAX_LINES = 2000;
-/** … und so viele bleiben in der laufenden Datei */
+/** … and this many stay in the current file */
 const KEEP_LINES = 1000;
 
-// ── Werte und Feldnamen ──────────────────────────────────────────────────────
+// ── Values and field names ───────────────────────────────────────────────────
 
 const FIELD_LABEL: Record<string, string> = {
   name: 'Name', title: 'Titel', processId: 'Prozess-ID', project: 'Projekt', legacyProcessId: 'alter Name',
@@ -113,7 +113,7 @@ const fieldLabel = (key: string) => FIELD_LABEL[key] ?? key;
 
 const cut = (s: string) => (s.length > MAX_VALUE ? `${s.slice(0, MAX_VALUE - 1)}…` : s);
 
-/** Ein Wert, wie er im Protokoll steht — leer ist `undefined`. */
+/** a value as it appears in the log — empty is `undefined`. */
 function show(key: string, v: unknown): string | undefined {
   if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) return undefined;
   if (key === 'status' && typeof v === 'string' && v in STATUS_META) return STATUS_META[v as Status].label;
@@ -124,17 +124,17 @@ function show(key: string, v: unknown): string | undefined {
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-/** leer und fehlend sind dasselbe — sonst meldet jedes `description: ''` eine Änderung */
+/** empty and missing are the same — otherwise every `description: ''` reports a change */
 const blank = (v: unknown) => v === undefined || v === null || v === '' || v === false || (Array.isArray(v) && !v.length);
 
-// ── Vergleich ────────────────────────────────────────────────────────────────
+// ── Comparison ───────────────────────────────────────────────────────────────
 
 interface Place { target: string; label: string; summary?: string }
 
 class Collector {
   out: AuditChange[] = [];
 
-  /** Die einfachen Felder zweier Objekte vergleichen (ohne `skip`). */
+  /** compare the simple fields of two objects (without `skip`). */
   fields(target: string, label: string, a: object, b: object, skip: ReadonlySet<string>) {
     const ra = a as Record<string, unknown>, rb = b as Record<string, unknown>;
     for (const k of new Set([...Object.keys(ra), ...Object.keys(rb)])) {
@@ -146,9 +146,9 @@ class Collector {
   }
 
   /**
-   * Zwei Listen über einen Schlüssel vergleichen: neu, entfallen, geändert.
-   * `place` gibt Stelle und Namen je Element, `inner` vergleicht ein
-   * gebliebenes Element.
+   * Compare two lists by a key: new, removed, changed.
+   * `place` gives place and name per element, `inner` compares an
+   * element that remained.
    */
   keyed<T>(a: T[] | undefined, b: T[] | undefined, key: (x: T) => string | undefined,
            place: (x: T) => Place, inner: (x: T, y: T, p: Place) => void) {
@@ -178,7 +178,7 @@ const TYPE_SKIP = new Set(['id', 'fields', 'values']);
 const ID_SKIP = new Set(['id']);
 const VALUE_SKIP = new Set(['name', 'fields']);
 
-/** Alle Schritte samt Fehler- und Nebenpfaden, Zweigen und Subprozessen. */
+/** all steps including error and side paths, branches and subprocesses. */
 function flatSteps(steps: Step[], out: Step[] = []): Step[] {
   for (const s of steps) {
     out.push(s);
@@ -233,8 +233,8 @@ function diffType(col: Collector, x: TypeDef, y: TypeDef) {
 }
 
 /**
- * Was sich von `a` nach `b` geändert hat — Stelle für Stelle. Kommentare und
- * die Zeitstempel zählen nicht.
+ * What changed from `a` to `b` — place by place. Comments and
+ * the timestamps do not count.
  */
 export function diffSpecs(a: ProcessSpec, b: ProcessSpec): AuditChange[] {
   const col = new Collector();
@@ -246,7 +246,7 @@ export function diffSpecs(a: ProcessSpec, b: ProcessSpec): AuditChange[] {
   col.keyed<Mapping>(a.initOutputs, b.initOutputs, m => m.name || undefined,
     m => ({ target: processTarget, label: `${titel} · Init-Ausgabe ${m.name}`, summary: show('expression', m.expression) }),
     (x, y, p) => col.fields(p.target, p.label, x, y, NAME_SKIP));
-  // Verweise («weiter bei …») sind Verdrahtung, kein Schritt
+  // references («weiter bei …») are wiring, not a step
   const steps = (s: Step[] | undefined) => flatSteps(s ?? []).filter(x => x.kind !== 'goto');
   col.keyed<Step>(steps(a.steps), steps(b.steps), s => s.id,
     s => ({ target: stepTarget(s.id), label: stepLabel(s) }),
@@ -262,11 +262,11 @@ export function diffSpecs(a: ProcessSpec, b: ProcessSpec): AuditChange[] {
 
 const hasReport = (r?: AuditReport) => !!r && Object.values(r).some(v => v.length);
 
-/** Ein Eintrag aus einem Vergleich — `null`, wenn sich nichts geändert hat. */
+/** an entry from a comparison — `null` if nothing changed. */
 export function makeEntry(a: ProcessSpec, b: ProcessSpec, origin: AuditOrigin, author: AuditAuthor): AuditEntry | null {
   const changes = diffSpecs(a, b);
   const report = hasReport(origin.report) ? Object.fromEntries(Object.entries(origin.report!).filter(([, v]) => v.length)) : undefined;
-  // ein Abgleich ohne Wirkung ist keinen Eintrag wert — auch nicht mit Notiz
+  // a sync without effect is not worth an entry — not even with a note
   if (!changes.length) return null;
   return {
     id: uid('au'),
@@ -281,19 +281,19 @@ export function makeEntry(a: ProcessSpec, b: ProcessSpec, origin: AuditOrigin, a
   };
 }
 
-/** Der Bericht von «Mit BPMN abgleichen» (`mergeSpec`) fürs Protokoll. */
+/** the report of «Mit BPMN abgleichen» (`mergeSpec`) for the log. */
 export const bpmnReport = (r: { added: string[]; removed: string[]; changed: string[]; renamed: string[]; confirmed?: string[] }): AuditReport => ({
   neu: r.added, entfallen: r.removed, geändert: r.changed, umbenannt: r.renamed, bestätigt: r.confirmed ?? [],
 });
 
-/** Der Bericht des Abgleichs mit der Domain (`mergeDomain`) fürs Protokoll. */
+/** the report of the sync with the domain (`mergeDomain`) for the log. */
 export const domainReport = (r: { added: string[]; changed: string[]; stale: string[]; confirmed: string[]; prepared?: string[] }): AuditReport => ({
   neu: r.added, geändert: r.changed, 'nur in der Spezifikation': r.stale, bestätigt: r.confirmed, vorbereitet: r.prepared ?? [],
 });
 
-// ── Datei ────────────────────────────────────────────────────────────────────
+// ── File ─────────────────────────────────────────────────────────────────────
 
-/** Die Zeilen der Datei lesen — eine kaputte Zeile kostet nur sich selbst. */
+/** read the lines of the file — a broken line only costs itself. */
 export function parseAudit(text: string): AuditEntry[] {
   const out: AuditEntry[] = [];
   for (const line of text.split('\n')) {
@@ -301,12 +301,12 @@ export function parseAudit(text: string): AuditEntry[] {
     try {
       const e = JSON.parse(line) as AuditEntry;
       if (e && typeof e.at === 'string' && Array.isArray(e.changes)) out.push(e);
-    } catch { /* überspringen */ }
+    } catch { /* skip */ }
   }
   return out;
 }
 
-/** Was `appendAudit` vom Speicher braucht. */
+/** what `appendAudit` needs from the storage. */
 export interface AuditFiles {
   read(path: string): Promise<{ text: string; version: string } | null>;
   write(path: string, text: string, opts?: { ifMatch?: string; createOnly?: boolean }):
@@ -316,9 +316,9 @@ export interface AuditFiles {
 const stampOf = (iso: string) => iso.replace(/[^0-9]/g, '').slice(0, 14);
 
 /**
- * Einträge anhängen. Wer gleichzeitig schreibt, bekommt einen Konflikt und
- * liest neu — höchstens ein paar Mal. Wird die Datei zu lang, kommt der
- * ältere Teil in ein Archiv, das nie überschrieben wird (`createOnly`).
+ * Append entries. Whoever writes at the same time gets a conflict and
+ * reads again — at most a few times. If the file gets too long, the
+ * older part goes into an archive that is never overwritten (`createOnly`).
  */
 export async function appendAudit(files: AuditFiles, dir: string, slug: string, entries: AuditEntry[]): Promise<{ ok: true } | { ok: false; message: string }> {
   if (!entries.length) return { ok: true };
@@ -332,7 +332,7 @@ export async function appendAudit(files: AuditFiles, dir: string, slug: string, 
     if (lines.length > MAX_LINES) {
       const old = lines.slice(0, lines.length - KEEP_LINES);
       const a = await files.write(archivePath(dir, slug, stampOf(nowIsoWithTimezone())), `${old.join('\n')}\n`, { createOnly: true });
-      // klappt das Archiv nicht, bleibt alles in der laufenden Datei
+      // if archiving fails, everything stays in the current file
       if (a.ok) lines = lines.slice(-KEEP_LINES);
     }
     const w = await files.write(path, `${lines.join('\n')}\n`, cur ? { ifMatch: cur.version } : { createOnly: true });
@@ -343,14 +343,14 @@ export async function appendAudit(files: AuditFiles, dir: string, slug: string, 
   return { ok: false, message: last };
 }
 
-// ── Anzeige ──────────────────────────────────────────────────────────────────
+// ── Display ──────────────────────────────────────────────────────────────────
 
 /**
- * Für die Anzeige: aufeinanderfolgende Einträge von Hand derselben Person
- * innerhalb von `windowMin` Minuten werden einer — mit dem ersten «vorher»
- * und dem letzten «nachher» je Stelle und Feld. Die Datei bleibt, wie sie
- * ist (jeder Speicherlauf eine Zeile); das hier fasst nur das Tippen zusammen.
- * Erwartet die Einträge **älteste zuerst**, gibt sie neueste zuerst zurück.
+ * For display: consecutive manual entries by the same person
+ * within `windowMin` minutes become one — with the first «vorher»
+ * and the last «nachher» per place and field. The file stays as it
+ * is (each save run one line); this only combines the typing.
+ * Expects the entries **oldest first**, returns them newest first.
  */
 export function coalesce(entries: AuditEntry[], windowMin = 10): AuditEntry[] {
   const out: AuditEntry[] = [];
@@ -366,17 +366,17 @@ export function coalesce(entries: AuditEntry[], windowMin = 10): AuditEntry[] {
       const i = idx.get(keyOf(c));
       if (i === undefined) { idx.set(keyOf(c), prev.changes.length); prev.changes.push(c); continue; }
       const p = prev.changes[i];
-      // erst angelegt, dann wieder entfernt: als hätte es nie bestanden
+      // first created, then removed again: as if it had never existed
       if (p.op === 'add' && c.op === 'remove') { prev.changes[i] = { ...p, op: 'change', before: undefined, after: undefined }; continue; }
       prev.changes[i] = { ...c, op: p.op === 'add' ? 'add' : p.op === 'remove' && c.op === 'add' ? 'change' : c.op, before: p.before };
     }
     prev.at = e.at;
     if (e.more) prev.more = (prev.more ?? 0) + e.more;
-    // zurück auf den alten Wert: nichts geändert
+    // back to the old value: nothing changed
     prev.changes = prev.changes.filter(c => !(c.op === 'change' && c.before === c.after));
   }
   return out.filter(e => e.changes.length).reverse();
 }
 
-/** Das Element hinter einer Stelle — wie `baseOf` bei den Kommentaren. */
+/** the element behind a place — like `baseOf` for the comments. */
 export const auditBase = (target: string) => target.split('#')[0];

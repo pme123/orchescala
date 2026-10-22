@@ -9,9 +9,9 @@ import ProcessView from './components/ProcessView';
 import { GuidField, MicrosoftMark, StartCard, StartDialog, StartOption, initialsOf } from './components/StartCard';
 import { AccountChip, Breadcrumb, HeaderButton } from './components/Header';
 import FeelCheatSheet from './components/FeelCheatSheet';
-// die Seiten (E15) kommen erst, wenn jemand sie öffnet - der Designer samt Renderer ist ein eigener Chunk
-// Die Administration (Katalog, Patterns, Theme …) braucht selten jemand — wie die
-// Seiten ein eigener Chunk, der erst beim Öffnen kommt; der Haupt-Chunk bleibt unter der Grenze
+// the pages (E15) only load when someone opens them - the designer including the renderer is a separate chunk
+// The administration (catalog, patterns, theme …) is rarely needed — like the
+// pages a separate chunk that only loads on opening; the main chunk stays below the limit
 const AdminView = lazy(() => import('./components/AdminView'));
 const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
@@ -20,9 +20,9 @@ import { cls } from './ui';
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' }
   | { kind: 'pages' } | { kind: 'page'; slug: string };
 
-// Deep Link (?spec=<slug>&comment=<id>, siehe util.deepLink): beim Start aus
-// der URL nehmen und im Tab merken — so überlebt er den Login-Redirect — und
-// einlösen, sobald Ordner und model.json da sind.
+// Deep link (?spec=<slug>&comment=<id>, see util.deepLink): on start take it from
+// the URL and remember it in the tab — so it survives the login redirect — and
+// redeem it as soon as folder and model.json are there.
 const DEEP_LINK_KEY = 'orch-spec.deepLink';
 function takeDeepLink(): { slug: string; commentId?: string } | null {
   try {
@@ -62,17 +62,17 @@ export default function App() {
     try { sessionStorage.removeItem(DEEP_LINK_KEY); } catch { /* ignore */ }
     setView({ kind: 'spec', ...deepLink });
   }, [deepLink, storage, model]);
-  const dirHandle = storage; // Kurzname: verbundener Speicher (lokal oder SharePoint)
-  // Anmeldung aktiv und noch nicht angemeldet → Gate; Admin nur mit Rolle.
-  // Erst der Ordner, dann die Anmeldung: ob sie nötig ist, sagt die model.json
-  // des Ordners, und beim SharePoint-Ordner führt die Startkarte selbst hinein.
-  // Ohne Ordner steht deshalb die Startkarte da, nicht das Gate.
+  const dirHandle = storage; // Short name: connected storage (local or SharePoint)
+  // Login active and not yet logged in → gate; admin only with the role.
+  // First the folder, then the login: whether it is needed is said by the model.json
+  // of the folder, and for the SharePoint folder the start card itself leads in.
+  // That is why without a folder the start card is shown, not the gate.
   const needsLogin = auth.status !== 'disabled' && auth.status !== 'signedIn';
   const gated = needsLogin && !!dirHandle;
 
-  // SharePoint: erst der Link, dann die Anmeldung. Der Link wird gemerkt, bevor
-  // es zu Microsoft geht — nach der Rückkehr verbindet ihn der Store. Ist man
-  // schon angemeldet, wird gleich hier verbunden.
+  // SharePoint: first the link, then the login. The link is remembered before
+  // going to Microsoft — after the return the store connects it. If you are
+  // already logged in, it connects right here.
   const doConnectSharePoint = async () => {
     const link = spLink.trim();
     if (!link) return;
@@ -80,20 +80,20 @@ export default function App() {
     rememberFolderLink(link);
     const r = await auth.loginForSharePoint();
     if (r === 'setup') { setSpBusy(false); setSpOpen(false); setSetupError(''); setSetupOpen(true); return; }
-    if (r !== 'ready') { setSpBusy(false); return; } // Redirect zu Microsoft läuft
+    if (r !== 'ready') { setSpBusy(false); return; } // Redirect to Microsoft in progress
     const res = await connectPendingFolder();
     setSpBusy(false);
     if (res && !res.ok) { setSpError(res.message); return; }
     setSpOpen(false); setSpLink('');
   };
-  // nach der Rückkehr vom Login nicht verbunden → Link und Fehler wieder zeigen
+  // not connected after returning from login → show link and error again
   useEffect(() => {
     if (!folderLinkError) return;
     setSpLink(folderLinkError.link); setSpError(folderLinkError.message); setSpOpen(true);
     clearFolderLinkError();
   }, [folderLinkError, clearFolderLinkError]);
-  // Gemerkter Ordner oder einer aus einem Link: anmelden, dann hinein.
-  // Sonst zuerst der Link-Dialog — angemeldet wird beim Verbinden.
+  // Remembered folder or one from a link: log in, then go in.
+  // Otherwise the link dialog first — login happens when connecting.
   const [spPreparing, setSpPreparing] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupTenant, setSetupTenant] = useState('');
@@ -104,7 +104,7 @@ export default function App() {
     setSpPreparing(true);
     try {
       const r = await auth.loginForSharePoint();
-      // Ordner aus dem Link oder gemerkter Ordner → direkt hinein; sonst den Link erfragen
+      // Folder from the link or remembered folder → straight in; otherwise ask for the link
       if (r === 'ready') {
         const link = pendingFolder;
         if (link) {
@@ -122,37 +122,37 @@ export default function App() {
     if (!GUID_RE.test(t) || !GUID_RE.test(c)) { setSetupError('Beide IDs müssen gültige GUIDs sein (Format 8-4-4-4-12).'); return; }
     auth.setLocalIds(t, c);
     setSetupOpen(false);
-    // direkt weiter zur Anmeldung
+    // straight on to the login
     setTimeout(() => { void startSharePoint(); }, 50);
   };
 
   const denied = auth.status === 'signedIn' && !canView && !!dirHandle;
 
-  // Doku-Button: nur zeigen, wenn eine Ebene über der App tatsächlich eine
-  // index.html liegt (die App wird unter /orch-spec/ in eine Doku-Seite
-  // eingehängt — lokal oder ohne umgebende Seite gibt es die nicht).
+  // Docs button: only show it if there actually is an index.html one level above
+  // the app (the app is mounted under /orch-spec/ into a docs page
+  // — locally or without a surrounding page there is none).
   const [docHref, setDocHref] = useState<string | null>(null);
   useEffect(() => {
-    // Gegen die Dokument-URL auflösen, nicht den Origin — bei relativer
-    // Build-Base ('./') zeigt BASE_URL sonst fälschlich auf den Site-Root.
+    // Resolve against the document URL, not the origin — with a relative
+    // build base ('./') BASE_URL would otherwise wrongly point to the site root.
     const appBase = new URL(import.meta.env.BASE_URL, document.baseURI);
     const doc = new URL('../index.html', appBase);
-    if (doc.pathname === new URL('index.html', appBase).pathname) return; // App liegt schon im Root
+    if (doc.pathname === new URL('index.html', appBase).pathname) return; // App already lives in the root
     let gone = false;
     fetch(doc.href, { method: 'HEAD' }).then(r => {
-      // Redirect zurück in die App (macht z.B. der Dev-Server) ist kein Treffer
+      // A redirect back into the app (as e.g. the dev server does) is not a hit
       const backIntoApp = new URL(r.url).pathname.startsWith(appBase.pathname);
       if (!gone && r.ok && !backIntoApp && (r.headers.get('content-type') ?? '').includes('text/html')) setDocHref(doc.href);
     }).catch(() => {});
     return () => { gone = true; };
   }, []);
 
-  // Anmelde-Konfiguration kommt aus der model.json des geteilten Ordners
+  // Login configuration comes from the model.json of the shared folder
   const applyConfig = auth.applyConfig;
   useEffect(() => { if (model) applyConfig(model.auth); }, [model, applyConfig]);
 
   const c = cls(isDark);
-  // Für welchen Ordner angemeldet wird — und der Weg zu einem anderen
+  // For which folder the login is — and the way to another one
   const folderOfGate = dirHandle && (
     <div className={`flex items-center gap-2 rounded border px-3 py-2 mb-3 ${c.border2}`}>
       <span className={c.muted2}>{dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}</span>
@@ -175,15 +175,15 @@ export default function App() {
 
   return (
     <div className={`flex flex-col h-screen ${bg} ${textBase}`}>
-      {/* Kopfzeile. Links der Kunde, rechts die Werkzeuge — die teilen sich
-          die Breite mit dem Inhalt darunter, damit sie mit den Panels
-          fluchten (die Prozessansicht ist als einzige randlos). Die Herkunft
-          steht davon unberührt ganz rechts am Fensterrand; der Platz dafür
-          ist reserviert, wo die Zeile sonst bis dorthin liefe. */}
+      {/* Header. On the left the customer, on the right the tools — they share
+          the width with the content below, so that they line up with the panels
+          (the process view is the only one without margins). The origin
+          stays unaffected at the far right at the window edge; the space for it
+          is reserved where the row would otherwise run up to there. */}
       <div className={`relative border-b ${border} ${topBg} flex-shrink-0`}>
         <div className={`flex items-center gap-3 py-2 ${
           view.kind === 'spec' || view.kind === 'page' ? 'pl-3 pr-[9.5rem] max-xl:pr-14' : 'max-w-5xl mx-auto px-6 max-xl:pr-14'}`}>
-          {/* Wortmarke: Logo und Kunde fett, «Orch Spec» klein daneben; die Version im Tooltip */}
+          {/* Word mark: logo and customer bold, «Orch Spec» small next to it; the version in the tooltip */}
           <span className="flex items-center gap-2 flex-shrink-0" title={`Orch Spec · Stand ${APP_VERSION}`}>
             {model?.logo && (
               <img src={model.logo} alt={model.company ?? ''} className="h-6 max-w-[9rem] object-contain flex-shrink-0" />
@@ -196,7 +196,7 @@ export default function App() {
             )}
           </span>
 
-          {/* Ort: Prozesse › Titel bzw. Administration — die Glieder führen zurück */}
+          {/* Location: Prozesse › title or Administration — the segments lead back */}
           {!gated && !denied && dirHandle && model && (
             <Breadcrumb isDark={isDark} items={[
               { label: 'Prozesse', onClick: view.kind !== 'list' ? () => setView({ kind: 'list' }) : undefined },
@@ -209,7 +209,7 @@ export default function App() {
           )}
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Navigation: FEEL-Spickzettel, Doku, Admin */}
+          {/* Navigation: FEEL cheat sheet, docs, admin */}
           <HeaderButton isDark={isDark} icon={<SquareFunction size={12} />} label="FEEL" active={feelOpen}
             title={`FEEL-Spickzettel — Syntax, Funktionen, ${C7_LABEL} → ${C8_LABEL}`} onClick={() => setFeelOpen(true)} />
           {docHref && (
@@ -226,7 +226,7 @@ export default function App() {
               onClick={() => setView(v => v.kind === 'admin' ? { kind: 'list' } : { kind: 'admin' })} />
           )}
 
-          {/* Kontext: Ordner, Konto */}
+          {/* Context: folder, account */}
           {((!gated && !denied && dirHandle) || (auth.status === 'signedIn' && auth.user)) && (
             <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
           )}
@@ -242,7 +242,7 @@ export default function App() {
             <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
           )}
 
-          {/* Darstellung */}
+          {/* Display */}
           <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
           <button onClick={toggleTheme} title={isDark ? 'Helle Darstellung' : 'Dunkle Darstellung'}
             className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
@@ -264,7 +264,7 @@ export default function App() {
       {/* Main content */}
       <div className={`flex-1 ${view.kind === 'spec' || view.kind === 'page' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {gated ? (
-          // Anmeldung (Microsoft Entra ID) — vor allem anderen
+          // Login (Microsoft Entra ID) — before everything else
           <StartCard isDark={isDark} model={model} icon={<LogIn size={20} />} tone={auth.status === 'error' ? 'red' : 'blue'}
             title={auth.status === 'error' ? 'Anmeldung nicht möglich' : 'Anmelden'}
             lead={auth.status === 'loading'
@@ -305,7 +305,7 @@ export default function App() {
             footnote={auth.user?.roles.length ? <>Rollen des Kontos: {auth.user.roles.join(', ')}</> : 'Das Konto trägt keine App-Rollen.'}>
             {folderOfGate}
             <div className="space-y-3">
-              {/* das Konto, wie bei den Kommentaren: Kürzel, Name, E-Mail */}
+              {/* the account, as with the comments: initials, name, e-mail */}
               {auth.user && (
                 <div className={`flex items-center gap-2 rounded border px-3 py-2 ${c.border2}`}>
                   <span className={`inline-flex items-center justify-center min-w-[26px] h-6 px-1.5 rounded-full text-[10px] font-bold border flex-shrink-0 ${
@@ -334,13 +334,13 @@ export default function App() {
             </div>
           </StartCard>
         ) : !dirHandle ? (
-          // Start / Speicherwahl: SharePoint oder lokaler Ordner, nebeneinander
+          // Start / storage choice: SharePoint or local folder, side by side
           <StartCard isDark={isDark} model={model} icon={<FolderOpen size={20} />} wide
             title="Wo liegen die Spezifikationen?"
             lead="Kein eigener Server — die Daten bleiben im gewählten Ordner, geteilt über SharePoint oder ein lokales Laufwerk."
             footnote={<>Im Ordner liegen <span className="font-semibold">model.json</span> (Katalog und Einstellungen) und der
               Unterordner <span className="font-semibold">processes/</span> mit den Spezifikationen. Fehlen sie, werden sie angelegt.</>}>
-            {/* zurück zum Speicher, der eben noch offen war — ohne neue Berechtigung oder Anmeldung */}
+            {/* back to the storage that was just open — without new permission or login */}
             {auth.status === 'error' && auth.error && (
               <div className={`mb-3 flex items-start gap-1.5 text-[11px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
                 <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" /> <span>Anmeldung: {auth.error}</span>
@@ -417,7 +417,7 @@ export default function App() {
         )}
       </div>
 
-      {/* Einrichtung: Microsoft-Anmeldung für diesen Browser (einmalig) */}
+      {/* Setup: Microsoft login for this browser (one-time) */}
       {setupOpen && (
         <StartDialog isDark={isDark} icon={<KeyRound size={14} />} title="Microsoft-Anmeldung einrichten"
           onClose={() => setSetupOpen(false)}
@@ -432,7 +432,7 @@ export default function App() {
         </StartDialog>
       )}
 
-      {/* SharePoint-Ordner verbinden */}
+      {/* Connect SharePoint folder */}
       {spOpen && (
         <StartDialog isDark={isDark} icon={<Cloud size={14} />} title="SharePoint-Ordner verbinden"
           onClose={() => !spBusy && setSpOpen(false)} busy={spBusy}

@@ -1,9 +1,9 @@
-// Kommentare — wie im arch-review: eine Sprechblase an jeder Stelle, an der
-// etwas zu klären sein kann, und ein Panel mit dem Faden dieser Stelle.
+// Comments — as in arch-review: a speech bubble at every place where
+// something may need clarifying, and a panel with the thread of that place.
 //
-// Eine **Stelle** ist ein Element (Prozess, Schritt, Interaktion, Datentyp)
-// oder ein Teil davon (Beschreibung, eine Mapping-Zeile, ein Zweig, ein Feld).
-// Der Schlüssel ist `<Element>` oder `<Element>#<Teil>`:
+// A **place** is an element (process, step, interaction, data type)
+// or a part of it (description, a mapping row, a branch, a field).
+// The key is `<Element>` or `<Element>#<Teil>`:
 //
 //   process                    process#description     process#var:<name>
 //   step:<id>                  step:<id>#description   step:<id>#in:<name>
@@ -12,32 +12,32 @@
 //   ia:<id>
 //   type:<id>                  type:<id>#field:<id>    type:<id>#value:<name>
 //
-// Ein Faden hat einen ersten Beitrag und beliebig viele Antworten. Erledigte
-// Fäden bleiben stehen und werden nur ausgeblendet: wer später dazukommt,
-// soll sehen, was besprochen wurde.
+// A thread has a first post and any number of replies. Resolved
+// threads stay and are only hidden: whoever joins later
+// should see what was discussed.
 
 import type { CommentEntry, CommentThread, DirectoryUser, Interaction, ProcessSpec, Step, TypeDef } from './types.ts';
 import { KIND_LABEL } from './ui.tsx';
 import { nowIsoWithTimezone, uid } from './util.ts';
 
-/** Das Ziel eines Fadens. */
+/** The target of a thread. */
 export const processTarget = 'process';
 export const stepTarget = (id: string) => `step:${id}`;
 export const typeTarget = (id: string) => `type:${id}`;
 export const iaTarget = (id: string) => `ia:${id}`;
-/** Ein Teil eines Elements, z. B. `sub(stepTarget(id), 'in:name')`. */
+/** A part of an element, e.g. `sub(stepTarget(id), 'in:name')`. */
 export const sub = (base: string, part: string) => `${base}#${part}`;
 
-/** Das Element hinter einer Stelle: `step:x#in:y` → `step:x`. */
+/** The element behind a place: `step:x#in:y` → `step:x`. */
 export const baseOf = (target: string) => target.split('#')[0];
 
-/** Fäden des Elements samt seiner Teile. */
+/** Threads of the element including its parts. */
 export const threadsUnder = (spec: ProcessSpec, base: string): CommentThread[] =>
   (spec.comments ?? []).filter(t => baseOf(t.target) === base);
 
 export interface Counts { open: number; resolved: number }
 
-/** Offene und erledigte Fäden je Stelle — einmal je Stand gerechnet. */
+/** Open and resolved threads per place — computed once per state. */
 export function countIndex(spec: ProcessSpec): { exact: Map<string, Counts>; under: Map<string, Counts> } {
   const exact = new Map<string, Counts>();
   const under = new Map<string, Counts>();
@@ -53,10 +53,10 @@ export function countIndex(spec: ProcessSpec): { exact: Map<string, Counts>; und
   return { exact, under };
 }
 
-/** Wer schreibt — mit Anmeldung auch die E-Mail (Empfänger bei Antworten). */
+/** Who is writing — when signed in, also the e-mail (recipient for replies). */
 export interface CommentAuthor { name: string; email?: string }
 
-/** Was an einem neuen Beitrag hängt: Erwähnungen und wer benachrichtigt wird. */
+/** What is attached to a new post: mentions and who gets notified. */
 export interface EntryExtras { mentions?: DirectoryUser[]; notifyPending?: string[] }
 
 const eintrag = (author: CommentAuthor, text: string, extras: EntryExtras = {}): CommentEntry => ({
@@ -66,14 +66,14 @@ const eintrag = (author: CommentAuthor, text: string, extras: EntryExtras = {}):
   ...(extras.notifyPending?.length ? { notifyPending: extras.notifyPending } : {}),
 });
 
-/** Einen neuen Faden anlegen. */
+/** Create a new thread. */
 export function addThread(spec: ProcessSpec, target: string, author: CommentAuthor, text: string, extras?: EntryExtras): ProcessSpec {
   if (!text.trim()) return spec;
   const faden: CommentThread = { id: uid('ct'), target, entries: [eintrag(author, text, extras)] };
   return { ...spec, comments: [...(spec.comments ?? []), faden] };
 }
 
-/** In einem Faden antworten — das hebt ihn zugleich wieder auf offen. */
+/** Reply in a thread — this also reopens it. */
 export function addReply(spec: ProcessSpec, threadId: string, author: CommentAuthor, text: string, extras?: EntryExtras): ProcessSpec {
   if (!text.trim()) return spec;
   return {
@@ -85,8 +85,8 @@ export function addReply(spec: ProcessSpec, threadId: string, author: CommentAut
 }
 
 /**
- * Teams-Versand quittieren: die zugestellten Empfänger wandern von
- * `notifyPending` nach `notified` — was nicht durchkam, bleibt offen.
+ * Acknowledge the Teams delivery: the delivered recipients move from
+ * `notifyPending` to `notified` — what did not get through stays pending.
  */
 export function markNotified(spec: ProcessSpec, done: { entryId: string; email: string }[]): ProcessSpec {
   if (!done.length) return spec;
@@ -107,11 +107,11 @@ export function markNotified(spec: ProcessSpec, done: { entryId: string; email: 
   };
 }
 
-/** Welcher Faden gehört zu einer Kommentar-ID — Faden oder einzelner Beitrag (Deep Link). */
+/** Which thread belongs to a comment ID — thread or single post (deep link). */
 export const threadOf = (spec: ProcessSpec, id: string): CommentThread | undefined =>
   (spec.comments ?? []).find(t => t.id === id || t.entries.some(e => e.id === id));
 
-/** Erledigt / wieder offen — wer abgehakt hat, bleibt stehen. */
+/** Resolved / reopened — who checked it off stays recorded. */
 export function setResolved(spec: ProcessSpec, threadId: string, resolved: boolean, author: string): ProcessSpec {
   return {
     ...spec,
@@ -122,9 +122,9 @@ export function setResolved(spec: ProcessSpec, threadId: string, resolved: boole
 }
 
 /**
- * Emojis: eine feste Auswahl statt eines ganzen Emoji-Pickers — Stimmung,
- * Zustimmung, Hinweis; dieselbe für Reaktionen und für den Kommentartext
- * (dort einfach ein Zeichen im Klartext).
+ * Emojis: a fixed selection instead of a whole emoji picker — mood,
+ * agreement, hint; the same for reactions and for the comment text
+ * (there simply a character in plain text).
  */
 export const EMOJIS = [
   '😀', '😄', '😊', '😉', '😅', '😂', '🙂', '🙃',
@@ -134,10 +134,10 @@ export const EMOJIS = [
   '✅', '❌', '⚠️', '❓', '❗', '💡', '🔥', '🚀',
 ] as const;
 
-/** Wer reagiert hat — mit Anmeldung über die E-Mail, sonst über den Namen. */
+/** Who reacted — when signed in by e-mail, otherwise by name. */
 export const personKey = (p: { name: string; email?: string }) => (p.email?.trim() || p.name.trim()).toLowerCase();
 
-/** Eigene Reaktion an einem Beitrag setzen bzw. zurücknehmen. */
+/** Set or take back one's own reaction on a post. */
 export function toggleReaction(spec: ProcessSpec, threadId: string, entryId: string, emoji: string, author: CommentAuthor): ProcessSpec {
   const key = personKey(author);
   return {
@@ -159,12 +159,12 @@ export function toggleReaction(spec: ProcessSpec, threadId: string, entryId: str
   };
 }
 
-/** Einen Faden ganz entfernen. */
+/** Remove a thread entirely. */
 export function removeThread(spec: ProcessSpec, threadId: string): ProcessSpec {
   return { ...spec, comments: (spec.comments ?? []).filter(t => t.id !== threadId) };
 }
 
-/** Eine einzelne Antwort entfernen (nicht den ersten Beitrag). */
+/** Remove a single reply (not the first post). */
 export function removeEntry(spec: ProcessSpec, threadId: string, entryId: string): ProcessSpec {
   return {
     ...spec,
@@ -175,10 +175,10 @@ export function removeEntry(spec: ProcessSpec, threadId: string, entryId: string
 }
 
 /**
- * Fäden bleiben, auch wenn ihre Stelle verschwindet (ein Abgleich entfernt
- * einen Schritt, ein Feld …) — was besprochen wurde, soll gelesen und
- * abgehakt werden. Damit man im Panel unter «Ohne Stelle» noch weiss, worum
- * es ging, merkt sich der Faden den Namen der Stelle von `before`.
+ * Threads stay even when their place disappears (a sync removes
+ * a step, a field …) — what was discussed should be read and
+ * checked off. So that the panel under «Ohne Stelle» still tells what
+ * it was about, the thread remembers the name of the place from `before`.
  */
 export function rememberPlaces(before: ProcessSpec, after: ProcessSpec, stepsBefore: Step[], stepsAfter: Step[]): CommentThread[] | undefined {
   if (!after.comments?.length) return after.comments;
@@ -194,27 +194,27 @@ export function rememberPlaces(before: ProcessSpec, after: ProcessSpec, stepsBef
   return changed ? comments : after.comments;
 }
 
-// ── Stellen ──────────────────────────────────────────────────────────────────
+// ── Places ───────────────────────────────────────────────────────────────────
 
-/** Eine kommentierbare Stelle, wie sie im Panel und in der Übersicht steht. */
+/** A commentable place, as shown in the panel and in the overview. */
 export interface CommentTargetInfo {
   key: string;
   label: string;
-  /** Überschrift in der Übersicht, z. B. «Ablauf» oder «Datenmodell» */
+  /** heading in the overview, e.g. «Ablauf» or «Datenmodell» */
   group: string;
-  /** das Element, z. B. der Schrittname — für den Pfad «Element › Teil» */
+  /** the element, e.g. the step name — for the path «Element › Teil» */
   element?: string;
-  /** der Teil des Elements, z. B. «Eingabe kind» */
+  /** the part of the element, e.g. «Eingabe kind» */
   part?: string;
-  /** Schrittart — für das Zeichen vor dem Element */
+  /** step kind — for the symbol in front of the element */
   stepKind?: Step['kind'];
-  /** Art des Typs — Klasse oder Enum */
+  /** kind of the type — class or enum */
   typeKind?: TypeDef['kind'];
-  /** eine Interaktion (Objekt mit In/Out) */
+  /** an interaction (object with In/Out) */
   ia?: boolean;
 }
 
-/** Wo eine Stelle zu finden ist — für die Navigation. */
+/** Where a place can be found — for navigation. */
 export type TargetLocation =
   | { kind: 'process' }
   | { kind: 'step'; id: string }
@@ -235,11 +235,11 @@ const kurz = (s: string | undefined, n = 40) => {
 };
 
 /**
- * Alle Stellen des Prozesses in der Reihenfolge, in der man sie abarbeitet:
- * erst der Prozess, dann die Schritte **in der Reihenfolge des Ablaufs** mit
- * ihren Teilen, dann die Interaktionen, zuletzt die Datentypen. Nach der
- * Reihenfolge der Datei zu gehen wäre die Reihenfolge des Schreibens — die
- * hilft beim Durchsehen nicht.
+ * All places of the process in the order in which one works through them:
+ * first the process, then the steps **in the order of the flow** with
+ * their parts, then the interactions, finally the data types. Going by the
+ * order of the file would be the order of writing — which
+ * does not help when reviewing.
  */
 export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[]): CommentTargetInfo[] {
   const out: CommentTargetInfo[] = [];
@@ -294,9 +294,9 @@ function typeInfos(t: TypeDef, group: string): CommentTargetInfo[] {
 }
 
 /**
- * «vor 3 Tagen» ist hier zu ungenau, das volle Datum zu lang: heute nur die
- * Uhrzeit, dieses Jahr «25.09. 09:45», sonst mit Jahr. Die volle Angabe
- * steht im Tooltip (`whenFull`).
+ * «vor 3 Tagen» is too imprecise here, the full date too long: today only the
+ * time, this year «25.09. 09:45», otherwise with the year. The full value
+ * is in the tooltip (`whenFull`).
  */
 export function whenLabel(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
@@ -309,7 +309,7 @@ export function whenLabel(iso: string, now: Date = new Date()): string {
   return `${dd}.${mm}.${d.getFullYear()} ${time}`;
 }
 
-/** Datum und Uhrzeit ausgeschrieben — für den Tooltip. */
+/** Date and time written out — for the tooltip. */
 export function whenFull(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

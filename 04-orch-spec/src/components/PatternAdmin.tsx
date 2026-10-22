@@ -1,14 +1,14 @@
-// Admin: Pattern — wiederkehrende BPMN-Bausteine, die die Spezifikationen
-// an ihren Elementen wählen können.
+// Admin: patterns — recurring BPMN building blocks that the specifications
+// can choose on their elements.
 //
-// Ein Pattern ist ein kleines BPMN mit einem **Anker** (`PatternTarget`):
-// was an ihm hängt, kommt an jedes gewählte Element, losgelöste Blöcke
-// einmal in den Prozess. Werte, die je Einsatz wechseln, stehen als
-// `{{name}}` darin — das sind die Parameter. Gezeichnet wird im selben
-// Modeler wie in der Prozessansicht; «Leeres Pattern» legt den Anker an.
+// A pattern is a small BPMN with an **anchor** (`PatternTarget`):
+// what hangs on it goes to every chosen element, detached blocks
+// once into the process. Values that change per use appear as
+// `{{name}}` in it — those are the parameters. Drawing happens in the same
+// Modeler as in the process view; «Leeres Pattern» creates the anchor.
 //
-// Aus demselben BPMN erkennt der Import das Pattern wieder — die Übersicht
-// je Pattern zeigt deshalb, was die App darin sieht.
+// From the same BPMN the import recognizes the pattern again — the overview
+// per pattern therefore shows what the app sees in it.
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Download, FileUp, Pencil, Plus, Puzzle, Trash2, Upload } from 'lucide-react';
 import type { EngineId, Model, PatternDef, PatternParam } from '../types';
@@ -25,7 +25,7 @@ const BpmnEditor = lazy(() => import('./BpmnEditor'));
 
 type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 
-/** Zustand für Statusleiste und Kartenkopf */
+/** State for status bar and card header */
 export function patternState(model: Model): { tone: 'ok' | 'off' | 'warn'; label: string; detail?: string } {
   const all = model.patterns ?? [];
   if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Pattern definiert' };
@@ -65,7 +65,7 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
     URL.revokeObjectURL(url);
   };
 
-  /** Import ergänzt: gleiche id wird ersetzt, neue kommen dazu, die übrigen bleiben */
+  /** Import adds: the same id is replaced, new ones are added, the others stay */
   const importieren = async (file: File) => {
     try {
       const raw = JSON.parse(await file.text()) as { patterns?: PatternDef[] } | PatternDef[];
@@ -94,7 +94,7 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
         Gross-/Kleinschreibung zählen nicht, <span className="font-mono">#{'{'}…{'}'}</span> gilt wie{' '}
         <span className="font-mono">${'{'}…{'}'}</span>, und was ein Element darüber hinaus trägt, stört nicht.</>}>
       <div className="space-y-2">
-        {/* fest in Orchescala — zur Ansicht, nicht änderbar */}
+        {/* built into Orchescala — for viewing, not editable */}
         {ORCHESCALA_PATTERNS.map(p => (
           <div key={p.id} title={p.description}
             className={`rounded-lg border flex items-center gap-2 px-3 py-2 ${c.border2}`}>
@@ -197,7 +197,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
 
   const speichern = async () => {
     if (!idOk) { setFlash({ ok: false, text: 'ID ungültig oder schon vergeben' }); return; }
-    // nur Parameter behalten, die im BPMN vorkommen oder etwas tragen
+    // keep only parameters that occur in the BPMN or carry something
     const cleaned: PatternDef = {
       ...draft,
       name: draft.name.trim() || draft.id,
@@ -265,7 +265,7 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
         )}
       </div>
 
-      {/* BPMN je Engine */}
+      {/* BPMN per engine */}
       <div className={`rounded border ${c.border2}`}>
         <div className={`flex items-center gap-1 px-2 py-1.5 border-b ${c.border}`}>
           {ENGINES.map(e => (

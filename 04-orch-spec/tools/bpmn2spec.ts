@@ -1,9 +1,9 @@
-// CLI: BPMN → Spezifikations-JSON (dieselbe Logik wie in der App).
+// CLI: BPMN → specification JSON (the same logic as in the app).
 //
 //   node tools/bpmn2spec.ts <datei.bpmn> [ziel.json]
 //
-// Existiert die Zieldatei bereits, werden die fachlichen Texte behalten
-// (mergeSpec) und ein Änderungsbericht ausgegeben.
+// If the target file already exists, the business texts are kept
+// (mergeSpec) and a change report is printed.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DOMParser } from 'linkedom';

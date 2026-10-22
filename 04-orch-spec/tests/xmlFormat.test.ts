@@ -1,5 +1,5 @@
-// Die Reihenfolge nach dem BPMN-Schema: Camunda 7 lehnt sonst das Deployment ab
-// (ENGINE-09005) — etwa nach dem Einfügen eines Patterns ohne den Modeler.
+// The order according to the BPMN schema: otherwise Camunda 7 rejects the deployment
+// (ENGINE-09005) — e.g. after inserting a pattern without the modeler.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -33,7 +33,7 @@ test('artifacts after the flow elements, event definitions after incoming/outgoi
   assert.deepEqual(names(proc), ['serviceTask', 'boundaryEvent', 'endEvent', 'association', 'textAnnotation']);
   const boundary = proc.children[1];
   assert.deepEqual(names(boundary), ['extensionElements', 'outgoing', 'errorEventDefinition']);
-  // in den Erweiterungen bleibt alles, wie es ist
+  // in the extensions everything stays as it is
   assert.equal(boundary.children[0].children[0].tagName, 'camunda:executionListener');
 });
 

@@ -1,15 +1,15 @@
-// JUEL → FEEL: was aus einem Camunda-7-Diagramm kommt, wird beim Import zur
-// Sprache der Spezifikation.
+// JUEL → FEEL: what comes from a Camunda 7 diagram becomes on import the
+// language of the specification.
 //
-// Gegenstück zu `feelJuel.ts`. Ein Wert wie `${client.address.zip}` wird zu
-// `= client.address.zip`, `${a == b ? 'x' : 'y'}` zu
-// `= if a = b then "x" else "y"`. Auch gemischte Vorlagen gehen:
-// `Hallo ${name}` wird `= "Hallo " + name`. Was kein FEEL-Gegenstück hat
-// (unbekannte Methoden, Java-Aufrufe), bleibt als JUEL stehen und wird in
-// der Oberfläche als solches gemeldet — lieber sichtbar als still verändert.
+// Counterpart of `feelJuel.ts`. A value like `${client.address.zip}` becomes
+// `= client.address.zip`, `${a == b ? 'x' : 'y'}` becomes
+// `= if a = b then "x" else "y"`. Mixed templates work too:
+// `Hallo ${name}` becomes `= "Hallo " + name`. What has no FEEL counterpart
+// (unknown methods, Java calls) stays as JUEL and is reported as such
+// in the UI — better visible than silently changed.
 //
-// JUEL hat keinen fertigen Parser im Browser; die Grammatik ist aber klein.
-// Ein Tokenizer und ein rekursiver Abstieg genügen:
+// JUEL has no ready-made parser in the browser; but the grammar is small.
+// A tokenizer and a recursive descent suffice:
 //
 //   ternary  := or ( '?' expr ':' expr )?
 //   or       := and  ( ('||' | 'or')  and )*
@@ -69,7 +69,7 @@ function tokenize(src: string): Tok[] {
 
 const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
-/** Ein JSON-Wert als FEEL-Literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
+/** A JSON value as a FEEL literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
 export function jsonToFeel(v: unknown): string {
   if (v === null) return 'null';
   if (Array.isArray(v)) return `[${v.map(jsonToFeel).join(', ')}]`;
@@ -82,8 +82,8 @@ export function jsonToFeel(v: unknown): string {
 }
 
 /**
- * Das Argument von `JSON('…')` / `S('…')` (als FEEL-Text `"[6026, 102]"`): ist der
- * Text eine JSON-Liste oder ein JSON-Objekt, das FEEL-Literal dafür — sonst null.
+ * The argument of `JSON('…')` / `S('…')` (as FEEL text `"[6026, 102]"`): if the
+ * text is a JSON list or a JSON object, the FEEL literal for it — otherwise null.
  */
 function jsonTextToFeel(feelText: string): string | null {
   if (!/^"[\s\S]*"$/.test(feelText)) return null;
@@ -96,18 +96,18 @@ function jsonTextToFeel(feelText: string): string | null {
   }
 }
 /**
- * Ein Teil einer Text-Verkettung: FEEL addiert nur Text mit Text, JUEL
- * macht aus allem einen String. Was kein Text-Literal ist, wird deshalb
- * mit `string(…)` zu Text — sonst scheitert `"a" + 1` in FEEL.
+ * A part of a text concatenation: FEEL only adds text to text, JUEL
+ * turns everything into a string. Whatever is not a text literal therefore becomes
+ * text with `string(…)` — otherwise `"a" + 1` fails in FEEL.
  */
 const asText = (feel: string): string =>
   (/^"(?:[^"\\]|\\.)*"$/.test(feel) || /^string\(.*\)$/.test(feel) || (/^(?:"|string\()/.test(feel) && feel.includes(' + ')) ? feel : `string(${feel})`);
 
 /**
- * Spin `.jsonPath("…")` → FEEL-Pfad. Gelesen wird ein String-Literal mit
- * `$` (Wurzel), `.feld`, `[n]` (Java ab 0 → FEEL ab 1), `[*]` und Filtern
+ * Spin `.jsonPath("…")` → FEEL path. Reads a string literal with
+ * `$` (root), `.feld`, `[n]` (Java from 0 → FEEL from 1), `[*]` and filters
  * `[?(@.code == 22 || @.code == 24)]` → `[item.code = 22 or item.code = 24]`.
- * Rekursion (`..`) und Funktionen kennt FEEL so nicht — dann bleibt es JUEL.
+ * FEEL does not know recursion (`..`) and functions this way — then it stays JUEL.
  */
 function jsonPathToFeel(base: string, pathLiteral: string): string {
   const m = /^"((?:[^"\\]|\\.)*)"$/.exec(pathLiteral);
@@ -127,7 +127,7 @@ function jsonPathToFeel(base: string, pathLiteral: string): string {
     const idx = /^\[(\d+)\]/.exec(path.slice(i));
     if (idx) { out += `[${Number(idx[1]) + 1}]`; i += idx[0].length; continue; }
     if (path.startsWith('[?(', i)) {
-      // bis zur passenden Klammer — Text in Anführungszeichen zählt nicht
+      // up to the matching parenthesis — text in quotes does not count
       let depth = 0, j = i + 2, q: string | null = null;
       for (; j < path.length; j++) {
         const ch = path[j];
@@ -149,7 +149,7 @@ function jsonPathToFeel(base: string, pathLiteral: string): string {
   return out;
 }
 
-/** Steht der Ausdruck ganz in einem Klammerpaar — `(a or b)`, nicht `(a) or (b)`? */
+/** Is the expression entirely in one pair of parentheses — `(a or b)`, not `(a) or (b)`? */
 function wrapped(feel: string): boolean {
   if (!feel.startsWith('(') || !feel.endsWith(')')) return false;
   let depth = 0;
@@ -159,7 +159,7 @@ function wrapped(feel: string): boolean {
       else if (part[i] === ')') depth--;
     }
   }
-  // die erste Klammer schliesst erst am Ende: kein Zwischenstand auf 0
+  // the first parenthesis only closes at the end: no intermediate level of 0
   let d = 0;
   const flat = feel.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   for (let i = 0; i < flat.length - 1; i++) {
@@ -170,22 +170,22 @@ function wrapped(feel: string): boolean {
 }
 
 /**
- * Ein älterer Import liess `execution.x` als FEEL stehen (`= execution.processInstanceId`).
- * Was ein Gegenstück hat, wird FEEL; sonst wird der Wert wieder JUEL (mit dessen
- * Warnung) — `execution` gibt es in FEEL nicht. Anderes bleibt, wie es ist.
+ * An older import left `execution.x` as FEEL (`= execution.processInstanceId`).
+ * What has a counterpart becomes FEEL; otherwise the value becomes JUEL again (with its
+ * warning) — `execution` does not exist in FEEL. Anything else stays as it is.
  */
 export function healExecution(expression: string): string {
   const t = expression.trim();
   if (!t.startsWith('=') || !/(?<![\w.])execution\s*\./.test(t.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) return expression;
   const body = t.slice(1).trim();
-  const back = juelToFeel(body);  // `execution.x` liest sich in JUEL wie in FEEL
+  const back = juelToFeel(body);  // `execution.x` reads the same in JUEL as in FEEL
   return back.ok ? `= ${back.feel}` : `\${${body}}`;
 }
 
 /**
- * `execution.x` — die Laufzeit von Camunda 7. Was Camunda 8 als Variable führt,
- * wird FEEL (der Export für Camunda 7 macht daraus wieder `execution.…`, siehe
- * feelJuel.ts); alles andere hat kein Gegenstück und bleibt JUEL.
+ * `execution.x` — the runtime of Camunda 7. What Camunda 8 has as a variable
+ * becomes FEEL (the export for Camunda 7 turns it back into `execution.…`, see
+ * feelJuel.ts); everything else has no counterpart and stays JUEL.
  */
 const EXECUTION: Record<string, string> = {
   processInstanceId: 'processInstanceId',
@@ -198,7 +198,7 @@ function executionProperty(name: string): string {
   return feel;
 }
 
-/** Methodenaufrufe mit FEEL-Gegenstück: `a.concat(b)` → `a + b` usw. */
+/** Method calls with a FEEL counterpart: `a.concat(b)` → `a + b` etc. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
   const two = (fn: (a: string, b: string) => string) => { if (args.length !== 1) throw new Unsupported(`«${name}()» erwartet ein Argument`); return fn(target, args[0]); };
@@ -215,26 +215,26 @@ function method(target: string, name: string, args: string[]): string {
     case 'size': return one(a => `count(${a})`);
     case 'isEmpty': return one(a => `count(${a}) = 0`);
     case 'toString': return args.length <= 1 ? `string(${target})` : (() => { throw new Unsupported('«toString()» mit mehr als einem Argument'); })();
-    // FEEL kennt nur einen Zahlentyp — `numberValue().intValue()` ist schon die Zahl
-    // (`number(…)` liest in FEEL einen Text und hätte kein JUEL-Gegenstück)
+    // FEEL knows only one number type — `numberValue().intValue()` already is the number
+    // (`number(…)` reads a text in FEEL and would have no JUEL counterpart)
     case 'intValue': case 'longValue': case 'doubleValue': case 'floatValue': return one(a => a);
-    // Spin (Camunda 7 JSON): in FEEL ist die Variable schon JSON — eine Liste
-    // ist eine Liste, ein Feld ein Feld, ein Wert ein Wert
+    // Spin (Camunda 7 JSON): in FEEL the variable already is JSON — a list
+    // is a list, a field a field, a value a value
     case 'elements': case 'elementList': case 'value': case 'stringValue': case 'numberValue': case 'boolValue': case 'listValue':
       return one(a => a);
-    // `a.prop("k", v)` setzt das Feld und gibt den Knoten zurück — in FEEL `context put`
+    // `a.prop("k", v)` sets the field and returns the node — in FEEL `context put`
     case 'prop': return args.length === 2 ? `context put(${target}, ${args[0]}, ${args[1]})`
       : two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
-    // `execution.getVariable("x")` — in FEEL heisst die Variable einfach `x`
+    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
     case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => { throw new Unsupported('getVariable nur mit festem Namen'); })()));
-    // Camunda-7-Laufzeit → die Variablen, die Camunda 8 dafür führt
+    // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'processInstanceId');
     case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
     case 'getProcessDefinition': return one(() => '__processDefinition');
     case 'getKey': case 'getId': return one(a => (a === '__processDefinition' ? 'processDefinitionKey' : (() => { throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`); })()));
-    // Zeit: `dateTime().now()`, `.toLocalDate()`, `.plusDays(3)`, `.toString("yyyy-MM-dd")`
+    // Time: `dateTime().now()`, `.toLocalDate()`, `.plusDays(3)`, `.toString("yyyy-MM-dd")`
     case 'now': return one(a => a);
     case 'toLocalDate': return one(a => (a === 'now()' ? 'today()' : `date(${a})`));
     case 'plusYears': case 'plusMonths': case 'plusWeeks': case 'plusDays':
@@ -243,9 +243,9 @@ function method(target: string, name: string, args: string[]): string {
       const sign = name.startsWith('plus') ? '+' : '-';
       return two((a, n) => `(${a} ${sign} duration("P${n.replace(/^"|"$/g, '')}${unit}"))`);
     }
-    // `.get("k")` einer Map bzw. eines DMN-Ergebnisses — ein Feld
+    // `.get("k")` of a map or a DMN result — a field
     case 'get': return two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}`
-      // `.get(0)` einer Liste: Java zählt ab 0, FEEL ab 1
+      // `.get(0)` of a list: Java counts from 0, FEEL from 1
       : /^\d+$/.test(b) ? `${a}[${Number(b) + 1}]` : `${a}[${b} + 1]`));
     case 'jsonPath': return two((a, b) => jsonPathToFeel(a, b));
     default: throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`);
@@ -253,9 +253,9 @@ function method(target: string, name: string, args: string[]): string {
 }
 
 /**
- * Der Test auf einen Spin-Pfad, wie ihn der Export schreibt (feelJuel.ts:
- * `a != null && a.hasProp("b") && !a.prop("b").isNull()`), kommt wörtlich als
- * `a != null and a.b != null and not(a.b = null)` an — gemeint ist `a.b != null`.
+ * The test for a Spin path, as the export writes it (feelJuel.ts:
+ * `a != null && a.hasProp("b") && !a.prop("b").isNull()`), arrives verbatim as
+ * `a != null and a.b != null and not(a.b = null)` — what is meant is `a.b != null`.
  */
 function presence(feel: string): string {
   const P = String.raw`[A-Za-z_][\w.]*`;
@@ -270,7 +270,7 @@ function presence(feel: string): string {
   return f;
 }
 
-/** Den Rumpf eines JUEL-Ausdrucks (ohne `${}`) nach FEEL übersetzen. */
+/** Translate the body of a JUEL expression (without `${}`) to FEEL. */
 export function juelToFeel(body: string): FeelResult {
   try {
     const toks = tokenize(body.trim());
@@ -311,7 +311,7 @@ export function juelToFeel(body: string): FeelResult {
     const unary = (): string => {
       if (isOp('!', 'not')) { take(); return `not(${unary()})`; }
       if (isOp('-')) { take(); return `-${unary()}`; }
-      // JUEL `empty`: null, leerer Text — oder eine leere Liste
+      // JUEL `empty`: null, empty text — or an empty list
       if (isOp('empty')) { take(); const x = unary(); return `(${x} = null or ${x} = "" or ${x} = [])`; }
       return postfix();
     };
@@ -336,7 +336,7 @@ export function juelToFeel(body: string): FeelResult {
         if (isOp('[')) {
           take();
           const idx = peek();
-          // JUEL zählt ab 0, FEEL ab 1
+          // JUEL counts from 0, FEEL from 1
           if (idx.t === 'num' && /^[0-9]+$/.test(idx.v)) { take(); expect(']'); v = `${v}[${Number(idx.v) + 1}]`; continue; }
           if (idx.t === 'str') { take(); expect(']'); v = `${v}.${idx.v}`; continue; }
           const e = expr();
@@ -352,15 +352,15 @@ export function juelToFeel(body: string): FeelResult {
       if (t.t === 'num') return t.v;
       if (t.t === 'str') return feelString(t.v);
       if (t.t === 'name') {
-        // Aufruf einer Funktion: `S(x)` / `JSON(x)` sind Spin-Hüllen (in FEEL
-        // ist x schon JSON), `dateTime()` ist der Zeitpunkt jetzt
+        // Function call: `S(x)` / `JSON(x)` are Spin wrappers (in FEEL
+        // x already is JSON), `dateTime()` is the current point in time
         if (isOp('(')) {
           take();
           const args: string[] = [];
           if (!isOp(')')) { args.push(expr()); while (isOp(',')) { take(); args.push(expr()); } }
           expect(')');
           if ((t.v === 'S' || t.v === 'JSON') && args.length === 1) {
-            // `JSON('[6026, 102]')`: der Text ist JSON — in FEEL der Wert selbst (Liste, Kontext)
+            // `JSON('[6026, 102]')`: the text is JSON — in FEEL the value itself (list, context)
             const literal = jsonTextToFeel(args[0]);
             return literal ?? args[0];
           }
@@ -374,8 +374,8 @@ export function juelToFeel(body: string): FeelResult {
         if (t.v === '(') {
           const inner = expr();
           expect(')');
-          // eine Klammer um ein if/then/else ist in FEEL unnötig — und eine zweite um
-          // etwas, das schon ganz in Klammern steht (`(empty x)` → `(x = null or …)`)
+          // parentheses around an if/then/else are unnecessary in FEEL — and a second pair around
+          // something that is already entirely in parentheses (`(empty x)` → `(x = null or …)`)
           return inner.startsWith('if ') || wrapped(inner) ? inner : `(${inner})`;
         }
       }
@@ -394,24 +394,24 @@ export function juelToFeel(body: string): FeelResult {
 export const isJuel = (text: string): boolean => /[$#]\{/.test(text);
 
 /**
- * Ein Wert aus dem BPMN in die Form der Spezifikation:
+ * A value from the BPMN into the form of the specification:
  *
- *   `${x}` · `#{x}`          → `= x`           (JUEL übersetzt)
+ *   `${x}` · `#{x}`          → `= x`           (JUEL translated)
  *   `Hallo ${name}`          → `= "Hallo " + name`
- *   `=x`                     → `= x`           (FEEL aus Camunda 8)
- *   `fest`                   → `fest`          (fester Text bleibt)
+ *   `=x`                     → `= x`           (FEEL from Camunda 8)
+ *   `fest`                   → `fest`          (fixed text stays)
  *
- * Lässt sich JUEL nicht übersetzen, bleibt der Wert unverändert — die
- * Oberfläche zeigt ihn dann als alten JUEL-Ausdruck an.
+ * If JUEL cannot be translated, the value stays unchanged — the
+ * UI then shows it as an old JUEL expression.
  */
 /**
- * Bedingungen eines Zweigs in Camunda 8 null-sicher: `(…) = true`. In
- * Camunda 7 wird `null` zu `false` (JUEL); in Camunda 8 muss eine Bedingung
- * einen Boolean liefern, sonst gibt es einen Incident — `null = true` ist
- * dagegen schlicht `false`. So verhalten sich beide Engines gleich.
+ * Conditions of a branch in Camunda 8 null-safe: `(…) = true`. In
+ * Camunda 7 `null` becomes `false` (JUEL); in Camunda 8 a condition must
+ * return a Boolean, otherwise there is an incident — `null = true` on the other hand
+ * is simply `false`. That way both engines behave the same.
  */
 const NULL_SAFE = /^\(([\s\S]*)\)\s*=\s*true$/;
-/** Klammern ausgeglichen (ausserhalb von Texten)? Nur dann ist `(…) = true` eine Hülle. */
+/** Parentheses balanced (outside of texts)? Only then is `(…) = true` a wrapper. */
 function balanced(s: string): boolean {
   let depth = 0;
   for (const part of s.split(/"(?:[^"\\]|\\.)*"/)) {
@@ -422,7 +422,7 @@ function balanced(s: string): boolean {
   }
   return depth === 0;
 }
-/** FEEL-Rumpf einer Bedingung → null-sicher (ein Literal oder schon gehüllt bleibt). */
+/** FEEL body of a condition → null-safe (a literal or an already wrapped one stays). */
 export function nullSafeCondition(body: string): string {
   const b = body.trim();
   if (/^(true|false)$/.test(b)) return b;
@@ -430,7 +430,7 @@ export function nullSafeCondition(body: string): string {
   if (m && balanced(m[1])) return b;
   return `(${b}) = true`;
 }
-/** Die Hülle wieder ab: `=(x > 3) = true` bzw. `= (x > 3) = true` → `= x > 3`. Anderes bleibt. */
+/** Remove the wrapper again: `=(x > 3) = true` or `= (x > 3) = true` → `= x > 3`. Anything else stays. */
 export function stripNullSafe(expression: string): string {
   const t = expression.trim();
   if (!t.startsWith('=')) return expression;
@@ -443,9 +443,9 @@ export function importExpression(text: string): string {
   if (!t) return t;
   if (t.startsWith('=')) return `= ${t.slice(1).trim()}`;
   if (!isJuel(t)) return t;
-  // in Vorlagen-Teile zerlegen: fester Text und ${…}-Ausdrücke
+  // split into template parts: fixed text and ${…} expressions
   const parts: string[] = [];
-  /** Positionen der `${…}`-Teile — in einer Verkettung werden sie zu Text */
+  /** Positions of the `${…}` parts — in a concatenation they become text */
   const tmpl: number[] = [];
   let i = 0;
   while (i < t.length) {
@@ -453,7 +453,7 @@ export function importExpression(text: string): string {
     if (!m) { parts.push(feelString(t.slice(i))); break; }
     const start = i + m.index;
     if (start > i) parts.push(feelString(t.slice(i, start)));
-    // schliessende Klammer — Zeichenketten im Ausdruck können `}` enthalten
+    // closing brace — strings in the expression may contain `}`
     let j = start + 2, depth = 1, quote: string | null = null;
     for (; j < t.length; j++) {
       const ch = t[j];
@@ -462,19 +462,19 @@ export function importExpression(text: string): string {
       else if (ch === '{') depth++;
       else if (ch === '}' && --depth === 0) break;
     }
-    if (j >= t.length) return t; // nicht geschlossen — so lassen
+    if (j >= t.length) return t; // not closed — leave as is
     const r = juelToFeel(t.slice(start + 2, j));
     if (!r.ok) return t;
-    // ein zusammengesetzter Teil braucht in einer Verkettung Klammern
+    // a compound part needs parentheses in a concatenation
     parts.push(/\s/.test(r.feel) ? `(${r.feel})` : r.feel);
     tmpl.push(parts.length - 1);
     i = j + 1;
   }
   if (parts.length === 1 && parts[0].startsWith('(') && parts[0].endsWith(')')) return `= ${parts[0].slice(1, -1)}`;
   if (parts.length === 1) return `= ${parts[0]}`;
-  // Vorlage mit festem Text: die Ausdrücke darin werden zu Text
+  // template with fixed text: the expressions in it become text
   return `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}`;
 }
 
-/** Übersetzbares JUEL nach FEEL — was sich nicht übersetzen lässt, bleibt JUEL. */
+/** Translatable JUEL to FEEL — what cannot be translated stays JUEL. */
 export const feelIfPossible = (text: string): string => (isJuel(text) ? importExpression(text) : text);

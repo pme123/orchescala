@@ -1,5 +1,5 @@
-// Ein fester Fall (`processStatus: ProcessStatus.succeeded.type = ProcessStatus.succeeded`):
-// die Vorgabe ist der Fall selbst — keine Meldung «Vorgabe wird nicht verwendet».
+// A fixed case (`processStatus: ProcessStatus.succeeded.type = ProcessStatus.succeeded`):
+// the default is the case itself — no message «Vorgabe wird nicht verwendet».
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkTypes, scalaFiles } from '../src/scala';

@@ -1,10 +1,10 @@
-// Befunde je Schritt — für das Dreieck in der Baumzeile.
+// Findings per step — for the triangle in the tree row.
 //
-// Was das Eigenschaften-Panel rechts an einer Stelle meldet (FEEL-Fehler,
-// doppelte oder fehlende Pflichtfelder, eine Interaktion ohne In/Out, ein
-// Service, den der Katalog nicht kennt), soll man im Ablauf schon sehen —
-// als rotes (Fehler) oder oranges (Warnung) Dreieck an der Zeile, mit den
-// ersten Meldungen im Tooltip. Dieselben Regeln wie im Panel, nur gesammelt.
+// What the properties panel on the right reports at one place (FEEL errors,
+// duplicate or missing required fields, an interaction without In/Out, a
+// service the catalog does not know) should already be visible in the flow —
+// as a red (error) or orange (warning) triangle on the row, with the
+// first messages in the tooltip. The same rules as in the panel, just collected.
 
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
@@ -23,9 +23,9 @@ export interface Finding {
   errors: string[];
   warnings: string[];
   /**
-   * Meldungen, die das Panel des Schritts schon am Ort zeigt (Mapping-Zeile,
-   * behandelter Fehler) — die Liste oben am Schritt nennt sie nicht noch einmal.
-   * Gezählt (Baum, Filter) werden sie trotzdem.
+   * Messages the step's panel already shows in place (mapping row,
+   * handled error) — the list at the top of the step does not repeat them.
+   * They are still counted (tree, filter).
    */
   inline?: string[];
 }
@@ -33,9 +33,9 @@ export interface Finding {
 const NONE: Finding = { errors: [], warnings: [], inline: [] };
 
 /**
- * Alle Befunde eines Prozesses, je Schritt — einmal gerechnet, dann per
- * Schritt-ID abrufbar. Die Prozessvariablen werden einmal aufgebaut, die
- * Ergebnisvariablen je Schritt.
+ * All findings of a process, per step — computed once, then retrievable per
+ * step ID. The process variables are built once, the
+ * result variables per step.
  */
 export function collectFindings(spec: ProcessSpec, model: Model | null, steps: Step[]): Map<string, Finding> {
   const out = new Map<string, Finding>();
@@ -50,7 +50,7 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
   return out;
 }
 
-/** Die Pflicht-Eingaben: nicht optional im eigenen In, in der Domain — oder laut Katalog `required`. */
+/** The required inputs: not optional in the own In, in the domain — or `required` according to the catalog. */
 function requiredNames(refFields: Field[] | null, dom: DomainType | null, service: ServiceDef | null): string[] {
   return refFields
     ? refFields.filter(f => !f.optional).map(f => f.name)
@@ -59,16 +59,16 @@ function requiredNames(refFields: Field[] | null, dom: DomainType | null, servic
 }
 
 /**
- * Die Pflicht-Eingaben eines Schritts, die noch keine Zeile haben — nach
- * derselben Regel wie der Befund «Pflichtfeld … fehlt». Nicht bei
- * Benutzeraufgaben, eigenen Workern und dem Init-Worker (die lesen ihr In aus
- * den Prozessvariablen) und nicht, wenn ein Pattern den Aufruf festlegt.
- * Eine abgewählte Zeile zählt als vorhanden: das hat jemand so entschieden.
+ * The required inputs of a step that have no row yet — by
+ * the same rule as the finding «Pflichtfeld … fehlt». Not for
+ * user tasks, custom workers and the init worker (they read their In from
+ * the process variables) and not if a pattern defines the call.
+ * A deselected row counts as present: someone decided it that way.
  */
 /**
- * Wer sein `In` direkt aus den Prozessvariablen liest — ohne Mapping, also ohne
- * Befund «Pflichtfeld fehlt»: Benutzeraufgaben, eigene Worker, DMN Decisions
- * des Prozesses und der Init-Worker. Eine Regel für beide Prüfungen
+ * Who reads their `In` directly from the process variables — without mapping, so without
+ * the finding «Pflichtfeld fehlt»: user tasks, custom workers, DMN decisions
+ * of the process and the init worker. One rule for both checks
  * (`missingRequiredInputs`, `stepFindings`).
  */
 export const readsInDirectly = (kind: InteractionKind | null | undefined, initWorker: boolean): boolean =>
@@ -89,26 +89,26 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   const variants = variantsOf(step, spec, model, 'inputs', service);
   const chosen = chosenVariant(step, 'inputs', variants);
   const have = new Set((step.inputs ?? []).map(m => m.name.trim()));
-  // Weichen: eine genügt — ohne Zeile für eine davon die erste (`useCase`)
+  // Switches: one is enough — without a row for any of them, the first (`useCase`)
   const routing = variants?.routing?.some(n => have.has(n)) ? [] : variants?.routing?.slice(0, 1) ?? [];
   return [...new Set([...requiredNames(refFields, dom, service), ...routing])]
     .filter(n => (variantRequires(variants, chosen, n) || routing.includes(n)) && !have.has(n));
 }
 
 /**
- * Alle Felder eines Service-Aufrufs als Zeilen — beim Import, beim Abgleich und
- * beim Öffnen: was der Service bekommen bzw. liefern kann, steht da; **angehakt**
- * sind nur die Pflicht-Eingaben und die Ausgaben, die der Prozess braucht
- * (`_outputVariables`), der Rest ist abgewählt (sichtbar, kommt nicht ins BPMN).
- * Bestehende Zeilen bleiben, wie sie sind. Nicht bei Benutzeraufgaben, eigenen
- * Workern, dem Init-Worker und Entscheidungen (die lesen bzw. schreiben ihre
- * Variablen direkt) und nicht, wenn ein Pattern den Aufruf festlegt.
- * `added` nennt «Schritt: Feld» der neu angehakten Zeilen.
+ * All fields of a service call as rows — on import, on reconciliation and
+ * on opening: what the service can receive or return is listed; **checked**
+ * are only the required inputs and the outputs the process needs
+ * (`_outputVariables`), the rest is deselected (visible, does not go into the BPMN).
+ * Existing rows stay as they are. Not for user tasks, custom
+ * workers, the init worker and decisions (they read or write their
+ * variables directly) and not if a pattern defines the call.
+ * `added` names «Schritt: Feld» of the newly checked rows.
  *
- * `importing`: das BPMN kommt gerade herein (Anlegen, Abgleich). Gibt es den
- * Eingaben dann Felder mehrerer Ausprägungen mit, entscheidet der Worker — der
- * Schritt bekommt «alle Ausprägungen». Beim Öffnen nicht: dort ist eine
- * gemischte Wahl ein Versehen, das die Warnung zeigen soll.
+ * `importing`: the BPMN is just coming in (create, reconciliation). If the
+ * inputs then pass fields of several variants, the worker decides — the
+ * step gets «alle Ausprägungen». Not on opening: there a
+ * mixed choice is a mistake that the warning should show.
  */
 export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { importing?: boolean } = {}): { spec: ProcessSpec; added: string[]; changed: boolean } {
   const added: string[] = [];
@@ -130,18 +130,18 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
         const own = typeId ? types.find(t => t.id === typeId) : undefined;
         if (own) return [...(own.fields ?? []), ...(own.values ?? []).flatMap(v => v.fields ?? [])].filter(f => f.name).map(f => ({ name: f.name, description: f.description }));
         const dom = stepDomainMember(s, spec, model, list === 'inputs' ? 'In' : 'Out');
-        // `inConfig` nicht: das eigene ist ein anderes als das des Aufgerufenen
+        // not `inConfig`: the own one is different from that of the callee
         if (dom) return [...(dom.fields ?? []), ...(dom.cases ?? []).flatMap(c => c.fields ?? [])].filter(f => f.name !== inConfig).map(f => ({ name: f.name, description: f.description }));
         return ((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).map(p => ({ name: p.name, description: p.description }));
       };
       const required = new Set(missingRequiredInputs(s, spec, model));
       const wanted = new Set(s.outputVariables ?? []);
       const rows = (list: 'inputs' | 'outputs'): Mapping[] | null => {
-        // eine abgewählte Ausgabe, die der Prozess laut BPMN braucht (`_outputVariables`),
-        // wird angehakt — z. B. beim Öffnen ergänzt, bevor der Abgleich die Liste brachte.
-        // Wer sie abwählt, nimmt sie beim Export aus `_outputVariables` heraus.
+        // a deselected output the process needs according to the BPMN (`_outputVariables`)
+        // gets checked — e.g. added on opening, before the reconciliation brought the list.
+        // Whoever deselects it removes it from `_outputVariables` on export.
         let enabled = false;
-        // eine abgewählte Zeile `inConfig`, wie sie hier früher angelegt wurde, fällt weg
+        // a deselected row `inConfig`, as it used to be created here, is dropped
         const kept = (s[list] ?? []).filter(m => !(list === 'inputs' && m.disabled && m.name === inConfig));
         if (kept.length !== (s[list] ?? []).length) enabled = true;
         const have = kept.map(m => {
@@ -151,7 +151,7 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
           const { disabled: _, ...rest } = m;
           return rest;
         });
-        // bei Ausgaben zählt auch ein Feld, das eine bestehende Zeile schon liest
+        // for outputs a field that an existing row already reads also counts
         const used = new Set([...have.map(m => m.name.trim()), ...(list === 'outputs' ? have.flatMap(m => referencedVariables(m.expression)) : [])]);
         const seen = new Set<string>();
         const neu: Mapping[] = [];
@@ -164,7 +164,7 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
             name: f.name, expression: `= ${f.name}`,
             ...(f.description ? { description: f.description } : {}),
             ...(on ? {} : { disabled: true }),
-            // eine Ausgabe des Services — ein Eintrag in `_outputVariables`, kein Mapping
+            // an output of the service — an entry in `_outputVariables`, not a mapping
             ...(list === 'outputs' ? { fromService: true } : {}),
           });
         }
@@ -172,14 +172,14 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
       };
       const ins = rows('inputs'), outs = rows('outputs');
       if (ins || outs) { changed = true; next = { ...s, ...(ins ? { inputs: ins } : {}), ...(outs ? { outputs: outs } : {}) }; }
-      // gebrauchte Ausgaben aus mehreren Ausprägungen: der Service liefert eine —
-      // welche, entscheidet er; die Ausgaben lesen dann aus allen (`*`)
+      // needed outputs from several variants: the service returns one —
+      // it decides which; the outputs then read from all (`*`)
       if (outs && next.outVariant == null) {
         const v = variantsOf(next, spec, model, 'outputs', service);
         if (v && chosenVariant(next, 'outputs', v).mixed.length) next = { ...next, outVariant: ALL_VARIANTS };
       }
-      // Eingaben aus mehreren Ausprägungen (so im BPMN): der Worker unterstützt
-      // mehrere Fälle und entscheidet beim Unmarshalling, welcher es ist (`*`)
+      // inputs from several variants (as in the BPMN): the worker supports
+      // several cases and decides on unmarshalling which one it is (`*`)
       if (opts.importing && next.inVariant == null) {
         const v = variantsOf(next, spec, model, 'inputs', service);
         if (v && chosenVariant(next, 'inputs', v).mixed.length) { changed = true; next = { ...next, inVariant: ALL_VARIANTS }; }
@@ -195,9 +195,9 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
 }
 
 /**
- * Der Timer eines Ereignisses bzw. Boundary-Events: eine Variable mit Vorgabe —
- * kein fester Wert. `at` nennt das Boundary-Event (`Boundary «inform»: `),
- * `kinds` die Arten je Timer-Variable (sonst gerechnet).
+ * The timer of an event or boundary event: a variable with a default —
+ * not a fixed value. `at` names the boundary event (`Boundary «inform»: `),
+ * `kinds` the kinds per timer variable (otherwise computed).
  */
 export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: string[], warnings: string[], opts: { at?: string; kinds?: Map<string, Set<TimerSpec['kind']>> } = {}) {
   const at = opts.at ?? '';
@@ -209,7 +209,7 @@ export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: strin
     if (!isFeel(expr)) warnings.push(`${at}Fester Timer «${expr}» — besser eine Variable mit dieser Vorgabe, z. B. = timerWait: sie kommt als Konstante ins InConfig und lässt sich je Umgebung einstellen.`);
     return;
   }
-  // eine Konstante hat im InConfig nur einen Typ — eine Dauer ist kein Zeitpunkt
+  // a constant has only one type in the InConfig — a duration is not a point in time
   const other = [...kinds.get(name) ?? []].find(k => k !== timer.kind);
   if (other) warnings.push(`${at}«${name}» ist hier ${KIND_TEXT[timer.kind]}, an einem anderen Timer ${KIND_TEXT[other]} — im InConfig hat sie nur einen Typ; eine eigene Variable je Art nehmen.`);
   const own = (spec.types ?? []).find(t => t.inConfig)?.fields?.some(f => f.name === name);
@@ -220,14 +220,14 @@ export function timerFindings(timer: TimerSpec, spec: ProcessSpec, errors: strin
   }
 }
 
-/** ISO 8601, wie Camunda es für Timer liest: Dauer `P7D`, Zeitpunkt `2026-12-31T08:00:00Z`, Zyklus `R3/PT1H` */
+/** ISO 8601, as Camunda reads it for timers: duration `P7D`, point in time `2026-12-31T08:00:00Z`, cycle `R3/PT1H` */
 const DURATION = 'P(?!$)(?:\\d+Y)?(?:\\d+M)?(?:\\d+W)?(?:\\d+D)?(?:T(?=\\d)(?:\\d+H)?(?:\\d+M)?(?:\\d+(?:[.,]\\d+)?S)?)?';
 const ISO_TIMER: Record<TimerSpec['kind'], RegExp> = {
   duration: new RegExp(`^${DURATION}$`),
   date: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/,
   cycle: new RegExp(`^R\\d*/(?:[^/]+/)?${DURATION}$`),
 };
-/** Die Arten je Timer-Variable im ganzen Prozess — `collectFindings` rechnet sie einmal */
+/** The kinds per timer variable in the whole process — `collectFindings` computes them once */
 export function timerKinds(steps: Step[]): Map<string, Set<TimerSpec['kind']>> {
   const kinds = new Map<string, Set<TimerSpec['kind']>>();
   for (const s of allSteps(steps)) {
@@ -242,11 +242,11 @@ export function timerKinds(steps: Step[]): Map<string, Set<TimerSpec['kind']>> {
 const KIND_TEXT: Record<TimerSpec['kind'], string> = { duration: 'eine Dauer', date: 'ein Zeitpunkt', cycle: 'ein Zyklus' };
 const ISO_EXAMPLE: Record<TimerSpec['kind'], string> = { duration: 'P7D', date: '2026-12-31T08:00:00Z', cycle: 'R3/PT1H' };
 
-/** Was für alle Schritte gleich ist — `collectFindings` rechnet es einmal; fehlt es, rechnet es `stepFindings` */
+/** What is the same for all steps — `collectFindings` computes it once; if missing, `stepFindings` computes it */
 export interface ProcessContext {
   scopes?: Map<string, MultiInstanceSpec[]>;
   wiring?: Set<string>;
-  /** die Arten je Timer-Variable (siehe timerKinds) */
+  /** the kinds per timer variable (see timerKinds) */
   kinds?: Map<string, Set<TimerSpec['kind']>>;
 }
 
@@ -254,25 +254,25 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const scopes = ctx.scopes ?? multiInstanceScopes(spec.steps);
   const wiring = ctx.wiring ?? wiringSteps(spec);
   const kinds = ctx.kinds ?? timerKinds(spec.steps);
-  // ein Schritt im Block eines Patterns hat keine eigenen Ein- und Ausgaben — das Pattern füllt ihn
+  // a step in the block of a pattern has no inputs and outputs of its own — the pattern fills it
   if (step.kind === 'goto' || step.pattern) return NONE;
-  // in einer Mehrfachausführung kommen `loopCounter` und das Element dazu
+  // in a multi-instance `loopCounter` and the element are added
   const variables = withMultiInstance(baseVariables, scopes.get(step.id));
   const errors: string[] = [];
   const warnings: string[] = [];
   const types = spec.types ?? [];
   const processId = spec.processId ?? '';
   const ia: Interaction | null = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
-  // ohne Label im BPMN heisst der Schritt wie seine ID — der Name hier geht beim Export hinein
-  // (in einem Pattern-Block benennt das Pattern)
+  // without a label in the BPMN the step is named like its ID — the name here goes in on export
+  // (in a pattern block the pattern names it)
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
-  // Timer: die Wartezeit ist eine Konstante im InConfig — sonst lässt sie sich je Umgebung nicht einstellen
+  // Timer: the wait time is a constant in the InConfig — otherwise it cannot be set per environment
   if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings, { kinds });
-  // der Init-Worker wird nicht am Katalogeintrag des Prozesses gemessen (wie im Panel)
+  // the init worker is not measured against the process's catalog entry (as in the panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
-  // Camunda 8: die eigene processInstanceId setzt der InitWorker erst, wenn er fertig ist —
-  // an seinem eigenen Task ist sie leer (in Camunda 7 war `execution.processInstanceId` schon da)
+  // Camunda 8: the InitWorker sets its own processInstanceId only when it is done —
+  // on its own task it is empty (in Camunda 7 `execution.processInstanceId` was already there)
   if (initWorker && spec.engine === 'c8') {
     const reads = (step.inputs ?? []).filter(m => !m.disabled && referencedVariables(m.expression).includes('processInstanceId'));
     for (const m of reads) {
@@ -280,9 +280,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     }
   }
 
-  // ── Interaktion: was der DSL verlangt ────────────────────────────────────
+  // ── Interaction: what the DSL requires ───────────────────────────────────
   if (ia) {
-    // über den Schlüssel im Katalog: ein fremdes Objekt wird referenziert, nicht exportiert
+    // via the key in the catalog: a foreign object is referenced, not exported
     const origin = interactionOrigin(ia, model, packageOf(spec, model));
     if (origin.ambiguous) {
       warnings.push(`${ia.name}: «${ia.key}» gibt es in mehreren Projekten (${origin.ambiguous.join(', ')}) — wird als neues Objekt exportiert; prüfen.`);
@@ -290,7 +290,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     const inT = ia.inTypeId ? types.find(t => t.id === ia.inTypeId) : null;
     const outT = ia.outTypeId ? types.find(t => t.id === ia.outTypeId) : null;
     const empty = (t: typeof inT) => !!t && !(t.fields ?? []).some(f => f.name) && !(t.values ?? []).some(v => v.name);
-    // DMN Decision: einfache Werte, und bei einem einzelnen Wert genau ein Feld im Out
+    // DMN decision: simple values, and for a single value exactly one field in the Out
     if (!origin.foreign) for (const m of dmnIssues(ia, types)) warnings.push(`${ia.name}: ${m}`);
     if (INTERACTION_META[ia.kind].hasOut && !origin.foreign) {
       if (!inT) warnings.push(`${ia.name}: In fehlt.`);
@@ -298,21 +298,21 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       if (!outT) warnings.push(`${ia.name}: Out fehlt.`);
       else if (empty(outT)) warnings.push(`${ia.name}: Out ist leer.`);
     }
-    // Signale und Nachrichten dürfen ohne In auskommen — auch ein leeres ist kein Mangel
+    // Signals and messages may do without In — even an empty one is not a defect
   } else if (interactionKind(step, processId) && step.id !== spec.steps.find(s => s.kind === 'start')?.id && !wiring.has(step.id)) {
-    // der Start des Prozesses ist keine eigene Nachricht — das ist sein In; ebenso
-    // alles in einem Pattern-Block und die Nachricht mit dem Namen des Prozesses (siehe wiringSteps)
+    // the start of the process is not a message of its own — that is its In; likewise
+    // everything in a pattern block and the message with the name of the process (see wiringSteps)
     warnings.push('Noch keine Interaktion — Objekt mit In/Out anlegen (Datenmodell → aus dem Ablauf).');
   }
 
-  // ── Service: kennt ihn der Katalog? ──────────────────────────────────────
+  // ── Service: does the catalog know it? ───────────────────────────────────
   const foreign = (step.serviceId || step.topic) && !interactionKind(step, processId) && step.topic !== processId;
   if (foreign && model?.services?.length && !service) {
     errors.push(`Service «${step.serviceId ?? step.topic}» steht nicht im Katalog.`);
   }
 
-  // ── Mappings: Pflicht, doppelt, FEEL ─────────────────────────────────────
-  // die eigene Klasse — bei einem enum auch die Felder seiner Fälle (welche gelten, sagt die Ausprägung)
+  // ── Mappings: required, duplicate, FEEL ──────────────────────────────────
+  // the own class — for an enum also the fields of its cases (the variant says which apply)
   const classFields = (id: string | undefined): Field[] | null => {
     if (!id) return null;
     const t = types.find(x => x.id === id);
@@ -326,50 +326,50 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 
   const ownKind = ia?.kind ?? interactionKind(step, processId);
   const implicitIn = readsInDirectly(ownKind, initWorker);
-  // was ein Pattern am Element beisteuert, ist Implementation — nicht geprüft,
-  // und fehlende Pflichtfelder meldet es nicht: den Aufruf legt das Pattern fest
+  // what a pattern contributes to the element is implementation — not checked,
+  // and it does not report missing required fields: the pattern defines the call
   const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
   const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
-    // enum mit Fällen: nur die gemeinsamen Felder und die der gewählten Ausprägung zählen
+    // enum with cases: only the shared fields and those of the chosen variant count
     const variants = variantsOf(step, spec, model, list, service);
     const chosen = chosenVariant(step, list, variants);
     const allowed = (n: string) => variantAllows(variants, chosen, n);
     if (chosen.mixed.length) {
       warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen oder «alle Ausprägungen», wenn ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.`);
     } else if (variants && !chosen.name && list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
-      // der Service bekommt genau einen Fall — ohne Wahl bekäme er keinen
+      // the service gets exactly one case — without a choice it would get none
       warnings.push(noVariantText(variants));
     }
     const used = rows.filter(m => !m.disabled && m.name.trim() && allowed(m.name));
     const active = used.filter(m => !fromPattern[list].has(m.name));
-    // doppelt zählt auch bei Zeilen des Patterns — dieselbe Eingabe zweimal ist ein
-    // Fehler im BPMN, ausser das Pattern bringt den Namen selbst mehrmals mit
+    // duplicate also counts for rows of the pattern — the same input twice is an
+    // error in the BPMN, unless the pattern itself brings the name several times
     const names = new Map<string, number>();
     for (const m of used) names.set(m.name, (names.get(m.name) ?? 0) + 1);
     for (const [n, k] of names) if (k > (fromPattern.times[list].get(n) ?? 1)) errors.push(`${list === 'inputs' ? 'Eingabe' : 'Ausgabe'} «${n}» kommt doppelt vor.`);
-    // Eingaben, die das Modell bzw. der Katalog nicht kennt: eine Erweiterung,
-    // die dort noch fehlt — dieselbe Regel wie in der Tabelle (Warnung)
+    // Inputs the model or the catalog does not know: an extension
+    // still missing there — the same rule as in the table (warning)
     if (list === 'inputs') {
-      // dazu, was die Domain im In führt — auch `inConfig` und die Felder des `InConfig` (Mocks)
+      // plus what the domain has in the In — also `inConfig` and the fields of the `InConfig` (mocks)
       const known = refFields ? refFields.map(f => f.name) : [...(service?.inputs ?? []).map(p => p.name), ...domainInputNames(dom, model)];
       if (refFields || known.length) {
-        // eine allgemeine Variable (`_idempotentId` …) nimmt jeder Worker — keine Erweiterung
+        // a general variable (`_idempotentId` …) is accepted by every worker — not an extension
         const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name) && !GENERAL_VARIABLES.has(m.name));
         if (ext.length) {
           warnings.push(`${ext.map(m => `«${m.name}»`).join(', ')} noch nicht im ${refFields ? 'Modell' : 'Katalog'} — Erweiterung, dort nachziehen.`);
         }
       }
     }
-    // `inConfig` des Aufgerufenen: das eigene ist ein anderes — nur einzelne Felder mitgeben
+    // `inConfig` of the callee: the own one is different — pass only individual fields
     const cfg = list === 'inputs' && !refFields ? inConfigField(dom) : null;
     if (cfg && active.some(m => m.name === cfg)) warnings.push(inConfigWarning(cfg));
-    // Pflichtfelder, die fehlen oder abgewählt sind — nicht bei Benutzer-
-    // aufgaben und eigenen Workern: die lesen ihr In direkt aus den
-    // Prozessvariablen, ohne Mapping
+    // Required fields that are missing or deselected — not for user
+    // tasks and custom workers: they read their In directly from the
+    // process variables, without mapping
     if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
       const required = requiredNames(refFields, dom, service).filter(n => variantRequires(variants, chosen, n));
       for (const n of required) if (!active.some(m => m.name === n)) errors.push(`Pflichtfeld «${n}» fehlt in den Eingaben.`);
-      // Weichen des Decoders: eine davon muss der Service bekommen
+      // Switches of the decoder: the service must get one of them
       const routing = routingMissing(variants, active);
       if (routing) errors.push(`Pflicht: ${routingText(routing)} fehlt in den Eingaben — eines davon wählt die Ausprägung.`);
     }
@@ -380,9 +380,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
         for (const i of r.issues) (i.level === 'error' ? errors : warnings).push(`«${m.name}»: ${i.text}`);
         if (spec.engine !== 'c8') {
           const body = feelBody(m.expression);
-          // unvollständiges FEEL meldet schon die Prüfung oben
+          // incomplete FEEL is already reported by the check above
           const j = body != null && feelSyntaxOk(body) ? feelToJuel(body) : null;
-          // eine Liste bzw. ein Kontext geht als JSON-Skript (Groovy) — nur nicht als `camunda:in`
+          // a list or a context goes as a JSON script (Groovy) — just not as `camunda:in`
           const json = body != null && step.kind !== 'call' && feelToGroovy(body).ok;
           if (j && !j.ok && !json) warnings.push(`«${m.name}»: für ${C7_LABEL} nicht nach JUEL übersetzbar (${j.reason}).`);
         }
@@ -393,18 +393,18 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       }
     }
   };
-  // was ab hier gemeldet wird, steht im Panel am Ort — an der Mapping-Zeile bzw. am Fehler
+  // what is reported from here on is shown in the panel in place — on the mapping row or the error
   const atPlace = { errors: errors.length, warnings: warnings.length };
   check('inputs', step.inputs ?? [], inFields, domainIn, variables);
   check('outputs', step.outputs ?? [], outFields, domainOut, resultVars);
 
-  // ── Behandelte Fehler: nur melden, was nicht stimmt ──────────────────────
+  // ── Handled errors: only report what is wrong ────────────────────────────
   (step.errors ?? []).forEach((e, i, all) => {
     const issue = handledErrorIssue(e, i, all, { variables, engine: spec.engine });
     if (issue) (issue.level === 'error' ? errors : warnings).push(issue.text);
-    // der Timer eines Boundary-Events: wie der eines Ereignisses — das Panel zeigt es am Eintrag
+    // the timer of a boundary event: like that of an event — the panel shows it on the entry
     if (e.boundary && e.timer) timerFindings(e.timer, spec, errors, warnings, { at: `Boundary «${e.code}»: `, kinds });
-    // eine Nachricht am Rand wartet — wie am Ereignis: Schlüssel gewählt, alter Name gemeldet
+    // a message on the boundary waits — as on the event: key chosen, old name reported
     if (isEventBoundary(e) && e.eventKind === 'message' && !e.pattern) {
       const corr = correlationOf(e.correlationKey, spec.engine);
       if (corr.missing) warnings.push(`Nachricht «${e.code}»: kein Korrelationsschlüssel — in ${C8_LABEL} findet sie keine wartende Instanz.`);
@@ -417,7 +417,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (rx) (rx.level === 'error' ? errors : warnings).push(rx.text);
   }
 
-  // ── Zweige: Bedingungen ──────────────────────────────────────────────────
+  // ── Branches: conditions ─────────────────────────────────────────────────
   for (const b of step.branches ?? []) {
     if (b.isDefault || !b.condition || !isFeel(b.condition)) continue;
     const r = checkFeel(b.condition, variables, conditionExpected(spec.engine));
@@ -428,28 +428,28 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   return errors.length || warnings.length ? { errors, warnings, inline } : NONE;
 }
 
-/** Ist der Ausdruck in `_regexHandledErrors` ein gültiger regulärer Ausdruck? Sonst der Grund. */
+/** Is the expression in `_regexHandledErrors` a valid regular expression? Otherwise the reason. */
 export function regexIssue(pattern: string | undefined, engine?: EngineId, variables?: VarNode[], alone?: boolean): { level: 'error' | 'warn'; text: string } | null {
   if (!pattern?.trim()) return { level: 'error', text: 'Regulärer Ausdruck ist leer.' };
-  // `= …` liefert den Ausdruck erst zur Laufzeit — geprüft wird das FEEL
+  // `= …` yields the expression only at runtime — the FEEL is checked
   if (isFeel(pattern)) return feelEntryIssue(pattern.trim(), `Regex «${pattern.trim()}»`, { variables, engine, alone });
   try { new RegExp(pattern); }
   catch (e) { return { level: 'error', text: `Regulärer Ausdruck «${pattern}» ungültig: ${(e as Error).message.replace(/^Invalid regular expression: /, '').replace(/^\/.*\/[a-z]*: /, '')}` }; }
-  // in Camunda 7 ist es ein Text mit Kommas — ein Komma im Ausdruck trennt dort die Einträge
+  // in Camunda 7 it is a text with commas — a comma in the expression separates the entries there
   if (engine !== 'c8' && pattern.includes(',')) return { level: 'warn', text: `«${pattern}»: In ${C7_LABEL} trennt das Komma die Einträge — den Ausdruck ohne Komma schreiben (z. B. {1,2} als {1}|{2}).` };
   return null;
 }
 
-/** Platzhalter für einen neuen regulären Ausdruck (StepDetail «+ Regex») */
+/** Placeholder for a new regular expression (StepDetail «+ Regex») */
 export const NEW_REGEX = '.*neue-meldung.*';
 
-/** Ein Mapping-Wert, der ein Skript aus dem BPMN beschreibt (`«groovy» …`) */
+/** A mapping value that describes a script from the BPMN (`«groovy» …`) */
 export const isScriptValue = (expression: string): boolean => expression.trimStart().startsWith('«');
 
 /**
- * Ein übernommenes Skript: die Spezifikation beschreibt es nur. In Camunda 7
- * bleibt es beim Export unverändert im Diagramm; Camunda 8 kennt keine
- * Skripte in Mappings — dort gehört es als FEEL neu geschrieben.
+ * An adopted script: the specification only describes it. In Camunda 7
+ * it stays unchanged in the diagram on export; Camunda 8 knows no
+ * scripts in mappings — there it has to be rewritten as FEEL.
  */
 export const scriptWarning = (engine: EngineId | undefined): string => (engine === 'c8'
   ? `Skript aus dem BPMN — ${C8_LABEL} kennt keine Skripte in Mappings: als «= …» (FEEL) neu schreiben.`
@@ -458,7 +458,7 @@ export const scriptWarning = (engine: EngineId | undefined): string => (engine =
 /** Placeholder a new handled error starts with (StepDetail «+ Fehler») */
 export const NEW_ERROR_CODE = 'neuer-fehler';
 
-/** Platzhalter für einen neuen Fehler, der noch nicht vergeben ist (`neuer-fehler`, `neuer-fehler-2` …) */
+/** Placeholder for a new error that is not taken yet (`neuer-fehler`, `neuer-fehler-2` …) */
 export function newErrorCode(existing: ErrorHandling[]): string {
   const taken = new Set(existing.map(e => e.code.trim()));
   if (!taken.has(NEW_ERROR_CODE)) return NEW_ERROR_CODE;
@@ -468,14 +468,14 @@ export function newErrorCode(existing: ErrorHandling[]): string {
 }
 
 /**
- * Was an einem behandelten Fehler nicht stimmt — sonst null. Ein behandelter
- * Fehler ist der Normalfall und keine Warnung; gemeldet wird nur ein leerer,
- * doppelter oder noch nicht ersetzter Code. Nebenpfade haben keinen Code.
+ * What is wrong with a handled error — otherwise null. A handled
+ * error is the normal case and not a warning; only an empty,
+ * duplicate or not yet replaced code is reported. Side paths have no code.
  */
 export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHandling[], ctx: FeelCtx = {}): { level: 'error' | 'warn'; text: string } | null {
-  // Ein Nebenpfad braucht keinen Code — nur ein Pfad, der nirgends hinführt, ist ein Fehler im Diagramm
+  // A side path needs no code — only a path that leads nowhere is an error in the diagram
   if (e.side) return e.steps?.length ? null : { level: 'warn', text: 'Der Pfad am Boundary-Event führt nirgends hin.' };
-  // Signal, Nachricht, Eskalation am Rand: kein Fehlercode — ihr Name ist das Label im Diagramm
+  // Signal, message, escalation on the boundary: no error code — their name is the label in the diagram
   if (isEventBoundary(e)) return e.steps?.length ? null : { level: 'warn', text: `Der Pfad von «${e.code}» am Boundary-Event führt nirgends hin.` };
   const code = e.code.trim();
   if (!code) return { level: 'error', text: 'Behandelter Fehler ohne Code.' };
@@ -485,11 +485,11 @@ export function handledErrorIssue(e: ErrorHandling, index: number, all: ErrorHan
   return feelEntryIssue(code, `Behandelter Fehler «${code}»`, { ...ctx, alone: all.filter(x => x.code.trim() && (x.declared || !x.boundary)).length <= 1 });
 }
 
-interface FeelCtx { variables?: VarNode[]; engine?: EngineId; /** der einzige Eintrag der Liste? */ alone?: boolean }
+interface FeelCtx { variables?: VarNode[]; engine?: EngineId; /** the only entry of the list? */ alone?: boolean }
 
 /**
- * Ein Eintrag mit `=` ist ein FEEL-Ausdruck, der den Text liefert: gültig,
- * Variablen bekannt, Ergebnis ein Text — und für Camunda 7 nach JUEL übersetzbar.
+ * An entry with `=` is a FEEL expression that yields the text: valid,
+ * variables known, result a text — and translatable to JUEL for Camunda 7.
  */
 function feelEntryIssue(entry: string, label: string, { variables, engine, alone }: FeelCtx): { level: 'error' | 'warn'; text: string } | null {
   if (!isFeel(entry)) return null;
@@ -499,7 +499,7 @@ function feelEntryIssue(entry: string, label: string, { variables, engine, alone
   if (engine !== 'c8') {
     const j = feelToJuel(feelBody(entry) ?? '');
     if (!j.ok) return { level: 'warn', text: `${label}: für ${C7_LABEL} nicht nach JUEL übersetzbar (${j.reason}) — beim Export bleibt das FEEL stehen.` };
-    // in Camunda 7 ist es ein Text mit Kommas — eine Liste bleibt nur als einziger Eintrag eine Liste
+    // in Camunda 7 it is a text with commas — a list only stays a list as the only entry
     if (r.result === 'list' && alone === false) return { level: 'warn', text: `${label}: liefert eine Liste — in ${C7_LABEL} geht das nur als einziger Eintrag, sonst wird sie zu Text.` };
   }
   return null;

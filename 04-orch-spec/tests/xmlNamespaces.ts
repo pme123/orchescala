@@ -1,8 +1,8 @@
-// linkedom parst XML ohne Namensräume (namespaceURI, getAttributeNS …) — der
-// Engine-Konverter braucht sie (camunda: / zeebe:). Für die Tests reicht es, sie
-// aus den xmlns-Deklarationen der Vorfahren aufzulösen, wie der Browser es tut.
-// Es ändert die Prototypen von linkedom global — unbedenklich, weil `node --test`
-// jede Testdatei in einem eigenen Prozess ausführt.
+// linkedom parses XML without namespaces (namespaceURI, getAttributeNS …) — the
+// engine converter needs them (camunda: / zeebe:). For the tests it is enough to
+// resolve them from the xmlns declarations of the ancestors, as the browser does.
+// It changes linkedom's prototypes globally — harmless, because `node --test`
+// runs each test file in its own process.
 import { DOMParser } from 'linkedom';
 
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
@@ -48,7 +48,7 @@ export function installXmlNamespaces() {
   Object.defineProperty(elementProto, 'prefix', {
     configurable: true,
     get(this: El) { return prefixOf(this.tagName) || null; },
-    set() { /* aus dem Namen */ },
+    set() { /* from the name */ },
   });
   Object.assign(elementProto, {
     getAttributeNS(this: El, ns: string | null, name: string) {
@@ -68,12 +68,12 @@ export function installXmlNamespaces() {
       const p = prefixOf(this.name);
       return p ? lookup(this.ownerElement, p) : null;
     },
-    set() { /* aus dem Namen */ },
+    set() { /* from the name */ },
   });
   Object.defineProperty(attrProto, 'localName', {
     configurable: true,
     get(this: Attr) { return localOf(this.name); },
-    set() { /* aus dem Namen */ },
+    set() { /* from the name */ },
   });
   Object.assign(docProto, {
     createElementNS(this: Document, ns: string | null, qname: string) {

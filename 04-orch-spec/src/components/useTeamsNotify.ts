@@ -1,9 +1,9 @@
-// Versand der Teams-Benachrichtigungen — wie im arch-review: sammelt die
-// eigenen Beiträge mit noch offenen Empfängern (notifyPending), wartet nach
-// dem letzten die eingestellte Zeit, schickt dann je Empfänger/in EINE
-// Chat-Nachricht mit allen Kommentaren und markiert sie als benachrichtigt.
-// Beim Verlassen des Prozesses (Zurück, Tab schliessen) wird sofort gesendet;
-// was dabei nicht mehr durchkommt, bleibt offen und geht beim nächsten Öffnen.
+// Sending of the Teams notifications — as in arch-review: collects the
+// own posts with still open recipients (notifyPending), waits after
+// the last one for the configured time, then sends ONE chat message per
+// recipient with all comments and marks them as notified.
+// When leaving the process (back, closing the tab), it is sent immediately;
+// whatever no longer gets through stays open and goes out on the next opening.
 import { useCallback, useEffect, useRef } from 'react';
 import type { CommentEntry, CommentThread, TeamsNotifySettings } from '../types';
 import { buildTeamsHtml, ensureOneOnOneChat, resolveTeamsUser, sendChatMessage, TEAMS_SCOPES, teamsDelayMs, teamsFail, teamsMock, TeamsError } from '../teams';
@@ -15,7 +15,7 @@ type TokenResult = { ok: true; token: string } | { ok: false; reason: 'noAccount
 const CONSENT = 'Für Teams-Benachrichtigungen fehlt noch deine Zustimmung zu «Chats erstellen» und «Chatnachrichten senden» (Chat.Create, ChatMessage.Send).';
 const FORBIDDEN = 'Microsoft Graph verweigert das Senden: Die Berechtigungen Chat.Create / ChatMessage.Send fehlen in der App-Registrierung (Entra → API-Berechtigungen).';
 
-/** Eigene Beiträge mit offenen Empfängern — samt ihrem Faden. */
+/** Own posts with open recipients — together with their thread. */
 function pendingOf(comments: CommentThread[], myEmail: string): { thread: CommentThread; entry: CommentEntry }[] {
   const me = myEmail.toLowerCase();
   if (!me) return [];
@@ -31,9 +31,9 @@ export function useTeamsNotify(opts: {
   me: { id?: string; name: string; email?: string } | null;
   settings: TeamsNotifySettings | undefined;
   placeLabel: (target: string) => string;
-  /** Einrichtung für die Links — Empfänger/innen ohne eingerichteten Browser */
+  /** setup for the links — recipients without a set-up browser */
   linkSetup?: LinkSetup | null;
-  /** Zugestellte quittieren (in der Spezifikation) */
+  /** acknowledge the delivered ones (in the specification) */
   onDelivered: (done: { entryId: string; email: string }[]) => void;
   tryToken: (scopes: string[]) => Promise<TokenResult>;
   onProblem: (p: TeamsProblem) => void;
@@ -58,7 +58,7 @@ export function useTeamsNotify(opts: {
     if (!mine.length) return;
     sendingRef.current = true;
     try {
-      // Token — nie mit Redirect; fehlende Zustimmung wird einmal gemeldet
+      // token — never with redirect; missing consent is reported once
       let token = 'mock';
       const fail = teamsFail();
       if (fail === 'consent' || fail === 'forbidden') {
@@ -71,7 +71,7 @@ export function useTeamsNotify(opts: {
       if (!teamsMock()) {
         const t = await o.tryToken(TEAMS_SCOPES);
         if (!t.ok) {
-          if (t.reason === 'noAccount') return; // ohne Anmeldung kein Teams
+          if (t.reason === 'noAccount') return; // no Teams without sign-in
           if (!problemShownRef.current) {
             problemShownRef.current = true;
             o.onProblem(t.reason === 'interaction' ? { reason: 'consent', message: CONSENT } : { reason: 'error', message: t.message });
@@ -80,7 +80,7 @@ export function useTeamsNotify(opts: {
         }
         token = t.token;
       }
-      // je Empfänger/in eine Nachricht mit allen offenen Kommentaren
+      // one message per recipient with all open comments
       const myEmail = o.me.email.toLowerCase();
       const byRecipient = new Map<string, typeof mine>();
       for (const p of mine) for (const r of p.entry.notifyPending ?? []) {
@@ -106,7 +106,7 @@ export function useTeamsNotify(opts: {
               place: o.placeLabel(thread.target),
               text: entry.text,
               link: deepLink(o.slug, entry.id, o.linkSetup),
-              // Antwort in einem Faden, den die Empfängerin angefangen hat
+              // reply in a thread the recipient started
               ...(thread.entries[0] !== entry && (thread.entries[0]?.email ?? '').toLowerCase() === email ? { reply: true } : {}),
             })),
           });
@@ -132,7 +132,7 @@ export function useTeamsNotify(opts: {
     }
   }, []);
 
-  // Wartezeit nach dem letzten eigenen Beitrag mit Empfängern
+  // waiting time after the last own post with recipients
   useEffect(() => {
     if (!pendingKey) return;
     const due = Date.parse(newest) + teamsDelayMs(settings);
@@ -140,8 +140,8 @@ export function useTeamsNotify(opts: {
     return () => window.clearTimeout(t);
   }, [pendingKey, newest, settings, send]);
 
-  // Verlassen: sofort senden (beim Schliessen des Tabs kommt durch, was der
-  // Browser noch zulässt)
+  // Leaving: send immediately (when closing the tab, whatever the
+  // browser still allows gets through)
   useEffect(() => {
     const h = () => { void send(); };
     window.addEventListener('pagehide', h);

@@ -1,5 +1,5 @@
-// Die Aktionen einer Seite (beim Laden, eines Buttons, bei einer Änderung) - jede mit den Services,
-// Prozessen, Messages und Benutzer-Tasks, die der Katalog und die Prozess-Specs kennen.
+// The actions of a page (on load, of a button, on a change) - each with the services,
+// processes, messages and user tasks that the catalog and the process specs know.
 import { Wand2 } from 'lucide-react';
 import type { Action, Errors } from '../runtime/spec';
 import { cls } from '../../ui';
@@ -55,8 +55,8 @@ function ActionForm({ isDark, action: a, onChange, targets, paths, nested }: {
         <Wand2 size={10} /> Eingabe vorbelegen
       </button>
     ) : null;
-  // jede Aktion ausser «Wert setzen» kann scheitern - auch eine neue ohne Texte
-  // und danach weitere Aktionen (nicht verschachtelt: ein onError hat kein eigenes)
+  // every action except «Wert setzen» can fail - also a new one without texts
+  // and further actions afterwards (not nested: an onError has none of its own)
   const errors = a.do !== 'set' ? (
     <>
       <ErrorsEditor isDark={isDark} errors={a.errors} onChange={(errors) => onChange({ ...a, errors } as Action)} />
@@ -143,7 +143,7 @@ function ActionForm({ isDark, action: a, onChange, targets, paths, nested }: {
   );
 }
 
-/** Die Fehlertexte nach HTTP-Status - der Gateway gibt anonymen Aufrufern nur den Status. */
+/** The error texts by HTTP status - the gateway only gives anonymous callers the status. */
 function ErrorsEditor({ isDark, errors, onChange }: { isDark: boolean; errors: Errors | undefined; onChange: (e: Errors | undefined) => void }) {
   const c = cls(isDark);
   const rows = Object.entries(errors ?? {}).map(([status, text]) => ({ status, text }));

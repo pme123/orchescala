@@ -1,10 +1,10 @@
-// Bestätigung vor dem Löschen — ein Dialog für die ganze App.
+// Confirmation before deleting — one dialog for the whole app.
 //
 //   const confirm = useConfirm();
 //   onClick={async () => { if (await confirm({ title: 'Typ «X» löschen?' })) remove(); }}
 //
-// Escape oder ein Klick daneben bricht ab. Der Fokus liegt auf «Abbrechen» —
-// ein versehentliches Enter löscht nichts.
+// Escape or a click outside cancels. The focus is on «Abbrechen» —
+// an accidental Enter deletes nothing.
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
@@ -12,18 +12,18 @@ import { useStore } from '../store';
 import { cls } from '../ui';
 
 export interface ConfirmOptions {
-  /** die Frage, z. B. «Feld «clientKey» entfernen?» */
+  /** the question, e.g. «Feld «clientKey» entfernen?» */
   title: string;
-  /** was dabei passiert bzw. bleibt */
+  /** what happens or remains */
   text?: string;
-  /** Beschriftung des Knopfs — Vorgabe «Löschen» */
+  /** Label of the button — default «Löschen» */
   confirmLabel?: string;
 }
 
 type Confirm = (opts: ConfirmOptions) => Promise<boolean>;
 
-// ohne Provider (z. B. eine Seite, die seit dem Einbau nicht neu geladen wurde)
-// fragt der Browser — gelöscht wird nie ungefragt
+// without a provider (e.g. a page that has not been reloaded since this was added)
+// the browser asks — nothing is ever deleted without asking
 const Ctx = createContext<Confirm>(async o => window.confirm(o.text ? `${o.title}\n\n${o.text}` : o.title));
 
 export const useConfirm = () => useContext(Ctx);
@@ -36,7 +36,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   const confirm = useCallback<Confirm>(opts => new Promise<boolean>(resolve => {
-    resolveRef.current?.(false);          // ein offener Dialog gilt als abgebrochen
+    resolveRef.current?.(false);          // an open dialog counts as cancelled
     resolveRef.current = resolve;
     setOpen(opts);
   }), []);

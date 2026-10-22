@@ -1,5 +1,5 @@
-// `processInstanceId`: in Camunda 8 setzt sie der InitWorker — ohne InitWorker fehlt sie,
-// darum ist sie dort unbekannt (und ihr Gebrauch wird gemeldet).
+// `processInstanceId`: in Camunda 8 the InitWorker sets it — without an InitWorker it is missing,
+// that is why it is unknown there (and its use is reported).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -11,7 +11,7 @@ import type { ProcessSpec } from '../src/types';
 
 const PID = 'acme-demo-keyV1';
 
-/** Start → Service-Task mit dem Topic `topic` → Ende */
+/** Start → service task with the topic `topic` → end */
 const bpmn = (topic: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="${PID}" name="${PID}" isExecutable="true">

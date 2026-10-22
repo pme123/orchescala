@@ -1,4 +1,4 @@
-// Eine fangende Nachricht: über welchen Schlüssel sie korreliert — und wie man sie am Gateway sendet.
+// A catching message: which key it correlates on — and how to send it at the gateway.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -42,17 +42,17 @@ test('one of the two ways is chosen - in C8 as the key of the message', () => {
   assert.deepEqual(messageCorrelation(step('=processInstanceId'), 'c8'), { choice: 'processInstanceId', param: 'processInstanceId', value: '{{processInstanceId}}', expression: '=processInstanceId' });
   assert.deepEqual(messageCorrelation(step('=businessKey'), 'c8'), { choice: 'businessKey', param: 'businessKey', value: '{{businessKey}}', expression: '=businessKey' });
   assert.equal(messageCorrelation(step(CORRELATION_KEY.processInstanceId), 'c8')?.choice, 'processInstanceId');
-  // ein anderer Ausdruck aus dem Diagramm: keiner der beiden
+  // another expression from the diagram: neither of the two
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.choice, null);
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.value, '{{id}}');
-  // processInstanceKey ist der alte Name — der InitWorker setzt processInstanceId
+  // processInstanceKey is the old name — the InitWorker sets processInstanceId
   assert.equal(messageCorrelation(step('=processInstanceKey'), 'c8')?.misnamed, true);
   assert.equal(messageCorrelation(step('=processInstanceKey'), 'c8')?.choice, null);
   assert.equal(messageCorrelation(step(), 'c8')?.missing, true);
-  // Camunda 7: ohne Wahl nimmt der Sender einen der beiden — mit Wahl gilt sie
+  // Camunda 7: without a choice the sender takes one of the two — with a choice, that applies
   assert.equal(messageCorrelation(step(), 'c7')?.either, true);
   assert.equal(messageCorrelation(step('=processInstanceId'), 'c7')?.choice, 'processInstanceId');
-  // ein werfendes Ereignis wartet auf nichts
+  // a throwing event waits for nothing
   assert.equal(messageCorrelation({ ...step('=businessKey'), eventDirection: 'throw' }, 'c8'), null);
 });
 
@@ -63,7 +63,7 @@ test('C7 -> C8: the chosen key goes into the message - instead of the proposal',
   const conv = convertBpmn(c7, 'c8', { correlationKeys: correlationKeysOf(chosen) });
   assert.equal(reset(importBpmn(conv.xml, 'kube').spec).correlationKey, '=processInstanceId');
   assert.ok(!conv.issues.some(i => i.where === 'Nachricht'));
-  // ohne Wahl: der Vorschlag, gemeldet
+  // without a choice: the suggestion, reported
   const proposed = convertBpmn(c7, 'c8');
   assert.equal(reset(importBpmn(proposed.xml, 'kube').spec).correlationKey, '=businessKey');
   assert.ok(proposed.issues.some(i => i.where === 'Nachricht'));
@@ -90,7 +90,7 @@ test('a saved spec gets the key from the diagram - on load and on merge', () => 
   assert.equal(reset(mergeSpec(fresh, saved).spec).correlationKey, '=businessKey');
 });
 
-/** die Spezifikation des Diagramms, mit geändertem Schritt `ResetEvent` */
+/** the specification of the diagram, with changed step `ResetEvent` */
 const edited = (xml: string, patch: Partial<Step>, name?: string): ProcessSpec => {
   let spec = importBpmn(xml, 'kube').spec;
   if (name !== undefined) spec = withMessageName(spec, 'ResetEvent', name);
@@ -114,7 +114,7 @@ test('export: name and key go into the message', () => {
   assert.equal(reset(back).messageName, 'acme-demo-kube-restart');
   assert.equal(reset(back).correlationKey, '=processInstanceId');
   assert.equal(out.match(/<bpmn:message /g)?.length, 1);
-  // nichts geändert — nichts geschrieben
+  // nothing changed — nothing written
   assert.equal(writeBpmn(xml, importBpmn(xml, 'kube').spec).xml.match(/correlationKey="=businessKey"/g)?.length, 1);
 });
 
@@ -134,7 +134,7 @@ test('rename: the interaction keeping the old name follows', () => {
   assert.equal(withMessageName(withIa, 'ResetEvent', 'acme-x').interactions?.[0].key, 'acme-x');
 });
 
-/** zwei wartende Nachrichten hintereinander — beide auf derselben <bpmn:message> */
+/** two waiting messages in a row — both on the same <bpmn:message> */
 const twoWaiting = (messages: string, ref2 = 'Msg') => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud" id="d" targetNamespace="x">
   <bpmn:process id="acme-demo-kubeV1" isExecutable="true">

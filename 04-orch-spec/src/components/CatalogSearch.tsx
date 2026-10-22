@@ -1,15 +1,15 @@
-// Katalog nachschlagen.
+// Look up the catalog.
 //
-// Kein Blättern durch 2000 Zeilen: die Klassen sieht man ohnehin in jeder
-// Spezifikation, dort wo sie gebraucht werden. Hier zählt eine einzige Frage
-// — **steht das im Katalog?** — und die beantwortet eine Suche über Services
-// und Domain-Typen zugleich.
+// No paging through 2000 rows: you see the classes anyway in every
+// specification, where they are needed. Here a single question counts
+// — **is that in the catalog?** — and a search over services
+// and domain types at once answers it.
 import { useMemo, useState } from 'react';
 import { Braces, ChevronDown, ChevronRight, Link2, ListOrdered, Puzzle, Search, X } from 'lucide-react';
 import type { DomainType, Model, ServiceDef } from '../types';
 import { STEP_ICON, cls } from '../ui';
 
-/** Die Arten im Katalog: Services nach Schrittart, Typen nach Scala-Art. */
+/** The kinds in the catalog: services by step kind, types by Scala kind. */
 export type CatalogKind = 'service' | 'call' | 'user' | 'send' | 'rule' | 'case' | 'enum' | 'member' | 'alias';
 
 const KIND_ORDER: CatalogKind[] = ['service', 'call', 'user', 'send', 'rule', 'case', 'enum', 'member', 'alias'];
@@ -19,7 +19,7 @@ const KIND_TEXT: Record<CatalogKind, string> = {
   case: 'Klasse', enum: 'Enum', member: 'aus dem Trait', alias: 'Alias',
 };
 
-/** Farbe und Zeichen je Art — Klasse und Enum wie im Datenmodell, Services in Teal wie Katalog-Verweise. */
+/** Colour and symbol per kind — class and enum as in the data model, services in teal like catalog references. */
 function kindStyle(kind: CatalogKind, isDark: boolean): { cls: string; icon: React.ReactNode } {
   const ico = (I: typeof Braces) => <I size={9} className="flex-shrink-0" />;
   switch (kind) {
@@ -31,7 +31,7 @@ function kindStyle(kind: CatalogKind, isDark: boolean): { cls: string; icon: Rea
   }
 }
 
-/** Art als Chip — mit Zahl in der Zustandszeile, ohne in den Treffern. */
+/** Kind as a chip — with a count in the status line, without in the hits. */
 export function KindChip({ kind, isDark, count }: { kind: CatalogKind; isDark: boolean; count?: number }) {
   const st = kindStyle(kind, isDark);
   return (
@@ -46,7 +46,7 @@ const serviceKind = (s: ServiceDef): CatalogKind => {
   return k === 'call' || k === 'user' || k === 'send' || k === 'rule' ? k : 'service';
 };
 
-/** Anzahl je Art, in fester Reihenfolge — nur Arten, die vorkommen. */
+/** Count per kind, in a fixed order — only kinds that occur. */
 export function catalogCounts(model: Model): Array<[CatalogKind, number]> {
   const m = new Map<CatalogKind, number>();
   for (const s of model.services ?? []) m.set(serviceKind(s), (m.get(serviceKind(s)) ?? 0) + 1);

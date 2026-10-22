@@ -1,8 +1,8 @@
-// Markdown-Felder (Ausgangslage, fachliche Beschreibung, Pattern): sicher
-// anzeigen und eine Markierung formatieren — wie im arch-review, aber ohne
-// Textfarben: der Text wandert in die Exporte (Markdown, Scala-Kommentare),
-// dort zählt nur Standard-Markdown. Eingegebenes HTML wird in der Anzeige nie
-// ausgeführt, Links nur mit http(s)/mailto.
+// Markdown fields (initial situation, business description, pattern): display
+// safely and format a selection — as in arch-review, but without
+// text colors: the text goes into the exports (Markdown, Scala comments),
+// where only standard Markdown counts. Entered HTML is never
+// executed in the display, links only with http(s)/mailto.
 import { Marked, type Tokens } from 'marked';
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -10,7 +10,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<
 const md = new Marked({ gfm: true, breaks: true });
 md.use({
   renderer: {
-    // eingegebenes HTML nur als Text
+    // entered HTML only as text
     html(token: Tokens.HTML | Tokens.Tag) { return escapeHtml(token.text); },
     link(token: Tokens.Link) {
       const text = this.parser.parseInline(token.tokens);
@@ -22,14 +22,14 @@ md.use({
   },
 });
 
-/** Markdown → HTML für die Anzeige (ohne ausführbares HTML). */
+/** Markdown → HTML for display (without executable HTML). */
 export const renderMarkdown = (text: string): string => md.parse(text ?? '', { async: false }) as string;
 
-// ── Formatieren einer Markierung (Textarea) ──────────────────────────────────
+// ── Formatting a selection (textarea) ────────────────────────────────────────
 
 export type Edit = { value: string; start: number; end: number };
 
-/** Markierung mit before/after umschliessen — ist sie schon umschlossen, wird ausgepackt. */
+/** Wrap the selection with before/after — if it is already wrapped, it is unwrapped. */
 export function toggleWrap(v: string, s: number, e: number, before: string, after: string): Edit {
   if (s >= before.length && v.slice(s - before.length, s) === before && v.slice(e, e + after.length) === after) {
     return { value: v.slice(0, s - before.length) + v.slice(s, e) + v.slice(e + after.length), start: s - before.length, end: e - before.length };
@@ -42,7 +42,7 @@ export function toggleWrap(v: string, s: number, e: number, before: string, afte
   return { value: v.slice(0, s) + before + sel + after + v.slice(e), start: s + before.length, end: e + before.length };
 }
 
-/** Markierung als Link `[Text](https://)` — markiert danach die Adresse zum Überschreiben. */
+/** Selection as a link `[Text](https://)` — afterwards selects the address for overwriting. */
 export function makeLink(v: string, s: number, e: number): Edit {
   const sel = v.slice(s, e) || 'Link';
   const url = 'https://';
@@ -51,7 +51,7 @@ export function makeLink(v: string, s: number, e: number): Edit {
   return { value, start: urlStart, end: urlStart + url.length };
 }
 
-/** Markierte Zeilen als Aufzählung «- » — sind alle schon eine, wird es zurückgenommen. */
+/** Selected lines as a bullet list «- » — if all already are one, it is undone. */
 export function toggleList(v: string, s: number, e: number): Edit {
   const from = v.lastIndexOf('\n', s - 1) + 1;
   const toIdx = v.indexOf('\n', e);
@@ -62,7 +62,7 @@ export function toggleList(v: string, s: number, e: number): Edit {
   return { value: v.slice(0, from) + next + v.slice(to), start: from, end: from + next.length };
 }
 
-/** Fett, kursiv, Code und Links in der Markierung entfernen (der Linktext bleibt). */
+/** Remove bold, italic, code and links in the selection (the link text stays). */
 export function clearFormat(v: string, s: number, e: number): Edit {
   const plain = v.slice(s, e)
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')

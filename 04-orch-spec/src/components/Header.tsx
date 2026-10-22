@@ -1,6 +1,6 @@
-// Bausteine der Kopfzeile: ein Knopf im Geist-Stil (unter 900 px nur das
-// Zeichen, der Text im Tooltip) und der Konto-Chip mit Kürzel, Name und
-// Rolle — Abmelden erscheint beim Überfahren.
+// Building blocks of the header: a ghost-style button (below 900 px only the
+// icon, the text in the tooltip) and the account chip with initials, name and
+// role — sign-out appears on hover.
 import { ChevronRight, LogOut, ShieldCheck } from 'lucide-react';
 import { LEVEL_LABELS, type AccessLevel, type AuthUser } from '../auth';
 import { cls } from '../ui';
@@ -51,7 +51,7 @@ export function AccountChip({ isDark, user, level, onLogout }: {
   );
 }
 
-/** Der Ort in der Kopfzeile: «Prozesse › Titel». Glieder mit onClick führen zurück. */
+/** The location in the header: «Prozesse › Titel». Segments with onClick lead back. */
 export function Breadcrumb({ isDark, items }: { isDark: boolean; items: Array<{ label: string; onClick?: () => void }> }) {
   const c = cls(isDark);
   return (

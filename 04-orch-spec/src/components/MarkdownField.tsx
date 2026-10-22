@@ -1,7 +1,7 @@
-// Markdown-Feld: ausserhalb der Bearbeitung formatiert angezeigt (Klick
-// bearbeitet), beim Markieren eine kleine Formatleiste (fett, kursiv, Code,
-// Link, Aufzählung, Formatierung entfernen), dazu Cmd/Ctrl+B, +I, +K.
-// Gespeichert wird Standard-Markdown — es geht so in die Exporte.
+// Markdown field: shown formatted outside of editing (click
+// edits), on selection a small format toolbar (bold, italic, code,
+// link, list, remove formatting), plus Cmd/Ctrl+B, +I, +K.
+// Standard Markdown is stored — that is how it goes into the exports.
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Bold, Code, Italic, Link2, List, RemoveFormatting } from 'lucide-react';
 import { clearFormat, makeLink, renderMarkdown, toggleList, toggleWrap, type Edit } from '../markdownEdit';
@@ -13,7 +13,7 @@ export function MarkdownField(p: {
   disabled?: boolean;
   rows: number;
   placeholder?: string;
-  /** Klassen des Eingabefelds (Rahmen, Hintergrund, Schrift) — die Anzeige übernimmt sie */
+  /** Classes of the input field (border, background, font) — the display takes them over */
   className: string;
 }) {
   const { isDark } = p;
@@ -23,9 +23,9 @@ export function MarkdownField(p: {
   const focusPending = useRef(false);
   const showRendered = !editing && p.value.trim() !== '';
 
-  // Höhe am Inhalt ausrichten (mindestens «rows») und beim Wechsel aus der
-  // Anzeige gleich fokussieren — sonst schrumpft das Feld, der Inhalt darunter
-  // springt hoch und der Klick landet daneben
+  // Fit the height to the content (at least «rows») and focus right away when switching
+  // from the display — otherwise the field shrinks, the content below
+  // jumps up and the click lands beside it
   useLayoutEffect(() => {
     const t = ref.current;
     if (!t || showRendered) return;
@@ -44,7 +44,7 @@ export function MarkdownField(p: {
     setEditing(true);
   };
 
-  // Position der Markierung im Feld: gespiegeltes div mit denselben Massen
+  // Position of the selection in the field: mirrored div with the same dimensions
   const caretXY = (el: HTMLTextAreaElement, pos: number) => {
     const cs = getComputedStyle(el);
     const div = document.createElement('div');
@@ -103,7 +103,7 @@ export function MarkdownField(p: {
           onBlur={() => { setBar(null); setEditing(false); }}
           className={p.className} />
       )}
-      {/* Formatleiste über der Markierung — mousedown ohne Fokuswechsel, damit die Markierung bleibt */}
+      {/* Format toolbar above the selection — mousedown without focus change, so that the selection stays */}
       {bar && !showRendered && (
         <div style={{ top: bar.top, left: bar.left, width: BAR_W }} onMouseDown={e => e.preventDefault()}
           className={`absolute z-30 flex items-center gap-0.5 p-0.5 rounded-md border shadow-lg ${isDark ? 'bg-[#1f2024] border-white/15' : 'bg-white border-black/15'}`}>

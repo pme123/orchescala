@@ -1,13 +1,13 @@
-// CLI: OpenAPI der Orchescala-Projekte → Katalog in der model.json.
+// CLI: OpenAPI of the Orchescala projects → catalog in the model.json.
 //
 //   node tools/openapi2catalog.ts <datei|ordner|url …> [--out sample-data/model.json]
 //
-// Eine Quelle für beides: Worker **und** Prozesse, jeweils mit ihren Ein- und
-// Ausgaben, dem Topic aus dem Pfad und den Feldbeschreibungen aus den Schemas.
-// Ordner werden nach `OpenApi.yml` / `.yaml` / `.json` durchsucht.
+// One source for both: workers **and** processes, each with their inputs and
+// outputs, the topic from the path and the field descriptions from the schemas.
+// Folders are searched for `OpenApi.yml` / `.yaml` / `.json`.
 //
-// In Node greift kein CORS — der erzeugte Katalog lässt sich anschliessend im
-// Admin über «Katalog-Datei» einlesen.
+// In Node there is no CORS — the generated catalog can then be loaded in the
+// admin via «Katalog-Datei».
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
@@ -23,14 +23,14 @@ if (!sources.length) {
   process.exit(1);
 }
 
-// Genau die generierte `OpenApi.yml` eines Orchescala-Projekts:
-// - kanonisch unter `03-api/` (ApiCreator schreibt sie dorthin),
-// - bei Old-Style-Projekten (globex-helper, globex-fil-papi) im Projekt-Root,
-//   erkennbar am `helper.scala`/`helper.sc` daneben.
-// NICHT: fremde Spezifikationen, die zufällig so heissen (z. B.
-// `01-domain/coreSearch/openApi.yml`, `04-helper/.../openapi.yaml`) und nicht
-// die `03-worker/src/main/resources/OpenApi.yml` — das ist ein Symlink auf die
-// 03-api-Datei und würde jedes Projekt doppelt zählen.
+// Exactly the generated `OpenApi.yml` of an Orchescala project:
+// - canonically under `03-api/` (ApiCreator writes it there),
+// - for old-style projects (globex-helper, globex-fil-papi) in the project root,
+//   recognisable by the `helper.scala`/`helper.sc` next to it.
+// NOT: foreign specifications that happen to have the same name (e.g.
+// `01-domain/coreSearch/openApi.yml`, `04-helper/.../openapi.yaml`), and not
+// the `03-worker/src/main/resources/OpenApi.yml` — that is a symlink to the
+// 03-api file and would count every project twice.
 const isSpecName = (name: string) => /^openapi\.(ya?ml|json)$/i.test(name);
 const isSpec = (dir: string, name: string) =>
   isSpecName(name) && (

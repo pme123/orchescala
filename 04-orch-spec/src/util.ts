@@ -1,6 +1,6 @@
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// Kleinbuchstaben, Bindestriche, keine Umlaute
+// lowercase letters, hyphens, no umlauts
 export function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -13,14 +13,14 @@ export function slugify(name: string): string {
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /**
- * Deep Link in die App: öffnet die Spezifikation und — mit comment — das
- * Kommentar-Panel an der Stelle dieses Kommentars (App.tsx wertet die
- * Parameter beim Start aus; sie überleben den Microsoft-Login-Redirect).
+ * Deep link into the app: opens the specification and — with comment — the
+ * comment panel at the place of this comment (App.tsx evaluates the
+ * parameters on start; they survive the Microsoft login redirect).
  */
 export function deepLink(slug: string, commentId?: string, setup?: LinkSetup | null): string {
   const u = new URL(import.meta.env.BASE_URL, document.baseURI);
-  // wie der Einrichtungs-Link (auth.setupLink): wer den Browser noch nicht
-  // eingerichtet hat, kommt so trotzdem direkt in den richtigen Ordner
+  // like the setup link (auth.setupLink): whoever has not yet set up the browser
+  // still gets directly into the right folder this way
   if (setup) {
     u.searchParams.set('tenant', setup.tenantId);
     u.searchParams.set('client', setup.clientId);
@@ -31,7 +31,7 @@ export function deepLink(slug: string, commentId?: string, setup?: LinkSetup | n
   return u.toString();
 }
 
-/** Was ein weitergegebener Link zur Einrichtung mitbringt — IDs der Anmeldung, SharePoint-Ordner */
+/** What a shared link brings along for setup — IDs of the sign-in, SharePoint folder */
 export interface LinkSetup { tenantId: string; clientId: string; folderUrl?: string }
 
 export function todayIso(): string {
@@ -39,7 +39,7 @@ export function todayIso(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// ISO 8601 mit lokaler Zeitzone, z. B. "2026-08-14T09:30:00+02:00"
+// ISO 8601 with local time zone, e.g. "2026-08-14T09:30:00+02:00"
 export function nowIsoWithTimezone(): string {
   const d = new Date();
   const off = -d.getTimezoneOffset();
@@ -61,8 +61,8 @@ export function basename(path: string): string {
   return i >= 0 ? path.slice(i + 1) : path;
 }
 
-// Kurze, stabile ID für neu angelegte Elemente (Felder, Typen).
-// Antworten und Verweise hängen daran — sie überleben ein Umbenennen.
+// Short, stable ID for newly created elements (fields, types).
+// Replies and references hang on it — they survive a rename.
 export function uid(prefix = 'id'): string {
   const rnd = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 10)

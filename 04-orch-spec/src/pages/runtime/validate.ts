@@ -1,5 +1,5 @@
-// Die Form einer Seite und der Einstellungen der App - eine Datei von Hand (oder eine ältere) wird
-// beim Lesen geprüft: der Renderer verlässt sich auf body als Liste und auf bekannte Bausteine.
+// The shape of a page and of the app settings - a hand-written file (or an older one) is
+// checked on reading: the renderer relies on body being a list and on known building blocks.
 import type { Component } from './spec';
 import { themeProblem } from './theme';
 
@@ -10,7 +10,7 @@ const ACTIONS = new Set(['set', 'call', 'start', 'message', 'completeTask']);
 
 const PAGE_SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
-/** Ein Dateiname für eine Seite (pages/{slug}.json), kein Pfad - und nicht die Einstellungen der App (app.json). */
+/** A file name for a page (pages/{slug}.json), not a path - and not the app settings (app.json). */
 export function pageSlugProblem(slug: string): string | null {
   if (!PAGE_SLUG.test(slug)) return `«${slug}» ist kein Name für eine Seite (a-z, 0-9, -).`;
   if (slug === 'app') return '«app» ist für die Einstellungen der App reserviert.';
@@ -19,7 +19,7 @@ export function pageSlugProblem(slug: string): string | null {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Was an einer Seite nicht stimmt - null, wenn der Renderer sie zeigen kann. */
+/** What is wrong with a page - null if the renderer can show it. */
 export function pageProblem(raw: unknown): string | null {
   if (!isObject(raw)) return 'keine Seite (kein Objekt)';
   if (typeof raw.path !== 'string') return '«path» fehlt';
@@ -29,7 +29,7 @@ export function pageProblem(raw: unknown): string | null {
   return actionsProblem(raw.load, 'load') ?? bodyProblem(raw.body, 'body');
 }
 
-/** Was an den Einstellungen der App nicht stimmt. */
+/** What is wrong with the app settings. */
 export function appProblem(raw: unknown): string | null {
   if (!isObject(raw)) return 'keine Einstellungen (kein Objekt)';
   for (const k of ['title', 'subtitle', 'home'] as const)
@@ -44,7 +44,7 @@ function bodyProblem(body: unknown, at: string): string | null {
     const here = `${at}[${i}]`;
     if (!isObject(b)) return `${here} ist kein Baustein`;
     if (!TYPES.has(b.type as Component['type'])) return `${here}: unbekannter Baustein «${String(b.type)}»`;
-    // was der Renderer als Text liest (interpolate, evaluate) - eine Zahl dort bräche die ganze Seite
+    // what the renderer reads as text (interpolate, evaluate) - a number there would break the whole page
     const problem = (() => {
       switch (b.type) {
         case 'heading':
@@ -87,7 +87,7 @@ function listProblem(list: unknown, at: string, each?: (item: Record<string, unk
   return null;
 }
 
-/** Pflicht- und freiwillige Texte eines Objekts - `visible` gilt bei jedem Baustein als freiwillig. */
+/** Mandatory and optional texts of an object - `visible` counts as optional for every building block. */
 function texts(o: Record<string, unknown>, at: string, required: string[], optional: string[] = []): string | null {
   for (const k of required) if (typeof o[k] !== 'string') return `${at}.${k} ist kein Text`;
   for (const k of [...optional, 'visible']) if (o[k] !== undefined && typeof o[k] !== 'string') return `${at}.${k} ist kein Text`;

@@ -1,14 +1,14 @@
-// FEEL-Spickzettel für Camunda 8 — Inhalt für den Dialog in der Kopfzeile.
+// FEEL cheat sheet for Camunda 8 — content for the dialog in the header.
 //
-// Jedes Beispiel ohne führendes `=` (das gehört ins Feld, nicht zum Ausdruck).
-// `check: false` = Ausdruck ist ohne passenden Kontext nicht auswertbar
-// (Engine-Variablen, freie Namen). Alle anderen prüft `tools/`-Test bzw. die
-// Kontrolle in der Entwicklung mit `feelin` — was hier steht, muss laufen.
+// Every example without a leading `=` (that belongs in the field, not in the expression).
+// `check: false` = expression cannot be evaluated without a matching context
+// (engine variables, free names). All others are checked by the `tools/` test or the
+// check during development with `feelin` — whatever is here must run.
 
 export interface CheatRow {
   code: string;
   note: string;
-  /** false = nicht ohne Kontext auswertbar */
+  /** false = cannot be evaluated without context */
   check?: boolean;
 }
 
@@ -16,7 +16,7 @@ export interface CheatSection {
   title: string;
   intro?: string;
   rows: CheatRow[];
-  /** Hinweis in Kästchen unter der Tabelle */
+  /** Hint in a box below the table */
   warn?: string;
 }
 

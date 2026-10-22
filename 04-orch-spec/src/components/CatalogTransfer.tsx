@@ -1,12 +1,12 @@
-// Katalog ein- und ausführen.
+// Import and export the catalog.
 //
-// Der Weg in die Bankenzone: draussen erzeugen, **exportieren**, drinnen
-// **importieren**. Der Import **ersetzt** den Katalog — er ergänzt ihn nicht.
-// Ergänzen würde alte Einträge stehen lassen, die es längst nicht mehr gibt,
-// und genau davor sollte die OpenAPI ja schützen.
+// The way into the bank zone: generate outside, **export**, **import**
+// inside. The import **replaces** the catalog — it does not add to it.
+// Adding would leave old entries in place that have long ceased to exist,
+// and that is exactly what the OpenAPI is supposed to protect against.
 //
-// Ersetzen kann aber wegnehmen, worauf Spezifikationen zeigen. Deshalb wird
-// vorher verglichen und nur dann gefragt, wenn wirklich etwas fehlt.
+// But replacing can remove what specifications point to. That is why it is
+// compared first, and the user is asked only if something is really missing.
 import { useRef, useState } from 'react';
 import { AlertTriangle, Download, Upload } from 'lucide-react';
 import { losses, readCatalogFile, referenced, withoutGenerated, type CatalogFile, type Losses } from '../catalogImport';
@@ -36,7 +36,7 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
       services: withoutGenerated(services),
       domainTypes: withoutGenerated(types),
       domainSources: (model.domainSources ?? []).filter(x => /^https?:/i.test(x)),
-      // Die Reihenfolge reist mit, die lokalen Pfade nicht.
+      // The order travels along, the local paths do not.
       projects: (model.projects ?? []).map(({ path, ...rest }) => rest),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });

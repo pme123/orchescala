@@ -1,4 +1,4 @@
-// dmn-js bringt keine Typen mit — was der Tabellen-Editor davon braucht (siehe DmnEditor.tsx)
+// dmn-js ships no types — what the table editor needs from it (see DmnEditor.tsx)
 declare module 'dmn-js/lib/Modeler' {
   export interface DmnView { type: string; element: { id: string; name?: string } }
   export default class DmnModeler {
