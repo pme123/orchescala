@@ -133,7 +133,8 @@ export async function handleFor(
     }
   }
   const own = await getHandle(handleKey(p));
-  return own && (await ensureRead(own)) ? intoProject(own, p.name) : null;
+  if (!own || !(await ensureRead(own))) return null;
+  return intoProject(own, p.name);
 }
 
 /**
@@ -141,10 +142,21 @@ export async function handleFor(
  * (`…/projects` instead of `…/projects/democompany-services`): the project
  * inside it — otherwise the build reads all projects below through this one,
  * and the others add nothing (same packages).
+ *
+ * A folder with the project's name, or one that is a project itself (renamed
+ * on disk, other case), stays. Without a subfolder of the project's name,
+ * the folder stays too (as before). Any other error
+ * (e.g. access to the subfolder denied) gives `null`: the project counts as
+ * missing instead of reading the projects next to it.
  */
-export async function intoProject(dir: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle> {
-  if (dir.name === name) return dir;
-  try { return await dir.getDirectoryHandle(name); } catch { return dir; }
+export async function intoProject(dir: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle | null> {
+  if (dir.name === name || (await istProjekt(dir))) return dir;
+  try {
+    return await dir.getDirectoryHandle(name);
+  } catch (e) {
+    const notThere = e instanceof DOMException && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
+    return notThere ? dir : null;
+  }
 }
 
 /**

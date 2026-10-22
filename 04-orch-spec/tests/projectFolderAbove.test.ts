@@ -10,13 +10,15 @@ import type { ProjectFolder } from '../src/types';
 type Tree = { [name: string]: Tree | string };
 
 /** a folder in memory — subfolders as objects, files as text */
-function dir(name: string, tree: Tree): unknown {
+function dir(name: string, tree: Tree, denied: string[] = []): FileSystemDirectoryHandle {
   return {
     kind: 'directory', name,
     queryPermission: async () => 'granted',
     getDirectoryHandle: async (n: string) => {
       const sub = tree[n];
-      if (!sub || typeof sub === 'string') throw new Error(`NotFound: ${n}`);
+      if (denied.includes(n)) throw new DOMException(n, 'NotAllowedError');
+      if (sub === undefined) throw new DOMException(n, 'NotFoundError');
+      if (typeof sub === 'string') throw new DOMException(n, 'TypeMismatchError');
       return dir(n, sub);
     },
     entries: async function* () {
@@ -65,8 +67,8 @@ test('a project remembered with the folder above it counts only its own types', 
   fakeIndexedDb({
     // services: the folder above — customer and cards: their own
     'project:p-services': projects,
-    'project:p-customer': await (projects as { getDirectoryHandle: (n: string) => Promise<unknown> }).getDirectoryHandle('acme-customer'),
-    'project:p-cards': await (projects as { getDirectoryHandle: (n: string) => Promise<unknown> }).getDirectoryHandle('acme-cards'),
+    'project:p-customer': await projects.getDirectoryHandle('acme-customer'),
+    'project:p-cards': await projects.getDirectoryHandle('acme-cards'),
   });
   const r = await rebuild(list, () => {});
   assert.deepEqual(r.projects.map(p => [p.name, p.types]), [['acme-services', 1], ['acme-customer', 1], ['acme-cards', 1]]);
@@ -76,8 +78,30 @@ test('a project remembered with the folder above it counts only its own types', 
 
 test('a remembered folder without a subfolder of the project name stays as it is', async () => {
   // e.g. the folder was renamed on disk — read it as before
-  const renamed = dir('acme-services-old', project('services', 'Client')) as FileSystemDirectoryHandle;
+  const renamed = dir('acme-services-old', project('services', 'Client'));
   assert.equal(await intoProject(renamed, 'acme-services'), renamed);
-  const exact = dir('acme-services', project('services', 'Client')) as FileSystemDirectoryHandle;
+  const exact = dir('acme-services', project('services', 'Client'));
   assert.equal(await intoProject(exact, 'acme-services'), exact);
+  const other = dir('elsewhere', { notes: 'text' });
+  assert.equal(await intoProject(other, 'acme-services'), other);
+});
+
+test('a project folder with a subfolder of its own name stays the project', async () => {
+  const foo = dir('foo', { ...project('foo', 'Foo'), foo: { 'readme.txt': 'inner' } });
+  assert.equal(await intoProject(foo, 'foo'), foo);
+});
+
+test('a project folder under another name stays the project, even with a subfolder of the name', async () => {
+  const renamed = dir('Acme-Services', { ...project('services', 'Client'), 'acme-services': { 'readme.txt': 'inner' } });
+  assert.equal(await intoProject(renamed, 'acme-services'), renamed);
+});
+
+test('a project name that is a file in the folder above keeps the folder', async () => {
+  const above = dir('projects', { 'acme-services': 'a file' });
+  assert.equal(await intoProject(above, 'acme-services'), above);
+});
+
+test('denied access to the project inside gives no folder, not the one above', async () => {
+  const above = dir('projects', { 'acme-services': project('services', 'Client') }, ['acme-services']);
+  assert.equal(await intoProject(above, 'acme-services'), null);
 });
