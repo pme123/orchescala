@@ -96,9 +96,13 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     link(ia.inTypeId, prev.inTypeId);
     link(ia.outTypeId, prev.outTypeId);
   }
+  // Two previous types with the same name (a duplicate of an earlier sync): the one
+  // the fields point to is the one that gets the domain — not just the first in the list
+  const usedIds = new Set(pTypes.flatMap(t => [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]).map(f => f.type));
   for (const f of fresh.types ?? []) {
     if (pair.has(f.id) || dropTypes.has(f.id) || roleOf(f)) continue;
-    const p = pTypes.find(t => !paired.has(t.id) && !roleOf(t) && t.name === f.name);
+    const candidates = pTypes.filter(t => !paired.has(t.id) && !roleOf(t) && t.name === f.name);
+    const p = candidates.find(t => usedIds.has(t.id)) ?? candidates[0];
     if (p) link(f.id, p.id);
   }
   const mapType = (type: string) => pair.get(type) ?? type;
