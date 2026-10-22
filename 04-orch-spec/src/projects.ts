@@ -219,7 +219,9 @@ export async function grantAccess(target: { root: string } | { project: ProjectF
   if (!pick) return false;
   const dir = await pick({ mode: 'read' }).catch(() => null);
   if (!dir) return false;
-  await putHandle(key, dir);
+  // for a project, the folder above it chosen by mistake: remember the project inside
+  const keep = 'project' in target ? ((await intoProject(dir, target.project.name)) ?? dir) : dir;
+  await putHandle(key, keep);
   return true;
 }
 

@@ -4,7 +4,7 @@
 // 0 types (same packages).
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { intoProject, rebuild } from '../src/projects';
+import { grantAccess, intoProject, rebuild } from '../src/projects';
 import type { ProjectFolder } from '../src/types';
 
 type Tree = { [name: string]: Tree | string };
@@ -42,7 +42,15 @@ function fakeIndexedDb(handles: Record<string, unknown>) {
   };
   g.indexedDB = {
     open: () => request({
-      transaction: () => ({ objectStore: () => ({ get: (key: string) => request(handles[key] ?? null) }) }),
+      transaction: () => {
+        const tx: { oncomplete?: () => void; objectStore: () => object } = {
+          objectStore: () => ({
+            get: (key: string) => request(handles[key] ?? null),
+            put: (value: unknown, key: string) => { handles[key] = value; setTimeout(() => tx.oncomplete?.()); },
+          }),
+        };
+        return tx;
+      },
     }),
   };
 }
@@ -104,4 +112,18 @@ test('a project name that is a file in the folder above keeps the folder', async
 test('denied access to the project inside gives no folder, not the one above', async () => {
   const above = dir('projects', { 'acme-services': project('services', 'Client') }, ['acme-services']);
   assert.equal(await intoProject(above, 'acme-services'), null);
+});
+
+test('granting access to a project with the folder above it remembers the project inside', async () => {
+  const handles: Record<string, unknown> = {};
+  fakeIndexedDb(handles);
+  const w = globalThis as unknown as { window?: unknown };
+  const realWindow = w.window;
+  w.window = { showDirectoryPicker: async () => projects };
+  try {
+    assert.equal(await grantAccess({ project: { id: 'p-cards', name: 'acme-cards' } }), true);
+  } finally {
+    w.window = realWindow;
+  }
+  assert.equal((handles['project:p-cards'] as FileSystemDirectoryHandle).name, 'acme-cards');
 });
