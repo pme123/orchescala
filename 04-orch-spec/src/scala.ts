@@ -1431,7 +1431,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     if (t.kind === 'enum') {
       const vals = (t.values ?? []).map(v => v.name);
       if (!vals.length) issues.push({ typeId: t.id, message: 'Enumeration ohne Werte.' });
-      if (new Set(vals).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
+      // `Foo` and `` `Foo` `` are the same case
+      if (new Set(vals.map(caseName)).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
       for (const v of vals) {
         const name = caseName(v);
         const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
@@ -1446,13 +1447,13 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
       }
       // An ADT: the fields per case are checked like class fields
       if (!isAdt(t)) continue;
-      const common = new Set((t.fields ?? []).map(f => f.name));
+      const common = new Set((t.fields ?? []).map(f => caseName(f.name)));
       for (const v of t.values ?? []) {
         const inCase = new Set<string>();
         for (const f of v.fields ?? []) {
-          if (common.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist schon ein gemeinsames Feld — im Fall «${v.name}» nicht nochmals.` });
-          if (inCase.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt im Fall «${v.name}» doppelt vor.` });
-          inCase.add(f.name);
+          if (common.has(caseName(f.name))) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist schon ein gemeinsames Feld — im Fall «${v.name}» nicht nochmals.` });
+          if (inCase.has(caseName(f.name))) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt im Fall «${v.name}» doppelt vor.` });
+          inCase.add(caseName(f.name));
         }
       }
     }
@@ -1474,8 +1475,8 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
         issues.push({ typeId: t.id, field: f.id, warn: true, ...(suggestion ? { suggestion } : {}), message: `«${f.name}» steht in Scala in Backticks (${scalaName(f.name)}) — ${RESERVED.has(f.name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
       }
       // in an ADT the same field name may appear in several cases
-      if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
-      seen.add(f.name);
+      if (t.kind === 'case' && seen.has(caseName(f.name))) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
+      seen.add(caseName(f.name));
       // a default exists only in the InConfig and for optional fields of the
       // process input — and a FEEL default must be translatable to Scala
       // for a fixed case the default is the case itself — it follows from the type

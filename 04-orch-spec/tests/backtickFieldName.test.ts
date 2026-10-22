@@ -254,3 +254,10 @@ end Doc
   const doc = scanned.find(t => t.name === 'Doc')!;
   assert.deepEqual(doc.cases?.map(c => [c.name, c.fields?.map(f => f.name)]), [['`Brief (neu)`', ['empfaenger']], ['Mail', ['to']]]);
 });
+
+test('duplicates: a name with and without backticks is the same', () => {
+  const errors = (t: object) => checkTypes([t] as never).filter(i => !i.warn).map(i => i.message);
+  assert.ok(errors({ id: 'e', name: 'Channel', kind: 'enum', values: [{ name: 'Foo' }, { name: '`Foo`' }] }).some(m => /Doppelte Werte/.test(m)));
+  assert.ok(errors({ id: 'a', name: 'Doc', kind: 'enum', values: [{ name: 'Brief', fields: [{ id: 'x', name: 'a', type: 'String' }] }, { name: '`Brief`', fields: [{ id: 'y', name: 'b', type: 'String' }] }] }).some(m => /Doppelte Werte/.test(m)));
+  assert.equal(errors({ id: 'e', name: 'Channel', kind: 'enum', values: [{ name: 'Foo' }, { name: '`Ohne Angabe`' }] }).length, 0);
+});
