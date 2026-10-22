@@ -882,6 +882,264 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("processTypeOf - a C7 export in a C8 project goes to the C7 path"):
     assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.C8(), c8 = false), BpmnProcessType.C7())
 
+  test("merge - the implementation of In stays: body of the class and companion, only parameters and examples from Orch Spec"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |  val descr: String = ""
+        |
+        |  case class In(
+        |      receivingSystems: In.ReceivingSystems,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |
+        |    def containsGraviton =
+        |      receivingSystems match
+        |      case Some(rs) => rs.contains("GRAVITON")
+        |      case _        => true
+        |
+        |  end In
+        |
+        |  object In:
+        |    type ReceivingSystems = Option[String] | Seq[String]
+        |
+        |    given InOutCodec[ReceivingSystems] = CirceCodec.from(c => c.as[Option[String]], _ => Json.Null)
+        |
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = customCodec
+        |
+        |    lazy val example        = In(
+        |      receivingSystems = None
+        |    )
+        |    lazy val exampleMinimal = example
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      @description("where it goes")
+        |      receivingSystems: Proc.In.ReceivingSystems,
+        |      amount: Int,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      receivingSystems = None,
+        |      amount = 1
+        |    )
+        |    lazy val exampleMinimal = example.copy(
+        |      receivingSystems = None
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the parameters from Orch Spec
+    assert(m.contains("      amount: Int,\n      inConfig: Option[InConfig] = None\n  ) extends WithConfig[InConfig]:"), m)
+    // the body of the class stays - its own defaultConfig, not the generated one
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assert(!m.contains("InConfig()"), m)
+    assert(m.contains("    def containsGraviton =\n"), m)
+    // the companion stays - the alias, the own codecs
+    assert(m.contains("    type ReceivingSystems = Option[String] | Seq[String]\n"), m)
+    assert(m.contains("    given InOutCodec[In] = customCodec\n"), m)
+    assert(!m.contains("deriveInOutCodec"), m)
+    // the examples from Orch Spec
+    assert(m.contains("    lazy val example = In(\n      receivingSystems = None,\n      amount = 1\n    )\n"), m)
+    assert(m.contains("    lazy val exampleMinimal = example.copy(\n      receivingSystems = None\n    )\n  end In\nend Proc"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - a class without body gets the generated one, a companion without givens gets them"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      amount: Int
+        |  )
+        |
+        |  object In:
+        |    type Amount = Int
+        |    lazy val example = In(amount = 1)
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains("  ) extends WithConfig[InConfig]:\n    lazy val defaultConfig = InConfig()\n  end In\n"), m)
+    assert(m.contains("  object In:\n    given ApiSchema[In]  = deriveApiSchema\n    given InOutCodec[In] = deriveInOutCodec\n    type Amount = Int\n"), m)
+    assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In"), m)
+
+  test("merge - members: a named given counts, a nested val does not, a missing one with all its lines, an example with a blank line"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      amount: Int
+        |  ):
+        |    def total =
+        |      val defaultConfig = 1
+        |      amount + defaultConfig
+        |  end In
+        |
+        |  object In:
+        |    given inOutCodec: InOutCodec[In] = customCodec
+        |    given ApiSchema[In] = deriveApiSchema
+        |
+        |    lazy val example = In(
+        |      amount = 1
+        |
+        |    )
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig(
+        |      timer = "PT1M"
+        |    )
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the nested val in `total` does not count - the generated defaultConfig comes, with all its lines
+    assert(m.contains("  ) extends WithConfig[InConfig]:\n    lazy val defaultConfig = InConfig(\n      timer = \"PT1M\"\n    )\n    def total =\n"), m)
+    // the named given is the codec of In - no second one
+    assert(!m.contains("deriveInOutCodec"), m)
+    assert(m.contains("    given inOutCodec: InOutCodec[In] = customCodec\n"), m)
+    // the example with a blank line inside is replaced as a whole
+    assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In\nend Proc"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - an own codec in another form (implicit val, given … with) gets no second, generated one"):
+    def existing(codec: String) =
+      s"""package a.b.domain.proc.v1
+         |
+         |object Proc extends CompanyBpmnProcessDsl:
+         |  val processName = "a-b-procV1"
+         |
+         |  case class In(
+         |      amount: Int
+         |  )
+         |
+         |  object In:
+         |    $codec
+         |    given ApiSchema[In] = deriveApiSchema
+         |    lazy val example = In(amount = 1)
+         |  end In
+         |end Proc
+         |""".stripMargin
+    val block =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int
+        |  )
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    for codec <- Seq("implicit val inCodec: InOutCodec[In] = customCodec", "given InOutCodec[In] with customCodec") do
+      val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing(codec))
+      assert(!m.contains("deriveInOutCodec"), m)
+      assert(m.contains(codec), m)
+
+  test("merge - an own example as val, with modifiers or a type is replaced - not a second one"):
+    def existing(example: String) =
+      s"""package a.b.domain.proc.v1
+         |
+         |object Proc extends CompanyBpmnProcessDsl:
+         |  val processName = "a-b-procV1"
+         |
+         |  case class In(
+         |      amount: Int
+         |  )
+         |
+         |  object In:
+         |    given ApiSchema[In]  = deriveApiSchema
+         |    given InOutCodec[In] = deriveInOutCodec
+         |    def build(n: Int) =
+         |      lazy val example = In(n)
+         |      example
+         |    $example
+         |  end In
+         |end Proc
+         |""".stripMargin
+    val block =
+      """// in object Proc einfügen
+        |
+        |  case class In(
+        |      amount: Int
+        |  )
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In(
+        |      amount = 2
+        |    )
+        |  end In
+        |""".stripMargin
+    for example <- Seq("val example = In(1)", "override lazy val example = In(1)", "lazy val example: In = In(1)", "def example = In(1)") do
+      val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing(example))
+      assertEquals("""(?m)^    (?:\w+\s+)*(?:val|def) example\b""".r.findAllIn(m).size, 1, m)
+      assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In"), m)
+      // the nested one in `build` stays
+      assert(m.contains("      lazy val example = In(n)\n"), m)
+
   test("processTypeOf - a C8 export in a C8 project keeps the project's path"):
     val custom = BpmnProcessType.C8(os.rel / "bpmn8")
     assertEquals(OrchSpecGenerator.processTypeOf(custom, c8 = true), custom)
