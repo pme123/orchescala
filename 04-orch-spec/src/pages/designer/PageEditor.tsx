@@ -2,7 +2,7 @@
 // as the app, fed with sample data of the services - and the properties of the selected building block.
 import {
   AlertTriangle, ChevronLeft, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
-  MessageSquare, RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
+  History as HistoryIcon, MessageSquare, RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { changedKeys, pageDiff } from '../../ai/diff';
@@ -10,6 +10,8 @@ import { useAiKey } from '../../ai/key';
 import type { PageDraft } from '../../ai/pageTools';
 import { useAuth, useAuthor, usePermissions } from '../../auth';
 import { countIndex, markNotified, threadOf } from '../../comments';
+import { diffPages, entryOf, type AuditEntry, type AuditOrigin } from '../../audit';
+import AuditPanel from '../../components/AuditPanel';
 import { CommentBubble, CommentsContext, CommentsPanel } from '../../components/Comments';
 import { useTeamsNotify } from '../../components/useTeamsNotify';
 import { blockOfTarget, blockTarget, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from './pageComments';
@@ -90,7 +92,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
   /** a comment from a deep link (?page=…&comment=…) - opened once the page is there */
   focusCommentId?: string;
 }) {
-  const { isDark, model, specs, pages, pagesApp, savePage, knownUsers, searchDirectory, storage } = useStore();
+  const { isDark, model, specs, pages, pagesApp, savePage, loadPageAudit, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const author = useAuthor();
   const { canEdit } = usePermissions();
@@ -115,6 +117,9 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
   const [commentsOpen, setCommentsOpen] = useState(!!focusCommentId);
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  // ---- history (change log): for the selected building block, otherwise for everything
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditFocus, setAuditFocus] = useState<string | null>(null);
   // ---- the AI mode (E19, E20): only with a key. Claude's draft is shown instead of the page - in the
   // outline and the preview, read only - until the RE accepts (one step of undo) or discards it
   const aiKey = useAiKey();
@@ -135,6 +140,21 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
   const retries = useRef(0);
   const closed = useRef(false); // after leaving: the last attempt during cleanup, no further ones
+  // ---- change log (audit.ts, like a process): `auditBase` is the state at the last cut. A cut is made on
+  // every save (everything up to then was manual work) and before and after accepting Claude's draft -
+  // that becomes an entry of its own (source «KI»). The entries go with the next save.
+  const auditBase = useRef<Page | null>(null);
+  const auditQueue = useRef<AuditEntry[]>([]);
+  const authorRef = useRef(author);
+  authorRef.current = author;
+  const cutAudit = useCallback((to: Page | null, origin: AuditOrigin = { source: 'manual' }) => {
+    const from = auditBase.current;
+    if (!from || !to) return;
+    const e = entryOf(diffPages(from, to), origin, authorRef.current);
+    if (e) auditQueue.current.push(e);
+    auditBase.current = to;
+  }, []);
+  const [savedVersion, setSavedVersion] = useState<string | null>(item?.version ?? null);
   const flush = useCallback((): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -142,11 +162,19 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
       const data = pending.current;
       if (!data) return true;
       pending.current = null;
-      const r = await savePage(slug, data, version.current);
+      cutAudit(data);
+      const audit = auditQueue.current.splice(0);
+      const r = await savePage(slug, data, version.current, audit);
+      // not saved (or only the log was not): again with the next save
+      if (r.status !== 'saved' || r.auditError) auditQueue.current.unshift(...audit);
       if (r.status === 'saved') {
         retries.current = 0;
         version.current = r.version;
-        if (!closed.current) setSaveState({ at: new Date() }); // the last attempt on leaving: nobody sees it
+        if (!closed.current) {
+          setSaveState({ at: new Date() }); // the last attempt on leaving: nobody sees it
+          setSavedVersion(r.version);
+          if (r.auditError) setNotice({ tone: 'warn', message: `Gespeichert, aber das Änderungsprotokoll nicht: ${r.auditError} Es wird mit dem nächsten Speichern nachgeholt.` });
+        }
         return true;
       }
       // don't lose it: stays pending as long as nothing newer came
@@ -162,7 +190,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
       return false;
     });
     return saving.current;
-  }, [slug, savePage]);
+  }, [slug, savePage, cutAudit]);
   useEffect(() => {
     // mounted (again - StrictMode unmounts and remounts in development): attempts allowed again
     closed.current = false;
@@ -213,7 +241,10 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
   // an older page without IDs gets them once on opening - saved, without a step of undo
   useEffect(() => {
     const current = latest.current;
-    if (canEdit && current && !hasIds(current.body)) store({ ...current, body: withIds(current.body) });
+    const fixed = current && canEdit && !hasIds(current.body) ? { ...current, body: withIds(current.body) } : current;
+    if (fixed && fixed !== current) store(fixed);
+    // the log compares from here - with the IDs, otherwise every building block would count as new
+    auditBase.current ??= fixed;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, page === null]);
   const step = (dir: 'undo' | 'redo') => {
@@ -270,6 +301,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
   }, [gotoComment]);
   const openComment = useCallback((key: string) => {
     setCommentsOpen(true);
+    setAuditOpen(false);
     selectComment(key);
   }, [selectComment]);
   const commentsCtx = useMemo(() => ({
@@ -415,9 +447,20 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
             <AlertTriangle size={10} /> {errors + warnings}
           </span>
         )}
-        <button onClick={() => { setCommentsOpen((o) => !o); if (commentsOpen) setActiveComment(null); }}
+        <button onClick={() => {
+          if (auditOpen) { setAuditOpen(false); return; }
+          const id = selected !== null && page ? blockAt(page.body, selected)?.id : undefined;
+          setAuditFocus(id ? blockTarget(id) : null);
+          setAuditOpen(true); setCommentsOpen(false);
+        }}
+          title={auditOpen ? 'Verlauf schliessen' : 'Verlauf — wer hat wann was geändert'}
+          className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+            auditOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10') : c.btn}`}>
+          <HistoryIcon size={11} />
+        </button>
+        <button onClick={() => { setCommentsOpen((o) => !o); setAuditOpen(false); if (commentsOpen) setActiveComment(null); }}
           title={commentsOpen ? 'Kommentare schliessen' : 'Alle Kommentare der Seite — Übersicht und Durchgehen'}
-          className={`${canEdit ? 'ml-auto ' : 'ml-auto '}flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+          className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
             commentsOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
               : openComments ? (isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700') : c.btn}`}>
           <MessageSquare size={11} /> {openComments || ''}
@@ -581,6 +624,11 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
         </div>
 
         {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
+        {auditOpen && page && (
+          <AuditPanel slug={slug} version={savedVersion} places={commentPlaces} isDark={isDark} load={loadPageAudit}
+            focus={auditFocus} onFocus={setAuditFocus} onGoto={gotoComment}
+            onClose={() => setAuditOpen(false)} width={400} onWidth={() => undefined} overlay={false} />
+        )}
         {commentsOpen && page && (
           <CommentsPanel<PageSpec> spec={page.spec ?? {}} isDark={isDark} targets={commentPlaces}
             active={activeComment} showResolved={showResolved} onToggleResolved={setShowResolved}
@@ -592,18 +640,25 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId }: {
             width={400} onWidth={() => undefined} overlay={false} />
         )}
         {aiKey && canEdit && (
-          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen ? '' : 'hidden'}`}>
+          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
             <AiPanel isDark={isDark} apiKey={aiKey} slug={slug} page={page} app={pagesApp?.data} targets={targets}
               pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
               draft={draft} onDraft={setDraft} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
-              onAccept={(next) => { update(next); setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null)); }}
+              onAccept={(next, requests) => {
+                // the work before by hand, then Claude's draft - an entry of its own in the log
+                cutAudit(latest.current);
+                update(next);
+                const note = `Mit KI (Claude): ${requests.map((r) => `«${r}»`).join(' · ')}`;
+                cutAudit(latest.current, { source: 'ai', note: note.length > 400 ? `${note.slice(0, 399)}…` : note });
+                setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null));
+              }}
               initialPrompt={pendingPrompt} onInitialPrompt={() => setPendingPrompt(undefined)} />
             </Suspense>
           </div>
         )}
         {/* Properties */}
-        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel} ${(aiKey && canEdit && (aiOpen || draft)) || commentsOpen ? 'hidden' : ''}`}>
+        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel} ${(aiKey && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
           {block && selected !== null ? (
             // key: another building block gets fresh forms (no half JSON text of the previous one)
             <>

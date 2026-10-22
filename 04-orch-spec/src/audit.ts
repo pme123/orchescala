@@ -27,7 +27,10 @@ import type { Branch, ErrorHandling, Field, Interaction, Mapping, ProcessSpec, S
 import { STATUS_META, type Status } from './types.ts';
 import { KIND_LABEL } from './ui.tsx';
 import { iaTarget, processTarget, stepTarget, sub, typeTarget } from './comments.ts';
-import { nowIsoWithTimezone, uid } from './util.ts';
+import { lcs, nowIsoWithTimezone, uid } from './util.ts';
+import { blockName, flatten } from './pages/designer/model.ts';
+import { blockTarget, pageTarget } from './pages/designer/pageComments.ts';
+import type { Component, Page } from './pages/runtime/spec.ts';
 
 /** `ai`: a draft of Claude that the RE accepted (AI mode, E19) - its own source, like the automatic changes */
 export type AuditSource = 'manual' | 'bpmn-sync' | 'domain-sync' | 'conversion' | 'load' | 'ai';
@@ -110,6 +113,11 @@ const FIELD_LABEL: Record<string, string> = {
   root: 'Prozess-In', processOut: 'Prozess-Out', interactionId: 'Interaktion', initIn: 'InitIn',
   inConfig: 'InConfig', key: 'Schlüssel', inTypeId: 'In-Typ', outTypeId: 'Out-Typ', stepId: 'Schritt',
   open: 'Offene Frage', notes: 'Technische Notiz',
+  // pages (E15)
+  path: 'Pfad', access: 'Zugang', state: 'Anfangszustand', load: 'Beim Laden', text: 'Text', bind: 'Bindung',
+  fields: 'Eingabefelder', items: 'Zeilen', options: 'Optionen', actions: 'Aktionen', visible: 'Sichtbar, wenn',
+  tone: 'Ton', required: 'Pflichtfeld', validate: 'Eingaben prüfen', secondary: 'zweitrangig', itemLabel: 'Text je Eintrag',
+  itemHint: 'Hinweis je Eintrag', groupBy: 'Gruppierung', empty: 'Text, wenn leer', onChange: 'Bei Änderung',
 };
 const fieldLabel = (key: string) => FIELD_LABEL[key] ?? key;
 
@@ -262,11 +270,70 @@ export function diffSpecs(a: ProcessSpec, b: ProcessSpec): AuditChange[] {
   return col.out;
 }
 
+// ── Pages (E15) ──────────────────────────────────────────────────────────────
+// A page is compared like a process: the page itself (title, path, access, state, loading, project,
+// epics), its building blocks by their ID - new, removed, changed field by field, moved. The comments do
+// not count, they are a history of their own.
+
+const PAGE_SKIP = new Set(['body', 'spec']);
+const PAGE_SPEC_SKIP = new Set(['comments']);
+const BLOCK_SKIP = new Set(['id', 'body']);
+
+type Placed = { block: Component; parent: string; index: number };
+
+/** every building block with the ID of its section (or the page) and its place in it. */
+function placed(page: Page): Placed[] {
+  const byKey = new Map(flatten(page.body).map(({ key, block }) => [key, block]));
+  const parentOf = (key: string) => key.split('.').slice(0, -1).join('.');
+  return flatten(page.body).map(({ key, block }) => ({
+    block,
+    parent: parentOf(key) ? byKey.get(parentOf(key))?.id ?? parentOf(key) : pageTarget,
+    index: Number(key.split('.').pop()),
+  }));
+}
+
+/** What changed from `a` to `b` on a page — place by place. */
+export function diffPages(a: Page, b: Page): AuditChange[] {
+  const col = new Collector();
+  const page = `Seite ${b.title || b.path || ''}`.trim();
+  col.fields(pageTarget, page, a, b, PAGE_SKIP);
+  col.fields(pageTarget, page, a.spec ?? {}, b.spec ?? {}, PAGE_SPEC_SKIP);
+  const pa = placed(a);
+  const pb = placed(b);
+  col.keyed<Placed>(pa, pb, x => x.block.id,
+    x => ({ target: blockTarget(x.block.id!), label: blockName(x.block) }),
+    (x, y, p) => col.fields(p.target, p.label, x.block, y.block, BLOCK_SKIP));
+  // moved: into another section, or out of the order of the siblings that stayed
+  const before = new Map(pa.map(x => [x.block.id, x]));
+  const names = new Map([...pa, ...pb].map(x => [x.block.id, blockName(x.block)]));
+  const where = (x: Placed) => `${x.parent === pageTarget ? 'Seite' : names.get(x.parent) ?? 'Abschnitt'}, Stelle ${x.index + 1}`;
+  const reordered = [...new Set(pb.map(y => y.parent))].flatMap(parent => {
+    const stayed = pb.filter(y => y.parent === parent && before.get(y.block.id)?.parent === parent).map(y => y.block.id!);
+    const was = pa.filter(x => x.parent === parent && stayed.includes(x.block.id!)).map(x => x.block.id!);
+    const kept = new Set(lcs(was, stayed).map(([, j]) => stayed[j]));
+    const moved = stayed.filter(id => !kept.has(id));
+    // two neighbours swapped: which one «moved» is a matter of view - both are named
+    const [one] = moved;
+    const swapped = moved.length === 1 && Math.abs(was.indexOf(one) - stayed.indexOf(one)) === 1 ? stayed[was.indexOf(one)] : undefined;
+    return swapped ? [...moved, swapped] : moved;
+  });
+  for (const y of pb) {
+    const x = before.get(y.block.id);
+    if (!x || !y.block.id || (x.parent === y.parent && !reordered.includes(y.block.id))) continue;
+    col.out.push({ target: blockTarget(y.block.id), label: blockName(y.block), op: 'change', field: 'Lage', before: where(x), after: where(y) });
+  }
+  return col.out;
+}
+
 const hasReport = (r?: AuditReport) => !!r && Object.values(r).some(v => v.length);
 
 /** an entry from a comparison — `null` if nothing changed. */
 export function makeEntry(a: ProcessSpec, b: ProcessSpec, origin: AuditOrigin, author: AuditAuthor): AuditEntry | null {
-  const changes = diffSpecs(a, b);
+  return entryOf(diffSpecs(a, b), origin, author);
+}
+
+/** an entry from the changes of a comparison (a process, a page) — `null` if there are none. */
+export function entryOf(changes: AuditChange[], origin: AuditOrigin, author: AuditAuthor): AuditEntry | null {
   const report = hasReport(origin.report) ? Object.fromEntries(Object.entries(origin.report!).filter(([, v]) => v.length)) : undefined;
   // a sync without effect is not worth an entry — not even with a note
   if (!changes.length) return null;

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { copyBlock, convertBlock, flatten, hasIds, keyOfId, newBlock, relocateBlock, withIds } from '../src/pages/designer/model';
 import type { Component, Page } from '../src/pages/runtime/spec';
 import { addThread, countIndex, setResolved } from '../src/comments';
+import { diffPages, entryOf } from '../src/audit';
 import { blockOfTarget, blockTarget, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from '../src/pages/designer/pageComments';
 
 const body: Component[] = [
@@ -75,4 +76,47 @@ test('rememberPagePlaces, keepComments - a removed block keeps its name; an olde
   assert.equal(keepComments(withComment, withComment), withComment);
   assert.equal(cleanSpec({ comments: [], epics: undefined }), undefined);
   assert.deepEqual(cleanSpec({ project: 'acme-shop', comments: [] }), { project: 'acme-shop' });
+});
+
+// ---------------------------------------------------------------- the change log
+
+test('diffPages - the page, its building blocks by ID: changed field by field, new, removed, moved; comments do not count', () => {
+  const a: Page = { path: 'shop/book', title: 'Buchen', access: 'public', body: withIds(body) };
+  const [heading, section] = a.body;
+  const moved = relocateBlock(a.body, '0', '1', 'inside').body; // the heading into the section, at its end
+  const b: Page = {
+    ...a, title: 'Termin buchen', access: { roles: ['advisor'] }, spec: { project: 'acme-shop', epics: ['adr'], comments: addThread({}, pageTarget, me, 'x').comments },
+    body: [
+      ...moved.map((x) => (x.id === section.id && x.type === 'section' ? { ...x, label: 'Ihre Angaben', body: x.body.filter((y) => y.type !== 'text') } : x)),
+      { type: 'button', label: 'Senden', actions: [], id: 'b-new' },
+    ],
+  };
+  const changes = diffPages(a, b);
+  const line = (c: (typeof changes)[number]) => [c.op, c.label, c.field ?? '', c.before ?? '', c.after ?? ''].join(' | ');
+  assert.deepEqual(changes.map(line), [
+    'change | Seite Termin buchen | Titel | Buchen | Termin buchen',
+    'change | Seite Termin buchen | Zugang | public | {"roles":["advisor"]}',
+    'change | Seite Termin buchen | Projekt |  | acme-shop',
+    'change | Seite Termin buchen | Epics |  | ["adr"]',
+    'remove | Text «x» |  |  | ',
+    'change | Abschnitt «Ihre Angaben» | Bezeichnung | Kontakt | Ihre Angaben',
+    'add | Button «Senden» |  |  | ',
+    `change | Überschrift «Termin» | Lage | Seite, Stelle 1 | Abschnitt «Ihre Angaben», Stelle 2`,
+  ]);
+  assert.ok(changes.every((c) => c.target === pageTarget || c.target.startsWith('block:')));
+  assert.equal(changes.find((c) => c.label.startsWith('Überschrift'))?.target, blockTarget(heading.id!));
+  // only comments: nothing for the log; an entry from the changes
+  assert.deepEqual(diffPages(a, { ...a, spec: { comments: addThread({}, pageTarget, me, 'y').comments } }), []);
+  const e = entryOf(changes, { source: 'ai', note: 'Mit KI (Claude): «Titel»' }, me);
+  assert.equal(e?.source, 'ai');
+  assert.equal(e?.changes.length, 8);
+  assert.equal(entryOf([], { source: 'manual' }, me), null);
+});
+
+test('diffPages - a swap of two neighbours names both, a longer move only the moved one', () => {
+  const a: Page = { path: 'p', title: 'P', access: 'public', body: withIds([{ type: 'text', text: 'A' }, { type: 'text', text: 'B' }, { type: 'text', text: 'C' }]) };
+  const b: Page = { ...a, body: [a.body[0], a.body[2], a.body[1]] };
+  assert.deepEqual(diffPages(a, b).map((c) => [c.label, c.before, c.after]), [['Text «C»', 'Seite, Stelle 3', 'Seite, Stelle 2'], ['Text «B»', 'Seite, Stelle 2', 'Seite, Stelle 3']]);
+  const far: Page = { ...a, body: [a.body[2], a.body[0], a.body[1]] };
+  assert.deepEqual(diffPages(a, far).map((c) => c.label), ['Text «C»']);
 });

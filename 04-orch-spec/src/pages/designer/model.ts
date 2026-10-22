@@ -339,6 +339,20 @@ function titleOf(b: Component): string | undefined {
   }
 }
 
+/** The text that names a building block - '' if it has none. */
+export const blockTitle = (b: Component) => titleOf(b) ?? '';
+
+const TYPE_NAME: Record<Component['type'], string> = {
+  heading: 'Überschrift', text: 'Text', choice: 'Auswahl', pick: 'Auswahl aus Liste', fields: 'Eingabefelder',
+  summary: 'Zusammenfassung', button: 'Button', section: 'Abschnitt', loading: 'Laden',
+};
+
+/** A building block in words: «Button «Buchen»» - for the differences, the comments, the change log. */
+export const blockName = (b: Component) => {
+  const title = blockTitle(b);
+  return title ? `${TYPE_NAME[b.type]} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : TYPE_NAME[b.type];
+};
+
 /** What a change of type of the building block loses - for the warning in the menu; null if there is nothing of its own.
   * (A section with building blocks does not change its type at all - dissolve it first.) */
 export function lostOnConvert(b: Component): string | null {

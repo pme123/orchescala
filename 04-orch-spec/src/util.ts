@@ -70,3 +70,23 @@ export function uid(prefix = 'id'): string {
     : Math.random().toString(36).slice(2, 12);
   return `${prefix}-${rnd}`;
 }
+
+/** Index pairs of the longest common subsequence of two lists of signatures - what stayed in its order. */
+export function lcs(a: string[], b: string[]): [number, number][] {
+  // table of the lengths from the end - built row by row, without changing a row
+  const rows = a.reduceRight<number[][]>((below, x, i) => {
+    const next = below[0];
+    const row = b.reduceRight<number[]>((acc, y, j) => {
+      const right = acc[0] ?? 0;
+      return [x === y ? 1 + (next[j + 1] ?? 0) : Math.max(next[j] ?? 0, right), ...acc];
+    }, []);
+    return [row, ...below];
+  }, [new Array<number>(b.length + 1).fill(0)]);
+  const walk = (i: number, j: number): [number, number][] => {
+    if (i >= a.length || j >= b.length) return [];
+    if (a[i] === b[j]) return [[i, j], ...walk(i + 1, j + 1)];
+    return (rows[i + 1]?.[j] ?? 0) >= (rows[i]?.[j + 1] ?? 0) ? walk(i + 1, j) : walk(i, j + 1);
+  };
+  return walk(0, 0);
+}
+
