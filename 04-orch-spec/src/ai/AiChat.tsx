@@ -92,7 +92,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [entries, busy]);
   // leaving the designer or deleting the key stops a running request
   // (in dev, StrictMode mounts twice: the request from outside is then started again on the second mount)
-  useEffect(() => () => { turn.current++; abort.current?.abort(); started.current = false; }, []);
+  useEffect(() => () => { turn.current++; abort.current?.abort(); abort.current = null; started.current = false; }, []);
 
   const ask = async (text: string) => {
     // a turn runs (abort is set at once, before the first await) or a draft is being taken over

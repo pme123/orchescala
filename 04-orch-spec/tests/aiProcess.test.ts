@@ -104,6 +104,32 @@ test('insertStep - what does not fit changes nothing', () => {
   assert.ok(named.ok && named.id === 'ChangedEndEvent' && /name="Adresse geändert"/.test(named.xml));
 });
 
+test('the operations - no XML of a process: an error, never a broken diagram', () => {
+  for (const bad of ['', 'kein xml', '<html><body/></html>']) {
+    const r = insertStep(bad, 'c7', 'CheckAddressTask', { kind: 'user', name: 'X' });
+    assert.ok(!r.ok && /kein gültiges XML/.test(r.error), bad);
+    assert.ok(!renameElement(bad, 'c7', 'CheckAddressTask', 'Y').ok);
+    assert.ok(!removeStep(bad, 'c7', 'CheckAddressTask').ok);
+  }
+});
+
+test('insertStep - the target has no shape: the step goes in, its flow without an edge (never one without waypoints)', () => {
+  const noShape = xml.replace(/<bpmndi:BPMNShape id="s2"[^\n]*\n/, '').replace(/<bpmndi:BPMNEdge id="e2"[^\n]*\n/, '');
+  assert.ok(!noShape.includes('id="s2"') && !noShape.includes('id="e2"'));
+  const r = insertStep(noShape, 'c7', 'CheckAddressTask', { kind: 'user', name: 'Freigeben' });
+  assert.ok(r.ok);
+  const d = doc(r.xml);
+  const flows = [...d.getElementsByTagName('bpmn:sequenceFlow')];
+  const out = flows.find((f) => f.getAttribute('sourceRef') === r.id);
+  assert.equal(out?.getAttribute('targetRef'), 'ChangedEndEvent');
+  // in the same container as the flow it was put on
+  assert.equal(d.getElementById(r.id)?.parentNode, out?.parentNode);
+  const edges = [...d.getElementsByTagName('bpmndi:BPMNEdge')];
+  assert.ok(edges.every((e) => e.getElementsByTagName('di:waypoint').length >= 2));
+  assert.ok(!edges.some((e) => e.getAttribute('bpmnElement') === out?.getAttribute('id')));
+  assert.ok(allSteps(importBpmn(r.xml, 'test.bpmn').spec.steps).some((st) => st.id === r.id));
+});
+
 test('insertDecision - first branch goes on, the others end; conditions in the form of the engine', () => {
   const r = insertDecision(xml, 'c7', 'CheckAddressTask', 'Adresse gültig?', [
     { label: 'ja', condition: 'valid = true' }, { label: 'nein', isDefault: true },

@@ -51,6 +51,16 @@ const ACTIVITIES = new Set(['task', 'serviceTask', 'userTask', 'sendTask', 'rece
 type Box = { x: number; y: number; w: number; h: number };
 
 /** The parsed diagram with what the operations need. */
+/** The diagram of an operation - or the error, when the BPMN is not XML of a process (DOMParser does not
+  * throw: the browser returns a document with <parsererror>). */
+function open(xml: string, engine: EngineId): Diagram | { ok: false; error: string } {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml');
+  const root = doc.documentElement;
+  if (!root || local(root) !== 'definitions' || doc.getElementsByTagName('parsererror').length)
+    return { ok: false, error: 'Das Diagramm (BPMN) ist kein gültiges XML – im Diagramm-Editor prüfen.' };
+  return new Diagram(xml, engine, doc);
+}
+
 class Diagram {
   readonly doc: Document;
   readonly defs: Element;
@@ -58,8 +68,8 @@ class Diagram {
   /** the shape or edge per element */
   readonly di: Map<string, Element>;
   readonly plane: Element | null;
-  constructor(readonly xml: string, readonly engine: EngineId) {
-    this.doc = new DOMParser().parseFromString(xml, 'text/xml');
+  constructor(readonly xml: string, readonly engine: EngineId, doc: Document) {
+    this.doc = doc;
     this.defs = this.doc.documentElement;
     const all = descendants(this.defs);
     this.byId = new Map(all.flatMap((e) => (e.getAttribute('id') ? [[e.getAttribute('id')!, e] as const] : [])));
@@ -89,7 +99,9 @@ class Diagram {
     const taken = (id: string) => this.byId.has(id);
     const conventional = kind && name ? conventionalId({ kind, name }, taken) : null;
     const clean = base.replace(/[^\w.-]/g, '_').replace(/^([^A-Za-z_])/, '_$1');
-    const id = conventional ?? (taken(clean) ? [...Array(99).keys()].map((i) => `${clean}_${i + 2}`).find((c) => !taken(c))! : clean);
+    if (conventional) return conventional;
+    let id = clean;
+    for (let i = 2; taken(id); i++) id = `${clean}_${i}`;
     return id;
   }
   register(el: Element) { this.byId.set(el.getAttribute('id')!, el); }
@@ -116,8 +128,10 @@ class Diagram {
     appendEl(this.plane, s);
     this.di.set(id, s);
   }
+  /** The edge of a flow - none without at least two points (where the diagram has no shapes to lay out
+    * from): bpmn-js shows a flow without an edge not at all, but one without waypoints breaks the import. */
   edge(id: string, points: [number, number][]) {
-    if (!this.plane) return;
+    if (!this.plane || points.length < 2) return;
     const e = this.el(BPMNDI_NS, 'bpmndi', 'BPMNEdge');
     e.setAttribute('id', `${id}_di`);
     e.setAttribute('bpmnElement', id);
@@ -247,7 +261,8 @@ function pickFlow(d: Diagram, after: string, branch?: string): Element | string 
 function onFlow(d: Diagram, flow: Element, node: Element): { node: Element; out: Element } {
   const target = flow.getAttribute('targetRef')!;
   const id = node.getAttribute('id')!;
-  const container = d.byId.get(target)!.parentElement!;
+  // the container of the flow - source, target and the flow are in the same one (a flow never crosses a sub-process)
+  const container = flow.parentElement!;
   appendEl(container, node);
   d.register(node);
   d.sameLane(target, id);
@@ -286,7 +301,8 @@ function onFlow(d: Diagram, flow: Element, node: Element): { node: Element; out:
 
 /** Inserts a step after `after` - on its only outgoing flow or on the branch named. */
 export function insertStep(xml: string, engine: EngineId, after: string, step: { kind: NewStepKind; name: string; topic?: string; timer?: string }, branch?: string): EditResult {
-  const d = new Diagram(xml, engine);
+  const d = open(xml, engine);
+  if (!(d instanceof Diagram)) return d;
   const flow = pickFlow(d, after, branch);
   if (typeof flow === 'string') return { ok: false, error: flow };
   if (!step.name.trim()) return { ok: false, error: 'Der Schritt braucht einen Namen.' };
@@ -340,7 +356,8 @@ export function insertDecision(xml: string, engine: EngineId, after: string, nam
   const missing = branches.find((b) => !b.isDefault && !b.condition?.trim());
   if (missing) return { ok: false, error: `Der Zweig «${missing.label}» braucht eine Bedingung (FEEL) – oder ist der Standard.` };
   if (new Set(branches.map((b) => b.label)).size !== branches.length) return { ok: false, error: 'Die Zweige brauchen verschiedene Namen.' };
-  const d = new Diagram(xml, engine);
+  const d = open(xml, engine);
+  if (!(d instanceof Diagram)) return d;
   const flow = pickFlow(d, after, branch);
   if (typeof flow === 'string') return { ok: false, error: flow };
   const gw = d.bpmn('exclusiveGateway');
@@ -378,7 +395,8 @@ export function insertDecision(xml: string, engine: EngineId, after: string, nam
 /** An error path on a step: a boundary error event with the error code, to an end of its own. Steps
   * go in with insertStep(boundary event). */
 export function insertErrorPath(xml: string, engine: EngineId, stepId: string, code: string, name: string): EditResult {
-  const d = new Diagram(xml, engine);
+  const d = open(xml, engine);
+  if (!(d instanceof Diagram)) return d;
   const step = d.byId.get(stepId);
   if (!step || !ACTIVITIES.has(local(step))) return { ok: false, error: `Einen Schritt «${stepId}» (Task, Subprozess) gibt es im Diagramm nicht.` };
   const errCode = code.trim();
@@ -432,7 +450,8 @@ export function insertErrorPath(xml: string, engine: EngineId, stepId: string, c
 /** Removes a step with one way in and one way out (the flow closes), or an error path (a boundary
   * event with what only it reaches). A decision is removed in the diagram. */
 export function removeStep(xml: string, engine: EngineId, id: string): EditResult {
-  const d = new Diagram(xml, engine);
+  const d = open(xml, engine);
+  if (!(d instanceof Diagram)) return d;
   const node = d.byId.get(id);
   if (!node || !FLOW_NODES.has(local(node))) return { ok: false, error: `Ein Element «${id}» gibt es im Diagramm nicht.` };
   if (local(node) === 'boundaryEvent') {
@@ -472,7 +491,8 @@ export function removeStep(xml: string, engine: EngineId, id: string): EditResul
 
 /** Renames an element of the diagram (a step, an event, a branch). */
 export function renameElement(xml: string, engine: EngineId, id: string, name: string): EditResult {
-  const d = new Diagram(xml, engine);
+  const d = open(xml, engine);
+  if (!(d instanceof Diagram)) return d;
   const el = d.byId.get(id);
   if (!el || !(FLOW_NODES.has(local(el)) || local(el) === 'sequenceFlow')) return { ok: false, error: `Ein Element «${id}» gibt es im Diagramm nicht.` };
   if (!name.trim()) return { ok: false, error: 'Der Name ist leer.' };
