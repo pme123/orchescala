@@ -3,10 +3,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { importBpmn } from '../src/bpmn';
+import { DEFAULT_MERGE_STATUS, importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
-import { scalaFiles } from '../src/scala';
+import { inCodeOrder, scalaFiles } from '../src/scala';
+import { mergeDomain } from '../src/domainMerge';
 import type { ProcessSpec, TypeDef } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -80,4 +81,24 @@ test('a field added in Orch Spec goes after those of the code; without order the
   assert.deepEqual(params(exported(spec), 'Graviton'), ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions', 'extra']);
   delete graviton.order;
   assert.deepEqual(params(exported(spec), 'Graviton').slice(0, 2), ['subStatusKey', 'subStatusNr']);
+});
+
+test('a field renamed in Orch Spec keeps its place - a new one goes to the end', () => {
+  const f = (name: string) => ({ id: name, name, type: 'String' });
+  const order = ['subStatusKey', 'subStatusScore', 'subStatusNr', 'subStatusActions'];
+  const renamed = [f('subStatusKey'), f('subStatusNr'), f('score'), f('subStatusActions'), f('extra')];
+  assert.deepEqual(inCodeOrder(renamed, order).map(x => x.name), ['subStatusKey', 'score', 'subStatusNr', 'subStatusActions', 'extra']);
+});
+
+test('re-import: a case only reordered in the code is a change - the new order is taken over', () => {
+  const before = imported();
+  const reordered = source.replace(
+    '        subStatusKey: String,\n        subStatusScore: Int,\n        subStatusNr: Int,',
+    '        subStatusKey: String,\n        subStatusNr: Int,\n        subStatusScore: Int,',
+  );
+  const fresh = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, scanScala(reordered, 'SendEvent.scala'), null)!.spec;
+  const r = mergeDomain(before, fresh, { status: DEFAULT_MERGE_STATUS });
+  const out = r.spec.types!.find(t => t.name === 'Out')!;
+  assert.deepEqual(out.values!.find(v => v.name === 'Graviton')!.order, ['subStatusKey', 'subStatusNr', 'subStatusScore', 'subStatusActions']);
+  assert.ok(r.report.changed.length > 0, JSON.stringify(r.report));
 });
