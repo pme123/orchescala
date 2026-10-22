@@ -3,7 +3,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import { runTurn, type AgentEvent, type AgentRequest, type Send } from '../src/ai/agent';
+import Anthropic from '@anthropic-ai/sdk';
+import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import { runTurn, withPrompt, type AgentEvent, type AgentRequest, type Send } from '../src/ai/agent';
+import { errorText } from '../src/ai/client';
 import { dataModelText, pageSystem } from '../src/ai/context';
 import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost';
 import { changedKeys, pageDiff } from '../src/ai/diff';
@@ -274,6 +277,83 @@ test('runTurn - refusal, answer cut off, network error, cancel and the step limi
   const limited = await runTurn({ send: looping, system, kit, history: [], prompt: 'x', draft, maxSteps: 3 });
   assert.equal(limited.stop, 'max_steps');
   assert.equal(limited.usage.requests, 3);
+});
+
+test('runTurn - a tool that throws becomes an error result for Claude, the turn goes on', async () => {
+  const base = pageToolKit(ctx);
+  const kit = { ...base, run: (name: string, input: unknown, d: ReturnType<typeof startDraft>) => {
+    if (name === 'insert_block') throw new Error('kaputt');
+    return base.run(name, input, d);
+  } };
+  const claude = scripted([
+    message([toolUse('t1', 'insert_block', { block: { type: 'text', text: 'x' }, at: '0' })], 'tool_use'),
+    message([text('Das ging nicht.')], 'end_turn'),
+  ]);
+  const events: AgentEvent[] = [];
+  const draft = startDraft('book', book);
+  const r = await runTurn({ send: claude.send, system, kit, history: [], prompt: 'x', draft, onEvent: (e) => events.push(e) });
+  assert.equal(r.stop, 'done');
+  assert.equal(r.draft, draft); // unchanged
+  const result = (claude.requests[1].messages[2].content as { tool_use_id: string; is_error?: boolean; content: string }[])[0];
+  assert.equal(result.tool_use_id, 't1');
+  assert.equal(result.is_error, true);
+  assert.match(result.content, /insert_block ist fehlgeschlagen: kaputt/);
+  assert.ok(events.some((e) => e.kind === 'tool' && e.isError));
+
+  // a check that throws is an error of the draft - not an end of the turn
+  const unchecked = { ...base, remainingErrors: () => { throw new Error('Prüfung kaputt'); } };
+  const r2 = await runTurn({ send: scripted([message([text('a')], 'end_turn'), message([text('b')], 'end_turn'), message([text('c')], 'end_turn')]).send,
+    system, kit: unchecked, history: [], prompt: 'x', draft });
+  assert.equal(r2.stop, 'done');
+  assert.match(r2.errors[0], /Prüfung des Entwurfs ist fehlgeschlagen: Prüfung kaputt/);
+});
+
+test('runTurn - the history after refusal, cut off and pause_turn; a follow-up keeps user and assistant alternating', async () => {
+  const kit = pageToolKit(ctx);
+  const draft = startDraft('book', book);
+  const roles = (h: BetaMessageParam[]) => h.map((m) => m.role);
+  const alternating = (h: BetaMessageParam[]) => h.every((m, i) => m.role === (i % 2 === 0 ? 'user' : 'assistant'));
+
+  // cut off without a tool call: the answer stays in the history
+  const cut = await runTurn({ send: scripted([message([text('Ich beginne …')], 'max_tokens')]).send, system, kit, history: [], prompt: 'x', draft });
+  assert.equal(cut.stop, 'max_tokens');
+  assert.deepEqual(roles(cut.history), ['user', 'assistant']);
+
+  // pause_turn: the paused answer goes into the history and the same turn goes on
+  const paused = scripted([message([text('…')], 'pause_turn'), message([text('fertig')], 'end_turn')]);
+  const p = await runTurn({ send: paused.send, system, kit, history: [], prompt: 'x', draft });
+  assert.equal(p.stop, 'done');
+  assert.deepEqual(roles(paused.requests[1].messages), ['user', 'assistant']);
+  assert.deepEqual(roles(p.history), ['user', 'assistant', 'assistant']);
+
+  // a refusal leaves the request without an answer: the next one goes into the same user message
+  const refused = await runTurn({ send: scripted([message([], 'refusal')]).send, system, kit, history: [], prompt: 'erste', draft });
+  const next = scripted([message([text('ok')], 'end_turn')]);
+  await runTurn({ send: next.send, system, kit, history: refused.history, prompt: 'zweite', draft });
+  assert.equal(next.requests[0].messages.length, 1);
+  assert.deepEqual(next.requests[0].messages[0].content, [{ type: 'text', text: 'erste' }, { type: 'text', text: 'zweite' }]);
+
+  // the step limit ends after tool results: the next request comes after them, in the same message
+  const looping: Send = async () => message([toolUse('t', 'check_page', {})], 'tool_use');
+  const limited = await runTurn({ send: looping, system, kit, history: [], prompt: 'x', draft, maxSteps: 2 });
+  assert.equal(roles(limited.history).at(-1), 'user');
+  const after = scripted([message([text('ok')], 'end_turn')]);
+  const r = await runTurn({ send: after.send, system, kit, history: limited.history, prompt: 'weiter', draft: limited.draft });
+  const sent = after.requests[0].messages;
+  assert.ok(alternating(sent));
+  const last = sent.at(-1)!.content as { type: string; text?: string }[];
+  assert.deepEqual(last.map((b) => b.type), ['tool_result', 'text']);
+  assert.equal(last[1].text, 'weiter');
+  assert.ok(alternating(r.history));
+
+  // a history that ends with Claude: just a new user message
+  assert.deepEqual(withPrompt([{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }], 'c').at(-1), { role: 'user', content: 'c' });
+});
+
+test('errorText - what the RE reads', () => {
+  assert.equal(errorText(new Anthropic.APIUserAbortError()), 'Abgebrochen.');
+  assert.equal(errorText(new Error('kaputt')), 'kaputt');
+  assert.equal(errorText('nur Text'), 'nur Text');
 });
 
 // ---------------------------------------------------------------- what Claude knows, what it costs

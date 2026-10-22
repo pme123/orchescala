@@ -9,7 +9,7 @@ import type {
   BetaContentBlock, BetaMessage, BetaMessageParam, BetaTextBlockParam, BetaTool, BetaToolResultBlockParam, BetaToolUseBlock,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { addUsage, NO_USAGE, usageOf, type Usage } from './cost';
-import type { ToolKit } from './toolkit';
+import { failed, type ToolKit, type ToolOutcome } from './toolkit';
 
 /** What a request needs besides the fixed settings (model, effort …) - those are added by `send`. */
 export type AgentRequest = { system: BetaTextBlockParam[]; tools: BetaTool[]; messages: BetaMessageParam[] };
@@ -48,6 +48,38 @@ type State<D> = { history: BetaMessageParam[]; draft: D; usage: Usage; steps: nu
 const textOf = (content: BetaContentBlock[]) =>
   content.flatMap((b) => (b.type === 'text' && b.text.trim() ? [b.text.trim()] : []));
 
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** A tool that throws (e.g. on input it did not expect) must not end the turn: Claude gets the error
+  * as a tool result and can react to it. */
+export function runTool<D>(kit: ToolKit<D>, name: string, input: unknown, draft: D): ToolOutcome<D> {
+  try {
+    return kit.run(name, input, draft);
+  } catch (e) {
+    return failed(draft, `Das Werkzeug ${name} ist fehlgeschlagen: ${messageOf(e)}. Der Entwurf ist unverändert.`, `${name} fehlgeschlagen: ${messageOf(e)}`);
+  }
+}
+
+/** The check of a draft - if it throws, that is an error of the draft too (never an end of the turn). */
+export function checkDraft<D>(kit: ToolKit<D>, draft: D): string[] {
+  try {
+    return kit.remainingErrors(draft);
+  } catch (e) {
+    return [`Die Prüfung des Entwurfs ist fehlgeschlagen: ${messageOf(e)}`];
+  }
+}
+
+/** The request of the RE as the next user message. A turn that ended early (error, cancel, refusal,
+  * step limit) leaves a user message without an answer - often the tool results. The new request then
+  * goes into that message (after the tool results), so user and assistant keep alternating. That
+  * message was never answered, so nothing Claude saw is rewritten. */
+export function withPrompt(history: BetaMessageParam[], prompt: string): BetaMessageParam[] {
+  const last = history[history.length - 1];
+  if (last?.role !== 'user') return [...history, { role: 'user', content: prompt }];
+  const blocks = typeof last.content === 'string' ? [{ type: 'text' as const, text: last.content }] : last.content;
+  return [...history.slice(0, -1), { role: 'user', content: [...blocks, { type: 'text', text: prompt }] }];
+}
+
 export const correctionPrompt = (errors: string[]) =>
   `Die Prüfung des Entwurfs meldet noch Fehler:\n${errors.map((e) => `- ${e}`).join('\n')}\n` +
   'Korrigiere sie mit den Werkzeugen. Geht es in der Spez nicht (z.B. ein Service fehlt), melde es mit report_open_point und nimm den Teil wieder heraus.';
@@ -68,7 +100,7 @@ export async function runTurn<D>(o: {
   const maxCorrections = o.maxCorrections ?? MAX_CORRECTIONS;
   const emit = (e: AgentEvent) => o.onEvent?.(e);
   const end = (s: State<D>, stop: Stop, error?: unknown): TurnResult<D> => ({
-    history: s.history, draft: s.draft, usage: s.usage, stop, text: s.text.join('\n\n'), errors: o.kit.remainingErrors(s.draft),
+    history: s.history, draft: s.draft, usage: s.usage, stop, text: s.text.join('\n\n'), errors: checkDraft(o.kit, s.draft),
     ...(error !== undefined ? { error } : {}),
   });
 
@@ -96,7 +128,7 @@ export async function runTurn<D>(o: {
     if (calls.length) {
       // one after the other - each tool sees the draft of the previous one
       const ran = calls.reduce<{ draft: D; results: BetaToolResultBlockParam[] }>((acc, call) => {
-        const r = o.kit.run(call.name, call.input, acc.draft);
+        const r = runTool(o.kit, call.name, call.input, acc.draft);
         emit({ kind: 'tool', name: call.name, summary: r.summary, isError: !!r.isError });
         return {
           draft: r.draft,
@@ -107,7 +139,7 @@ export async function runTurn<D>(o: {
     }
 
     // Claude is done - but the draft goes to the RE only without errors of its own
-    const errors = o.kit.remainingErrors(next.draft);
+    const errors = checkDraft(o.kit, next.draft);
     if (errors.length && s.corrections < maxCorrections) {
       emit({ kind: 'check', errors });
       return step({
@@ -119,5 +151,5 @@ export async function runTurn<D>(o: {
     return end({ ...next, history: [...s.history, assistant] }, 'done');
   };
 
-  return step({ history: [...o.history, { role: 'user', content: o.prompt }], draft: o.draft, usage: NO_USAGE, steps: 0, corrections: 0, text: [] });
+  return step({ history: withPrompt(o.history, o.prompt), draft: o.draft, usage: NO_USAGE, steps: 0, corrections: 0, text: [] });
 }
