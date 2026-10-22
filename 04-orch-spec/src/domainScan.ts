@@ -697,6 +697,14 @@ export function scanFiles(files: Array<{ path: string; text: string }>): ScanRes
   return { types, defaults, skipped, discarded };
 }
 
+const SKIPPED_DIRS = new Set(['target', 'node_modules', 'dist', '__MACOSX']);
+
+/** Folders every domain scan leaves out (folder, ZIP and CLI): build output and
+ *  hidden folders — e.g. `.claude/worktrees/…` holds a second, older copy of the domain. */
+export function isSkippedDir(name: string): boolean {
+  return SKIPPED_DIRS.has(name) || name.startsWith('.');
+}
+
 /** Only domain sources — tests, target and build folders stay out. */
 export function isDomainSource(path: string): boolean {
   if (!path.endsWith('.scala')) return false;
