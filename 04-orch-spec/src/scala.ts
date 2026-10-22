@@ -643,6 +643,22 @@ function paramList(fields: Field[], idx: TypeIndex, by: string): string {
 }
 
 /**
+ * Die Felder eines Falls in der Reihenfolge des Codes (`order`). Ein Name, den es nicht
+ * mehr gibt, gibt seinen Platz an ein Feld, das dort nicht steht (der Reihe nach) — ein in
+ * Orch Spec umbenanntes Feld bleibt so an seiner Stelle; ein neues kommt ans Ende.
+ */
+export function inCodeOrder(fields: Field[], order: string[] | undefined): Field[] {
+  if (!order?.length) return fields;
+  const names = new Set(fields.map(f => f.name));
+  const free = order.map((n, i) => (names.has(n) ? -1 : i)).filter(i => i >= 0);
+  const unplaced = fields.filter(f => !order.includes(f.name));
+  const slot = new Map(unplaced.slice(0, free.length).map((f, k) => [f.name, free[k]] as const));
+  const at = (f: Field) => (order.includes(f.name) ? order.indexOf(f.name) : slot.get(f.name) ?? order.length);
+  // stabil: Felder ohne Platz behalten ihre Reihenfolge, hinten
+  return [...fields].sort((a, b) => at(a) - at(b));
+}
+
+/**
  * Auswahl mit Feldern je Fall — wie `enum In` der Depot-Domain: jeder Fall
  * eine Klasse, das Companion mit `example` je Fall und einem für den Typ.
  */
@@ -658,12 +674,8 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
   });
   const commonBare = common.map(f => ({ ...f, description: undefined, descriptionExpr: undefined }));
-  // in der Reihenfolge des Codes (`order`) — was dort fehlt (in Orch Spec dazugekommen), danach
-  const fieldsOf = (v: EnumValue): Field[] => {
-    const all = [...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))];
-    const at = (f: Field) => { const i = v.order?.indexOf(f.name) ?? -1; return i < 0 ? Number.MAX_SAFE_INTEGER : i; };
-    return v.order?.length ? all.map((f, i) => ({ f, i })).sort((a, b) => at(a.f) - at(b.f) || a.i - b.i).map(x => x.f) : all;
-  };
+  const fieldsOf = (v: EnumValue): Field[] =>
+    inCodeOrder([...commonBare, ...finished(v.fields, idx).filter(f => !common.some(c => c.name === f.name))], v.order);
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);
