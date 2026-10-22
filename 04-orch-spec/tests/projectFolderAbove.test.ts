@@ -3,8 +3,8 @@
 // Before, it read all projects below through this one, and the others counted
 // 0 types (same packages).
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { rebuild } from '../src/projects';
+import { after, test } from 'node:test';
+import { intoProject, rebuild } from '../src/projects';
 import type { ProjectFolder } from '../src/types';
 
 type Tree = { [name: string]: Tree | string };
@@ -27,6 +27,10 @@ function dir(name: string, tree: Tree): unknown {
   };
 }
 
+const g = globalThis as unknown as { indexedDB: unknown };
+const realIndexedDb = g.indexedDB;
+after(() => { g.indexedDB = realIndexedDb; });
+
 /** IndexedDB with the remembered handles — only what getHandle needs */
 function fakeIndexedDb(handles: Record<string, unknown>) {
   const request = <T>(result: T) => {
@@ -34,7 +38,7 @@ function fakeIndexedDb(handles: Record<string, unknown>) {
     setTimeout(() => req.onsuccess?.());
     return req;
   };
-  (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+  g.indexedDB = {
     open: () => request({
       transaction: () => ({ objectStore: () => ({ get: (key: string) => request(handles[key] ?? null) }) }),
     }),
@@ -68,4 +72,12 @@ test('a project remembered with the folder above it counts only its own types', 
   assert.deepEqual(r.projects.map(p => [p.name, p.types]), [['acme-services', 1], ['acme-customer', 1], ['acme-cards', 1]]);
   assert.equal(r.files, 3);
   assert.deepEqual(r.types.map(t => t.name).sort(), ['Advisor', 'Card', 'Client']);
+});
+
+test('a remembered folder without a subfolder of the project name stays as it is', async () => {
+  // e.g. the folder was renamed on disk — read it as before
+  const renamed = dir('acme-services-old', project('services', 'Client')) as FileSystemDirectoryHandle;
+  assert.equal(await intoProject(renamed, 'acme-services'), renamed);
+  const exact = dir('acme-services', project('services', 'Client')) as FileSystemDirectoryHandle;
+  assert.equal(await intoProject(exact, 'acme-services'), exact);
 });
