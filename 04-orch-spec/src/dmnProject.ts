@@ -42,8 +42,11 @@ async function inFolder(dir: FileSystemDirectoryHandle, decisionId: string): Pro
 export async function findDmnInProject(
   decisionId: string, processId: string, model: Model | null, engine: EngineId | undefined,
   onProgress?: (text: string) => void,
-  /** `ownOnly`: only the own project folder; `roots`: share the roots across several calls */
-  opts: { ownOnly?: boolean; roots?: Map<string, FileSystemDirectoryHandle | null> } = {},
+  /**
+   * `ownOnly`: only the own project folder; `roots`: share the roots across several calls;
+   * `noAccess`: collects the folders that are not readable (no access in this browser)
+   */
+  opts: { ownOnly?: boolean; roots?: Map<string, FileSystemDirectoryHandle | null>; noAccess?: string[] } = {},
 ): Promise<DmnHit | null> {
   const folders: ProjectFolder[] = model?.projects ?? [];
   const own = folders.filter(p => processId.startsWith(`${p.name}-`));
@@ -53,7 +56,7 @@ export async function findDmnInProject(
   for (const p of ordered) {
     onProgress?.(`${p.name} wird durchsucht …`);
     const handle = await handleFor(p, roots);
-    if (!handle) continue;
+    if (!handle) { opts.noAccess?.push(p.name); continue; }
     const dir = await dirAt(handle, [...RESOURCES, sub]);
     if (!dir) continue;
     const hit = await inFolder(dir, decisionId);
@@ -89,4 +92,21 @@ export async function withProjectDmns(
     spec: { ...spec, interactions: (spec.interactions ?? []).map(i => (files.has(i.id) ? { ...i, dmnFile: files.get(i.id) } : i)) },
     loaded: open.filter(i => files.has(i.id)).map(i => i.name),
   };
+}
+
+/**
+ * Why the table was not found — no remembered folders, no access to the own
+ * one (access is remembered per browser and address), or really not there.
+ */
+export function notFoundMessage(decisionId: string, processId: string, model: Model | null, engine: EngineId | undefined, noAccess: string[]): string {
+  const folders = model?.projects ?? [];
+  const sub = engine === 'c8' ? 'camunda8' : 'camunda';
+  if (!folders.length) return 'Keine Projekt-Ordner gemerkt — unter Admin → Katalog die Projekte verbinden, oder Datei wählen.';
+  const own = folders.filter(p => processId.startsWith(`${p.name}-`)).map(p => p.name);
+  const blocked = own.filter(n => noAccess.includes(n));
+  if (blocked.length) {
+    return `Kein Zugriff auf den Projekt-Ordner «${blocked.join('», «')}» in diesem Browser — unter Admin → Katalog verbinden (der Zugriff gilt je Adresse, auch je Port), oder Datei wählen.`;
+  }
+  const others = noAccess.length ? ` Ohne Zugriff, nicht durchsucht: ${noAccess.join(', ')}.` : '';
+  return `In den gemerkten Projekt-Ordnern (Admin → Katalog) liegt unter src/main/resources/${sub} keine Tabelle «${decisionId}» — Datei wählen oder neu anlegen.${others}`;
 }

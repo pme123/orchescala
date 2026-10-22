@@ -8,7 +8,7 @@ import type { Interaction, Model, ProcessSpec, Step } from '../types';
 import { useStore } from '../store';
 import { cls } from '../ui';
 import { decisionResultOf, dmnFileName, findDecision, newDmn, parseDmn, syncDecision, type DmnDecision } from '../dmn';
-import { findDmnInProject } from '../dmnProject';
+import { findDmnInProject, notFoundMessage } from '../dmnProject';
 import { suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { uid } from '../util';
@@ -78,9 +78,10 @@ export default function DmnTableSection({ step, spec, model, isDark, canEdit, on
   const fromProject = async () => {
     setBusy('Projekt wird durchsucht …'); setNotice(null);
     try {
-      const hit = await findDmnInProject(decisionId, spec.processId ?? '', model, spec.engine, t => setBusy(t));
+      const noAccess: string[] = [];
+      const hit = await findDmnInProject(decisionId, spec.processId ?? '', model, spec.engine, t => setBusy(t), { noAccess });
       if (hit) await take(hit.xml, hit.file, `Aus ${hit.project}/${hit.file}`);
-      else setNotice({ tone: 'warn', text: `In den gemerkten Projekt-Ordnern (Admin → Katalog) liegt unter src/main/resources/${spec.engine === 'c8' ? 'camunda8' : 'camunda'} keine Tabelle «${decisionId}» — Datei wählen oder neu anlegen.` });
+      else setNotice({ tone: 'warn', text: notFoundMessage(decisionId, spec.processId ?? '', model, spec.engine, noAccess) });
     } catch (e) {
       setNotice({ tone: 'warn', text: e instanceof Error ? e.message : String(e) });
     } finally {

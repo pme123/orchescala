@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { withProjectDmns } from '../src/dmnProject';
+import { findDmnInProject, notFoundMessage, withProjectDmns } from '../src/dmnProject';
 import type { Model, ProcessSpec } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -100,4 +100,22 @@ test('a table that cannot be saved is not referenced', async () => {
     async () => ({ ok: false, message: 'read only' }));
   assert.deepEqual(r.loaded, []);
   assert.equal(r.spec.interactions?.[0].dmnFile, undefined);
+});
+
+test('a folder without access is reported as such - not as a missing table', async () => {
+  // the own project under a folder above that this browser has no access to
+  const blocked = { projects: [{ id: 'p-own', name: 'acme-bpmn', path: '', types: 0, root: 'elsewhere' }] } as unknown as Model;
+  const noAccess: string[] = [];
+  const hit = await findDmnInProject('acme-bpmn-map-actions', 'acme-bpmn-sendEvent', blocked, 'c8', undefined, { noAccess });
+  assert.equal(hit, null);
+  assert.deepEqual(noAccess, ['acme-bpmn']);
+  assert.match(notFoundMessage('acme-bpmn-map-actions', 'acme-bpmn-sendEvent', blocked, 'c8', noAccess), /Kein Zugriff auf den Projekt-Ordner «acme-bpmn»/);
+});
+
+test('the message names the real cause - no folders, or the table is not there', async () => {
+  assert.match(notFoundMessage('x', 'acme-bpmn-sendEvent', { projects: [] } as unknown as Model, 'c8', []), /Keine Projekt-Ordner gemerkt/);
+  const noAccess: string[] = [];
+  assert.equal(await findDmnInProject('acme-bpmn-unknown', 'acme-bpmn-sendEvent', model, 'c8', undefined, { noAccess }), null);
+  assert.deepEqual(noAccess, []);
+  assert.match(notFoundMessage('acme-bpmn-unknown', 'acme-bpmn-sendEvent', model, 'c8', noAccess), /camunda8 keine Tabelle «acme-bpmn-unknown»/);
 });
