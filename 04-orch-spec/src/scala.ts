@@ -1410,12 +1410,13 @@ export function renameEnumValue(types: TypeDef[], typeId: string, index: number,
   if (bad || en.values!.some((v, k) => k !== index && caseName(v.name) === name)) return types;
   // a default or example naming the value: FEEL (`= "ONLY GAMIFICATION"`) or Scala (`ReceivingSystem.\`ONLY GAMIFICATION\``)
   // not inside a longer path (`MyIn.Foo` when renaming in `In`)
-  const path = new RegExp(`(?<![\\w.\`])${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`, 'g');
+  const path = `(?<![\\w.\`])${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`;
   const rewrite = (expr: string | undefined) => {
     if (!expr) return expr;
     return expr.trim().startsWith('=')
       ? expr.replace(/"((?:[^"\\]|\\.)*)"/g, (m, v: string) => (caseName(v) === caseName(old) ? JSON.stringify(name) : m))
-      : expr.replace(path, () => `${en.name}.${caseIdent(name)}`);
+      // not inside a string literal of the Scala expression
+      : expr.replace(new RegExp(`"(?:[^"\\\\]|\\\\.)*"|${path}`, 'g'), m => (m.startsWith('"') ? m : `${en.name}.${caseIdent(name)}`));
   };
   const follow = (fs: Field[] | undefined) => fs?.map(f => {
     if (f.type !== typeId) return f;

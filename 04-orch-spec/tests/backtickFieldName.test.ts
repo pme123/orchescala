@@ -430,17 +430,19 @@ test('an error of an enum value stands at the value, like its warning - also for
   assert.deepEqual(issues.filter(i => i.value !== undefined).map(i => [i.value, !!i.warn]), [['a`b', false], ['', false], ['ONLY GAMIFICATION', true]]);
 });
 
-test('renaming an enum value: a longer path with the same ending stays', () => {
+test('renaming an enum value: a longer path with the same ending and a string literal stay', () => {
   const types = [
     { id: 'e', name: 'In', kind: 'enum', values: [{ name: 'Foo' }, { name: 'Bar' }] },
     { id: 'c', name: 'Uses', kind: 'case', fields: [
       { id: 'f', name: 'a', type: 'e', example: 'MyIn.Foo' },
       { id: 'g', name: 'b', type: 'e', example: 'In.Foo' },
       { id: 'h', name: 'c', type: 'e', example: 'X.In.Foo' },
+      // in a string literal of a Scala expression: text, not the value
+      { id: 'i', name: 'd', type: 'e', example: 'In.valueOf("In.Foo")' },
     ] },
   ];
   const next = renameEnumValue(types as never, 'e', 0, 'Baz');
-  assert.deepEqual(next[1].fields?.map(f => f.example), ['MyIn.Foo', 'In.Baz', 'X.In.Foo']);
+  assert.deepEqual(next[1].fields?.map(f => f.example), ['MyIn.Foo', 'In.Baz', 'X.In.Foo', 'In.valueOf("In.Foo")']);
 });
 
 test('suggestions: umlauts and accents are written out, no letter gets lost', () => {
