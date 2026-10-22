@@ -1,4 +1,4 @@
-// Signal und Nachricht am Rand (Boundary-Event): kein Fehler — Name und Korrelation am Schritt.
+// Signal and message on the edge (boundary event): not an error — name and correlation on the step.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';

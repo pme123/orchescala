@@ -1,8 +1,8 @@
-// Scala-Vorschau mit leichter Einfärbung — zum Lesen, nicht zum Bearbeiten.
+// Scala preview with light highlighting — for reading, not for editing.
 //
-// Kein Parser, ein Zeilen-Tokenizer: Kommentare und `@description` gedämpft
-// und kursiv, Schlüsselwörter gedämpft, Typnamen (Grossbuchstabe) in der
-// Klassenfarbe, Zeichenketten in Bernstein. Alles andere bleibt Text.
+// No parser, a line tokenizer: comments and `@description` muted
+// and italic, keywords muted, type names (capital letter) in the
+// class colour, strings in amber. Everything else stays text.
 import type { ReactNode } from 'react';
 
 const KEYWORDS = new Set(['case', 'class', 'enum', 'object', 'given', 'lazy', 'val', 'def', 'type', 'end', 'extends', 'import', 'package', 'derives', 'new']);

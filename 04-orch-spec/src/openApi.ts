@@ -1,23 +1,23 @@
-// OpenAPI eines Orchescala-Projekts → Katalog.
+// OpenAPI of an Orchescala project → catalog.
 //
-// Die `OpenApi.yml` jedes Projekts beschreibt alles, was von aussen ansprechbar
-// ist — und trägt dabei mehr als die element-templates:
+// The `OpenApi.yml` of every project describes everything that is addressable from outside
+// — and carries more than the element templates:
 //
 //   POST /process/globex-savings-openSavingsV1/async     «Process start»
-//        → der Prozess selbst, Eingaben aus dem Request-Schema
+//        → the process itself, inputs from the request schema
 //   GET  /process/…/{id}/variables                «Process variables»
-//        → seine Ausgaben
+//        → its outputs
 //   POST /worker/globex-savings-openSavingsV1-ExtractClientKey   «Worker: …»
-//        → ein Service; das **Topic steht im Pfad**
+//        → a service; the **topic is in the path**
 //   GET  /process/{id}/userTask/X/variables       «UserTask variables: X»
 //   POST /userTask/X/{id}/complete                «UserTask complete: X»
 //
-// Die Schemas bringen Feldbeschreibungen und `required` mit — beides fehlt in
-// den element-templates. Was hier **nicht** steht: die konkreten
-// `_handledErrors`. Die stehen im BPMN, und von dort liest sie der Import.
+// The schemas bring field descriptions and `required` — both are missing in
+// the element templates. What is **not** here: the concrete
+// `_handledErrors`. They are in the BPMN, and the import reads them from there.
 //
-// Bewusst übersprungen: `Init Worker` sowie die Felder `inConfig` — das sind
-// Implementations-Details und gehören nicht in eine Spezifikation.
+// Deliberately skipped: `Init Worker` and the fields `inConfig` — those are
+// implementation details and do not belong in a specification.
 
 import type { DomainType, ServiceDef, ServiceParam } from './types.ts';
 import { deriveObject } from './serviceTypes.ts';
@@ -31,7 +31,7 @@ interface Schema {
   properties?: Record<string, Schema>;
   required?: string[];
   items?: Schema;
-  /** ADT: `enum In: case Iban(…) case Generic(…)` wird zu `oneOf` */
+  /** ADT: `enum In: case Iban(…) case Generic(…)` becomes `oneOf` */
   oneOf?: Schema[];
   anyOf?: Schema[];
   allOf?: Schema[];
@@ -52,8 +52,8 @@ interface Doc {
 }
 
 /**
- * Felder, die zur Verdrahtung gehören und nicht in die Spezifikation:
- * alles mit `_`, die Mock- und Identitäts-Parameter sowie `inConfig`.
+ * Fields that belong to the wiring and not in the specification:
+ * everything with `_`, the mock and identity parameters and `inConfig`.
  */
 const TECHNICAL = new Set([
   '_outputServiceMock', '_manualOutMapping', '_outputMock', '_outputVariables',
@@ -64,10 +64,10 @@ const TECHNICAL = new Set([
 const SKIP_FIELD = (name: string) => name.startsWith('_') || TECHNICAL.has(name);
 
 /**
- * Felder eines Schemas — auch wenn es ein ADT ist. Ein `In`, das in Scala als
- * `enum In: case Iban(…) case Generic(…)` steht, erscheint hier als `oneOf`;
- * für den Katalog zählt die Vereinigung der Varianten (so machen es die
- * element-templates auch). `allOf` wird zusammengefügt.
+ * Fields of a schema — even if it is an ADT. An `In` that is written in Scala as
+ * `enum In: case Iban(…) case Generic(…)` appears here as `oneOf`;
+ * for the catalog the union of the variants counts (the
+ * element templates do it this way too). `allOf` is merged.
  */
 function collect(schema: Schema | undefined, doc: Doc, into = new Map<string, { raw: Schema; required: boolean }>(), depth = 0): Map<string, { raw: Schema; required: boolean }> {
   const s = deref(schema, doc);
@@ -105,10 +105,10 @@ function responseSchema(op: Operation, doc: Doc): Schema | undefined {
 }
 
 /**
- * Schema-Felder als Parameter. Der Vorgabe-Ausdruck ist `= name` — die
- * Konvention im Haus: die Prozessvariable gleichen Namens, in FEEL, der
- * Sprache der Spezifikation. (In den element-templates steht dafür JUEL,
- * mal `#{name}`, mal `#{execution.getVariable('name')}` — dasselbe.)
+ * Schema fields as parameters. The default expression is `= name` — the
+ * in-house convention: the process variable of the same name, in FEEL, the
+ * language of the specification. (The element templates have JUEL for it,
+ * sometimes `#{name}`, sometimes `#{execution.getVariable('name')}` — the same.)
  */
 function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
   const out: ServiceParam[] = [];
@@ -130,9 +130,9 @@ function params(schema: Schema | undefined, doc: Doc): ServiceParam[] {
 type VariantField = { raw: Schema; required: boolean; variants?: string[] };
 
 /**
- * Wie `collect`, aber ein ADT (`oneOf` / `anyOf` mit mehreren Fällen) bleibt
- * erkennbar: Felder, die nur manche Fälle haben, tragen deren Namen
- * (`variants`) und sind nur dort Pflicht. Was alle Fälle haben, ist gemeinsam.
+ * Like `collect`, but an ADT (`oneOf` / `anyOf` with several cases) stays
+ * recognizable: fields that only some cases have carry their names
+ * (`variants`) and are required only there. What all cases have is shared.
  */
 function fieldsWithVariants(schema: Schema | undefined, doc: Doc): Map<string, VariantField> {
   const s = deref(schema, doc);
@@ -153,26 +153,26 @@ function fieldsWithVariants(schema: Schema | undefined, doc: Doc): Map<string, V
 }
 
 export interface OpenApiResult {
-  /** Projekt laut `info.title`, z. B. `globex-savings` */
+  /** Project according to `info.title`, e.g. `globex-savings` */
   project: string;
   services: ServiceDef[];
-  /** `In`/`Out` der Prozesse — für die Typ-Auswahl */
+  /** `In`/`Out` of the processes — for the type picker */
   types: DomainType[];
   processes: string[];
   userTasks: string[];
 }
 
-/** Eine bereits geparste OpenAPI in Katalog-Einträge übersetzen. */
+/** Translate an already parsed OpenAPI into catalog entries. */
 export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
   const doc = (raw ?? {}) as Doc;
-  // `info.title` ist manchmal ein Anzeigename («Globex Cards»); für die
-  // Gruppierung ist die Projekt-Kennung aus der Prozess-ID die bessere Wahl.
+  // `info.title` is sometimes a display name («Globex Cards»); for
+  // grouping, the project identifier from the process ID is the better choice.
   const title = String(doc.info?.title ?? '').trim();
   const services = new Map<string, ServiceDef>();
   const processes: string[] = [];
   const userTasks: string[] = [];
 
-  // Prozess-Ausgaben kommen aus einer eigenen Operation — erst sammeln
+  // Process outputs come from an operation of their own — collect them first
   const processOut = new Map<string, ServiceParam[]>();
 
   const firstProcess = Object.keys(doc.paths ?? {})
@@ -216,7 +216,7 @@ export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
 
     const worker = /^Worker:\s*(.+)$/.exec(id)?.[1];
     if (worker) {
-      // Das Topic ist der Pfad — verlässlicher als jede Ableitung
+      // The topic is the path — more reliable than any derivation
       const topic = /^\/worker\/(.+)$/.exec(path)?.[1] ?? '';
       if (!topic) continue;
       services.set(topic, {
@@ -232,10 +232,10 @@ export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
       continue;
     }
 
-    // Entscheidungen (DMN): operationId `Dmn: <Name>`, die Decision Reference
-    // steht in der Description (der Pfad lowercased den Namen — nicht nehmen,
-    // wenn die Description das Original hat). Ein Business-Rule-Task findet
-    // den Eintrag über seine camunda:decisionRef.
+    // Decisions (DMN): operationId `Dmn: <Name>`, the decision reference
+    // is in the description (the path lowercases the name — don't use it
+    // if the description has the original). A business rule task finds
+    // the entry via its camunda:decisionRef.
     const dmn = /^Dmn:\s*(.+)$/.exec(id)?.[1]?.trim();
     if (dmn) {
       const ref = /Decision Reference[^`]*`([^`]+)`/.exec(op.description ?? '')?.[1]
@@ -254,8 +254,8 @@ export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
       continue;
     }
 
-    // Signale werden nicht gerufen, sondern gesendet — sie gehören in den
-    // Katalog wie ein Service, damit man sie an einem Schritt wählen kann.
+    // Signals are not called but sent — they belong in the
+    // catalog like a service, so that they can be chosen on a step.
     const signal = /^(?:Signal|Message):\s*(.+)$/.exec(id)?.[1]?.trim();
     if (signal && !signal.startsWith('{')) {
       const key = `${project}.signal.${signal}`;
@@ -274,7 +274,7 @@ export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
       if (!userTasks.includes(task)) userTasks.push(task);
       const key = `${project}.userTask.${task}`;
       const prev = services.get(key);
-      // «variables» liefert die Eingaben (Antwort), «complete» die Ausgaben (Request)
+      // «variables» returns the inputs (response), «complete» the outputs (request)
       const isVariables = id.startsWith('UserTask variables');
       const fields = isVariables ? params(responseSchema(op, doc), doc) : params(bodySchema(op, doc), doc);
       services.set(key, {
@@ -288,7 +288,7 @@ export function catalogFromOpenApi(raw: unknown, source = ''): OpenApiResult {
     }
   }
 
-  // Die In/Out der Prozesse als wählbare Typen
+  // The In/Out of the processes as selectable types
   const types: DomainType[] = [];
   for (const processId of processes) {
     const { object, pkg, uncertain } = deriveObject(processId);
@@ -318,7 +318,7 @@ function schemaTitleOr(op: Operation, fallback: string): string {
   return (op.summary && op.summary !== 'Process start' ? op.summary : fallback).trim();
 }
 
-/** Mehrere OpenAPI-Dokumente zusammenführen. Später gelesene ergänzen. */
+/** Merge several OpenAPI documents. Ones read later add to it. */
 export function mergeServices(existing: ServiceDef[], incoming: ServiceDef[]): { services: ServiceDef[]; added: number; updated: number } {
   const byId = new Map(existing.map(s => [s.id, s]));
   let added = 0, updated = 0;

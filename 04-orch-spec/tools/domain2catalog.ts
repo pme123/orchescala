@@ -1,24 +1,24 @@
-// CLI: Orchescala-Domain einlesen → Domain-Katalog in die model.json.
+// CLI: read an Orchescala domain → domain catalog into the model.json.
 //
 //   node tools/domain2catalog.ts <ordner…> [--out sample-data/model.json]
 //   node tools/domain2catalog.ts --from sample-data/model.json
 //
-// Ein Ordner darf ein Projekt sein (`…/globex-savings`) oder ein Ordner darüber
-// (`…/projects`) — dann kommen alle Projekte darunter, alphabetisch.
+// A folder may be a project (`…/globex-savings`) or a folder above it
+// (`…/projects`) — then all projects below it come, alphabetically.
 //
-// `--from` nimmt die **Projektliste aus der model.json** und liest sie in
-// genau dieser Reihenfolge — dieselbe Liste, die der Admin-Bereich zeigt und
-// sortiert. Jeder Lauf schreibt die Liste samt Pfaden zurück, damit der
-// nächste ohne Argumente auskommt.
+// `--from` takes the **project list from the model.json** and reads it in
+// exactly this order — the same list the admin area shows and
+// sorts. Every run writes the list including paths back, so that the
+// next one gets by without arguments.
 //
-// Liest alle `.scala` unterhalb der angegebenen Pfade (ohne target/, Tests)
-// und sammelt `case class` und `enum` — auch die `In`/`Out` innerhalb der
-// Service-Objekte. Dieselbe Logik wie in der App (src/domainScan.ts).
+// Reads all `.scala` below the given paths (without target/, tests)
+// and collects `case class` and `enum` — also the `In`/`Out` inside the
+// service objects. The same logic as in the app (src/domainScan.ts).
 //
-// **Die Reihenfolge der Ordner ist der Vorrang.** Liegt dasselbe Paket in
-// mehreren Projekten (`initech.core.banking.domain.client` und
-// `globex.core.banking.domain.client`), gewinnt das zuerst genannte; das spätere
-// wird verworfen und am Ende gemeldet.
+// **The order of the folders is the precedence.** If the same package is in
+// several projects (`initech.core.banking.domain.client` and
+// `globex.core.banking.domain.client`), the one named first wins; the later one
+// is discarded and reported at the end.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDomainSource, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from '../src/domainScan.ts';
@@ -35,10 +35,10 @@ const pick = (flag: string) => {
 const from = pick('--from');
 const out = pick('--out') ?? from ?? 'sample-data/model.json';
 
-/** Ein Orchescala-Projekt erkennt man an seinem `01-domain`. */
+/** An Orchescala project is recognized by its `01-domain`. */
 const istProjekt = (dir: string) => existsSync(join(dir, '01-domain'));
 
-/** Ein Ordner über den Projekten wird zu seinen Projekten, alphabetisch. */
+/** A folder above the projects becomes its projects, alphabetically. */
 function expand(dir: string): string[] {
   if (istProjekt(dir)) return [dir];
   const unter = readdirSync(dir)
@@ -71,15 +71,15 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
-// Der Pfad im Katalog dient nur der Nachvollziehbarkeit — die absolute
-// Lage der Arbeitskopie gehört nicht in eine Datei, die geteilt wird.
+// The path in the catalog only serves traceability — the absolute
+// location of the working copy does not belong in a file that is shared.
 const shortPath = (p: string) => {
   const at = p.indexOf('/01-domain/');
   return at < 0 ? p : `${p.slice(0, at).split('/').pop()}${p.slice(at)}`;
 };
 
-// Projektweise lesen und zusammenführen — so lässt sich sagen, was jedes
-// Projekt beigetragen hat, und die Reihenfolge bleibt der Vorrang.
+// Read and merge project by project — so it can be said what each
+// project contributed, and the order stays the precedence.
 const model = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : { version: 1, services: [] };
 const bekannt = new Map<string, ProjectFolder>((model.projects ?? []).map((p: ProjectFolder) => [p.name, p]));
 let types: DomainType[] = [];
@@ -118,8 +118,8 @@ const files = { length: alleDateien };
 model.domainTypes = types;
 model.domainDefaults = defaults;
 model.projects = projects;
-// In `domainSources` bleiben nur die Adressen (Doku-Site); die Projekte
-// stehen in der Liste, mitsamt ihrer Reihenfolge.
+// Only the addresses (docs site) stay in `domainSources`; the projects
+// are in the list, including their order.
 model.domainSources = (model.domainSources ?? []).filter((x: string) => /^https?:/i.test(x));
 writeFileSync(out, JSON.stringify(model, null, 2));
 

@@ -1,44 +1,44 @@
-// Zwischenablage für Kopieren und Einfügen — über Prozesse, Tabs und Fenster
-// desselben Browsers hinweg.
+// Clipboard for copy and paste — across processes, tabs and windows
+// of the same browser.
 //
-// **Ablage**: `localStorage` (`orch-spec.clipboard`), damit ein anderer Tab
-// derselben App sie sieht; ein Reload überlebt sie auch. Ein Tab erfährt vom
-// anderen über das `storage`-Event. Klappt der Speicher nicht (privates
-// Fenster, voll), bleibt sie im Tab — kopieren und einfügen geht dann nur dort.
+// **Storage**: `localStorage` (`orch-spec.clipboard`), so that another tab
+// of the same app sees it; it also survives a reload. A tab learns about
+// the other via the `storage` event. If storage does not work (private
+// window, full), it stays in the tab — copy and paste then only work there.
 //
-// **Zwei Fächer**, weil beides nebeneinander sinnvoll ist:
-//  · `diagram` — Elemente aus dem Modeler: der Baum von bpmn-js (serialisiert,
-//    siehe bpmnClipboard.ts) und der Anteil der Spezifikation, der nicht im
-//    BPMN steht (Beschreibung, Mappings, Interaktion samt Klassen …).
-//  · `model` — eine Klasse/Auswahl oder ein einzelnes Feld aus dem Datenmodell,
-//    jeweils mit den eigenen Klassen, auf die es verweist.
+// **Two compartments**, because both make sense side by side:
+//  · `diagram` — elements from the modeler: the tree of bpmn-js (serialized,
+//    see bpmnClipboard.ts) and the part of the specification that is not in the
+//    BPMN (description, mappings, interaction including classes …).
+//  · `model` — a class/choice or a single field from the data model,
+//    each with the own classes it references.
 import { useSyncExternalStore } from 'react';
 import type { EngineId, Field, Interaction, Step, TypeDef } from './types';
 
 const KEY = 'orch-spec.clipboard';
 
-/** Woher das Kopierte stammt — für Hinweise und den Verlauf */
+/** Where the copied content comes from — for hints and the history */
 export interface ClipSource {
   slug: string;
   title: string;
   engine?: EngineId;
 }
 
-/** Der Anteil der Spezifikation an kopierten Diagramm-Elementen */
+/** The specification part of copied diagram elements */
 export interface DiagramSpec {
   source: ClipSource;
-  /** die Schritte nach ihrer ID in der Quelle — auch die verschachtelten */
+  /** the steps by their ID in the source — also the nested ones */
   steps: Record<string, Step>;
-  /** Interaktionen der kopierten Schritte */
+  /** Interactions of the copied steps */
   interactions: Interaction[];
-  /** ihre In/Out-Klassen samt den eigenen Klassen, auf die diese verweisen */
+  /** their In/Out classes together with the own classes these reference */
   types: TypeDef[];
 }
 
 export interface DiagramClip {
-  /** der Baum von bpmn-js, serialisiert */
+  /** the tree of bpmn-js, serialized */
   tree: string;
-  /** fehlt nur kurz: zwischen Kopieren im Modeler und der Antwort der Prozessansicht */
+  /** missing only briefly: between copying in the modeler and the answer of the process view */
   spec?: DiagramSpec;
 }
 
@@ -51,15 +51,15 @@ export interface ClipState {
   model?: ModelClip;
 }
 
-/** Eingefügte Elemente: alte ID in der Quelle → neue ID im Diagramm, dazu der Spezifikationsanteil */
+/** Pasted elements: old ID in the source → new ID in the diagram, plus the specification part */
 export interface PastedElements {
   ids: Record<string, string>;
   spec?: DiagramSpec;
 }
 
-// ── Speicher ─────────────────────────────────────────────────────────────────
+// ── Storage ──────────────────────────────────────────────────────────────────
 
-/** Fallback ohne localStorage: nur dieser Tab */
+/** Fallback without localStorage: this tab only */
 let memory: string | null = null;
 let memoryOnly = false;
 
@@ -68,7 +68,7 @@ function readRaw(): string | null {
   try { return localStorage.getItem(KEY); } catch { return memory; }
 }
 
-// Für useSyncExternalStore muss derselbe Stand dasselbe Objekt sein.
+// For useSyncExternalStore the same state must be the same object.
 let lastRaw: string | null | undefined;
 let lastState: ClipState = {};
 
@@ -103,14 +103,14 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-/** Die Zwischenablage — aktualisiert sich auch, wenn ein anderer Tab kopiert */
+/** The clipboard — also updates when another tab copies */
 export function useClipboard(): ClipState {
   return useSyncExternalStore(subscribe, getClipboard, getClipboard);
 }
 
-// ── Schreiben ────────────────────────────────────────────────────────────────
+// ── Writing ──────────────────────────────────────────────────────────────────
 
-/** Der Modeler hat kopiert — der Spezifikationsanteil folgt mit `attachDiagramSpec` */
+/** The modeler copied — the specification part follows with `attachDiagramSpec` */
 export function setDiagramTree(tree: string) {
   write({ ...getClipboard(), diagram: { tree } });
 }

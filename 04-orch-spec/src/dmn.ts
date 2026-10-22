@@ -1,24 +1,24 @@
-// DMN-Tabellen einer DMN Decision — wie das BPMN zum Ablauf: die Tabelle ist
-// die Quelle, die App leitet ab.
+// DMN tables of a DMN decision — like the BPMN for the flow: the table is
+// the source, the app derives.
 //
-//  · Eingabespalten → Felder des `In` (Typ aus `typeRef`), Ausgabespalten →
-//    Felder des `Out`. Beschreibung, Beispiel und `optional` bleiben über den
-//    Namen erhalten — wie die fachlichen Texte beim Abgleich mit dem BPMN.
-//  · Hit-Policy und Zahl der Ausgaben → Ergebnisform (`decisionResult`), wie
-//    die Fabriken in Orchescala (BpmnDecisionDsl).
-//  · Ablage: `processes/<slug>/<decisionId>.dmn` neben der Spezifikation; ins
-//    Projekt (`src/main/resources/camunda` bzw. `camunda8`) bringt sie der
-//    Helper (`processFromSpec`).
+//  · Input columns → fields of the `In` (type from `typeRef`), output columns →
+//    fields of the `Out`. Description, example and `optional` are kept via the
+//    name — like the business texts in the sync with the BPMN.
+//  · Hit policy and number of outputs → result form (`decisionResult`), like
+//    the factories in Orchescala (BpmnDecisionDsl).
+//  · Storage: `processes/<slug>/<decisionId>.dmn` next to the specification; into the
+//    project (`src/main/resources/camunda` or `camunda8`) the
+//    helper brings them (`processFromSpec`).
 import type { DecisionResult, EngineId, Field, Interaction, ProcessSpec, TypeDef } from './types.ts';
 import { uid } from './util.ts';
 
 export const DMN_NS = 'https://www.omg.org/spec/DMN/20191111/MODEL/';
 
 export interface DmnColumn {
-  /** Feldname: der Ausdruck der Eingabe (`allPoaStatus90`) bzw. `name` der Ausgabe */
+  /** Field name: the expression of the input (`allPoaStatus90`) or `name` of the output */
   name: string;
   label?: string;
-  /** `typeRef` der Spalte — `string`, `integer`, `number`, `boolean`, `date` … */
+  /** `typeRef` of the column — `string`, `integer`, `number`, `boolean`, `date` … */
   typeRef?: string;
 }
 
@@ -41,7 +41,7 @@ function camel(text: string): string {
   return /^\d/.test(s) ? `n${s}` : s;
 }
 
-/** Die Entscheidungen einer DMN-Datei — nur die mit Tabelle (Decision DMNs, wie Orchescala sie kennt). */
+/** The decisions of a DMN file — only those with a table (decision DMNs, as Orchescala knows them). */
 export function parseDmn(xml: string): DmnDecision[] | { error: string } {
   let doc: Document;
   try {
@@ -60,7 +60,7 @@ export function parseDmn(xml: string): DmnDecision[] | { error: string } {
       const ex = kids(inp, 'inputExpression')[0];
       const text = (ex ? kids(ex, 'text')[0]?.textContent : '')?.trim() ?? '';
       const label = inp.getAttribute('label')?.trim() || undefined;
-      // der Ausdruck ist meist der Name der Prozessvariable — sonst die Beschriftung
+      // the expression is mostly the name of the process variable — otherwise the label
       const name = /^[A-Za-z_]\w*$/.test(text) ? text : camel(label ?? text) || `input${i + 1}`;
       return { name, label, typeRef: ex?.getAttribute('typeRef') ?? undefined };
     });
@@ -81,7 +81,7 @@ export function parseDmn(xml: string): DmnDecision[] | { error: string } {
   return out;
 }
 
-/** Die Entscheidung mit dieser ID (die Schreibweise kann zwischen BPMN und DMN abweichen) */
+/** The decision with this ID (the spelling may differ between BPMN and DMN) */
 export function findDecision(xml: string, decisionId: string): DmnDecision | null {
   const all = parseDmn(xml);
   if ('error' in all) return null;
@@ -89,10 +89,10 @@ export function findDecision(xml: string, decisionId: string): DmnDecision | nul
 }
 
 /**
- * Die Ergebnisform aus der Tabelle: eine Ausgabe ist ein einfacher Wert,
- * mehrere ein Objekt; COLLECT (ohne Aggregation), RULE ORDER und OUTPUT
- * ORDER liefern eine Liste davon. Mit Aggregation (SUM, COUNT …) bleibt es
- * ein einzelner Wert.
+ * The result form from the table: one output is a simple value,
+ * several an object; COLLECT (without aggregation), RULE ORDER and OUTPUT
+ * ORDER yield a list of them. With aggregation (SUM, COUNT …) it stays
+ * a single value.
  */
 export function decisionResultOf(d: DmnDecision): DecisionResult {
   const list = ['RULE ORDER', 'OUTPUT ORDER'].includes(d.hitPolicy) || (d.hitPolicy === 'COLLECT' && !d.aggregation);
@@ -100,7 +100,7 @@ export function decisionResultOf(d: DmnDecision): DecisionResult {
   return list ? (one ? 'collectEntries' : 'resultList') : (one ? 'singleEntry' : 'singleResult');
 }
 
-/** `typeRef` → Scala-Typ. In Camunda 7 ist `date` ein Zeitpunkt, in Camunda 8 ein Datum. */
+/** `typeRef` → Scala type. In Camunda 7 `date` is a timestamp, in Camunda 8 a date. */
 export function scalaTypeOf(typeRef: string | undefined, engine: EngineId | undefined): string | null {
   switch ((typeRef ?? '').trim().toLowerCase()) {
     case 'string': return 'String';
@@ -114,7 +114,7 @@ export function scalaTypeOf(typeRef: string | undefined, engine: EngineId | unde
   }
 }
 
-/** Scala-Typ → `typeRef` der Engine — eine Auswahl (enum) ist ein Text */
+/** Scala type → `typeRef` of the engine — a selection (enum) is a text */
 export function typeRefOf(type: string, engine: EngineId | undefined): string {
   const c8 = engine === 'c8';
   switch (type) {
@@ -128,7 +128,7 @@ export function typeRefOf(type: string, engine: EngineId | undefined): string {
   }
 }
 
-/** Die Felder eines Members nach den Spalten — Bestehendes behält seine Angaben */
+/** The fields of a member according to the columns — existing ones keep their details */
 function syncFields(old: Field[] | undefined, cols: DmnColumn[], engine: EngineId | undefined): Field[] {
   const byName = new Map((old ?? []).map(f => [f.name, f]));
   return cols.map(col => {
@@ -144,13 +144,13 @@ function syncFields(old: Field[] | undefined, cols: DmnColumn[], engine: EngineI
 
 export interface DmnSync {
   spec: ProcessSpec;
-  /** was sich geändert hat, lesbar — leer, wenn alles schon passte */
+  /** what has changed, readable — empty if everything already fit */
   changes: string[];
 }
 
 /**
- * `In` und `Out` der Interaktion `iaId` nach der Tabelle — fehlende Klassen
- * entstehen, Felder ohne Spalte fallen weg, die Ergebnisform folgt der Tabelle.
+ * `In` and `Out` of the interaction `iaId` according to the table — missing classes
+ * are created, fields without a column are dropped, the result form follows the table.
  */
 export function syncDecision(spec: ProcessSpec, iaId: string, d: DmnDecision): DmnSync {
   const ia = (spec.interactions ?? []).find(i => i.id === iaId);
@@ -186,8 +186,8 @@ const xmlAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').
 const xmlText = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 /**
- * Eine neue Tabelle aus `In` und `Out` — je Feld eine Spalte, ohne Regeln.
- * Hit-Policy nach der Ergebnisform; Kopf für die Engine (Camunda Modeler).
+ * A new table from `In` and `Out` — one column per field, without rules.
+ * Hit policy according to the result form; header for the engine (Camunda Modeler).
  */
 export function newDmn(decisionId: string, name: string, inFields: Field[], outFields: Field[], form: DecisionResult, engine: EngineId | undefined): string {
   const c8 = engine === 'c8';
@@ -218,12 +218,12 @@ ${outputs}
 `;
 }
 
-/** Dateiname im Projekt — wie beim BPMN die ID ohne Firma: `product-orderCardV1-SubStatusKeyDmn.dmn` */
+/** File name in the project — like the BPMN, the ID without company: `product-orderCardV1-SubStatusKeyDmn.dmn` */
 export function dmnFileName(ia: Pick<Interaction, 'key' | 'dmnFile'>, company: string | undefined): string {
   if (typeof ia.dmnFile === 'string' && ia.dmnFile) return ia.dmnFile;
   const id = ia.key ?? 'decision';
   return `${company && id.startsWith(`${company}-`) ? id.slice(company.length + 1) : id}.dmn`;
 }
 
-/** Ablage neben der Spezifikation */
+/** Storage next to the specification */
 export const dmnPath = (dir: string, slug: string, decisionId: string) => `${dir}/${slug}/${decisionId}.dmn`;

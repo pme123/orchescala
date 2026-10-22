@@ -1,27 +1,27 @@
-// Ausprägungen eines Service-`In` bzw. `Out`.
+// Variants of a service `In` or `Out`.
 //
-// Ein `In`, das in Scala als `enum In: case AdUser(adUser: String) case
-// FinnovaUser(finnovaUser: String)` steht, nimmt **einen** der Fälle — nicht
-// alle Felder zugleich. Der Schritt wählt deshalb seine Ausprägung
-// (`inVariant` / `outVariant`). Ohne Wahl gelten nur die gemeinsamen Felder;
-// die Felder der Fälle sind ausgeblendet, nicht Pflicht und werden nicht
-// geprüft. Es geht auch «alle Ausprägungen» (`*`): bei den **Ausgaben**
-// liefert der Service zwar nur einen Fall, aber welchen, entscheidet er — die
-// Ausgaben dürfen deshalb die Felder aller Fälle lesen. Bei den **Eingaben**
-// unterstützt der Worker mehrere Fälle und entscheidet beim Unmarshalling,
-// welcher es ist — die Felder aller Fälle sind erlaubt, Pflicht sind nur die
-// gemeinsamen (wie bei einer Weiche zur Laufzeit).
+// An `In` that is written in Scala as `enum In: case AdUser(adUser: String) case
+// FinnovaUser(finnovaUser: String)` takes **one** of the cases — not
+// all fields at once. The step therefore chooses its variant
+// (`inVariant` / `outVariant`). Without a choice only the shared fields apply;
+// the fields of the cases are hidden, not mandatory and not
+// checked. «alle Ausprägungen» (`*`) is also possible: for the **outputs**
+// the service delivers only one case, but it decides which one — the
+// outputs may therefore read the fields of all cases. For the **inputs**
+// the worker supports several cases and decides during unmarshalling
+// which one it is — the fields of all cases are allowed, only the
+// shared ones are mandatory (as with a switch at runtime).
 //
-// Quelle der Fälle: die eigene In-/Out-Klasse (Interaktion) als enum mit
-// Feldern je Fall, sonst der Domain-Katalog (`cases` des enum), sonst die
-// OpenAPI (`oneOf` → `variants` am Parameter).
+// Source of the cases: the own In/Out class (interaction) as an enum with
+// fields per case, otherwise the domain catalog (`cases` of the enum), otherwise the
+// OpenAPI (`oneOf` → `variants` on the parameter).
 //
-// **Weichen.** Ein eigener Decoder kann den Fall auch selbst wählen: aus
-// `useCase` direkt oder aus `clientType` (er setzt `useCase` dann selbst —
-// `routing` im Domain-Katalog, das direkte Feld zuerst). Eine der Weichen
-// genügt; keine ist für sich Pflicht. Ist eine andere Weiche als das direkte
-// Feld aktiv, wählt der Decoder den Fall erst zur Laufzeit: die Felder aller
-// Fälle sind erlaubt, Pflicht sind nur die gemeinsamen.
+// **Switches.** A custom decoder can also choose the case itself: from
+// `useCase` directly or from `clientType` (it then sets `useCase` itself —
+// `routing` in the domain catalog, the direct field first). One of the switches
+// is enough; none is mandatory on its own. If a switch other than the direct
+// field is active, the decoder chooses the case only at runtime: the fields of all
+// cases are allowed, only the shared ones are mandatory.
 
 import type { DomainField, Field, Mapping, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
 import { stepDomainMember } from './feel';
@@ -35,22 +35,22 @@ export interface VariantCase {
 
 export interface Variants {
   cases: VariantCase[];
-  /** Felder, die jede Ausprägung hat */
+  /** Fields every variant has */
   common: Set<string>;
-  /** Felder, die nur manche Ausprägungen haben */
+  /** Fields only some variants have */
   specific: Set<string>;
-  /** die Weichen des Decoders, das direkte Feld zuerst — eine davon genügt (siehe oben) */
+  /** the switches of the decoder, the direct field first — one of them is enough (see above) */
   routing?: string[];
 }
 
 export interface Chosen {
-  /** gewählte bzw. aus den Zeilen erkannte Ausprägung — null: keine */
+  /** chosen variant or the one recognized from the rows — null: none */
   name: string | null;
-  /** nicht gewählt, sondern aus den aktiven Zeilen erkannt */
+  /** not chosen, but recognized from the active rows */
   inferred: boolean;
-  /** aktive Zeilen aus mehreren Ausprägungen zugleich — das stimmt so nicht */
+  /** active rows from several variants at once — that is not right */
   mixed: string[];
-  /** die Weiche, über die der Decoder den Fall zur Laufzeit wählt (`clientType`) */
+  /** the switch via which the decoder chooses the case at runtime (`clientType`) */
   runtime?: string;
 }
 
@@ -58,46 +58,46 @@ const NONE: Chosen = { name: null, inferred: false, mixed: [] };
 
 export const variantKey = (list: MappingList) => (list === 'inputs' ? 'inVariant' : 'outVariant');
 
-/** Wahl «alle Ausprägungen» — der Service bzw. Worker entscheidet, welcher Fall es ist */
+/** Choice «alle Ausprägungen» — the service or worker decides which case it is */
 export const ALL_VARIANTS = '*';
 
 function build(cases: VariantCase[], common: string[]): Variants | null {
   if (cases.length < 2 || !cases.some(c => c.fields.length)) return null;
   const all = new Set(common);
-  // was in jedem Fall vorkommt, ist ebenfalls gemeinsam
+  // what occurs in every case is shared as well
   for (const f of cases[0].fields) if (cases.every(c => c.fields.some(x => x.name === f.name))) all.add(f.name);
   const specific = new Set(cases.flatMap(c => c.fields.map(f => f.name)).filter(n => !all.has(n)));
   return specific.size ? { cases, common: all, specific } : null;
 }
 
-/** Die eigene In- bzw. Out-Klasse des Schritts (Interaktion) — null ohne */
+/** The own In or Out class of the step (interaction) — null without one */
 export function classOf(step: Step, spec: ProcessSpec, list: MappingList): TypeDef | null {
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
   const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
   return id ? (spec.types ?? []).find(t => t.id === id) ?? null : null;
 }
 
-/** Die Felder einer Klasse: die gemeinsamen, bei einem enum dazu die aller Fälle */
+/** The fields of a class: the shared ones, for an enum plus those of all cases */
 export function classFieldsOf(t: TypeDef): Field[] {
   const out = new Map<string, Field>();
   for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) if (f.name && !out.has(f.name)) out.set(f.name, f);
   return [...out.values()];
 }
 
-/** Die Weichen dazu — nur die, die es als Feld gibt */
+/** The matching switches — only those that exist as a field */
 function withRouting(v: Variants | null, routing: string[] | undefined): Variants | null {
   const known = (routing ?? []).filter(n => v?.common.has(n) || v?.specific.has(n));
   return v && known.length >= 2 ? { ...v, routing: known } : v;
 }
 
-/** Die Ausprägungen des `In` bzw. `Out` am Schritt — null, wenn es keine gibt. */
+/** The variants of the `In` or `Out` at the step — null if there are none. */
 export function variantsOf(step: Step, spec: ProcessSpec, model: Model | null, list: MappingList, service: ServiceDef | null): Variants | null {
-  // eine eigene In-/Out-Klasse (Interaktion): ihre Fälle, wenn sie ein enum mit Feldern ist
+  // an own In/Out class (interaction): its cases, if it is an enum with fields
   if ((spec.interactions ?? []).some(i => i.stepId === step.id)) {
     const t = classOf(step, spec, list);
     if (t?.kind !== 'enum' || !t.values?.length) return null;
     const v = build(t.values.map(c => ({ name: c.name, fields: (c.fields ?? []).filter(f => f.name) })), (t.fields ?? []).map(f => f.name).filter(Boolean));
-    // die Weichen stehen im Decoder — also in der Domain, aus der die Klasse kommt
+    // the switches are in the decoder — so in the domain the class comes from
     const dom = list === 'inputs' && v
       ? (model?.domainTypes ?? []).find(d => d.id === t.domainId) ?? stepDomainMember(step, spec, model, 'In') : null;
     return withRouting(v, dom?.routing);
@@ -117,39 +117,39 @@ export function variantsOf(step: Step, spec: ProcessSpec, model: Model | null, l
   );
 }
 
-/** Die gewählte Ausprägung — oder die, zu der die aktiven Zeilen eindeutig gehören. */
+/** The chosen variant — or the one the active rows unambiguously belong to. */
 export function chosenVariant(step: Step, list: MappingList, v: Variants | null): Chosen {
   if (!v) return NONE;
   const explicit = step[variantKey(list)];
   if (explicit === ALL_VARIANTS) return { name: ALL_VARIANTS, inferred: false, mixed: [] };
   if (typeof explicit === 'string' && v.cases.some(c => c.name === explicit)) return { name: explicit, inferred: false, mixed: [] };
-  // eine Weiche ausser dem gemeinsamen Feld aktiv: der Decoder wählt den Fall zur Laufzeit
+  // a switch other than the shared field is active: the decoder chooses the case at runtime
   if (list === 'inputs' && v.routing) {
     const on = new Set((step.inputs ?? []).filter(m => !m.disabled).map(m => m.name));
-    // auch neben `useCase`: der Decoder fragt die übrigen Weichen zuerst, `useCase` gilt nur ohne sie
+    // also next to `useCase`: the decoder asks the other switches first, `useCase` only applies without them
     const runtime = v.routing.slice(1).find(n => on.has(n));
     if (runtime) return { name: ALL_VARIANTS, inferred: true, mixed: [], runtime };
   }
   const active = new Set((step[list] ?? []).filter(m => !m.disabled && v.specific.has(m.name)).map(m => m.name));
   if (!active.size) return NONE;
   const hit = v.cases.filter(c => c.fields.some(f => active.has(f.name)));
-  // eindeutig nur, wenn ein Fall alle aktiven Felder abdeckt
+  // unambiguous only if one case covers all active fields
   const covering = hit.filter(c => [...active].every(n => c.fields.some(f => f.name === n)));
   if (covering.length === 1) return { name: covering[0].name, inferred: true, mixed: [] };
   return hit.length > 1 ? { name: null, inferred: false, mixed: hit.map(c => c.name) } : NONE;
 }
 
-/** Gehört das Feld zur gewählten Ausprägung (oder zu allen)? */
+/** Does the field belong to the chosen variant (or to all)? */
 export function variantAllows(v: Variants | null, chosen: Chosen, name: string): boolean {
   if (!v || !v.specific.has(name) || chosen.name === ALL_VARIANTS) return true;
   return !!chosen.name && !!v.cases.find(c => c.name === chosen.name)?.fields.some(f => f.name === name);
 }
 
 /**
- * Ist das Feld Pflicht, sofern es laut Domain nicht optional ist? Nicht die
- * Weichen (eine genügt — siehe `routingMissing`), und wählt der Decoder den
- * Fall erst zur Laufzeit (Weiche oder «alle Ausprägungen»), nicht die Felder
- * der Fälle.
+ * Is the field mandatory, provided it is not optional according to the domain? Not the
+ * switches (one is enough — see `routingMissing`), and if the decoder chooses the
+ * case only at runtime (switch or «alle Ausprägungen»), not the fields
+ * of the cases.
  */
 export function variantRequires(v: Variants | null, chosen: Chosen, name: string): boolean {
   if (v?.routing?.includes(name)) return false;
@@ -157,21 +157,21 @@ export function variantRequires(v: Variants | null, chosen: Chosen, name: string
   return variantAllows(v, chosen, name);
 }
 
-/** Die Weichen, wenn keine davon eine aktive Zeile hat — sonst null. */
+/** The switches, if none of them has an active row — otherwise null. */
 export function routingMissing(v: Variants | null, rows: Mapping[]): string[] | null {
   if (!v?.routing) return null;
   return rows.some(m => !m.disabled && v.routing!.includes(m.name.trim())) ? null : v.routing;
 }
 
-/** Warnung: die Eingaben haben keine Ausprägung — dieselbe in der Übersicht und an der Tabelle */
+/** Warning: the inputs have no variant — the same in the overview and at the table */
 export const noVariantText = (v: Variants): string =>
   `Keine Ausprägung gewählt — der Service erwartet eine davon (${v.cases.map(c => c.name).join(', ')}). `
   + 'Ausprägung wählen — oder «alle Ausprägungen», wenn der Worker beim Unmarshalling entscheidet.';
 
-/** «useCase» oder «clientType» */
+/** «useCase» or «clientType» */
 export const routingText = (routing: string[]): string => routing.map(n => `«${n}»`).join(' oder ');
 
-/** Die Felder der gewählten Ausprägung samt den gemeinsamen */
+/** The fields of the chosen variant including the shared ones */
 export function variantFieldsOf(v: Variants, chosen: string | null): VariantCase['fields'] {
   const fields = new Map<string, VariantCase['fields'][number]>();
   for (const c of v.cases) for (const f of c.fields) if (v.common.has(f.name) && !fields.has(f.name)) fields.set(f.name, f);
@@ -180,13 +180,13 @@ export function variantFieldsOf(v: Variants, chosen: string | null): VariantCase
 }
 
 /**
- * Die Zeilen nach einer Wahl: die Felder der Ausprägung sind aktiv (fehlende
- * kommen dazu), die der anderen abgewählt — nicht entfernt, damit ein
- * Zurückwechseln die erfassten Ausdrücke wiederfindet.
+ * The rows after a choice: the fields of the variant are active (missing ones
+ * are added), those of the others deselected — not removed, so that
+ * switching back finds the entered expressions again.
  */
 export function rowsForVariant(rows: Mapping[], v: Variants, chosen: string | null, list: MappingList): Mapping[] {
-  // alle Ausprägungen: nichts dazu — fehlende Felder über «+ aus Katalog». Die
-  // Ausgaben lesen alles; bei den Eingaben bleibt angehakt, was der Prozess mitgibt
+  // all variants: nothing added — missing fields via «+ aus Katalog». The
+  // outputs read everything; for the inputs what the process passes stays checked
   if (chosen === ALL_VARIANTS) {
     if (list === 'inputs') return rows;
     return rows.map(m => (v.specific.has(m.name) && m.disabled ? (({ disabled: _, ...rest }) => rest)(m) : m));

@@ -1,23 +1,23 @@
-// Katalog von der Orchescala-Doku-Site.
+// Catalog from the Orchescala docs site.
 //
-// Die Site führt je Firma eine `catalog.html` mit allen Einträgen der
-// Projekte. Jeder Eintrag steckt vollständig im Link:
+// The site has a `catalog.html` per company with all entries of the
+// projects. Each entry is fully contained in the link:
 //
 //   .../site/globex/globex-savings/OpenApi.html#operation/Bpmn:%20openSavingsV1
-//        │      │      │                                 │      └ Name
-//        │      │      └ Projekt                         └ Art
-//        │      └ Firma
-//        └ Basis
+//        │      │      │                                 │      └ name
+//        │      │      └ project                         └ kind
+//        │      └ company
+//        └ base
 //
-// Daraus entstehen die **Prozesse** — also das, was sich als Subprozess
-// (Call Activity) rufen lässt — mit ihren `In` und `Out`.
+// From this come the **processes** — i.e. what can be called as a subprocess
+// (call activity) — with their `In` and `Out`.
 //
-// Bewusst nur Prozesse: deren Paket lässt sich aus Projekt und Name sicher
-// ableiten (`globex-savings` + `openSavingsV1` → `globex.savings.domain.openSavings.v1`),
-// weil der Name die Version trägt. Bei Workern fehlt in der Site die
-// API-Ebene (`personV1` in `globex-crm-personV1.GetCustomer`) — dort
-// wäre der Import geraten. Worker kommen deshalb weiter aus den
-// element-templates, wo auch das Mapping steht.
+// Deliberately only processes: their package can be reliably derived from project and name
+// (`globex-savings` + `openSavingsV1` → `globex.savings.domain.openSavings.v1`),
+// because the name carries the version. For workers the site lacks the
+// API level (`personV1` in `globex-crm-personV1.GetCustomer`) — there
+// the import would be guesswork. Workers therefore still come from the
+// element templates, where the mapping is as well.
 
 import type { DomainType } from './types';
 
@@ -25,11 +25,11 @@ export type SiteEntryKind = 'process' | 'worker' | 'message' | 'userTask';
 
 export interface SiteEntry {
   kind: SiteEntryKind;
-  /** Name laut Katalog, z. B. `openSavingsV1` */
+  /** name according to the catalog, e.g. `openSavingsV1` */
   name: string;
-  /** Projekt, z. B. `globex-savings` */
+  /** project, e.g. `globex-savings` */
   project: string;
-  /** Firma, z. B. `globex` */
+  /** company, e.g. `globex` */
   company: string;
   url: string;
 }
@@ -38,12 +38,12 @@ const KIND: Record<string, SiteEntryKind> = {
   Bpmn: 'process', Worker: 'worker', Message: 'message',
 };
 
-// Die Links stehen als absolute oder relative Adresse — in der gerenderten Seite als
-// `href="…"`, in der Quelle `catalog.md` (Orchescala `00-docs/src/docs`) als `](…)`;
-// beide tragen dieselben Bestandteile.
+// The links are absolute or relative addresses — in the rendered page as
+// `href="…"`, in the source `catalog.md` (Orchescala `00-docs/src/docs`) as `](…)`;
+// both carry the same parts.
 const LINK = /(?:href="|\]\()([^")]*?\/([^/")]+)\/([^/")]+)\/OpenApi\.html#operation\/([A-Za-z]+)[^")]*?(?:%20|:\s|:%20)([^")]+))(?:"|\))/g;
 
-/** Katalog-Einträge aus `catalog.html` (gerendert) oder `catalog.md` (Quelle). */
+/** Catalog entries from `catalog.html` (rendered) or `catalog.md` (source). */
 export function parseCatalogHtml(html: string): SiteEntry[] {
   const out: SiteEntry[] = [];
   const seen = new Set<string>();
@@ -60,7 +60,7 @@ export function parseCatalogHtml(html: string): SiteEntry[] {
   return out;
 }
 
-/** Die `catalog.html` je Firma aus der Startseite der Site. */
+/** The `catalog.html` per company from the start page of the site. */
 export function catalogUrls(indexHtml: string, baseUrl: string): string[] {
   const base = baseUrl.replace(/\/?$/, '/');
   const urls = new Set<string>();
@@ -70,7 +70,7 @@ export function catalogUrls(indexHtml: string, baseUrl: string): string[] {
   return [...urls];
 }
 
-/** Die `In`/`Out` eines Prozesses — das, was ein Subprozess-Aufruf braucht. */
+/** The `In`/`Out` of a process — what a subprocess call needs. */
 const MEMBERS = ['In', 'Out'] as const;
 
 const camel = (s: string) => s.split(/[-_.]/).filter(Boolean)
@@ -78,17 +78,17 @@ const camel = (s: string) => s.split(/[-_.]/).filter(Boolean)
 const upper = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 
 /**
- * Paket und Objekt eines Prozesses aus Projekt und Prozessnamen:
+ * Package and object of a process from project and process name:
  *
  *   globex-savings     + openSavingsV1     → globex.savings.domain.openSavings.v1 · OpenSavings
  *   globex-product + openAccountV2 → globex.product.domain.openAccount.v2 · OpenAccount
  *
- * Die Version steht im Package, nicht im Objektnamen.
+ * The version is in the package, not in the object name.
  *
- * Sicher ist das nur, wenn der Name die Version trägt und keine Bindestriche
- * enthält. Sonst ist der Katalogname die BPMN-Prozess-ID und nicht der
- * Scala-Name (`globex-ordercard` heisst dort `OrderCardV1`) — solche
- * Einträge sind als «Import prüfen» markiert.
+ * This is only reliable if the name carries the version and contains no hyphens.
+ * Otherwise the catalog name is the BPMN process ID and not the
+ * Scala name (`globex-ordercard` is called `OrderCardV1` there) — such
+ * entries are marked as «Import prüfen».
  */
 export function processTarget(project: string, name: string): { object: string; pkg: string; uncertain: boolean } {
   const segments = project.split('-').filter(Boolean);
@@ -127,14 +127,14 @@ export function typesFromSite(entries: SiteEntry[], source: string): DomainType[
 export interface SiteResult {
   entries: SiteEntry[];
   types: DomainType[];
-  /** Adressen, die gelesen wurden */
+  /** addresses that were read */
   read: string[];
 }
 
 /**
- * Die Site einlesen. `url` darf die Startseite (`.../site/`) oder direkt eine
- * `catalog.html` sein. Das Holen übernimmt der Aufrufer — im Browser `fetch`,
- * im Werkzeug die Datei bzw. `fetch` in Node.
+ * Read the site. `url` may be the start page (`.../site/`) or directly a
+ * `catalog.html`. The caller does the fetching — in the browser `fetch`,
+ * in the tool the file or `fetch` in Node.
  */
 export async function readSite(
   url: string,
@@ -143,7 +143,7 @@ export async function readSite(
   const first = await get(url);
   const pages = /catalog\.(html|md)$/i.test(url) ? [url] : catalogUrls(first, url);
   if (!pages.length) {
-    // Vielleicht ist die Startseite schon der Katalog
+    // Maybe the start page already is the catalog
     const direct = parseCatalogHtml(first);
     if (direct.length) return { entries: direct, types: typesFromSite(direct, url), read: [url] };
     throw new Error('Auf dieser Seite steht kein Katalog (keine catalog.html verlinkt).');
@@ -158,7 +158,7 @@ export async function readSite(
   return { entries, types: typesFromSite(entries, url), read };
 }
 
-/** Zählung für die Rückmeldung. */
+/** Count for the feedback. */
 export function countByKind(entries: SiteEntry[]): Record<SiteEntryKind, number> {
   const counts: Record<SiteEntryKind, number> = { process: 0, worker: 0, message: 0, userTask: 0 };
   for (const e of entries) counts[e.kind]++;
@@ -166,9 +166,9 @@ export function countByKind(entries: SiteEntry[]): Record<SiteEntryKind, number>
 }
 
 /**
- * Was der Katalog schon **exakt** kennt (aus den Quellen eingelesen), bleibt.
- * Die Site liefert nur abgeleitete Pakete — sie soll Lücken füllen, nicht
- * gleichnamige Einträge daneben stellen.
+ * What the catalog already knows **exactly** (read from the sources) stays.
+ * The site only provides derived packages — it should fill gaps, not
+ * put same-named entries next to them.
  */
 export function fillGapsOnly(incoming: DomainType[], existing: DomainType[]): DomainType[] {
   const known = new Set(existing.map(t => t.name));

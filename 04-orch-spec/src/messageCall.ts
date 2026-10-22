@@ -1,56 +1,56 @@
 import type { EngineId, ProcessSpec, Step } from './types';
 
-// ── Eine fangende Nachricht senden ───────────────────────────────────────────
+// ── Send a catching message ──────────────────────────────────────────────────
 //
-// Das Gateway nimmt `POST /message/{messageName}` mit `businessKey` oder
-// `processInstanceId` als Query-Parameter — die beiden Wege zu korrelieren; am
-// Schritt wird einer gewählt. Camunda 8 hat dafür den Korrelationsschlüssel der
-// Nachricht (`zeebe:subscription`): `=businessKey` bzw. `=processInstanceId`
-// (die ID der Instanz, gesetzt vom InitWorker) — das Gateway gibt ihm die
-// `processInstanceId`, sonst den `businessKey` (wie in Camunda 7: die ID gewinnt).
-// Camunda 7 korreliert direkt über einen der beiden; die Wahl steht dort nur in
-// der Spezifikation (Doku und die Umstellung auf Camunda 8).
+// The gateway takes `POST /message/{messageName}` with `businessKey` or
+// `processInstanceId` as query parameter — the two ways to correlate; at the
+// step one of them is chosen. For this Camunda 8 has the correlation key of the
+// message (`zeebe:subscription`): `=businessKey` or `=processInstanceId`
+// (the ID of the instance, set by the InitWorker) — the gateway gives it the
+// `processInstanceId`, otherwise the `businessKey` (as in Camunda 7: the ID wins).
+// Camunda 7 correlates directly via one of the two; there the choice is only in
+// the specification (docs and the migration to Camunda 8).
 
 export type CorrelationChoice = 'businessKey' | 'processInstanceId';
 
-/** Der Korrelationsschlüssel je Wahl — so steht er in Camunda 8 im BPMN */
+/** The correlation key per choice — that is how it appears in the BPMN in Camunda 8 */
 export const CORRELATION_KEY: Record<CorrelationChoice, string> = {
   businessKey: '=businessKey',
   processInstanceId: '=processInstanceId',
 };
 
 export interface MessageCorrelation {
-  /** einer der beiden Wege — `null`: keiner gewählt bzw. ein anderer Ausdruck */
+  /** one of the two ways — `null`: none chosen or another expression */
   choice: CorrelationChoice | null;
-  /** Query-Parameter des Gateways */
+  /** Query parameter of the gateway */
   param: CorrelationChoice;
-  /** Platzhalter für den Wert, z. B. `{{businessKey}}` */
+  /** Placeholder for the value, e.g. `{{businessKey}}` */
   value: string;
-  /** der Ausdruck, wie er am Schritt steht */
+  /** the expression as it is at the step */
   expression?: string;
-  /** Camunda 8 ohne Schlüssel — die Nachricht findet keine wartende Instanz */
+  /** Camunda 8 without a key — the message finds no waiting instance */
   missing?: boolean;
-  /** Camunda 7 ohne Wahl: der Sender nimmt einen der beiden */
+  /** Camunda 7 without a choice: the sender takes one of the two */
   either?: boolean;
-  /** ein fester Wert statt `= …` — alle Instanzen teilen ihn */
+  /** a fixed value instead of `= …` — all instances share it */
   fixed?: boolean;
   /**
-   * `= processInstanceKey` — der alte Name der Variable; der InitWorker setzt
-   * heute `processInstanceId` (engine-agnostisch, wie das Gateway)
+   * `= processInstanceKey` — the old name of the variable; today the InitWorker
+   * sets `processInstanceId` (engine-agnostic, like the gateway)
    */
   misnamed?: boolean;
 }
 
-/** Wartet der Schritt auf eine Nachricht (Zwischenereignis, Empfangsaufgabe)? */
+/** Does the step wait for a message (intermediate event, receive task)? */
 export const waitsForMessage = (step: Step): boolean =>
   step.kind === 'receive' || (step.kind === 'event' && step.eventKind === 'message' && step.eventDirection === 'catch');
 
-/** Nur wer auf eine Nachricht wartet — sonst `null`. */
+/** Only steps that wait for a message — otherwise `null`. */
 export function messageCorrelation(step: Step, engine: EngineId | undefined): MessageCorrelation | null {
   return waitsForMessage(step) ? correlationOf(step.correlationKey, engine) : null;
 }
 
-/** Ein Korrelationsschlüssel — am wartenden Schritt oder an einer Nachricht am Rand (Boundary-Event). */
+/** A correlation key — at the waiting step or at a message on the boundary (boundary event). */
 export function correlationOf(expression: string | undefined, engine: EngineId | undefined): MessageCorrelation {
   const of = (choice: CorrelationChoice) => ({ choice, param: choice, value: `{{${choice}}}`, expression });
   if (!expression?.trim()) {
@@ -63,21 +63,21 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   if (body === 'businessKey') return of('businessKey');
   if (body === 'processInstanceId') return of('processInstanceId');
   if (body === 'processInstanceKey') return { ...of('processInstanceId'), choice: null, misnamed: true };
-  // eine andere Variable: ihr Wert ist der Schlüssel; sonst ein Ausdruck, den der Sender ausrechnet
+  // another variable: its value is the key; otherwise an expression the sender computes
   const value = /^[A-Za-z_][\w.]*$/.test(body) ? `{{${body.split('.').pop()}}}` : `<${body}>`;
   return { choice: null, param: 'businessKey', value, expression };
 }
 
 /**
- * Die gewählten Schlüssel je Schritt — für die Umstellung auf Camunda 8, die
- * sonst `=businessKey` vorschlägt.
+ * The chosen keys per step — for the migration to Camunda 8, which
+ * otherwise suggests `=businessKey`.
  */
 export function correlationKeysOf(spec: Pick<ProcessSpec, 'steps'>): Record<string, string> {
   const out: Record<string, string> = {};
   const walk = (steps: Step[]) => {
     for (const s of steps) {
       if (waitsForMessage(s) && s.correlationKey?.trim()) out[s.id] = s.correlationKey.trim();
-      // eine Nachricht am Rand wartet auch — ihr Element ist das Boundary-Event
+      // a message on the boundary waits too — its element is the boundary event
       for (const e of s.errors ?? []) {
         if (e.eventKind === 'message' && e.boundaryId && e.correlationKey?.trim()) out[e.boundaryId] = e.correlationKey.trim();
       }
@@ -88,14 +88,14 @@ export function correlationKeysOf(spec: Pick<ProcessSpec, 'steps'>): Record<stri
   return out;
 }
 
-/** Die Felder des `In` der Nachricht — leer, wenn sie kein eigenes Objekt hat. */
+/** The fields of the `In` of the message — empty if it has no own object. */
 function inFields(step: Step, spec: Pick<ProcessSpec, 'interactions' | 'types'>): string[] {
   const ia = spec.interactions?.find(i => i.stepId === step.id);
   const t = ia?.inTypeId ? spec.types?.find(x => x.id === ia.inTypeId) : undefined;
   return (t?.fields ?? []).map(f => f.name);
 }
 
-/** Der Aufruf am Gateway — wie in Postman: `{{baseUrl}}` und die Variablen als Platzhalter. */
+/** The call at the gateway — as in Postman: `{{baseUrl}}` and the variables as placeholders. */
 export function messageRequest(step: Step, corr: MessageCorrelation, spec: Pick<ProcessSpec, 'interactions' | 'types'>): string {
   const fields = inFields(step, spec);
   const body = fields.length ? `{\n${fields.map(f => `  "${f}": …`).join(',\n')}\n}` : '{ }';
@@ -107,14 +107,14 @@ export function messageRequest(step: Step, corr: MessageCorrelation, spec: Pick<
   ].join('\n');
 }
 
-/** Kann der Schritt eine Nachricht bzw. ein Signal tragen? */
+/** Can the step carry a message or a signal? */
 export const carriesMessage = (step: Step): boolean =>
   step.messageName !== undefined || step.eventKind === 'message' || step.eventKind === 'signal'
   || step.kind === 'receive' || step.kind === 'send';
 
 /**
- * Die Nachricht des Schritts umbenennen — das Objekt der Interaktion, das sie
- * unter dem alten Namen führt (`val messageName`), zieht mit.
+ * Rename the message of the step — the object of the interaction that
+ * carries it under the old name (`val messageName`) follows along.
  */
 export function withMessageName(spec: ProcessSpec, stepId: string, name: string): ProcessSpec {
   let old: string | undefined;

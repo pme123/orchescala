@@ -1,22 +1,22 @@
-// Service-Objekte als Feldtypen.
+// Service objects as field types.
 //
-// Ein Katalog-Eintrag (element-template) trägt seine Orchescala-Herkunft im
-// Namen. Daraus lassen sich Objekt und Package ableiten:
+// A catalog entry (element template) carries its Orchescala origin in its
+// name. From it, object and package can be derived:
 //
 //   globex-crm-accountV1.GetAccount
 //     → object  GetAccount
 //     → package globex.crm.domain.account.v1
-//     → Typen   GetAccount.In · GetAccount.Out
+//     → types   GetAccount.In · GetAccount.Out
 //
-//   globex-product-openAccountV2            (Teilprozess)
-//     → object  OpenAccount   (die Version steht im Package, nicht im Namen)
+//   globex-product-openAccountV2            (subprocess)
+//     → object  OpenAccount   (the version is in the package, not in the name)
 //     → package globex.product.domain.openAccount.v2
 //
-// Im Datenmodell steht ein solcher Feldtyp als `svc:<serviceId>:<In|Out>`.
-// Kennt der Domain-Katalog das Objekt — einen Prozess über `processName`,
-// ein Service-Objekt über seinen Namen —, gilt der Katalog (`catalogObject`).
-// Sonst ist die Ableitung eine gute Vermutung, kein Beweis — bei ungewöhnlich
-// aufgebauten Namen markiert `uncertain`, dass der Import zu prüfen ist.
+// In the data model such a field type is written as `svc:<serviceId>:<In|Out>`.
+// If the domain catalog knows the object — a process via `processName`,
+// a service object via its name —, the catalog wins (`catalogObject`).
+// Otherwise the derivation is a good guess, not a proof — for unusually
+// built names `uncertain` marks that the import must be checked.
 
 import type { DomainType, Model, ServiceDef } from './types.ts';
 import { ORCHESCALA_TYPES, catalogIndex } from './orchescalaTypes.ts';
@@ -24,20 +24,20 @@ import { ORCHESCALA_TYPES, catalogIndex } from './orchescalaTypes.ts';
 export type ServiceMember = 'In' | 'Out';
 
 export interface ServiceType {
-  /** Feldwert im Datenmodell */
+  /** Field value in the data model */
   value: string;
   serviceId: string;
   member: ServiceMember;
-  /** Scala-Typ, z. B. `GetAccount.Out` */
+  /** Scala type, e.g. `GetAccount.Out` */
   name: string;
-  /** Package des Objekts, z. B. `globex.crm.domain.account.v1` */
+  /** Package of the object, e.g. `globex.crm.domain.account.v1` */
   pkg: string;
-  /** vollständige import-Zeile */
+  /** complete import line */
   importPath: string;
-  /** Anzeigename des Services */
+  /** Display name of the service */
   label: string;
   group: string;
-  /** Ableitung unsicher — Import im Projekt prüfen */
+  /** Derivation uncertain — check the import in the project */
   uncertain?: boolean;
 }
 
@@ -45,7 +45,7 @@ export const SERVICE_PREFIX = 'svc:';
 
 const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 
-/** `svc:<serviceId>:<member>` zerlegen; null = kein Service-Typ. */
+/** Split `svc:<serviceId>:<member>`; null = not a service type. */
 export function parseServiceRef(ref: string): { serviceId: string; member: ServiceMember } | null {
   if (!ref.startsWith(SERVICE_PREFIX)) return null;
   const rest = ref.slice(SERVICE_PREFIX.length);
@@ -61,7 +61,7 @@ export const serviceRef = (serviceId: string, member: ServiceMember) =>
 
 interface Derived { object: string; pkg: string; uncertain: boolean }
 
-/** Objekt und Package aus der Template-ID ableiten. */
+/** Derive object and package from the template ID. */
 export function deriveObject(serviceId: string): Derived {
   const dotted = serviceId.split('.');
   const prefix = dotted[0];
@@ -73,36 +73,36 @@ export function deriveObject(serviceId: string): Derived {
   const name = m ? m[1] : tail;
   const version = m ? `v${m[2]}` : 'v1';
 
-  // Üblich ist <firma>-<projekt>-<api><Version>. Fehlt die Versionsendung oder
-  // die Projektebene, ist die Zerlegung nicht mehr eindeutig — dann ist der
-  // Import eine Vermutung (z. B. `globex-documents-print-document`).
+  // The usual form is <company>-<project>-<api><Version>. If the version suffix or
+  // the project level is missing, the split is no longer unambiguous — then the
+  // import is a guess (e.g. `globex-documents-print-document`).
   const uncertain = segments.length < 3 || !m;
   const head = uncertain ? segments : segments.slice(0, -1);
   const pkg = [...head, 'domain', name, version].join('.');
 
-  // Steht hinter dem letzten Punkt ein Objektname (Grossbuchstabe), gilt der;
-  // sonst ist der Eintrag ein Prozess und heisst wie sein letztes Segment —
-  // ohne die Version, die steht im Package (`loadPoasV1` → `LoadPoas`)
+  // If an object name (capital letter) follows the last dot, that wins;
+  // otherwise the entry is a process and is named like its last segment —
+  // without the version, which is in the package (`loadPoasV1` → `LoadPoas`)
   const object = dotted.length > 1 && /^[A-Z]/.test(last) ? last : capitalize(name);
   return { object, pkg, uncertain };
 }
 
 /**
- * Objekt und Package aus dem Domain-Katalog: ein Prozess über seine
+ * Object and package from the domain catalog: a process via its
  * `processName` (`valiant-vollmacht-loadPoasV1` → `LoadPoas` in
- * `valiant.vollmacht.domain.loadPoas.v1`), ein Worker über sein `topicName`
- * (`valiant-graviton-eventStatus.get` → `GetEventStatus`), ein Service-Objekt über seinen
- * Namen (`valiant-services-tadv2.GetProfileCompletionCustomerId` → in
- * `valiant.services.domain.tad.v2`) — gibt es den Namen mehrfach, das im
- * abgeleiteten Package, sonst keines. Null, wenn der Katalog es nicht kennt.
+ * `valiant.vollmacht.domain.loadPoas.v1`), a worker via its `topicName`
+ * (`valiant-graviton-eventStatus.get` → `GetEventStatus`), a service object via its
+ * name (`valiant-services-tadv2.GetProfileCompletionCustomerId` → in
+ * `valiant.services.domain.tad.v2`) — if the name exists several times, the one in the
+ * derived package, otherwise none. Null if the catalog does not know it.
  */
 export function catalogObject(ref: string, model: Model | null): Derived | null {
   const idx = catalogIndex(model?.domainTypes);
   const asObject = (t: DomainType): Derived => ({ object: t.owner!, pkg: t.pkg, uncertain: false });
   const process = idx.byProcess.get(ref)?.[0];
   if (process) return asObject(process);
-  // ein Worker über sein Topic (`valiant-graviton-eventStatus.get` → `GetEventStatus`) —
-  // der Name lässt sich daraus nicht ableiten
+  // a worker via its topic (`valiant-graviton-eventStatus.get` → `GetEventStatus`) —
+  // the name cannot be derived from it
   const worker = idx.byTopic.get(ref) ?? [];
   if (worker.length && new Set(worker.map(t => `${t.pkg}.${t.owner}`)).size === 1) return asObject(worker[0]);
   const derived = deriveObject(ref);
@@ -114,7 +114,7 @@ export function catalogObject(ref: string, model: Model | null): Derived | null 
   return same ? asObject(same) : null;
 }
 
-/** Objekt und Package — aus dem Katalog, sonst abgeleitet. */
+/** Object and package — from the catalog, otherwise derived. */
 export const objectOf = (ref: string, model: Model | null): Derived =>
   catalogObject(ref, model) ?? deriveObject(ref);
 
@@ -133,7 +133,7 @@ function typeOf(svc: ServiceDef, member: ServiceMember, model: Model | null): Se
   };
 }
 
-/** Alle wählbaren Service-Objekte des Katalogs. */
+/** All selectable service objects of the catalog. */
 export function serviceTypes(model: Model | null): ServiceType[] {
   const out: ServiceType[] = [];
   for (const svc of model?.services ?? []) {
@@ -142,7 +142,7 @@ export function serviceTypes(model: Model | null): ServiceType[] {
   return out;
 }
 
-/** Ein einzelner Service-Typ — auch wenn der Katalog ihn (noch) nicht kennt. */
+/** A single service type — even if the catalog does not know it (yet). */
 export function serviceTypeOf(ref: string, model: Model | null): ServiceType | null {
   const parsed = parseServiceRef(ref);
   if (!parsed) return null;
@@ -151,10 +151,10 @@ export function serviceTypeOf(ref: string, model: Model | null): ServiceType | n
   return typeOf(svc, parsed.member, model);
 }
 
-// ── Typen aus dem Domain-Katalog ─────────────────────────────────────────────
-// Diese sind aus den Quellen eingelesen, also exakt — im Gegensatz zu den oben
-// aus dem Servicenamen abgeleiteten. Im Datenmodell steht ein solcher Feldtyp
-// als `dom:<voll qualifizierter Name>`.
+// ── Types from the domain catalog ────────────────────────────────────────────
+// These are read from the sources, hence exact — in contrast to those above
+// derived from the service name. In the data model such a field type is written
+// as `dom:<fully qualified name>`.
 
 export const DOMAIN_PREFIX = 'dom:';
 
@@ -165,18 +165,18 @@ export function parseDomainRef(ref: string): string | null {
 }
 
 /**
- * Der Katalog-Typ zu einem Feldtyp. Ein Verweis (`domain:<id>`) wird über
- * die Id gefunden. Ein blosser Name (`ProcessCallOrigin`) bleibt vom Import
- * zurück, wenn der Katalog den Typ damals nicht kannte — kennt er ihn
- * jetzt, zählt das: der Name löst sich auf, sobald er eindeutig ist.
+ * The catalog type for a field type. A reference (`domain:<id>`) is found via
+ * the id. A bare name (`ProcessCallOrigin`) is left over from the import
+ * if the catalog did not know the type back then — if it knows it
+ * now, that counts: the name resolves as soon as it is unambiguous.
  */
 export function domainTypeOf(ref: string, model: Model | null): DomainType | null {
   const id = parseDomainRef(ref);
-  // die Typen aus `orchescala.domain` gibt es auch ohne geladenen Katalog
+  // the types from `orchescala.domain` exist even without a loaded catalog
   if (id) return catalogIndex(model?.domainTypes).byId.get(id) ?? null;
   if (!/^[A-Z][\w.]*$/.test(ref)) return null;
-  // genau ein Katalog-Typ mit diesem Namen — die eingebauten zählen nur, wenn das
-  // Projekt keinen so nennt (`IdentityCorrelation` aus orchescala.domain)
+  // exactly one catalog type with this name — the built-in ones only count if the
+  // project does not name one that way (`IdentityCorrelation` from orchescala.domain)
   const all = catalogIndex(model?.domainTypes).byName.get(ref) ?? [];
   const own = all.filter(t => !ORCHESCALA_TYPES.includes(t));
   if (own.length) return own.length === 1 ? own[0] : null;
@@ -184,7 +184,7 @@ export function domainTypeOf(ref: string, model: Model | null): DomainType | nul
   return builtIn.length === 1 ? builtIn[0] : null;
 }
 
-/** Fällt der Katalog weg, bleibt wenigstens der Name lesbar. */
+/** If the catalog is gone, at least the name stays readable. */
 export function domainNameOf(ref: string): string {
   const id = parseDomainRef(ref) ?? '';
   const parts = id.split('.');

@@ -1,6 +1,6 @@
-// Ein Abgleich ohne (oder mit veraltetem) Bezug-BPMN: steht im Diagramm genau, was
-// die Spezifikation hineinschreibt, hat es nichts geändert — die abgewählten Zeilen
-// und die Ausgaben des Services bleiben, der Status auch (nicht «Angepasst»).
+// A reconciliation without (or with an outdated) reference BPMN: if the diagram contains exactly what
+// the specification writes into it, it has changed nothing — the deselected rows
+// and the outputs of the service stay, the status too (not «Angepasst»).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -32,7 +32,7 @@ const bpmn = (master: string) => `<?xml version="1.0" encoding="UTF-8"?>
 
 const task = (s: ReturnType<typeof importBpmn>['spec']) => allSteps(s.steps).find(x => x.id === 'UpdateClientTask')!;
 
-/** wie nach dem Öffnen: abgewählte Zeilen aus dem Katalog, eine Ausgabe des Services — und abgenommen */
+/** as after opening: deselected rows from the catalog, one output of the service — and accepted */
 function accepted() {
   const spec = importBpmn(bpmn('${masterRead.prop("clientSegment", 10)}'), 'p').spec;
   const t = task(spec);

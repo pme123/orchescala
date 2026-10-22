@@ -1,20 +1,20 @@
-// Datenmodell der Prozess-Spezifikation.
+// Data model of the process specification.
 //
-// Eine Spezifikation ist ein **Baum** von Schritten — nicht der flache
-// BPMN-Graph. Gateways tragen ihre Zweige (`branches`) als Kinder, Subprozesse
-// ihre Schritte (`children`), Schleifen sind als `loop` am wiederholten Block
-// markiert. Genau das macht den Unterschied zur Confluence-Tabelle: der
-// gesamte Prozess ist auf einen Blick lesbar und lässt sich einklappen.
+// A specification is a **tree** of steps — not the flat
+// BPMN graph. Gateways carry their branches (`branches`) as children, subprocesses
+// their steps (`children`), loops are marked as `loop` on the
+// repeated block. That is exactly the difference to the Confluence table: the
+// whole process is readable at a glance and can be collapsed.
 
 // ── Status ───────────────────────────────────────────────────────────────────
-// Gilt für den Prozess **und** für jeden einzelnen Schritt.
-// Reihenfolge = Fortschritt; ein Klick auf den Chip schaltet weiter.
-// «Angepasst» steht am Ende: dorthin setzt der BPMN-Abgleich einen Schritt,
-// dessen Implementation sich geändert hat — auch einen abgenommenen.
+// Applies to the process **and** to every single step.
+// Order = progress; a click on the chip advances it.
+// «Angepasst» comes last: that is where the BPMN sync puts a step
+// whose implementation has changed — even an accepted one.
 /**
- * In der Reihenfolge des Fortschritts — «Angepasst» (technisch geändert, nach
- * «Final») steht vor «Umgesetzt»: der kleinste Status ist der Stand des Ganzen
- * (siehe overallStatus).
+ * In order of progress — «Angepasst» (technically changed, after
+ * «Final») comes before «Umgesetzt»: the lowest status is the state of the whole
+ * (see overallStatus).
  */
 export const STATUSES = ['draft', 'review', 'final', 'changed', 'implemented', 'accepted'] as const;
 export type Status = (typeof STATUSES)[number];
@@ -24,212 +24,212 @@ export const STATUS_META: Record<Status, { label: string; short: string; dark: s
   review:      { label: 'In Prüfung', short: 'P', dark: 'bg-amber-500/15 text-amber-300 border-amber-500/30',       light: 'bg-amber-50 text-amber-700 border-amber-300' },
   final:       { label: 'Final',      short: 'F', dark: 'bg-blue-500/15 text-blue-300 border-blue-500/30',          light: 'bg-blue-50 text-blue-700 border-blue-300' },
   implemented: { label: 'Umgesetzt',  short: 'U', dark: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', light: 'bg-emerald-50 text-emerald-700 border-emerald-300' },
-  // Abgenommen ist der Endzustand — deshalb gefüllt statt getönt
+  // Accepted is the final state — hence filled instead of tinted
   accepted:    { label: 'Abgenommen', short: 'A', dark: 'bg-emerald-500/80 text-black border-emerald-400',           light: 'bg-emerald-600 text-white border-emerald-700' },
   changed:     { label: 'Angepasst',  short: '~', dark: 'bg-rose-500/15 text-rose-300 border-rose-500/30',          light: 'bg-rose-50 text-rose-700 border-rose-300' },
 };
 
-// ── Schritte ─────────────────────────────────────────────────────────────────
+// ── Steps ────────────────────────────────────────────────────────────────────
 export type StepKind =
   | 'start' | 'end'
   | 'service' | 'user' | 'call' | 'send' | 'receive' | 'rule' | 'script' | 'manual'
   | 'subprocess'
-  | 'gateway'          // exklusiv / parallel / ereignisbasiert (siehe gatewayType)
-  | 'event'            // Zwischenereignis (werfend/fangend, Timer, Signal, Message)
-  | 'goto';            // Rücksprung (Schleife) auf einen bereits gezeigten Schritt
+  | 'gateway'          // exclusive / parallel / event-based (see gatewayType)
+  | 'event'            // intermediate event (throwing/catching, timer, signal, message)
+  | 'goto';            // jump back (loop) to a step already shown
 
 export type GatewayType = 'exclusive' | 'parallel' | 'inclusive' | 'eventBased';
 
-// Ein Mapping-Eintrag: Prozessvariable ↔ Service-Parameter.
-// `expression` ist der Camunda-Ausdruck (z. B. `${renterClientKey}`),
-// `description` die fachliche Bedeutung für die Stakeholder.
+// A mapping entry: process variable ↔ service parameter.
+// `expression` is the Camunda expression (e.g. `${renterClientKey}`),
+// `description` the business meaning for the stakeholders.
 export interface Mapping {
   name: string;
   expression: string;
   description?: string;
-  /** kommt in diesem Prozess nicht vor — bleibt stehen, zählt aber nicht */
+  /** does not occur in this process — stays, but does not count */
   disabled?: boolean;
   /**
-   * Ausgabe des Services unter ihrem eigenen Namen (`x = x`), aus
-   * `_outputVariables` bzw. dem Katalog — angehakt heisst «der Prozess braucht
-   * sie»: ein Eintrag in `_outputVariables`, kein Output-Parameter
+   * Output of the service under its own name (`x = x`), from
+   * `_outputVariables` or the catalog — checked means «the process needs
+   * it»: an entry in `_outputVariables`, not an output parameter
    */
   fromService?: boolean;
   [key: string]: unknown;
 }
 
-// Wiederholung: der Schritt/Block wird erneut ausgeführt, solange `condition`
-// gilt — im Sparkonto-Muster «wait ${timer}» + «Tried ${max} times?».
+// Repetition: the step/block is executed again as long as `condition`
+// holds — in the savings account pattern «wait ${timer}» + «Tried ${max} times?».
 export interface LoopSpec {
-  condition: string;      // fachliche Bedingung für die Wiederholung
-  maxAttempts?: string;   // z. B. `${maxOpenAccount}`
-  waitFor?: string;       // z. B. `${timerWaitOpenAccount}`
+  condition: string;      // business condition for the repetition
+  maxAttempts?: string;   // e.g. `${maxOpenAccount}`
+  waitFor?: string;       // e.g. `${timerWaitOpenAccount}`
 }
 
-// Mehrfachausführung (Multi-Instance): der Schritt läuft je Element einer
-// Sammlung. Gelesen aus dem BPMN; die Namen gelten im Schritt und in allem,
-// was darin liegt (FEEL kennt dort `loopCounter` und das Element).
+// Multiple execution (multi-instance): the step runs once per element of a
+// collection. Read from the BPMN; the names apply in the step and in everything
+// inside it (FEEL knows `loopCounter` and the element there).
 export interface MultiInstanceSpec {
-  /** FEEL-Ausdruck der Sammlung ohne `=`, z. B. `order.items` */
+  /** FEEL expression of the collection without `=`, e.g. `order.items` */
   collection?: string;
-  /** Name der Variable für das aktuelle Element (`inputElement` bzw. `elementVariable`) */
+  /** name of the variable for the current element (`inputElement` or `elementVariable`) */
   element?: string;
   sequential?: boolean;
 }
 
-// Ein Gateway-Zweig. `steps` ist der Block bis zur Zusammenführung.
+// A gateway branch. `steps` is the block up to the merge.
 export interface Branch {
   id: string;
-  label: string;          // z. B. «ja» / «nein» / «severalMatches»
-  condition?: string;     // technischer Ausdruck aus dem BPMN
+  label: string;          // e.g. «ja» / «nein» / «severalMatches»
+  condition?: string;     // technical expression from the BPMN
   isDefault?: boolean;
   steps: Step[];
   [key: string]: unknown;
 }
 
-// Fehlerbehandlung eines Schritts (Boundary-Event bzw. `_handledErrors`).
+// Error handling of a step (boundary event or `_handledErrors`).
 /**
- * Timer eines Ereignisses — wann es auslöst. `expression` wie ein Mapping:
- * `= timerEscalationCancel` (eine Variable — sie kommt mit `default` ins
- * `InConfig`) oder fester Text (`P7D`, ISO 8601).
+ * Timer of an event — when it fires. `expression` like a mapping:
+ * `= timerEscalationCancel` (a variable — it goes into the `InConfig` with
+ * `default`) or fixed text (`P7D`, ISO 8601).
  */
 export interface TimerSpec {
   kind: 'duration' | 'date' | 'cycle';
   expression: string;
-  /** Vorgabe der Variable im `InConfig`, ISO 8601 (z. B. `P7D`) */
+  /** default of the variable in the `InConfig`, ISO 8601 (e.g. `P7D`) */
   default?: string;
 }
 
 export interface ErrorHandling {
-  code: string;           // z. B. `account-not-opened`, `404`
+  code: string;           // e.g. `account-not-opened`, `404`
   label?: string;
   interrupting?: boolean;
-  /** steht in `_handledErrors` des Schritts */
+  /** is in the step's `_handledErrors` */
   declared?: boolean;
-  /** kommt von einem Boundary-Event — Code und Pfad stehen im Diagramm */
+  /** comes from a boundary event — code and path are in the diagram */
   boundary?: boolean;
-  /** kein Fehler, sondern ein nicht-unterbrechender Nebenpfad am Schritt */
+  /** not an error, but a non-interrupting side path on the step */
   side?: boolean;
-  /** gehört zu einem Pattern (dessen id) — Verdrahtung, keine eigene Fachlichkeit */
+  /** belongs to a pattern (its id) — wiring, no business logic of its own */
   pattern?: string;
-  /** ein Timer-Boundary-Event: wann es auslöst — die Variable dazu steht im `InConfig` */
+  /** a timer boundary event: when it fires — its variable is in the `InConfig` */
   timer?: TimerSpec;
-  /** ID des Boundary-Events im Diagramm — dorthin schreibt der Export Timer, Signal bzw. Nachricht */
+  /** ID of the boundary event in the diagram — that is where the export writes timer, signal or message */
   boundaryId?: string;
   /**
-   * Art des Boundary-Events. Signal, Nachricht und Eskalation sind keine Fehler —
-   * sie stehen am Schritt unter «Ereignisse am Rand» (siehe `isEventBoundary`)
+   * Kind of the boundary event. Signal, message and escalation are not errors —
+   * they are shown on the step under «Ereignisse am Rand» (see `isEventBoundary`)
    */
   eventKind?: Step['eventKind'];
-  /** Name des Signals bzw. der Nachricht — wie `Step.messageName` */
+  /** name of the signal or message — like `Step.messageName` */
   messageName?: string;
-  /** wartende Nachricht: der Korrelationsschlüssel — wie `Step.correlationKey` */
+  /** waiting message: the correlation key — like `Step.correlationKey` */
   correlationKey?: string;
-  steps?: Step[];         // Behandlungspfad
+  steps?: Step[];         // handling path
   [key: string]: unknown;
 }
 
-/** Form eines DMN-Ergebnisses — wie `camunda:mapDecisionResult` bzw. die Fabrik im Domain-Objekt */
+/** shape of a DMN result — like `camunda:mapDecisionResult` or the factory in the domain object */
 export type DecisionResult = 'singleEntry' | 'singleResult' | 'collectEntries' | 'resultList';
 
 export interface Step {
-  id: string;             // stabil; bei Import die BPMN-Element-ID
+  id: string;             // stable; on import the BPMN element ID
   kind: StepKind;
   name: string;
   status: Status;
-  /** fachliche Beschreibung (Markdown) — das, was die Stakeholder lesen */
+  /** business description (Markdown) — what the stakeholders read */
   description?: string;
 
-  // Service-/Worker-Anbindung
-  serviceId?: string;     // Katalog-Eintrag (= Camunda modelerTemplate)
-  topic?: string;         // externes Topic, wenn kein Katalog-Service
-  calledProcess?: string; // bei kind 'call': gerufener Prozess
+  // Service/worker binding
+  serviceId?: string;     // catalog entry (= Camunda modelerTemplate)
+  topic?: string;         // external topic, if not a catalog service
+  calledProcess?: string; // for kind 'call': called process
 
   inputs?: Mapping[];
   outputs?: Mapping[];
-  /** gewählte Ausprägung des Service-`In` bzw. `Out`, wenn es ein enum mit Fällen ist (siehe variants.ts) */
+  /** chosen variant of the service `In` or `Out`, if it is an enum with cases (see variants.ts) */
   inVariant?: string;
   outVariant?: string;
   errors?: ErrorHandling[];
-  /** reguläre Ausdrücke für weitere behandelte Fehlercodes — `_regexHandledErrors` */
+  /** regular expressions for further handled error codes — `_regexHandledErrors` */
   regexHandledErrors?: string[];
-  mock?: string;          // `_outputMock` / Beispielantwort (JSON)
+  mock?: string;          // `_outputMock` / sample response (JSON)
   /**
-   * Womit sich der Schritt in Tests mocken lässt: `output` = `_outputMock`
-   * (das Ergebnis des Workers bzw. Teilprozesses), `service` = `_outputServiceMock`
-   * (die Antwort des Services, nur bei Service-Workern). Ohne Wahl reicht der
-   * Schritt `_servicesMocked` weiter. Beim Export entsteht das Feld im `InConfig`.
+   * What the step can be mocked with in tests: `output` = `_outputMock`
+   * (the result of the worker or subprocess), `service` = `_outputServiceMock`
+   * (the response of the service, only for service workers). Without a choice the
+   * step passes `_servicesMocked` on. On export the field is created in the `InConfig`.
    */
   mockKind?: 'output' | 'service';
   /**
-   * Entscheidung (DMN): in welche Prozessvariable das Ergebnis geht
-   * (`camunda:resultVariable` bzw. `zeebe:calledDecision resultVariable`) …
+   * Decision (DMN): which process variable the result goes into
+   * (`camunda:resultVariable` or `zeebe:calledDecision resultVariable`) …
    */
   resultVariable?: string;
   /**
-   * … und in welcher Form (`camunda:mapDecisionResult`): ein Wert
-   * (`singleEntry`), ein Objekt (`singleResult`), eine Liste von Werten
-   * (`collectEntries`) oder von Objekten (`resultList`, Vorgabe in Camunda 7).
+   * … and in which shape (`camunda:mapDecisionResult`): a value
+   * (`singleEntry`), an object (`singleResult`), a list of values
+   * (`collectEntries`) or of objects (`resultList`, default in Camunda 7).
    */
   /**
-   * `_outputVariables` aus dem BPMN — die Variablen, die der Service liefert
-   * und der Prozess braucht. Daraus werden beim Import die Ausgaben bzw. die
-   * angehakten Zeilen (siehe withServiceRows).
+   * `_outputVariables` from the BPMN — the variables the service delivers
+   * and the process needs. On import they become the outputs or the
+   * checked rows (see withServiceRows).
    */
   outputVariables?: string[];
   /**
-   * Service aus dem BPMN: hatte er `_manualOutMapping`? `false` — der Worker
-   * setzt seine Ausgaben selbst als Prozessvariablen (`_outputVariables`
-   * filtert); `true` — sie kommen lokal zurück, die Output-Parameter mappen.
-   * Der Export behält die Art. Fehlt die Angabe (in der Spezifikation
-   * angelegt), wird bei Ausgaben von Hand gemappt.
+   * Service from the BPMN: did it have `_manualOutMapping`? `false` — the worker
+   * sets its outputs itself as process variables (`_outputVariables`
+   * filters); `true` — they come back locally, the output parameters map them.
+   * The export keeps the kind. If it is missing (created in the specification),
+   * outputs are mapped by hand.
    */
   manualOutMapping?: boolean;
   decisionResult?: DecisionResult;
 
-  // Struktur
+  // Structure
   gatewayType?: GatewayType;
-  branches?: Branch[];    // bei kind 'gateway'
-  children?: Step[];      // bei kind 'subprocess'
+  branches?: Branch[];    // for kind 'gateway'
+  children?: Step[];      // for kind 'subprocess'
   loop?: LoopSpec;
-  /** Mehrfachausführung — der Schritt läuft je Element einer Sammlung */
+  /** multiple execution — the step runs once per element of a collection */
   multiInstance?: MultiInstanceSpec;
-  gotoId?: string;        // bei kind 'goto': Ziel-Schritt
-  back?: boolean;         // bei kind 'goto': Rücksprung (Schleife) statt Zusammenlauf
+  gotoId?: string;        // for kind 'goto': target step
+  back?: boolean;         // for kind 'goto': jump back (loop) instead of merge
 
-  /** Block hängt an keinem Sequenzfluss (Ereignis-Subprozess, Link-Ziel …) */
+  /** block is not attached to any sequence flow (event subprocess, link target …) */
   orphan?: boolean;
-  /** Subprozess, der durch ein Ereignis ausgelöst wird (triggeredByEvent) */
+  /** subprocess that is triggered by an event (triggeredByEvent) */
   eventSubprocess?: boolean;
 
-  // Ereignisse
+  // Events
   eventKind?: 'timer' | 'signal' | 'message' | 'error' | 'escalation' | 'none';
   eventDirection?: 'throw' | 'catch';
-  /** Name des Signals bzw. der Nachricht (`<bpmn:signal name>` / `<bpmn:message name>`) */
+  /** name of the signal or message (`<bpmn:signal name>` / `<bpmn:message name>`) */
   messageName?: string;
   /**
-   * Fangende Nachricht: der Korrelationsschlüssel (FEEL), in Camunda 8 aus
-   * `zeebe:subscription` der `<bpmn:message>` — Camunda 7 kennt ihn nicht im BPMN
+   * Catching message: the correlation key (FEEL), in Camunda 8 from
+   * `zeebe:subscription` of the `<bpmn:message>` — Camunda 7 has no such thing in the BPMN
    */
   correlationKey?: string;
-  /** Timer-Ereignis: wann es auslöst — die Variable dazu steht im `InConfig` */
+  /** timer event: when it fires — its variable is in the `InConfig` */
   timer?: TimerSpec;
 
 
-  // ── Weitere Angaben, die die Spezifikation festlegt ──────────────────────
-  // Benutzeraufgabe — wie die Mappings: mit `=` FEEL, sonst fester Text;
-  // im BPMN für Camunda 7 `camunda:…` (`${…}`), für Camunda 8 `zeebe:assignmentDefinition`
-  /** Benutzeraufgabe: wer sie sieht (`candidateGroups`) */
+  // ── Further details the specification defines ────────────────────────────
+  // User task — like the mappings: with `=` FEEL, otherwise fixed text;
+  // in the BPMN for Camunda 7 `camunda:…` (`${…}`), for Camunda 8 `zeebe:assignmentDefinition`
+  /** user task: who sees it (`candidateGroups`) */
   candidateGroups?: string;
-  /** Benutzeraufgabe: welche Personen sie sehen (`candidateUsers`) */
+  /** user task: which persons see it (`candidateUsers`) */
   candidateUsers?: string;
-  /** Benutzeraufgabe: wem sie direkt zugeteilt ist (`assignee`) */
+  /** user task: who it is assigned to directly (`assignee`) */
   assignee?: string;
 
   // ── Pattern ──────────────────────────────────────────────────────────────
-  /** Pattern an diesem Element — aus dem BPMN erkannt bzw. hier gewählt */
+  /** pattern on this element — detected from the BPMN or chosen here */
   patterns?: AppliedPattern[];
-  /** Schritt gehört selbst zu einem Pattern (dessen id): ein gemeinsamer Block */
+  /** step itself belongs to a pattern (its id): a shared block */
   pattern?: string;
 
   [key: string]: unknown;
@@ -237,93 +237,93 @@ export interface Step {
 
 // ── Pattern ──────────────────────────────────────────────────────────────────
 //
-// Ein Pattern ist ein wiederkehrender BPMN-Baustein — «Benutzer per Mail
-// informieren», «Eskalation», «Prozess-Event senden». Der Admin legt es als
-// kleines BPMN an: ein **Anker** (`PatternTarget`, z. B. eine Benutzeraufgabe)
-// mit allem, was an ihm hängt (Listener, Eingaben, Boundary-Ereignisse samt
-// Pfad), und daneben Blöcke, die der Prozess **einmal** braucht (Link-Ziel →
-// Call Activity, Ereignis-Subprozess). Werte, die je Einsatz wechseln,
-// stehen als `{{name}}` darin — das sind die Parameter.
+// A pattern is a recurring BPMN building block — «Benutzer per Mail
+// informieren», «Eskalation», «Prozess-Event senden». The admin creates it as a
+// small BPMN: an **anchor** (`PatternTarget`, e.g. a user task)
+// with everything attached to it (listeners, inputs, boundary events including
+// their path), and next to it blocks the process needs **once** (link target →
+// call activity, event subprocess). Values that change per use
+// appear in it as `{{name}}` — those are the parameters.
 //
-// Aus demselben BPMN folgt alles Weitere: wählen fügt es ein (src/patterns.ts),
-// der Import erkennt es wieder, entfernen nimmt es heraus.
+// Everything else follows from the same BPMN: choosing inserts it (src/patterns.ts),
+// the import recognizes it again, removing takes it out.
 
-/** Parameter eines Patterns — im BPMN als `{{name}}` */
+/** parameter of a pattern — in the BPMN as `{{name}}` */
 export interface PatternParam {
   name: string;
   label?: string;
   description?: string;
-  /** Vorgabe beim Einfügen */
+  /** default on insertion */
   default?: string;
   [key: string]: unknown;
 }
 
 export interface PatternDef {
-  /** stabil, z. B. `inform-user` — steht in den Spezifikationen */
+  /** stable, e.g. `inform-user` — stored in the specifications */
   id: string;
   name: string;
-  /** was es tut und wann man es nimmt (Markdown) */
+  /** what it does and when to use it (Markdown) */
   description?: string;
-  /** Doku, z. B. die Pattern-Seite */
+  /** documentation, e.g. the pattern page */
   docUrl?: string;
   /**
-   * BPMN-Elementtypen, an die es passt (`userTask`, `callActivity` …) —
-   * `process` heisst: am Prozess selbst. Vorgabe ist der Typ des Ankers.
+   * BPMN element types it fits (`userTask`, `callActivity` …) —
+   * `process` means: on the process itself. Default is the type of the anchor.
    */
   appliesTo: string[];
   params?: PatternParam[];
-  /** das Pattern als BPMN, je Engine */
+  /** the pattern as BPMN, per engine */
   bpmn: Partial<Record<EngineId, string>>;
   /**
-   * Weitere Schreibweisen desselben Patterns (je Engine) — die Erkennung
-   * nimmt sie auch an, eingefügt wird immer `bpmn`. Für ältere Prozesse, die
-   * dasselbe anders ausdrücken (Groovy-Skript statt Ausdruck).
+   * Further notations of the same pattern (per engine) — detection
+   * accepts them too, but `bpmn` is always what gets inserted. For older processes that
+   * express the same thing differently (Groovy script instead of expression).
    */
   variants?: Partial<Record<EngineId, string[]>>;
   /**
-   * Wo das Pattern am Schritt steht. `assignment`: es legt die Zuständigkeit
-   * fest (z. B. ein Task-Listener, der den Berater zuweist) — es steht unter
-   * «Zuständigkeit», und Gruppen/Person sind dann nicht editierbar.
+   * Where the pattern appears on the step. `assignment`: it determines the
+   * responsibility (e.g. a task listener that assigns the advisor) — it is shown under
+   * «Zuständigkeit», and groups/person are then not editable.
    */
   area?: 'assignment';
   /**
-   * Fest in Orchescala, nicht im Admin gepflegt und nicht im BPMN — seine
-   * Werte stehen in der Spezifikation (siehe ORCHESCALA_PATTERNS).
+   * Built into Orchescala, not maintained in the admin and not in the BPMN — its
+   * values are in the specification (see ORCHESCALA_PATTERNS).
    */
   builtin?: boolean;
   [key: string]: unknown;
 }
 
-/** Ein Pattern an einem Element (bzw. am Prozess) */
+/** A pattern on an element (or on the process) */
 export interface AppliedPattern {
   id: string;
-  /** Werte der Parameter */
+  /** values of the parameters */
   params?: Record<string, string>;
   [key: string]: unknown;
 }
 
-// ── Datenmodell (Klassenbauer) ───────────────────────────────────────────────
+// ── Data model (class builder) ───────────────────────────────────────────────
 //
-// Beschreibt die fachlichen Typen des Prozesses — allen voran das **In** des
-// Prozesses. Bewusst NICHT dabei: `InConfig` und `InitIn`. Das sind
-// Implementations-Details (Mock-Steuerung, initialisierte Prozessvariablen)
-// und gehören nicht in die Spezifikation.
+// Describes the business types of the process — above all the **In** of the
+// process. Deliberately NOT included: `InConfig` and `InitIn`. Those are
+// implementation details (mock control, initialized process variables)
+// and do not belong in the specification.
 //
-// Aus diesen Typen erzeugt `src/scala.ts` die Orchescala-Domain (case class +
-// Companion mit ApiSchema/InOutCodec/example/exampleMinimal).
+// From these types `src/scala.ts` generates the Orchescala domain (case class +
+// companion with ApiSchema/InOutCodec/example/exampleMinimal).
 
-/** Skalare Typen, die Orchescala direkt kennt. */
+/** Scalar types Orchescala knows directly. */
 export const SCALA_TYPES = [
   'String', 'Boolean', 'Int', 'Long', 'Double', 'BigDecimal',
   'LocalDate', 'LocalDateTime', 'Instant', 'Iso8601Duration', 'Iban',
 ] as const;
 export type ScalaType = (typeof SCALA_TYPES)[number];
 
-/** Vorlagen für Iron-Refinements (`String :| ValidEmail`). `arg` = Platzhalter. */
+/** Templates for Iron refinements (`String :| ValidEmail`). `arg` = placeholder. */
 export interface ConstraintTemplate {
   id: string;
   label: string;
-  /** Ausdruck; `N` bzw. `X` wird durch den eingegebenen Wert ersetzt */
+  /** expression; `N` or `X` is replaced by the entered value */
   expr: string;
   arg?: 'zahl' | 'text';
   for: 'text' | 'zahl';
@@ -343,90 +343,90 @@ export const CONSTRAINTS: ConstraintTemplate[] = [
 ];
 
 export interface Field {
-  /** stabil — Umbenennen bricht keine Verweise */
+  /** stable — renaming does not break references */
   id: string;
   name: string;
-  /** ein `ScalaType` oder die id eines eigenen Typs */
+  /** a `ScalaType` or the id of an own type */
   type: string;
-  /** Option[T] — fehlen darf */
+  /** Option[T] — may be missing */
   optional?: boolean;
-  /** Seq[T] — mehrfach */
+  /** Seq[T] — multiple */
   collection?: boolean;
-  /** Map[String, T] — Schlüssel ist im JSON immer ein Text, `type` ist der Wert */
+  /** Map[String, T] — the key is always text in JSON, `type` is the value */
   map?: boolean;
   /**
-   * Eine einzelne **Ausprägung** eines ADT-enums als Typ: `type` ist das enum,
-   * `enumCase` der Fall — in Scala `CustomDocContents.\`QI-Deklaration\``.
+   * A single **case** of an ADT enum as a type: `type` is the enum,
+   * `enumCase` the case — in Scala `CustomDocContents.\`QI-Deklaration\``.
    */
   enumCase?: string;
-  /** Iron-Refinement, z. B. `ValidEmail` → `String :| ValidEmail` */
+  /** Iron refinement, e.g. `ValidEmail` → `String :| ValidEmail` */
   constraint?: string;
-  /** Vorgabewert als Scala-Ausdruck, z. B. `"CH"` oder `Seq.empty` */
+  /** default value as a Scala expression, e.g. `"CH"` or `Seq.empty` */
   default?: string;
-  /** Beispielwert als Scala-Ausdruck — ohne Angabe leitet die App einen ab */
+  /** example value as a Scala expression — if not given, the app derives one */
   example?: string;
   /**
-   * Aus der Domain: die Imports, die das Beispiel braucht — so, wie sie in
-   * der Datei stehen (`swisscom.fil.is.domain.defaultValidUntil`); leer, wenn
-   * die Werte ohne Import sichtbar waren (Firmen-Bibliothek, eigenes Paket)
+   * From the domain: the imports the example needs — as they appear in
+   * the file (`swisscom.fil.is.domain.defaultValidUntil`); empty if
+   * the values were visible without an import (company library, own package)
    */
   exampleImports?: string[];
-  /** fachliche Bedeutung → `@description(...)` */
+  /** business meaning → `@description(...)` */
   description?: string;
   /**
-   * `@description` aus der Domain, das kein reiner Text ist — eine Referenz
-   * (`clientKeyDescr`), ein Aufruf oder `s"…${x}"`. Der Export schreibt ihn
-   * wörtlich; `description` ist dann nur die lesbare Fassung. Wer die
-   * Beschreibung ändert, ersetzt ihn.
+   * `@description` from the domain that is not plain text — a reference
+   * (`clientKeyDescr`), a call or `s"…${x}"`. The export writes it
+   * verbatim; `description` is then only the readable version. Whoever changes the
+   * description replaces it.
    */
   descriptionExpr?: string;
   /**
-   * Die Imports, die `descriptionExpr` braucht — aus der Datei der Domain:
-   * `valiant.bpmn.domain.sendProcessEvent.v1.SendProcessEvent` für
-   * `s"…${SendProcessEvent.processName}…"`, `…Escalation.*` für `timerStartEscalationDescr`
+   * The imports `descriptionExpr` needs — from the domain's file:
+   * `valiant.bpmn.domain.sendProcessEvent.v1.SendProcessEvent` for
+   * `s"…${SendProcessEvent.processName}…"`, `…Escalation.*` for `timerStartEscalationDescr`
    */
   descriptionImports?: string[];
   [key: string]: unknown;
 }
 
 /**
- * Ein Wert einer Auswahl. Trägt er Felder, ist die Auswahl ein **ADT**
- * (`enum In: case Standard(…) case VermoegensVerwaltung(…)`) — jeder Fall
- * eine eigene Klasse, gemeinsam ein Typ.
+ * A value of a choice. If it carries fields, the choice is an **ADT**
+ * (`enum In: case Standard(…) case VermoegensVerwaltung(…)`) — each case
+ * its own class, together one type.
  */
 export interface EnumValue {
   name: string;
   description?: string;
   fields?: Field[];
   /**
-   * Die Reihenfolge der Parameter des Falls im Code — gemeinsame und eigene Felder
-   * zusammen (`case Graviton(subStatusKey, subStatusScore, subStatusNr, …)`). Der
-   * Export hält sie ein; ohne (in Orch Spec angelegt) stehen die gemeinsamen zuerst.
+   * The order of the case's parameters in the code — shared and own fields
+   * together (`case Graviton(subStatusKey, subStatusScore, subStatusNr, …)`). The
+   * export keeps it; without it (created in Orch Spec) the shared ones come first.
    */
   order?: string[];
   [key: string]: unknown;
 }
 
 /**
- * Auswahl mit Feldern (ADT)? Entweder tragen die Fälle Felder, oder die
- * Auswahl hat **gemeinsame Felder** (`fields`) — in Scala 3 als `def` im
- * enum-Rumpf, die jeder Fall mitbringt.
+ * Choice with fields (ADT)? Either the cases carry fields, or the
+ * choice has **shared fields** (`fields`) — in Scala 3 as `def` in the
+ * enum body, which every case brings along.
  */
 export const isAdt = (t: { kind: string; values?: EnumValue[]; fields?: Field[] }): boolean =>
   t.kind === 'enum' && ((t.values ?? []).some(v => !!v.fields?.length) || !!t.fields?.length);
 
-// ── Interaktionen ────────────────────────────────────────────────────────────
+// ── Interactions ─────────────────────────────────────────────────────────────
 //
-// Jede Stelle, an der der Prozess mit aussen spricht, hat in der Domain ein
-// eigenes Objekt mit eigenem `In` und/oder `Out`:
+// Every place where the process talks to the outside has its own
+// object in the domain with its own `In` and/or `Out`:
 //
 //   object AdvisorDepotUnlockUT      extends CompanyBpmnUserTaskDsl     · val name
 //   object EvalNextPortfolioIdSuffix extends CompanyBpmnCustomTaskDsl · val topicName
 //   object CancelOpenPensionAccountSE extends CompanyBpmnSignalEventDsl · val messageName
 //
-// Der Scala-Objektname lässt sich nicht aus dem BPMN ableiten (die Aufgabe
-// heisst dort `DepotActivityUnlockAdvisorTask`, das Objekt `AdvisorDepotUnlockUT`) —
-// er wird deshalb hier geführt.
+// The Scala object name cannot be derived from the BPMN (the task is
+// called `DepotActivityUnlockAdvisorTask` there, the object `AdvisorDepotUnlockUT`) —
+// which is why it is kept here.
 export type InteractionKind = 'userTask' | 'customTask' | 'signal' | 'message' | 'decision';
 
 export const INTERACTION_META: Record<InteractionKind, {
@@ -436,59 +436,59 @@ export const INTERACTION_META: Record<InteractionKind, {
   customTask: { label: 'Eigener Worker',  dsl: 'CompanyBpmnCustomTaskDsl',   keyName: 'topicName',   factory: 'customTask',  suffix: '',   hasOut: true },
   signal:     { label: 'Signal',          dsl: 'CompanyBpmnSignalEventDsl',  keyName: 'messageName', factory: 'signalEvent', suffix: 'SE', hasOut: false },
   message:    { label: 'Nachricht',       dsl: 'CompanyBpmnMessageEventDsl', keyName: 'messageName', factory: 'messageEvent', suffix: 'ME', hasOut: false },
-  // die Fabrik hängt an der Ergebnisform (`decisionResult`, siehe dmnFactory in scala.ts)
+  // the factory depends on the result shape (`decisionResult`, see dmnFactory in scala.ts)
   decision:   { label: 'DMN Decision',    dsl: 'CompanyBpmnDecisionDsl',     keyName: 'decisionId',  factory: 'singleResult', suffix: 'Dmn', hasOut: true },
 };
 
 export interface Interaction {
   id: string;
-  /** Schritt im Ablauf (BPMN-Element-ID) */
+  /** step in the flow (BPMN element ID) */
   stepId: string;
   kind: InteractionKind;
-  /** Scala-Objekt, z. B. `AdvisorDepotUnlockUT` */
+  /** Scala object, e.g. `AdvisorDepotUnlockUT` */
   name: string;
-  /** Wert für `name` / `topicName` / `messageName` */
+  /** value for `name` / `topicName` / `messageName` */
   key: string;
   descr?: string;
-  /** `val descr` aus der Domain, das kein reiner Text ist (`s"…${X.processName}…"`) — wörtlich im Export */
+  /** `val descr` from the domain that is not plain text (`s"…${X.processName}…"`) — verbatim in the export */
   descrExpr?: string;
-  /** die Imports, die `descrExpr` braucht */
+  /** the imports `descrExpr` needs */
   descrImports?: string[];
   status?: Status;
-  /** ids der TypeDefs für In und Out */
+  /** ids of the TypeDefs for In and Out */
   inTypeId?: string;
   outTypeId?: string;
   /**
-   * In bzw. Out ist ein anderer Typ (`type In = OrderCardUT.In`): das Mitglied
-   * einer anderen Interaktion (`<id>.In`, `<id>.Out`) oder ein Typ der Domain
-   * (`dom:<id>`). Die Felder stehen weiter über `inTypeId`/`outTypeId` bereit
-   * (Mappings, Prüfungen); der Alias bestimmt nur, was der Export schreibt.
+   * In or Out is another type (`type In = OrderCardUT.In`): the member
+   * of another interaction (`<id>.In`, `<id>.Out`) or a type of the domain
+   * (`dom:<id>`). The fields remain available via `inTypeId`/`outTypeId`
+   * (mappings, checks); the alias only determines what the export writes.
    */
   inAlias?: string;
   outAlias?: string;
   /**
-   * Abweichende Werte im Beispiel der Interaktion — je Feld der Scala-Ausdruck:
+   * Differing values in the interaction's example — per field the Scala expression:
    * `userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)`
    */
   inExample?: Record<string, string>;
   outExample?: Record<string, string>;
   /**
-   * DMN Decision: die Form des Ergebnisses — `singleEntry` (ein einfacher
-   * Wert), `singleResult` (ein Objekt), `collectEntries` (Liste einfacher
-   * Werte), `resultList` (Liste von Objekten). Bei einem einfachen Wert hat
-   * das `Out` genau ein Feld, dessen Typ der Wert ist. Ohne Angabe `singleResult`.
+   * DMN decision: the shape of the result — `singleEntry` (a simple
+   * value), `singleResult` (an object), `collectEntries` (list of simple
+   * values), `resultList` (list of objects). For a simple value
+   * the `Out` has exactly one field, whose type is the value. Without it `singleResult`.
    */
   decisionResult?: DecisionResult;
   /**
-   * DMN Decision mit eigener Tabelle: der Dateiname im Projekt
-   * (`src/main/resources/camunda[8]/…`) — gesetzt, sobald die App die Tabelle
-   * führt (`processes/<slug>/<decisionId>.dmn`, siehe dmn.ts)
+   * DMN decision with its own table: the file name in the project
+   * (`src/main/resources/camunda[8]/…`) — set as soon as the app manages the table
+   * (`processes/<slug>/<decisionId>.dmn`, see dmn.ts)
    */
   dmnFile?: string;
   /**
-   * Package des Domain-Objekts, wenn die Interaktion eines aus dem Katalog ist
-   * (über ihren Schlüssel gefunden, siehe `interactionOrigin`) — ein fremdes
-   * Package heisst: referenziert, wird nicht exportiert. Fehlt bei einer neuen.
+   * Package of the domain object if the interaction is one from the catalog
+   * (found via its key, see `interactionOrigin`) — a foreign
+   * package means: referenced, not exported. Missing for a new one.
    */
   pkg?: string;
   [key: string]: unknown;
@@ -496,38 +496,38 @@ export interface Interaction {
 
 export interface TypeDef {
   id: string;
-  /** Scala-Name, z. B. `In`, `InAddress`, `ClientLanguage` */
+  /** Scala name, e.g. `In`, `InAddress`, `ClientLanguage` */
   name: string;
   kind: 'case' | 'enum';
   description?: string;
   status?: Status;
-  /** das `In` des Prozesses — liegt im Prozess-Objekt, nicht in `schema/` */
+  /** the `In` of the process — lives in the process object, not in `schema/` */
   root?: boolean;
-  /** das `Out` des Prozesses */
+  /** the `Out` of the process */
   processOut?: boolean;
-  /** gehört zu einer Interaktion — liegt in deren Objekt, nicht in `schema/` */
+  /** belongs to an interaction — lives in its object, not in `schema/` */
   interactionId?: string;
-  /** steht im Prozess-Objekt selbst (wie `OrderCard.CustomProcessStatus`) — der Export schreibt es dorthin, nicht nach `schema/` */
+  /** lives in the process object itself (like `OrderCard.CustomProcessStatus`) — the export writes it there, not to `schema/` */
   inProcessObject?: boolean;
   /**
-   * aus welchem Domain-Typ der Import die Klasse übernommen hat (`…orderCard.v1.schema.DueDateSpec`) —
-   * sie gehört zum Prozess, auch wenn ein älterer Katalog sie noch anderswo führt
+   * which domain type the import took the class from (`…orderCard.v1.schema.DueDateSpec`) —
+   * it belongs to the process, even if an older catalog still lists it elsewhere
    */
   domainId?: string;
-  /** das `InitIn` — Felder kommen aus dem Init-Worker, Typen werden gepflegt */
+  /** the `InitIn` — fields come from the init worker, types are maintained */
   initIn?: boolean;
   /**
-   * das `InConfig` — die eigenen Stellschrauben des Prozesses; Schleifen und
-   * Mocks kommen beim Erzeugen aus dem Ablauf dazu
+   * the `InConfig` — the process's own adjusting knobs; loops and
+   * mocks are added from the flow on generation
    */
   inConfig?: boolean;
-  /** Felder der Klasse — bei einer Auswahl (ADT) die **gemeinsamen** Felder aller Fälle */
+  /** fields of the class — for a choice (ADT) the **shared** fields of all cases */
   fields?: Field[];
   values?: EnumValue[]; // kind 'enum'
   [key: string]: unknown;
 }
 
-// ── Prozess-Spezifikation (processes/<slug>.json) ────────────────────────────
+// ── Process specification (processes/<slug>.json) ────────────────────────────
 export interface Variable {
   name: string;
   type?: string;
@@ -537,24 +537,24 @@ export interface Variable {
 }
 
 /**
- * Ein Kommentar-Faden — wie in Confluence: ein Beitrag, Antworten darunter,
- * und irgendwann als erledigt abgehakt. Erledigte bleiben stehen; wer später
- * dazukommt, soll sehen, was besprochen wurde.
+ * A comment thread — like in Confluence: a post, replies below it,
+ * and at some point checked off as resolved. Resolved ones stay; whoever
+ * joins later should see what was discussed.
  */
 export interface CommentThread {
   id: string;
   /**
-   * worauf er sich bezieht: ein Element (`process`, `step:<id>`, `ia:<id>`,
-   * `type:<id>`) oder ein Teil davon (`step:<id>#in:<name>` …, siehe comments.ts)
+   * what it refers to: an element (`process`, `step:<id>`, `ia:<id>`,
+   * `type:<id>`) or a part of it (`step:<id>#in:<name>` …, see comments.ts)
    */
   target: string;
   /**
-   * wie die Stelle hiess, als es sie noch gab — ein Abgleich, der sie
-   * entfernt, merkt sich das; das Panel zeigt den Faden unter «Ohne Stelle»
+   * what the place was called while it still existed — a sync that
+   * removes it remembers this; the panel shows the thread under «Ohne Stelle»
    */
   place?: string;
   resolved?: boolean;
-  /** wer abgehakt hat, und wann */
+  /** who checked it off, and when */
   resolvedBy?: string;
   resolvedAt?: string;
   entries: CommentEntry[];
@@ -564,36 +564,36 @@ export interface CommentThread {
 export interface CommentEntry {
   id: string;
   author: string;
-  /** E-Mail der Autorin/des Autors — nur mit Anmeldung; Empfänger für Teams bei Antworten */
+  /** e-mail of the author — only when signed in; recipient for Teams on replies */
   email?: string;
-  /** ISO-Zeitpunkt mit Zone */
+  /** ISO timestamp with zone */
   at: string;
   text: string;
-  /** per «@» erwähnte Personen (im Text steht «@Name») */
+  /** persons mentioned via «@» (the text contains «@Name») */
   mentions?: DirectoryUser[];
   /**
-   * Teams-Benachrichtigung (siehe Model.notifications.teams): E-Mails der
-   * Personen, die noch zu benachrichtigen sind bzw. schon benachrichtigt
-   * wurden. Verschickt wird nur vom Browser der Autorin/des Autors.
+   * Teams notification (see Model.notifications.teams): e-mails of the
+   * persons still to be notified or already notified.
+   * Only the author's browser sends them.
    */
   notifyPending?: string[];
   notified?: string[];
   /**
-   * Reaktionen (👍 ❤️ …): je Emoji die Personen, die so reagiert haben —
-   * nochmals klicken nimmt die eigene zurück (siehe toggleReaction)
+   * Reactions (👍 ❤️ …): per emoji the persons who reacted that way —
+   * clicking again takes back one's own (see toggleReaction)
    */
   reactions?: Record<string, { name: string; email?: string }[]>;
 }
 
 /**
- * Bekannte Person für @-Erwähnungen: aus `users.json` im geteilten Ordner
- * (jede angemeldete Person trägt sich beim Öffnen ein) oder aus der
- * Entra-Suche (Microsoft Graph, Berechtigung User.ReadBasic.All).
+ * Known person for @-mentions: from `users.json` in the shared folder
+ * (every signed-in person registers on opening) or from the
+ * Entra search (Microsoft Graph, permission User.ReadBasic.All).
  */
 export interface DirectoryUser {
   name: string;
   email: string;
-  /** ISO — nur in users.json */
+  /** ISO — only in users.json */
   lastSeen?: string;
 }
 
@@ -603,82 +603,82 @@ export interface UsersFile {
 }
 
 /**
- * Teams-Benachrichtigung bei @-Erwähnung und bei Antworten auf den eigenen
- * Kommentar: die kommentierende Person schickt der erwähnten über Microsoft
- * Graph eine persönliche Chat-Nachricht (1:1-Chat, mit echtem @-Mention und
- * Link in die App) — nach einer Wartezeit, gesammelt, einmalig.
- * Berechtigungen (delegiert): Chat.Create, ChatMessage.Send, User.ReadBasic.All.
+ * Teams notification on @-mention and on replies to one's own
+ * comment: the commenting person sends the mentioned one a personal chat message via Microsoft
+ * Graph (1:1 chat, with a real @-mention and
+ * a link into the app) — after a delay, batched, once.
+ * Permissions (delegated): Chat.Create, ChatMessage.Send, User.ReadBasic.All.
  */
 export interface TeamsNotifySettings {
   enabled: boolean;
-  /** Wartezeit nach dem letzten Kommentar in Minuten (Standard 5) */
+  /** delay after the last comment in minutes (default 5) */
   delayMinutes?: number;
-  /** Platzhalter: {{empfaenger}} {{von}} {{prozess}} {{anzahl}} {{kommentare}} {{link}} */
+  /** placeholders: {{empfaenger}} {{von}} {{prozess}} {{anzahl}} {{kommentare}} {{link}} */
   template?: string;
 }
 
-/** Die Bezeichnung des Prozesses je Sprache — `ProcessLabels(de, fr)` in Orchescala */
+/** The label of the process per language — `ProcessLabels(de, fr)` in Orchescala */
 export interface ProcessLabels { de: string; fr: string }
 
 export interface ProcessSpec {
-  /** für welche Engine dieser Prozess gebaut ist */
+  /** which engine this process is built for */
   engine?: EngineId;
-  /** Kommentare zu Prozess, Elementen und Datentypen */
+  /** comments on the process, elements and data types */
   comments?: CommentThread[];
   version: number;
   slug: string;
-  /** technischer Prozessname inkl. Version, z. B. `openSavingsV1` */
+  /** technical process name incl. version, e.g. `openSavingsV1` */
   name: string;
-  /** fachlicher Titel, z. B. «Sparkonto eröffnen» */
+  /** business title, e.g. «Sparkonto eröffnen» */
   title: string;
-  /** BPMN-Prozess-ID, z. B. `globex-savings-openSavingsV1` */
+  /** BPMN process ID, e.g. `globex-savings-openSavingsV1` */
   processId?: string;
-  /** `override def processLabels` des Prozess-Objekts — aus der Domain, geht in den Export */
+  /** `override def processLabels` of the process object — from the domain, goes into the export */
   processLabels?: ProcessLabels;
-  /** Orchescala-Projekt, z. B. `globex-savings` */
+  /** Orchescala project, e.g. `globex-savings` */
   project?: string;
   /**
-   * Alter Name, der der Konvention (`company-projekt-prozessVersion`) nicht
-   * folgt und bleiben muss — z. B. `valiant-product-orderCard`. Dann wird nur
-   * noch geprüft, dass die ID drei Teile hat.
+   * Old name that does not follow the convention (`company-projekt-prozessVersion`)
+   * and has to stay — e.g. `valiant-product-orderCard`. Then the only
+   * check is that the ID has three parts.
    */
   legacyProcessId?: boolean;
   status: Status;
-  /** Beschrieb / Ausgangslage / Ziel (Markdown) — `descr` des Prozess-Objekts */
+  /** description / initial situation / goal (Markdown) — `descr` of the process object */
   description?: string;
-  /** wie lange die Historie aufbewahrt wird (`camunda:historyTimeToLive`, Tage) */
+  /** how long the history is kept (`camunda:historyTimeToLive`, days) */
   timeToLive?: string;
   createdAt: string;
   updatedAt: string;
   variables?: Variable[];
-  /** Datenmodell: das In des Prozesses und seine Typen (Klassenbauer) */
+  /** data model: the In of the process and its types (class builder) */
   types?: TypeDef[];
-  /** Interaktionen: Benutzeraufgaben, eigene Worker, Signale */
+  /** interactions: user tasks, own workers, signals */
   interactions?: Interaction[];
   /**
-   * Ausgaben des Init-Workers. Der Schritt selbst steht **nicht** im Ablauf —
-   * er ist Verdrahtung (in Camunda 8 womöglich ein Listener) und wird nicht
-   * beschrieben. Seine Ausgaben sind aber die Felder des `InitIn`.
+   * Outputs of the init worker. The step itself is **not** in the flow —
+   * it is wiring (in Camunda 8 possibly a listener) and is not
+   * described. Its outputs, however, are the fields of the `InitIn`.
    */
   initOutputs?: Mapping[];
-  /** Pattern am Prozess selbst (z. B. «einmalige Ausführung») */
+  /** pattern on the process itself (e.g. «einmalige Ausführung») */
   patterns?: AppliedPattern[];
-  /** IDs der Epics (`Model.epics`), an denen dieser Prozess mitarbeitet */
+  /** IDs of the epics (`Model.epics`) this process contributes to */
   epics?: string[];
   steps: Step[];
   [key: string]: unknown;
 }
 
-// ── Service-Katalog (model.json) ─────────────────────────────────────────────
-// Ein Katalog-Eintrag entspricht einem Camunda **element-template**: Name,
-// Topic und das vorbereitete Mapping. Wird ein Service an einem Schritt
-// gewählt, übernimmt die App Ein-/Ausgaben als Vorlage.
+// ── Service catalog (model.json) ─────────────────────────────────────────────
+// A catalog entry corresponds to a Camunda **element template**: name,
+// topic and the prepared mapping. When a service is chosen on a step,
+// the app takes over its inputs/outputs as a template.
 export interface ServiceParam {
   name: string;
-  expression?: string;    // Vorgabe — aus dem Template bzw. `#{name}`
+  expression?: string;    // default — from the template or `#{name}`
   description?: string;
   required?: boolean;
-  /** nur in diesen Ausprägungen (OpenAPI `oneOf`) — fehlt: in allen */
+  /** only in these variants (OpenAPI `oneOf`) — missing: in all */
   variants?: string[];
   [key: string]: unknown;
 }
@@ -687,175 +687,175 @@ export interface ServiceDef {
   id: string;             // = element-template id / modelerTemplate
   name: string;
   /**
-   * Eintrag stammt aus der mitgelieferten `catalog.generated.json` (Teil des
-   * App-Builds, bei jedem Release neu erzeugt). Wird nie in die `model.json`
-   * geschrieben — der Katalog ist nicht vom Benutzer pflegbar.
+   * Entry comes from the bundled `catalog.generated.json` (part of the
+   * app build, regenerated on every release). Never written to the `model.json`
+   * — the catalog is not maintainable by the user.
    */
   generated?: boolean;
-  group?: string;         // z. B. `globex-crm`
+  group?: string;         // e.g. `globex-crm`
   description?: string;
   topic?: string;
-  kind?: StepKind;        // 'service' (Worker), 'call' (Prozess), 'user' (Benutzeraufgabe)
+  kind?: StepKind;        // 'service' (worker), 'call' (process), 'user' (user task)
   inputs?: ServiceParam[];
   outputs?: ServiceParam[];
   handledErrors?: string[];
-  /** bei Teilprozessen der gerufene Prozess (`calledElement`) */
+  /** for subprocesses the called process (`calledElement`) */
   calledProcess?: string;
   docUrl?: string;
   [key: string]: unknown;
 }
 
-// ── Domain-Katalog ───────────────────────────────────────────────────────────
-// Die Typen der Service-Projekte, aus deren Scala-Quellen eingelesen: die
-// Objekte im `schema/`-Ordner ebenso wie die `In` / `Out` der Services.
-// Wird der Katalog exportiert, lässt er sich dort einlesen, wo die Quellen
-// nicht liegen (z. B. in der Bankenzone).
-/** Ein Feld eines Domain-Typs — so, wie es in Scala steht. */
+// ── Domain catalog ───────────────────────────────────────────────────────────
+// The types of the service projects, read from their Scala sources: the
+// objects in the `schema/` folder as well as the `In` / `Out` of the services.
+// When the catalog is exported, it can be read in where the sources
+// are not available (e.g. in the banking zone).
+/** A field of a domain type — as it appears in Scala. */
 export interface DomainField {
   name: string;
-  /** voller Typausdruck, z. B. `Option[Seq[InPerson]]` */
+  /** full type expression, e.g. `Option[Seq[InPerson]]` */
   type: string;
   default?: string;
   description?: string;
-  /** `@description(clientKeyDescr)` — der Ausdruck, wenn er kein reiner Text ist (siehe Field.descriptionExpr) */
+  /** `@description(clientKeyDescr)` — the expression, if it is not plain text (see Field.descriptionExpr) */
   descriptionExpr?: string;
-  /** der Wert im `lazy val example = X(…)` des Companions — wie er dort steht, z. B. `Some(CardHolder.example)` */
+  /** the value in the companion's `lazy val example = X(…)` — as it appears there, e.g. `Some(CardHolder.example)` */
   example?: string;
   [key: string]: unknown;
 }
 
 /**
- * Ein Beispielwert aus der Domain: `val defaultClientKey: Long = 74854564837991L`
- * auf oberster Ebene eines Pakets. Heisst ein Feld `clientKey`, nimmt das
- * `example` diesen Wert — wie es die Projekte von Hand tun.
+ * An example value from the domain: `val defaultClientKey: Long = 74854564837991L`
+ * at the top level of a package. If a field is called `clientKey`, the
+ * `example` takes this value — as the projects do by hand.
  */
 export interface DomainDefault {
   /** `defaultClientKey` */
   name: string;
   /** `valiant.orchescala.domain` */
   pkg: string;
-  /** angegeben oder aus dem Literal abgeleitet (`Long`) — ohne Typ wird der Wert nicht verwendet */
+  /** given or derived from the literal (`Long`) — without a type the value is not used */
   type?: string;
-  /** aus dem generierten Katalog — gehört nicht in die model.json */
+  /** from the generated catalog — does not belong in the model.json */
   generated?: boolean;
 }
 
 export interface DomainType {
-  /** voll qualifiziert, z. B. `globex.crm.domain.account.v1.GetAccount.Out` */
+  /** fully qualified, e.g. `globex.crm.domain.account.v1.GetAccount.Out` */
   id: string;
-  /** aus der mitgelieferten `catalog.generated.json` — siehe ServiceDef.generated */
+  /** from the bundled `catalog.generated.json` — see ServiceDef.generated */
   generated?: boolean;
-  /** Scala-Typ, z. B. `GetAccount.Out` oder `InAddress` */
+  /** Scala type, e.g. `GetAccount.Out` or `InAddress` */
   name: string;
   pkg: string;
-  /** `member` = In/Out eines Services (kommt aus dem Trait), `alias` = `type X = …` */
+  /** `member` = In/Out of a service (comes from the trait), `alias` = `type X = …` */
   kind: 'case' | 'enum' | 'member' | 'alias';
-  /** umschliessendes Objekt bei `In` / `Out` */
+  /** enclosing object for `In` / `Out` */
   owner?: string;
-  /** was importiert werden muss (bei Membern das Objekt) */
+  /** what has to be imported (for members the object) */
   importPath: string;
-  /** Felder — bei einem enum die gemeinsamen (`def x: T` im Rumpf) */
+  /** fields — for an enum the shared ones (`def x: T` in the body) */
   fields?: DomainField[];
   values?: string[];
-  /** bei einem enum mit Parametern (ADT): die Felder je Fall */
+  /** for an enum with parameters (ADT): the fields per case */
   cases?: Array<{ name: string; fields?: DomainField[] }>;
   /**
-   * Bei einem einfachen enum: die Fälle, für die es Givens für den Singleton-Typ
-   * (`X.fall.type`) gibt — nur sie taugen als fester Fall. Fehlt die Angabe, wird nicht geprüft.
+   * For a simple enum: the cases for which there are givens for the singleton type
+   * (`X.fall.type`) — only they are fit as a fixed case. If missing, nothing is checked.
    */
   fixedCases?: string[];
   descr?: string;
   /**
-   * `val processName` eines Prozess-Objekts, z. B. `globex-ordercard`.
-   * Damit findet ein BPMN-Prozess seine Domain, ohne dass Paket und
-   * Objektname aus der ID geraten werden müssen.
+   * `val processName` of a process object, e.g. `globex-ordercard`.
+   * With it a BPMN process finds its domain without package and
+   * object name having to be guessed from the ID.
    */
   processName?: string;
-  /** `override def processLabels: ProcessLabels = ProcessLabels("…", "…")` des Prozess-Objekts */
+  /** `override def processLabels: ProcessLabels = ProcessLabels("…", "…")` of the process object */
   processLabels?: ProcessLabels;
-  /** `val topicName` eines Worker-Objekts — dasselbe für Service-Tasks */
+  /** `val topicName` of a worker object — the same for service tasks */
   topicName?: string;
-  /** Art des Objekts laut DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */
+  /** kind of the object according to the DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */
   dsl?: string;
-  /** Schlüssel des Objekts: `name` (Benutzeraufgabe), `messageName`, `decisionId` — und sein Wert */
+  /** key of the object: `name` (user task), `messageName`, `decisionId` — and its value */
   keyName?: string;
   key?: string;
-  /** Entscheidung: die Form des Ergebnisses laut `lazy val example = singleResult(…)` */
+  /** decision: the shape of the result according to `lazy val example = singleResult(…)` */
   decisionResult?: DecisionResult;
-  /** `val descr` des umschliessenden Objekts */
+  /** `val descr` of the enclosing object */
   ownerDescr?: string;
-  /** `val descr` als Scala-Ausdruck, wenn er kein reiner Text ist (`s"…${X}…"`) */
+  /** `val descr` as a Scala expression, if it is not plain text (`s"…${X}…"`) */
   ownerDescrExpr?: string;
-  /** bei `alias`: der Zielausdruck, z. B. `Int :| any.In[(11, 15)]` oder `AdjustOrderUT.In` */
+  /** for `alias`: the target expression, e.g. `Int :| any.In[(11, 15)]` or `AdjustOrderUT.In` */
   target?: string;
   /**
-   * Abweichende Werte im Beispiel des Objekts: `lazy val example =
+   * Differing values in the object's example: `lazy val example =
    * userTask(OrderCardUT.In.example.copy(clientKeyIsIdentityOk = false), …)` —
-   * je Mitglied (In, Out) die Felder mit ihrem Scala-Ausdruck
+   * per member (In, Out) the fields with their Scala expression
    */
   exampleCopies?: { In?: Record<string, string>; Out?: Record<string, string> };
   /**
-   * Die Weichen des Decoders eines `In` mit Fällen: Felder, von denen **eines**
-   * genügt, damit der Decoder den Fall wählt — `useCase` direkt oder `clientType`
-   * (der Decoder setzt `useCase` dann selbst). Das erste ist das direkte Feld,
-   * die übrigen wählen den Fall zur Laufzeit. Siehe domainScan.ts und variants.ts.
+   * The switches of the decoder of an `In` with cases: fields of which **one**
+   * suffices for the decoder to choose the case — `useCase` directly or `clientType`
+   * (the decoder then sets `useCase` itself). The first is the direct field,
+   * the others choose the case at runtime. See domainScan.ts and variants.ts.
    */
   routing?: string[];
-  /** Herkunft (Datei) — nur zur Nachvollziehbarkeit */
+  /** origin (file) — only for traceability */
   source?: string;
   /**
-   * Die Imports der Datei (`valiant.vollmacht.domain.loadPoas.v1.LoadPoas`,
-   * `a.b.*`) — ein Feldtyp wird zuerst über sie aufgelöst, wie in Scala
+   * The imports of the file (`valiant.vollmacht.domain.loadPoas.v1.LoadPoas`,
+   * `a.b.*`) — a field type is resolved via them first, as in Scala
    */
   imports?: string[];
   [key: string]: unknown;
 }
 
 /**
- * Die Engine, für die ein Prozess gebaut ist. Zu jeder gehört eine Vorlage
- * unter `public/templates/` (siehe `template.ts`).
+ * The engine a process is built for. Each has a template
+ * under `public/templates/` (see `template.ts`).
  */
 export type EngineId = 'c7' | 'c8';
 
-/** Ein Projekt-Ordner im Katalog. */
+/** A project folder in the catalog. */
 export interface ProjectFolder {
-  /** stabil über Umsortieren hinweg; zugleich Schlüssel des Ordner-Zugriffs */
+  /** stable across reordering; also the key of the folder access */
   id: string;
-  /** Ordnername, z. B. `initech-core-banking` */
+  /** folder name, e.g. `initech-core-banking` */
   name: string;
   /**
-   * absoluter Pfad — nur das CLI kennt ihn. Im Browser gibt der Ordnerwähler
-   * keinen Pfad heraus; dort führt der gemerkte Zugriff zum Ordner zurück.
+   * absolute path — only the CLI knows it. In the browser the folder picker
+   * does not give out a path; there the remembered access leads back to the folder.
    */
   path?: string;
   /**
-   * Name des Ordners **über** den Projekten, aus dem dieses Projekt kam
-   * (`projects`). Sein Zugriff wird einmal gemerkt und einmal bestätigt —
-   * die Projektordner darunter erben ihn, statt je einen Dialog zu brauchen.
+   * Name of the folder **above** the projects this project came from
+   * (`projects`). Its access is remembered once and confirmed once —
+   * the project folders below inherit it instead of each needing a dialog.
    */
   root?: string;
-  /** Zahl der Typen aus diesem Projekt beim letzten Aufbau */
+  /** number of types from this project at the last build */
   types?: number;
   /**
-   * Farbe des Projekts (`#rrggbb`) — wie `ProjectConfig.color` in Orchescala.
-   * Ein Worker oder Teilprozess aus diesem Projekt bekommt sie im Diagramm.
+   * Color of the project (`#rrggbb`) — like `ProjectConfig.color` in Orchescala.
+   * A worker or subprocess from this project gets it in the diagram.
    */
   color?: string;
   [key: string]: unknown;
 }
 
 /**
- * Ein Epic — eine Klammer über mehrere Prozesse, z. B. ein Change. Anlegen
- * darf nur ein Admin; zuordnen, wer bearbeitet. Die Übersicht filtert danach.
+ * An epic — a bracket over several processes, e.g. a change. Only an admin
+ * may create one; whoever edits may assign. The overview filters by it.
  */
 export interface EpicDef {
-  /** stabil — steht in den Spezifikationen; ein Umbenennen ändert nur `name` */
+  /** stable — stored in the specifications; renaming only changes `name` */
   id: string;
   name: string;
   description?: string;
-  /** Link, z. B. auf das Epic im Ticketsystem */
+  /** link, e.g. to the epic in the ticket system */
   url?: string;
-  /** abgeschlossen: nicht mehr zuweisbar, bleibt aber am Prozess und im Filter */
+  /** closed: no longer assignable, but stays on the process and in the filter */
   closed?: boolean;
 }
 
@@ -870,39 +870,39 @@ export interface AuthSettings {
 
 export interface Model {
   version: number;
-  /** Name des Kunden — steht links in der Kopfzeile */
+  /** name of the customer — shown on the left in the header */
   company?: string;
   /**
-   * Logo des Kunden als Data-URI. Es liegt in der `model.json`, damit es
-   * überall mitkommt — im geteilten Ordner wie in SharePoint, ohne zweite
-   * Datei und ohne Adresse, die von aussen erreichbar sein müsste.
+   * Logo of the customer as a data URI. It lives in the `model.json` so that it
+   * comes along everywhere — in the shared folder as in SharePoint, without a second
+   * file and without an address that would have to be reachable from outside.
    */
   logo?: string;
   auth?: AuthSettings;
-  /** Benachrichtigungen zu Kommentaren */
+  /** notifications for comments */
   notifications?: { teams?: TeamsNotifySettings };
-  /** Service-Katalog mit vorbereitetem Mapping */
+  /** service catalog with prepared mapping */
   services: ServiceDef[];
-  /** Domain-Katalog: die Typen der Service-Projekte */
+  /** domain catalog: the types of the service projects */
   domainTypes?: DomainType[];
-  /** Beispielwerte der Domain (`defaultClientKey` …) — in der Reihenfolge des Vorrangs */
+  /** example values of the domain (`defaultClientKey` …) — in order of precedence */
   domainDefaults?: DomainDefault[];
-  /** zuletzt eingelesene Quellordner — als Gedächtnisstütze im Admin */
+  /** most recently read source folders — as a reminder in the admin */
   domainSources?: string[];
   /**
-   * Die Projekt-Ordner des Domain-Katalogs — **die Reihenfolge ist der
-   * Vorrang**. Liegt dasselbe Paket in mehreren Projekten
-   * (`initech.core.banking.domain.client` und `globex.core.banking.domain.client`),
-   * gilt das weiter oben stehende; das andere wird verworfen.
+   * The project folders of the domain catalog — **the order is the
+   * precedence**. If the same package lives in several projects
+   * (`initech.core.banking.domain.client` and `globex.core.banking.domain.client`),
+   * the one higher up wins; the other is discarded.
    */
   projects?: ProjectFolder[];
-  /** Pattern, die die Spezifikationen an ihren Elementen wählen können */
+  /** patterns the specifications can choose on their elements */
   patterns?: PatternDef[];
-  /** Epics, denen sich Prozesse zuordnen lassen — die Reihenfolge gilt auch im Filter */
+  /** epics processes can be assigned to — the order also applies in the filter */
   epics?: EpicDef[];
   /**
-   * Projektfarben aus dem generierten Katalog (`prepareDocs`, `ProjectConfig.color`) —
-   * nur im Speicher, nie in der model.json. Eine Farbe am Projekt-Ordner geht vor.
+   * Project colors from the generated catalog (`prepareDocs`, `ProjectConfig.color`) —
+   * only in memory, never in the model.json. A color on the project folder takes precedence.
    */
   projectColors?: Record<string, string>;
   [key: string]: unknown;

@@ -11,17 +11,17 @@ import { appModeKey, cls, effectiveLogo, logoutTitle, rememberMode, storedMode, 
 
 const base = import.meta.env.BASE_URL;
 
-/** Eine der Rollen genügt; ohne Rollen jeder mit Login. Nur für die Anzeige - was ein Aufruf darf,
-  * prüfen Gateway und Worker. */
+/** One of the roles suffices; without roles anyone with login. Only for display - what a call may do
+  * is checked by gateway and worker. */
 function mayOpen(roles: string[], has: string[]): boolean {
   return roles.length === 0 || roles.some((r) => has.includes(r));
 }
 
-/** Der Pfad der Seite unter der App – `/app/democompany-customer/appointments/book` → `appointments/book`. */
+/** The path of the page below the app – `/app/democompany-customer/appointments/book` → `appointments/book`. */
 function pagePath(): string {
   const path = window.location.pathname;
   const rel = (path.startsWith(base) ? path.slice(base.length) : path).replace(/^\/+|\/+$/g, '');
-  // der Browser kodiert z.B. Umlaute (`%C3%BC`) - die Spezifikation nicht
+  // the browser encodes e.g. umlauts (`%C3%BC`) - the specification does not
   try {
     return decodeURIComponent(rel);
   } catch {
@@ -32,19 +32,19 @@ function pagePath(): string {
 type Loaded = { pages: Pages; page?: Page; user: User | null };
 
 export default function App() {
-  // die Vorgabe vom letzten Mal, bis pages.json da ist - eine dunkle App blitzt so nicht hell auf
+  // the default from last time, until pages.json is there - that way a dark app does not flash light
   const [preferred, setPreferred] = useState<'light' | 'dark' | undefined>(() => storedMode(appModeKey(base)) ?? undefined);
   const { isDark, toggleTheme } = useTheme(preferred);
   const c = cls(isDark);
   const embedded = new URLSearchParams(window.location.search).has('embed');
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  // ein Logo des Themes, das nicht lädt (404, blockiert) - seine Adresse: dann wie ohne Logo; ein anderes
-  // Logo wird wieder versucht, dasselbe erst nach dem Neuladen der Seite
+  // a logo of the theme that does not load (404, blocked) - its address: then as without a logo; another
+  // logo is tried again, the same one only after reloading the page
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
 
   useEffect(() => {
-    let current = true; // StrictMode: nur der Lauf, der noch gilt, setzt den Zustand
+    let current = true; // StrictMode: only the run that is still current sets the state
     (async () => {
       const pages: Pages = await fetch(`${base}pages.json`, { cache: 'no-cache' }).then(async (r) => {
         if (!r.ok) {
@@ -53,14 +53,14 @@ export default function App() {
         }
         return r.json();
       });
-      const loggedIn = await completeLogin().catch(() => false); // Rückkehr vom IdP
-      // zur Startseite - mit den Parametern des Links, ohne eine Antwort des IdP, die nicht übernommen wurde
+      const loggedIn = await completeLogin().catch(() => false); // return from the IdP
+      // to the start page - with the parameters of the link, without an IdP response that was not taken over
       if (pagePath() === '' && pages.app.home) {
         const rest = homeParams(window.location.search, loggedIn);
         window.history.replaceState({}, '', `${base}${pages.app.home}${rest ? `?${rest}` : ''}`);
       }
       const page = pages.pages.find((p) => p.path === pagePath());
-      // ein IdP nur für Seiten mit Login - eine öffentliche Seite kommt ohne aus
+      // an IdP only for pages with login - a public page does without
       const user = page && (page.access !== 'public' || loggedIn) ? await currentUser().catch(() => null) : null;
       if (!current) return;
       setPreferred(pages.app.theme?.mode);
@@ -77,13 +77,13 @@ export default function App() {
   const page = loaded?.page;
   const logo = effectiveLogo(app?.theme?.logo, failedLogo);
   const style = themeStyle(app?.theme, isDark);
-  // der Hintergrund auch am body - beim Überscrollen und eingebettet ist er sonst der z9nai-Hintergrund
+  // the background also on the body - otherwise on overscroll and when embedded it is the z9nai background
   const bg = (style as Record<string, string | undefined>)['--orch-bg'];
   useEffect(() => {
     const root = document.documentElement.style;
     if (bg) root.setProperty('--orch-bg', bg);
     else root.removeProperty('--orch-bg');
-    return () => void root.removeProperty('--orch-bg'); // nicht in einer Seite zurücklassen, die die App einbettet
+    return () => void root.removeProperty('--orch-bg'); // do not leave it behind in a page that embeds the app
   }, [bg]);
   const user = loaded?.user;
 
@@ -112,18 +112,18 @@ export default function App() {
     <div className={`flex min-h-screen flex-col ${embedded ? '' : c.bg} ${c.text}`} style={style}>
       {!embedded && (
         <div className={`flex flex-shrink-0 items-center gap-3 border-b px-4 py-2 ${c.border} ${c.top}`}>
-          {/* das Logo nur als <img>: ein SVG darin führt kein Skript aus und lädt nichts - nie inline einsetzen */}
+          {/* the logo only as <img>: an SVG in it runs no script and loads nothing - never insert it inline */}
           {logo
             ? <img src={logo} alt="" onError={() => setFailedLogo(logo)} className="h-7 max-w-28 flex-shrink-0 object-contain sm:max-w-40" />
             : <img src={`${base}favicon.png`} alt="" className="h-6 w-6 flex-shrink-0 opacity-80" />}
-          {/* ein langer Titel weicht (gekürzt, der Untertitel erst ab sm - auf dem Handy ist kein Platz für ihn) -
-              Logo, Knöpfe und Byline behalten ihren Platz; das Logo auf dem Handy schmaler, damit vom Titel etwas bleibt */}
+          {/* a long title gives way (truncated, the subtitle only from sm on - on the phone there is no room for it) -
+              logo, buttons and byline keep their place; the logo narrower on the phone, so that some of the title remains */}
           <span title={app?.title} className={`min-w-0 truncate text-xs font-bold tracking-widest ${c.title}`}>{app?.title ?? ''}</span>
           {app?.subtitle && <span title={app.subtitle} className={`hidden min-w-0 truncate text-[10px] sm:inline ${c.muted}`}>{app.subtitle}</span>}
           <div className="ml-auto flex flex-shrink-0 items-center gap-3">
             {user && (
               <div className={`flex items-center gap-2 text-[11px] ${c.muted}`} title={user.profile.email}>
-                {/* der Name erst ab sm, gekürzt - auf dem Handy reicht der Platz neben Logo und Knöpfen nicht */}
+                {/* the name only from sm on, truncated - on the phone there is not enough room next to logo and buttons */}
                 <span className="hidden max-w-[12rem] truncate sm:inline">{user.profile.name ?? user.profile.preferred_username}</span>
                 <button onClick={() => logout()} title={logoutTitle(user.profile.name ?? user.profile.preferred_username)}
                   aria-label={logoutTitle(user.profile.name ?? user.profile.preferred_username)}
@@ -136,11 +136,11 @@ export default function App() {
               className={`rounded p-1.5 transition-colors ${c.icon}`}>
               {isDark ? <Sun size={13} /> : <Moon size={13} />}
             </button>
-            {/* der Name am Link, wie er sichtbar ist - das Bild daneben ist Schmuck, ein Screenreader liest ihn einmal */}
+            {/* the name on the link as it is visible - the image next to it is decoration, a screen reader reads it once */}
             <a href="https://z9nai.ch" target="_blank" rel="noopener noreferrer" title="z9nai GmbH" aria-label="by z9nai GmbH"
               className={`${logo ? 'flex' : 'hidden sm:flex'} items-center gap-1.5 text-[10px] whitespace-nowrap opacity-70 transition-opacity hover:opacity-100 ${c.muted}`}>
-              {/* ohne eigenes Logo zeigt die App links schon das von z9nai: dann nur der Text, und unter sm
-                  gar nichts - neben Benutzer und Knopf ist dort kein Platz für ihn */}
+              {/* without its own logo the app already shows the z9nai one on the left: then only the text, and below sm
+                  nothing at all - next to the user and button there is no room for it */}
               <span className={logo ? 'hidden sm:inline' : ''}>by z9nai GmbH</span>
               {logo && <img src={`${base}favicon.png`} alt="" className="h-5 w-5" />}
             </a>

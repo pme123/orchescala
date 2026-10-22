@@ -1,17 +1,17 @@
-// Bausteine der Admin-Ansicht: Bereichskarte mit Kopfzeile und Zustand,
-// Zustands-Chip, Speichern-Zeile mit Rückmeldung.
+// Building blocks of the admin view: section card with header and state,
+// state chip, save row with feedback.
 //
-// Jede Karte sagt oben, was sie ist und wie es steht («aktiv», «aus»,
-// «nicht eingerichtet»); die Erklärung ist ein Satz, der Rest klappt über
-// «mehr» auf. Die Rückmeldung nach dem Speichern ist ein Chip neben dem
-// Knopf und verschwindet von selbst — ein Fehler bleibt stehen.
+// Every card says at the top what it is and how it stands («aktiv», «aus»,
+// «nicht eingerichtet»); the explanation is one sentence, the rest expands via
+// «mehr». The feedback after saving is a chip next to the
+// button and disappears by itself — an error stays.
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { cls } from '../ui';
 
 export type AdminTone = 'ok' | 'off' | 'warn' | 'error';
 
-/** Zustand eines Bereichs — in der Statusleiste und im Kartenkopf. */
+/** State of a section — in the status bar and in the card header. */
 export function StateChip({ tone, label, isDark, title }: { tone: AdminTone; label: string; isDark: boolean; title?: string }) {
   const cls_ = tone === 'ok'
     ? (isDark ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-emerald-300 bg-emerald-50 text-emerald-800')
@@ -30,20 +30,20 @@ export function StateChip({ tone, label, isDark, title }: { tone: AdminTone; lab
 }
 
 /**
- * Bereichskarte: Kopfzeile mit Zeichen, Titel und Zustand; eine Zeile
- * Erklärung, mehr auf Klick; darunter der Inhalt.
+ * Section card: header with icon, title and state; one line of
+ * explanation, more on click; below it the content.
  */
 export function AdminSection({ id, icon, title, state, hint, more, isDark, action, children }: {
   id: string;
   icon: React.ReactNode;
   title: string;
   state?: React.ReactNode;
-  /** ein Satz, immer sichtbar */
+  /** one sentence, always visible */
   hint: React.ReactNode;
-  /** der Rest — klappt über «mehr» auf */
+  /** the rest — expands via «mehr» */
   more?: React.ReactNode;
   isDark: boolean;
-  /** rechts in der Kopfzeile, z. B. ein Schalter */
+  /** on the right in the header, e.g. a switch */
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -75,7 +75,7 @@ export function AdminSection({ id, icon, title, state, hint, more, isDark, actio
 
 export interface Flash { ok: boolean; text: string }
 
-/** Rückmeldung, die von selbst verschwindet — ein Fehler bleibt. */
+/** Feedback that disappears by itself — an error stays. */
 export function useFlash(): [Flash | null, (f: Flash | null) => void] {
   const [flash, setFlash] = useState<Flash | null>(null);
   useEffect(() => {
@@ -86,11 +86,11 @@ export function useFlash(): [Flash | null, (f: Flash | null) => void] {
   return [flash, setFlash];
 }
 
-/** Ergebnis von `saveModel` als Rückmeldung. */
+/** Result of `saveModel` as feedback. */
 export const flashOf = (res: { ok: true } | { ok: false; message: string }, okText = 'Gespeichert'): Flash =>
   res.ok ? { ok: true, text: okText } : { ok: false, text: res.message };
 
-/** Speichern rechts, die Rückmeldung als Chip daneben; links Platz für Weiteres. */
+/** Save on the right, the feedback as a chip next to it; room for more on the left. */
 export function SaveRow({ onSave, flash, isDark, label = 'Speichern', disabled, children }: {
   onSave: () => void; flash: Flash | null; isDark: boolean; label?: string; disabled?: boolean; children?: React.ReactNode;
 }) {
@@ -107,7 +107,7 @@ export function SaveRow({ onSave, flash, isDark, label = 'Speichern', disabled, 
   );
 }
 
-/** Schalter «an/aus» — für die Kopfzeile eines Bereichs; schaltet und speichert sofort. */
+/** Switch «an/aus» — for the header of a section; toggles and saves immediately. */
 export function Switch({ on, onChange, isDark, label, disabled }: {
   on: boolean; onChange: (v: boolean) => void; isDark: boolean; label?: string; disabled?: boolean;
 }) {
@@ -126,7 +126,7 @@ export function Switch({ on, onChange, isDark, label, disabled }: {
   );
 }
 
-/** Feldbeschriftung — in Textfarbe, wie die Zwischentitel im Schritt-Panel. */
+/** Field label — in text colour, like the subheadings in the step panel. */
 export function FieldLabel({ children, isDark, hint }: { children: React.ReactNode; isDark: boolean; hint?: string }) {
   const c = cls(isDark);
   return (

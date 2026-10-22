@@ -1,16 +1,16 @@
-// Die DMN-Tabelle einer DMN Decision im Projekt finden — wie die Domain (siehe
-// findDomain in projectImport.ts): in den gemerkten Projekt-Ordnern, der eigene
-// zuerst (sein Name ist der Anfang der Prozess-ID). Die Tabellen liegen neben
-// den BPMN: `src/main/resources/camunda`, für Camunda 8 `…/camunda8`.
+// Find the DMN table of a DMN decision in the project — like the domain (see
+// findDomain in projectImport.ts): in the remembered project folders, its own
+// first (its name is the start of the process ID). The tables live next to
+// the BPMN: `src/main/resources/camunda`, for Camunda 8 `…/camunda8`.
 import type { EngineId, Model, ProjectFolder } from './types';
 import { handleFor } from './projects';
 import { findDecision } from './dmn';
 
 export interface DmnHit {
   xml: string;
-  /** Dateiname im Projekt */
+  /** file name in the project */
   file: string;
-  /** in welchem Projekt-Ordner */
+  /** in which project folder */
   project: string;
 }
 
@@ -24,7 +24,7 @@ async function dirAt(root: FileSystemDirectoryHandle, path: string[]): Promise<F
   return dir;
 }
 
-/** In einem Ordner die DMN-Datei mit dieser Entscheidung */
+/** In a folder, the DMN file with this decision */
 async function inFolder(dir: FileSystemDirectoryHandle, decisionId: string): Promise<{ xml: string; file: string } | null> {
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind !== 'file' || !name.toLowerCase().endsWith('.dmn')) continue;
@@ -35,9 +35,9 @@ async function inFolder(dir: FileSystemDirectoryHandle, decisionId: string): Pro
 }
 
 /**
- * Die Tabelle mit der Entscheidung `decisionId` — `null`, wenn kein gemerkter
- * Projekt-Ordner sie hat. Fragt der Browser nach dem Leserecht, geschieht das
- * je Ordner einmal (der Aufruf muss aus einem Klick kommen).
+ * The table with the decision `decisionId` — `null` if no remembered
+ * project folder has it. If the browser asks for read permission, this happens
+ * once per folder (the call must come from a click).
  */
 export async function findDmnInProject(
   decisionId: string, processId: string, model: Model | null, engine: EngineId | undefined,

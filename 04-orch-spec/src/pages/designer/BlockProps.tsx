@@ -1,4 +1,4 @@
-// Die Eigenschaften des ausgewählten Bausteins - oder der Seite.
+// The properties of the selected block - or of the page.
 import type { Access, Component, Field, Option, Page } from '../runtime/spec';
 import ActionsEditor from './ActionsEditor';
 import { CheckField, Group, JsonField, PathField, RowList, SelectField, TextField } from './fields';
@@ -167,7 +167,7 @@ export function BlockProps({ block, onChange, ...ctx }: Ctx & { block: Component
 }
 
 function OptionsEditor({ isDark, options, onChange }: { isDark: boolean; options: Option[]; onChange: (o: Option[]) => void }) {
-  // ein Wert true / false / eine Zahl bleibt einer - sonst ein Text
+  // a value true / false / a number stays one - otherwise a text
   const parse = (text: string): unknown => (text === 'true' ? true : text === 'false' ? false : /^-?\d+$/.test(text) ? Number(text) : text);
   return (
     <RowList isDark={isDark} items={options} addLabel="Option" onChange={onChange}

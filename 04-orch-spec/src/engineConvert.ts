@@ -1,8 +1,8 @@
-// BPMN zwischen Camunda 7 und Camunda 8 umwandeln — in beide Richtungen.
+// Convert BPMN between Camunda 7 and Camunda 8 — in both directions.
 //
-// Mechanisch, auf dem XML: Layout, IDs, Topics und Namen bleiben, nur die
-// Engine-Erweiterungen wechseln die Form (Regeln wie im Migrationsleitfaden
-// des bpmn-c7-to-c8-Skills):
+// Mechanically, on the XML: layout, IDs, topics and names stay, only the
+// engine extensions change form (rules as in the migration guide
+// of the bpmn-c7-to-c8 skill):
 //
 //   Camunda 7                                  Camunda 8
 //   camunda:type="external" camunda:topic      zeebe:taskDefinition type
@@ -13,13 +13,13 @@
 //   camunda:collection / elementVariable       zeebe:loopCharacteristics
 //   camunda:properties                         zeebe:properties
 //   camunda:versionTag                         zeebe:versionTag
-//   camunda:modelerTemplate                    zeebe:modelerTemplate (Service-Verweis)
+//   camunda:modelerTemplate                    zeebe:modelerTemplate (service reference)
 //   ${…} (JUEL)                                =… (FEEL)
 //
-// Was keine Entsprechung hat, fällt weg — die Engine-Eigenheiten ohne
-// Bedeutung für den Ablauf (async, Job-Priorität …) still, alles andere mit
-// einer Meldung: Listener, Skripte, Korrelationsschlüssel, nicht
-// übersetzbare Ausdrücke. Lieber sichtbar offen als still falsch.
+// What has no equivalent is dropped — the engine specifics without
+// meaning for the flow (async, job priority …) silently, everything else with
+// a message: listeners, scripts, correlation keys, expressions that cannot
+// be translated. Better visibly open than silently wrong.
 
 import type { EngineId } from './types.ts';
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
@@ -29,7 +29,7 @@ import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import { errorListSource, parseErrorList } from './errorCodes.ts';
 
-/** `_handledErrors` / `_regexHandledErrors`: Liste in Camunda 8, Text mit Kommas in Camunda 7 */
+/** `_handledErrors` / `_regexHandledErrors`: list in Camunda 8, text with commas in Camunda 7 */
 const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
 
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -37,13 +37,13 @@ const ZEEBE_NS = 'http://camunda.org/schema/zeebe/1.0';
 const MODELER_NS = 'http://camunda.org/schema/modeler/1.0';
 const XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
 
-/** Plattform-Angaben für den Modeler */
+/** Platform details for the Modeler */
 const PLATFORM: Record<EngineId, { name: string; version: string }> = {
   c7: { name: 'Camunda Platform', version: '7.23.0' },
   c8: { name: 'Camunda Cloud', version: '8.9.0' },
 };
 
-/** Camunda-7-Attribute ohne Bedeutung in Camunda 8 — fallen still weg */
+/** Camunda 7 attributes without meaning in Camunda 8 — dropped silently */
 const C7_ONLY = new Set([
   'asyncBefore', 'asyncAfter', 'async', 'exclusive', 'jobPriority', 'taskPriority', 'failedJobRetryTimeCycle',
   'historyTimeToLive', 'isStartableInTasklist', 'calledElementBinding', 'calledElementVersion',
@@ -69,14 +69,14 @@ function descendants(root: Element): Element[] {
   return out;
 }
 
-/** Engine eines Diagramms — wie der Import sie erkennt */
+/** Engine of a diagram — as the import recognizes it */
 export const detectEngine = (xml: string): EngineId =>
   /http:\/\/camunda\.org\/schema\/zeebe|executionPlatform="Camunda Cloud"/.test(xml) ? 'c8' : 'c7';
 
-// ── Ausdrücke ────────────────────────────────────────────────────────────────
+// ── Expressions ──────────────────────────────────────────────────────────────
 type Issue = (where: string, text: string) => void;
 
-/** JUEL/Text → FEEL mit `=`; fester Text bleibt fester Text (Timer, Bedingung) */
+/** JUEL/text → FEEL with `=`; fixed text stays fixed text (timer, condition) */
 function toFeel(text: string, where: string, issue: Issue): string {
   const t = text.trim();
   if (!t || t.startsWith('=') || !isJuel(t)) return t;
@@ -88,7 +88,7 @@ function toFeel(text: string, where: string, issue: Issue): string {
 
 const feelString = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
-/** Quelle eines `zeebe:input/output` — dort ist alles FEEL, fester Text also ein String */
+/** Source of a `zeebe:input/output` — everything there is FEEL, so fixed text is a string */
 function toFeelSource(text: string, where: string, issue: Issue): string {
   const t = text.trim();
   if (!t) return '=null';
@@ -97,7 +97,7 @@ function toFeelSource(text: string, where: string, issue: Issue): string {
   return toFeel(t, where, issue);
 }
 
-/** FEEL → `${…}`; fester Text bleibt */
+/** FEEL → `${…}`; fixed text stays */
 function toJuel(text: string, where: string, issue: Issue): string {
   const t = text.trim();
   const body = feelBody(t);
@@ -108,7 +108,7 @@ function toJuel(text: string, where: string, issue: Issue): string {
   return t;
 }
 
-/** Wert eines `camunda:inputParameter` aus einer zeebe-Quelle: ein FEEL-String wird wieder fester Text */
+/** Value of a `camunda:inputParameter` from a zeebe source: a FEEL string becomes fixed text again */
 function toJuelValue(source: string, where: string, issue: Issue): string {
   const body = feelBody(source.trim());
   const lit = body != null ? /^"((?:[^"\\]|\\.)*)"$/.exec(body) : null;
@@ -116,20 +116,20 @@ function toJuelValue(source: string, where: string, issue: Issue): string {
   return toJuel(source, where, issue);
 }
 
-/** blosser Variablenname (`=client`) — für `camunda:in source` */
+/** bare variable name (`=client`) — for `camunda:in source` */
 const plainVar = (source: string): string | null => {
   const b = feelBody(source.trim());
   return b != null && /^[A-Za-z_][A-Za-z0-9_]*$/.test(b) ? b : null;
 };
 
-// ── Umwandlung ───────────────────────────────────────────────────────────────
+// ── Conversion ───────────────────────────────────────────────────────────────
 /**
- * Das Diagramm in die Form der Ziel-Engine bringen. Liegt es schon in dieser
- * Form vor, kommt es unverändert zurück.
+ * Bring the diagram into the form of the target engine. If it is already in this
+ * form, it comes back unchanged.
  */
 /**
- * `correlationKeys`: der am Schritt gewählte Korrelationsschlüssel je Element-ID —
- * eine wartende Nachricht ohne bekommt in Camunda 8 den Vorschlag `=businessKey`.
+ * `correlationKeys`: the correlation key chosen at the step per element ID —
+ * a waiting message without one gets the suggestion `=businessKey` in Camunda 8.
  */
 export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string> } = {}): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
@@ -156,7 +156,7 @@ export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: 
   if (target === 'c8') toC8(defs, ctx);
   else toC7(defs, ctx, opts);
 
-  // der Namensraum der alten Engine, wenn nichts mehr darin steht
+  // the namespace of the old engine, when nothing is left in it
   const oldNs = target === 'c8' ? CAMUNDA_NS : ZEEBE_NS;
   for (const a of Array.from(defs.attributes)) {
     if (a.name.startsWith('xmlns:') && a.value === oldNs && !usesNs(defs, oldNs)) defs.removeAttribute(a.name);
@@ -167,7 +167,7 @@ export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: 
   const decl = /^<\?xml[^>]*\?>/.exec(xml)?.[0];
   if (decl && !out.startsWith('<?xml')) out = `${decl}\n${out}`;
   out = out.replace(/^(<\?xml[^>]*\?>)(?!\n)/, '$1\n');
-  // zwei gleiche Listener am selben Element sind eine Meldung
+  // two identical listeners on the same element are one message
   const seen = new Set<string>();
   const unique = issues.filter(i => { const k = `${i.stepId}|${i.where}|${i.text}`; return !seen.has(k) && !!seen.add(k); });
   return { xml: out, issues: unique, changed: true };
@@ -177,9 +177,9 @@ interface Ctx {
   doc: Document;
   issues: WriteIssue[];
   bpmnEl: (name: string) => Element;
-  /** Kinder, die erst eingerückt werden können, wenn ihr Elternteil hängt */
+  /** Children that can only be indented once their parent is attached */
   later: Array<[Element, Element[]]>;
-  /** Element-ID → gewählter Korrelationsschlüssel (siehe convertBpmn) */
+  /** Element ID → chosen correlation key (see convertBpmn) */
   correlationKeys: Record<string, string>;
 }
 
@@ -197,12 +197,12 @@ const idOf = (el: Element): string => {
 
 const issueAt = (ctx: Ctx, el: Element): Issue => (where, text) => ctx.issues.push({ stepId: idOf(el), where, text });
 
-/** `extensionElements` des Elements — angelegt, wenn es fehlt */
+/** `extensionElements` of the element — created if missing */
 function extOf(ctx: Ctx, el: Element): Element {
   let ext = firstNamed(el, 'extensionElements');
   if (!ext) {
     ext = ctx.bpmnEl('extensionElements');
-    // vor `documentation` darf nichts stehen
+    // nothing may come before `documentation`
     const doc = firstNamed(el, 'documentation');
     if (doc) el.insertBefore(ext, doc.nextSibling);
     else prependEl(el, ext);
@@ -216,12 +216,12 @@ function create(ctx: Ctx, ns: string, prefix: string, name: string, attrs: Recor
   return e;
 }
 
-/** Kinder mit Einrückung einfügen */
+/** Insert children with indentation */
 function fill(parent: Element, children: Element[]) {
   for (const c of children) appendEl(parent, c);
 }
 
-/** leer gewordene `extensionElements` entfernen */
+/** remove `extensionElements` that became empty */
 function dropEmptyExt(el: Element) {
   const ext = firstNamed(el, 'extensionElements');
   if (ext && !kids(ext).length) removeEl(ext);
@@ -241,7 +241,7 @@ function toC8(defs: Element, ctx: Ctx) {
     const add: Element[] = [];
     const ext0 = firstNamed(el, 'extensionElements');
 
-    // ── External Task: Topic → Job-Typ (bei Nachrichten-Events am Event selbst)
+    // ── External task: topic → job type (for message events on the event itself)
     const topic = cattr(el, 'topic');
     if (topic) {
       const holder = name === 'messageEventDefinition' && el.parentElement ? el.parentElement : el;
@@ -252,14 +252,14 @@ function toC8(defs: Element, ctx: Ctx) {
       if (cattr(el, a)) issue('Implementierung', `camunda:${a}="${cattr(el, a)}" — in ${C8_LABEL} als Job-Worker (zeebe:taskDefinition) umsetzen.`);
     }
 
-    // ── Teilprozess: calledElement + in/out
+    // ── Subprocess: calledElement + in/out
     const io: Element[] = [];
     if (name === 'callActivity') {
       const called = el.getAttribute('calledElement');
       const ins = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'in') : [];
       const outs = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'out') : [];
       const all = (xs: Element[]) => xs.some(x => x.getAttribute('variables') === 'all');
-      // Orchescala mappt explizit — nie alle Variablen, in keine Richtung
+      // Orchescala maps explicitly — never all variables, in either direction
       add.push(zeebe('calledElement', {
         processId: called ? toFeel(called, 'Aufgerufener Prozess', issue) : undefined,
         propagateAllChildVariables: 'false',
@@ -270,7 +270,7 @@ function toC8(defs: Element, ctx: Ctx) {
       if (called) el.removeAttribute('calledElement');
       for (const [xs, tag] of [[ins, 'input'], [outs, 'output']] as const) {
         for (const x of xs) {
-          if (x.getAttribute('businessKey')) continue; // wird unten als Variable «businessKey» übergeben
+          if (x.getAttribute('businessKey')) continue; // is passed below as variable «businessKey»
           if (x.getAttribute('variables') === 'all') continue;
           const target = x.getAttribute('target') ?? '';
           const src = x.getAttribute('source');
@@ -280,21 +280,21 @@ function toC8(defs: Element, ctx: Ctx) {
           io.push(zeebe(tag, { source, target }));
         }
       }
-      // Der Business Key geht immer an den Teilprozess — in Camunda 8 als Variable
+      // The business key always goes to the subprocess — in Camunda 8 as a variable
       if (!io.some(p => local(p) === 'input' && p.getAttribute('target') === 'businessKey')) {
         io.unshift(zeebe('input', { source: '=businessKey', target: 'businessKey' }));
       }
     }
 
-    // ── Listener, die nur eine Variable setzen → Output-Mapping (das übliche
-    //    Muster an End-Events: `execution.setVariable("processStatus", "…")`) —
-    //    am Element oder an einem None-Throw-Event davor/danach (placementOf)
+    // ── Listeners that only set a variable → output mapping (the usual
+    //    pattern on end events: `execution.setVariable("processStatus", "…")`) —
+    //    on the element or on a none throw event before/after it (placementOf)
     const cio = ext0 ? firstNamed(ext0, 'inputOutput', CAMUNDA_NS) : null;
-    // nur Ausgaben, die ein zeebe:output werden (complexParam: ein Skript, eine Liste, eine Map nicht)
+    // only outputs that become a zeebe:output (complexParam: a script, a list, a map not)
     const hasOutputs = io.some(p => local(p) === 'output')
       || (!!cio && kids(cio).some(p => local(p) === 'outputParameter' && !complexParam(p)));
     const listeners = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'executionListener') : [];
-    // nach den eigenen Ausgaben — in Camunda 7 lief der end-Listener nach dem Output-Mapping
+    // after the own outputs — in Camunda 7 the end listener ran after the output mapping
     const listenerOutputs: Element[] = [];
     for (const l of listeners) {
       const sv = setVariableOf(l.getAttribute('expression') ?? '');
@@ -317,7 +317,7 @@ function toC8(defs: Element, ctx: Ctx) {
       removeEl(l);
     }
 
-    // ── lokale Variablen: inputOutput → ioMapping
+    // ── local variables: inputOutput → ioMapping
     if (cio) {
       for (const p of kids(cio)) {
         const tag = local(p) === 'inputParameter' ? 'input' : 'output';
@@ -338,7 +338,7 @@ function toC8(defs: Element, ctx: Ctx) {
     if (io.length) {
       const m = zeebe('ioMapping');
       add.push(m);
-      // Eingaben vor Ausgaben — so will es das Schema
+      // inputs before outputs — that is what the schema wants
       const sorted = [...io.filter(x => local(x) === 'input'), ...io.filter(x => local(x) === 'output')];
       ctx.later.push([m, sorted]);
     }
@@ -352,7 +352,7 @@ function toC8(defs: Element, ctx: Ctx) {
       issue('Entscheidung', `Ergebnisform prüfen: ${C8_LABEL} liefert je nach Hit Policy einen Wert, einen Context oder eine Liste (${C7_LABEL} immer eine Liste).`);
     }
 
-    // ── Benutzeraufgabe
+    // ── User task
     if (name === 'userTask') {
       add.push(zeebe('userTask'));
       const assignee = cattr(el, 'assignee'), groups = cattr(el, 'candidateGroups'), users = cattr(el, 'candidateUsers');
@@ -377,7 +377,7 @@ function toC8(defs: Element, ctx: Ctx) {
       issue('Formular', `formKey «${formKey}» — in ${C8_LABEL} als Formular (externe Referenz) prüfen.`);
     }
 
-    // ── Mehrfachausführung
+    // ── Multi-instance
     if (name === 'multiInstanceLoopCharacteristics') {
       const coll = cattr(el, 'collection'), elem = cattr(el, 'elementVariable');
       if (coll || elem) {
@@ -392,11 +392,11 @@ function toC8(defs: Element, ctx: Ctx) {
       if (cc) cc.textContent = toFeel(cc.textContent ?? '', 'Abschlussbedingung', issue);
     }
 
-    // ── Bedingungen und Timer
+    // ── Conditions and timers
     if (name === 'conditionExpression') {
       if (el.getAttribute('language')) issue('Bedingung', `Skript-Bedingung (${el.getAttribute('language')}) — als FEEL neu schreiben.`);
       else {
-        // null-sicher wie im Export: in Camunda 7 war `null` einfach `false`
+        // null-safe as in the export: in Camunda 7 `null` simply was `false`
         const feel = toFeel(el.textContent ?? '', 'Bedingung', issue);
         el.textContent = feel.startsWith('=') ? `=${nullSafeCondition(feel.slice(1))}` : feel;
       }
@@ -405,7 +405,7 @@ function toC8(defs: Element, ctx: Ctx) {
       el.textContent = toFeel(el.textContent ?? '', 'Timer', issue);
     }
 
-    // ── Nachrichten: wer wartet, braucht einen Korrelationsschlüssel
+    // ── Messages: whoever waits needs a correlation key
     if (name === 'messageEventDefinition' || name === 'receiveTask') {
       const holder = name === 'receiveTask' ? el : el.parentElement;
       const waits = holder && ['intermediateCatchEvent', 'boundaryEvent', 'receiveTask'].includes(local(holder));
@@ -420,26 +420,26 @@ function toC8(defs: Element, ctx: Ctx) {
         }
       }
     }
-    // Namen von Nachricht und Signal: ein Ausdruck (`…-${mainProcessInstanceId}`) wird FEEL —
-    // sonst nähme Camunda 8 ihn wörtlich, und nichts käme an
+    // Names of message and signal: an expression (`…-${mainProcessInstanceId}`) becomes FEEL —
+    // otherwise Camunda 8 would take it literally, and nothing would arrive
     if (name === 'message' || name === 'signal') {
       const n = el.getAttribute('name');
       if (n && isJuel(n)) el.setAttribute('name', toFeel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
     }
 
-    // ── Element-Template: der Verweis auf den Service bleibt
+    // ── Element template: the reference to the service stays
     for (const a of TEMPLATE_ATTRS) {
       const v = cattr(el, a);
       if (v) el.setAttributeNS(ZEEBE_NS, `zeebe:${a}`, v);
     }
 
-    // ── Prozess
+    // ── Process
     if (name === 'process') {
       const tag = cattr(el, 'versionTag');
       if (tag) add.push(zeebe('versionTag', { value: tag }));
     }
 
-    // ── Eigenschaften
+    // ── Properties
     const props = ext0 ? firstNamed(ext0, 'properties', CAMUNDA_NS) : null;
     if (props) {
       const zp = zeebe('properties');
@@ -447,7 +447,7 @@ function toC8(defs: Element, ctx: Ctx) {
       add.push(zp);
     }
 
-    // ── was bleibt: melden und entfernen
+    // ── what remains: report and remove
     if (ext0) {
       for (const k of kids(ext0).filter(k => inNs(k, CAMUNDA_NS))) {
         const n = local(k);
@@ -481,12 +481,12 @@ function toC8(defs: Element, ctx: Ctx) {
   for (const [parent, children] of ctx.later) fill(parent, children);
   for (const el of touched) dropEmptyExt(el);
   if (setEvents.length) {
-    // einmal für alle Events: die vergebenen Ids und das Diagramm
+    // once for all events: the assigned ids and the diagram
     const ids = new Set(descendants(defs).map(e => e.getAttribute('id')).filter(Boolean));
     const uniqueId = (base: string) => { let n = base; for (let i = 2; ids.has(n); i++) n = `${base}_${i}`; ids.add(n); return n; };
     const di = diagramOf(defs);
-    // die take-Listener zuerst: so steht ihr Event hinter dem eines end-Listeners an der Quelle
-    // (Camunda 7: erst end, dann take, dann start am Ziel)
+    // the take listeners first: so their event comes after the one of an end listener at the source
+    // (Camunda 7: first end, then take, then start at the target)
     const ordered = [...setEvents.filter(e => e.place === 'on'), ...setEvents.filter(e => e.place !== 'on')];
     for (const e of ordered) insertSetEvent(ctx, e, uniqueId, di);
   }
@@ -508,7 +508,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     const z = (n: string) => (ext ? firstNamed(ext, n, ZEEBE_NS) : null);
     const add: Element[] = [];
 
-    // ── Job-Typ → External Task (bei Nachrichten-Events an der Ereignisdefinition)
+    // ── Job type → external task (for message events on the event definition)
     const task = z('taskDefinition');
     if (task) {
       const type = toJuel(task.getAttribute('type') ?? '', 'Job-Typ', issue);
@@ -518,7 +518,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       setC(holder, 'topic', type);
     }
 
-    // ── Teilprozess
+    // ── Subprocess
     const called = z('calledElement');
     const ioM = z('ioMapping');
     const io = ioM ? kids(ioM) : [];
@@ -526,11 +526,11 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       if (called) {
         const pid = called.getAttribute('processId') ?? '';
         el.setAttribute('calledElement', pid.startsWith('=') ? toJuel(pid, 'Aufgerufener Prozess', issue) : pid);
-        // Vorgabe in Camunda 8: beides «true»
+        // Default in Camunda 8: both «true»
         if (called.getAttribute('propagateAllParentVariables') !== 'false') add.push(camunda('in', { variables: 'all' }));
         if (called.getAttribute('propagateAllChildVariables') !== 'false') add.push(camunda('out', { variables: 'all' }));
       }
-      // Der Business Key geht immer an den Teilprozess — Camunda 7 hat dafür `camunda:in businessKey`
+      // The business key always goes to the subprocess — Camunda 7 has `camunda:in businessKey` for that
       add.push(camunda('in', { businessKey: '#{execution.processBusinessKey}' }));
       for (const p of io) {
         const tag = local(p) === 'input' ? 'in' : 'out';
@@ -544,8 +544,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
           : camunda(tag, { sourceExpression: source.trim().startsWith('=') ? toJuel(source, where, issue) : source, target }));
       }
     } else if (io.length && EVENTS.has(name) && io.every(p => local(p) === 'output')) {
-      // Camunda 7 kennt kein Output-Mapping an Ereignissen — dort setzt ein
-      // Listener die Variable (das Muster, aus dem es in Camunda 8 wurde)
+      // Camunda 7 knows no output mapping on events — there a
+      // listener sets the variable (the pattern it came from in Camunda 8)
       for (const p of io) {
         const target = p.getAttribute('target') ?? '';
         const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue);
@@ -577,7 +577,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       issue('Entscheidung', `Ergebnisform prüfen: ${C7_LABEL} liefert per Vorgabe eine Liste (mapDecisionResult).`);
     }
 
-    // ── Benutzeraufgabe
+    // ── User task
     const assign = z('assignmentDefinition');
     if (assign) {
       setC(el, 'assignee', toJuelAttr(assign.getAttribute('assignee'), 'Zuständig', issue));
@@ -596,7 +596,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       issue('Formular', `Formular «${key ?? ''}» — in ${C7_LABEL} als formKey prüfen.`);
     }
 
-    // ── Mehrfachausführung
+    // ── Multi-instance
     if (name === 'multiInstanceLoopCharacteristics') {
       const lc = z('loopCharacteristics');
       if (lc) {
@@ -609,8 +609,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       if (cc) cc.textContent = toJuel(cc.textContent ?? '', 'Abschlussbedingung', issue);
     }
 
-    // ── Bedingungen und Timer
-    // die Hülle `(…) = true` braucht Camunda 7 nicht — dort ist `null` ohnehin `false`
+    // ── Conditions and timers
+    // Camunda 7 does not need the wrapper `(…) = true` — there `null` is `false` anyway
     if (name === 'conditionExpression') el.textContent = toJuel(stripNullSafe(el.textContent ?? '').replace(/^= /, '='), 'Bedingung', issue);
     if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) el.textContent = toJuel(el.textContent ?? '', 'Timer', issue);
     if (name === 'message' || name === 'signal') {
@@ -618,7 +618,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
     }
 
-    // ── Prozess
+    // ── Process
     if (name === 'process') {
       const tag = z('versionTag');
       if (tag) setC(el, 'versionTag', tag.getAttribute('value') ?? '');
@@ -628,7 +628,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       }
     }
 
-    // ── Eigenschaften
+    // ── Properties
     const zp = z('properties');
     if (zp) {
       const cp = camunda('properties');
@@ -636,7 +636,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       add.push(cp);
     }
 
-    // ── was bleibt: melden und entfernen
+    // ── what remains: report and remove
     if (ext) {
       const handled = ['taskDefinition', 'calledElement', 'ioMapping', 'calledDecision', 'assignmentDefinition',
         'taskSchedule', 'formDefinition', 'loopCharacteristics', 'versionTag', 'properties', 'userTask', 'subscription'];
@@ -664,46 +664,46 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
   for (const el of touched) dropEmptyExt(el);
 }
 
-/** Verweis aufs Element-Template — in beiden Engines gleich, nur im anderen Namensraum */
+/** Reference to the element template — the same in both engines, just in the other namespace */
 const TEMPLATE_ATTRS = ['modelerTemplate', 'modelerTemplateVersion', 'modelerTemplateIcon'];
 
-/** Ereignisse, an denen Camunda 7 kein Output-Mapping kennt — dort setzt es ein Listener */
+/** Events on which Camunda 7 knows no output mapping — there a listener sets it */
 const EVENTS = new Set(['startEvent', 'endEvent', 'boundaryEvent']);
 
-// ── Listener → None-Throw-Event ──────────────────────────────────────────────
+// ── Listener → none throw event ──────────────────────────────────────────────
 //
-// Ein Output-Mapping greift beim Abschluss des Elements: an einem None-/Link-
-// Event sofort, an anderen erst, wenn sie fertig sind — der Listener setzte die
-// Variable aber beim Betreten. An Gateways und End-Events mit Definition nimmt
-// Zeebe es an und ignoriert es (am Cluster geprüft: Event-Based Gateway, Error-
-// End-Event). Und ein erstes Output-Mapping an einer Aufgabe nähme ihr die
-// übrigen Ergebnisse (nur noch die gemappten gehen in den Prozess). Dort setzt
-// ein None-Throw-Event davor oder danach die Variable — sichtbar im Diagramm.
+// An output mapping applies when the element completes: on a none/link
+// event immediately, on others only once they are done — but the listener set the
+// variable on entry. On gateways and end events with a definition
+// Zeebe accepts it and ignores it (verified on the cluster: event-based gateway, error
+// end event). And a first output mapping on a task would take away its
+// other results (only the mapped ones go into the process). There
+// a none throw event before or after it sets the variable — visible in the diagram.
 
-/** `on`: auf dem Fluss selbst (ein take-Listener an einem Sequenzfluss) */
+/** `on`: on the flow itself (a take listener on a sequence flow) */
 type Placement = 'here' | 'before' | 'after' | 'on';
 
-/** wo ein eigenes Event die Variable setzt */
+/** where an own event sets the variable */
 type EventPlacement = Exclude<Placement, 'here'>;
 
-/** `listeners`: die Camunda-7-Listener, als Text — bleibt einer ohne Event, steht er als Kommentar am Element */
+/** `listeners`: the Camunda 7 listeners, as text — if one remains without an event, it stays as a comment on the element */
 interface SetEvent { el: Element; place: EventPlacement; outputs: Element[]; listeners: string[] }
 
 const listenerText = (l: Element) => `camunda:executionListener event="${l.getAttribute('event') ?? 'start'}" expression="${l.getAttribute('expression') ?? ''}"`;
 
-/** Was nicht übernommen wurde, bleibt als Kommentar am Element — für die Handarbeit */
+/** What was not taken over stays as a comment on the element — for manual work */
 function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {
   const where = flows.length ? ` auf ${flows.map(f => `«${f}»`).join(', ')}` : '';
   for (const text of listeners) {
-    // `--` darf in einem XML-Kommentar nicht stehen
+    // `--` must not appear in an XML comment
     prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen${where}: ${text.replace(/--/g, '- -')} `) as unknown as Element);
   }
 }
 
-/** wie das Event ins Diagramm kam */
+/** how the event got into the diagram */
 type Drawn = 'ok' | 'tight' | 'short' | 'none';
 
-/** Zwischen-Ereignisse — ohne Definition oder als Link schliessen sie ab, sobald sie eintreten */
+/** Intermediate events — without a definition or as a link they complete as soon as they occur */
 const INTERMEDIATE_EVENTS = new Set(['intermediateThrowEvent', 'intermediateCatchEvent']);
 
 function placementOf(el: Element, event: string, hasOutputs: boolean): Placement | null {
@@ -715,9 +715,9 @@ function placementOf(el: Element, event: string, hasOutputs: boolean): Placement
   if (name === 'endEvent' && !definitions.length) return 'here';
   if (INTERMEDIATE_EVENTS.has(name) && definitions.every(d => d === 'linkEventDefinition')) return 'here';
   if (name === 'endEvent' || event === 'start') return 'before';
-  // ein paralleler Fork verzweigt sofort: ein Event davor statt eines je Zweig (gleichzeitig)
+  // a parallel fork branches immediately: one event before it instead of one per branch (simultaneous)
   if (name === 'parallelGateway' && incomingOf(el).length === 1) return 'before';
-  // ein Gateway hat nie ein wirksames Output-Mapping, auch mit Ausgaben nicht
+  // a gateway never has an effective output mapping, not even with outputs
   if (name.endsWith('Gateway')) return 'after';
   return hasOutputs ? 'here' : 'after';
 }
@@ -734,8 +734,8 @@ function setEventReason(el: Element, place: EventPlacement): string {
     : 'ein erstes Output-Mapping nähme dem Element seine übrigen Ergebnisse';
 }
 
-/** Ein None-Throw-Event mit den Output-Mappings auf jedem Fluss davor bzw. danach —
- *  je Fluss eines, so wartet ein Join-Gateway weiter auf alle Zweige. */
+/** A none throw event with the output mappings on every flow before or after it —
+ *  one per flow, so a join gateway keeps waiting for all branches. */
 function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, uniqueId: (base: string) => string, di: Diagram | null) {
   const id = el.getAttribute('id') ?? '';
   const parent = el.parentElement;
@@ -751,17 +751,17 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, u
     return;
   }
   const sourceOf = (flow: Element) => kids(parent).find(k => k.getAttribute('id') === flow.getAttribute('sourceRef'));
-  // was anders läuft als der Listener — im Dialog sagen
+  // what behaves differently from the listener — say it in the dialog
   const hints = [
-    // ein Listener je Instanz wird ein Event für die ganze Mehrfachausführung
+    // a listener per instance becomes one event for the whole multi-instance
     firstNamed(el, 'multiInstanceLoopCharacteristics') ? 'Mehrfachausführung: das Event läuft einmal, der Listener lief je Instanz — prüfen.' : '',
     flows.length > 1 ? `Ein Event je Fluss: die Variable wird bis zu ${flows.length}-mal gesetzt${
-      // mehr als ein Fluss ohne Bedingung (ausser am exklusiven Gateway): sie laufen parallel
+      // more than one flow without a condition (except at the exclusive gateway): they run in parallel
       place === 'after' && local(el) !== 'exclusiveGateway' && flows.filter(f => !firstNamed(f, 'conditionExpression')).length > 1
         ? ', auf parallelen Zweigen gleichzeitig' : ''
     } — bei einem nicht festen Wert (Zähler, Zeit) prüfen.` : '',
   ].filter(Boolean).map(h => ` ${h}`).join('');
-  // eine eigene Meldung: an diesem Weg fehlt die Variable
+  // a separate message: on this path the variable is missing
   const interrupted = place === 'after' ? interruptedBy(parent, id) : '';
   if (interrupted) issue('Listener', `setVariable «${names}» fehlt bei ${interrupted}`);
   let first = true;
@@ -774,7 +774,7 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, u
       continue;
     }
     if (local(source) === 'eventBasedGateway') {
-      // nach einem Event-Based Gateway darf nur ein Catch-Event folgen
+      // after an event-based gateway only a catch event may follow
       issue('Listener', `setVariable «${names}» NICHT übernommen auf «${flow.getAttribute('id')}» — nach einem Event-Based Gateway darf nur ein Catch-Event stehen: von Hand umsetzen (z. B. als Output-Mapping am Catch-Event).`);
       skipped.push(flow.getAttribute('id') ?? '');
       continue;
@@ -786,7 +786,7 @@ function insertSetEvent(ctx: Ctx, { el, place, outputs, listeners }: SetEvent, u
     const drawn: Drawn = di?.place(evId, nfId, flow.getAttribute('id') ?? '', place === 'before', uniqueId) ?? 'none';
     issue('Listener', `setVariable «${names}» — None-Throw-Event «set ${names}» ${side} eingefügt: ${setEventReason(el, place)}.${hints} ${DRAWN_TEXT[drawn]}`);
   }
-  // alle ausgelassen: der Listener ist nicht übernommen, sonst nur auf diesen Flüssen
+  // all skipped: the listener is not taken over, otherwise only on these flows
   if (skipped.length) keepAsComment(el, listeners, skipped.length < flows.length ? skipped : []);
 }
 
@@ -797,7 +797,7 @@ const DRAWN_TEXT: Record<Drawn, string> = {
   none: 'Ohne Diagramm-Eintrag (dem Fluss fehlt die Kante) — im Modeler einzeichnen.',
 };
 
-/** Ein unterbrechendes Boundary-Event (auch ein Fehler): dann lief der end-Listener auch, das Event danach nicht */
+/** An interrupting boundary event (also an error): then the end listener ran too, the event after it did not */
 function interruptedBy(parent: Element, id: string): string {
   const boundaries = kids(parent).filter(k => local(k) === 'boundaryEvent' && k.getAttribute('attachedToRef') === id
     && k.getAttribute('cancelActivity') !== 'false');
@@ -806,8 +806,8 @@ function interruptedBy(parent: Element, id: string): string {
     : '';
 }
 
-/** Das Event auf den Fluss setzen: der Fluss (mit seiner Bedingung) endet am
- *  Event, ein neuer führt zum bisherigen Ziel. */
+/** Put the event on the flow: the flow (with its condition) ends at the
+ *  event, a new one leads to the previous target. */
 function insertOnFlow(ctx: Ctx, parent: Element, flow: Element, evId: string, nfId: string, name: string, outputs: Element[]) {
   const ref = (tag: 'incoming' | 'outgoing', text: string) => { const r = ctx.bpmnEl(tag); r.textContent = text; return r; };
   const flowId = flow.getAttribute('id') ?? '';
@@ -837,14 +837,14 @@ function insertOnFlow(ctx: Ctx, parent: Element, flow: Element, evId: string, nf
 
 interface Point { x: number; y: number }
 
-/** Grösse eines Events im Diagramm (Breite = Höhe) — und die Luft, ab der es nicht eng ist */
+/** Size of an event in the diagram (width = height) — and the room from which on it is not cramped */
 const EVENT_SIZE = 36;
 const EVENT_ROOM = EVENT_SIZE + 20;
 
 type Diagram = NonNullable<ReturnType<typeof diagramOf>>;
 
-/** Das Diagramm: Shape und Kante fürs eingefügte Event — auf dem letzten Stück
- *  des Flusses davor bzw. dem ersten des Flusses danach */
+/** The diagram: shape and edge for the inserted event — on the last segment
+ *  of the flow before it or the first of the flow after it */
 function diagramOf(defs: Element) {
   const all = descendants(defs);
   const edges = all.filter(e => local(e) === 'BPMNEdge');
@@ -860,18 +860,18 @@ function diagramOf(defs: Element) {
     return e;
   };
   const pointsOf = (edge: Element): Point[] =>
-    // parseFloat: ein fehlender Wert ist NaN (Number(null) wäre 0)
+    // parseFloat: a missing value is NaN (Number(null) would be 0)
     kids(edge).filter(k => local(k) === 'waypoint').map(w => ({ x: parseFloat(w.getAttribute('x') ?? ''), y: parseFloat(w.getAttribute('y') ?? '') }));
   const setPoints = (edge: Element, points: Point[]) => {
-    // die Wegpunkte vor dem Label — so will es das Schema (waypoint*, BPMNLabel?)
+    // the waypoints before the label — that is what the schema wants (waypoint*, BPMNLabel?)
     const rest = kids(edge).filter(k => local(k) !== 'waypoint');
     for (const k of kids(edge)) removeEl(k);
     for (const p of points) appendEl(edge, make(wp0, 'waypoint', { x: Math.round(p.x), y: Math.round(p.y) }));
     for (const k of rest) appendEl(edge, k);
   };
   return {
-    /** `none`: keine (brauchbare) Kante, `short`: das Stück ist kürzer als das Event —
-     *  beide ohne Diagramm-Eintrag; `tight`: kaum Luft neben dem Event */
+    /** `none`: no (usable) edge, `short`: the segment is shorter than the event —
+     *  both without a diagram entry; `tight`: hardly any room next to the event */
     place(evId: string, nfId: string, flowId: string, atEnd: boolean, uniqueId: (base: string) => string): Drawn {
       const flowEdge = edges.find(e => e.getAttribute('bpmnElement') === flowId);
       const points = flowEdge ? pointsOf(flowEdge) : [];
@@ -880,9 +880,9 @@ function diagramOf(defs: Element) {
       const at = atEnd ? points.length - 2 : 0;
       const [a, b] = [points[at], points[at + 1]];
       const len = Math.hypot(b.x - a.x, b.y - a.y);
-      // ein Wegpunkt ohne Koordinate: nichts zeichnen statt NaN
+      // a waypoint without a coordinate: draw nothing instead of NaN
       if (!Number.isFinite(len)) return 'none';
-      // kürzer als das Event: die gekürzten Kanten liefen rückwärts
+      // shorter than the event: the shortened edges would run backwards
       if (len < EVENT_SIZE) return 'short';
       const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
       const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -892,8 +892,8 @@ function diagramOf(defs: Element) {
       appendEl(shape, make(bounds0, 'Bounds', { x: Math.round(c.x - r), y: Math.round(c.y - r), width: EVENT_SIZE, height: EVENT_SIZE }));
       const edge = make(flowEdge, 'BPMNEdge', { id: uniqueId(`${nfId}_di`), bpmnElement: nfId });
       appendEl(plane, edge);
-      edges.push(edge); // ein weiteres Event kann auf dem neuen Fluss landen
-      // die Kante des Flusses endet am Event, die neue führt weiter auf dem alten Weg
+      edges.push(edge); // another event can land on the new flow
+      // the edge of the flow ends at the event, the new one continues on the old path
       setPoints(flowEdge, [...points.slice(0, at + 1), { x: c.x - d.x * r, y: c.y - d.y * r }]);
       setPoints(edge, [{ x: c.x + d.x * r, y: c.y + d.y * r }, ...points.slice(at + 1)]);
       return len < EVENT_ROOM ? 'tight' : 'ok';
@@ -901,7 +901,7 @@ function diagramOf(defs: Element) {
   };
 }
 
-/** Ein Parameter mit Skript, Liste oder Map — wird kein zeebe:input/output */
+/** A parameter with a script, list or map — does not become a zeebe:input/output */
 const complexParam = (p: Element): Element | undefined => kids(p).find(k => ['script', 'list', 'map'].includes(local(k)));
 
 /** `${execution.setVariable("x", v)}` → { name: x, value: v } */

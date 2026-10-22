@@ -1,10 +1,10 @@
-// Editor für die Tabelle einer DMN Decision — dmn-js von bpmn.io, das
-// Gegenstück zum BPMN-Modeler. Er öffnet gleich die Tabelle der Entscheidung
-// (nicht das DRD); «Übernehmen» gibt das XML zurück, die Prozessansicht legt
-// es ab und gleicht In/Out ab (siehe dmn.ts).
+// Editor for the table of a DMN decision — dmn-js from bpmn.io, the
+// counterpart of the BPMN modeler. It opens the decision's table right away
+// (not the DRD); «Übernehmen» returns the XML, the process view stores
+// it and reconciles In/Out (see dmn.ts).
 //
-// Die Camunda-Erweiterung bleibt dabei: ohne sie verwirft dmn-js beim
-// Speichern alle `camunda:`-Attribute (z. B. `camunda:inputVariable`).
+// The Camunda extension stays in: without it, dmn-js drops all
+// `camunda:` attributes on save (e.g. `camunda:inputVariable`).
 import { useEffect, useRef, useState } from 'react';
 import 'dmn-js/dist/assets/diagram-js.css';
 import 'dmn-js/dist/assets/dmn-js-shared.css';
@@ -42,10 +42,10 @@ export default function DmnEditor({ xml, decisionId, title, isDark, canEdit, onS
     (async () => {
       try {
         await modeler.importXML(xml);
-        // gleich die Tabelle der Entscheidung — die Schreibweise kann abweichen
+        // straight to the decision's table — the spelling may differ
         const view = modeler.getViews().find(v => v.type === 'decisionTable' && v.element.id.toLowerCase() === decisionId.toLowerCase())
           ?? modeler.getViews().find(v => v.type === 'decisionTable');
-        // jede Änderung — in der Tabelle wie im DRD («View DRD» wechselt die Ansicht)
+        // every change — in the table as in the DRD («View DRD» switches the view)
         const attach = () => modeler.getActiveViewer()?.on('elements.changed', () => { if (alive) setDirty(true); });
         modeler.on('views.changed', attach);
         if (view) await modeler.open(view);
@@ -75,9 +75,9 @@ export default function DmnEditor({ xml, decisionId, title, isDark, canEdit, onS
   };
 
   return (
-    // Schliessen nur beim Klick auf den Hintergrund — kein stopPropagation im
-    // Dialog: dmn-js (Inferno) hört auf Klicks an `document`, sonst täte z. B.
-    // «View DRD» nichts
+    // close only on a click on the backdrop — no stopPropagation in the
+    // dialog: dmn-js (Inferno) listens for clicks on `document`, otherwise e.g.
+    // «View DRD» would do nothing
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
       onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className={`w-full h-full max-w-[96rem] flex flex-col rounded-xl border overflow-hidden ${c.border2} ${c.panelStrong}`}>
@@ -100,7 +100,7 @@ export default function DmnEditor({ xml, decisionId, title, isDark, canEdit, onS
         {typeof state === 'object' && (
           <p className={`px-4 py-2 text-[11px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>DMN nicht lesbar: {state.error}</p>
         )}
-        {/* die Tabelle bleibt in beiden Modi hell — wie das Diagramm */}
+        {/* the table stays light in both modes — like the diagram */}
         <div ref={hostRef} className={`dmn-host flex-1 min-h-0 overflow-auto bg-white text-black ${canEdit ? '' : 'pointer-events-none'}`} />
       </div>
     </div>

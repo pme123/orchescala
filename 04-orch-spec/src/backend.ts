@@ -1,10 +1,10 @@
-// Speicher-Backend: lokaler Ordner (File System Access API) oder
-// SharePoint-Ordner (Microsoft Graph). Der Store arbeitet nur über diese
-// Schnittstelle; Pfade sind relativ zum gewählten Ordner
+// Storage backend: local folder (File System Access API) or
+// SharePoint folder (Microsoft Graph). The store works only through this
+// interface; paths are relative to the selected folder
 // (`model.json`, `projects/<slug>.json`).
 //
-// «version» ist ein opaker String für die Konflikterkennung: beim lokalen
-// Ordner lastModified, bei Graph das ETag.
+// «version» is an opaque string for conflict detection: for the local
+// folder lastModified, for Graph the ETag.
 
 export interface FileInfo { name: string; version: string }
 export interface ReadResult { text: string; version: string }
@@ -18,18 +18,18 @@ export type DeleteResult =
 export interface StorageBackend {
   kind: 'local' | 'sharepoint';
   name: string;
-  /** null = Datei existiert nicht */
+  /** null = file does not exist */
   read(path: string): Promise<ReadResult | null>;
   write(path: string, text: string, opts?: { ifMatch?: string; createOnly?: boolean }): Promise<WriteResult>;
-  /** nur Dateien; leer, wenn der Ordner fehlt */
+  /** files only; empty if the folder is missing */
   list(dir: string): Promise<FileInfo[]>;
   ensureDir(dir: string): Promise<void>;
-  /** Datei entfernen; eine fehlende Datei gilt als entfernt. Mit `ifMatch` nur diese Version
-   *  (sonst `conflict`) - in SharePoint atomar, lokal unmittelbar vor dem Entfernen geprüft */
+  /** Remove a file; a missing file counts as removed. With `ifMatch` only this version
+   *  (otherwise `conflict`) - atomic in SharePoint, locally checked right before removing */
   delete(path: string, opts?: { ifMatch?: string }): Promise<DeleteResult>;
 }
 
-// ── Lokaler Ordner ───────────────────────────────────────────────────────────
+// ── Local folder ─────────────────────────────────────────────────────────────
 export class LocalBackend implements StorageBackend {
   kind = 'local' as const;
   constructor(private root: FileSystemDirectoryHandle) {}
@@ -91,7 +91,7 @@ export class LocalBackend implements StorageBackend {
         out.push({ name, version: String(f.lastModified) });
       }
     } catch {
-      // Ordner fehlt
+      // folder missing
     }
     return out;
   }
@@ -106,7 +106,7 @@ export class LocalBackend implements StorageBackend {
     try {
       ({ dir, file } = await this.dirOf(path, false));
     } catch {
-      return { ok: true }; // Ordner fehlt → Datei gibt es nicht
+      return { ok: true }; // folder missing → file does not exist
     }
     try {
       if (opts.ifMatch !== undefined) {
@@ -127,15 +127,15 @@ export class LocalBackend implements StorageBackend {
   }
 }
 
-// ── Demo (nur Entwicklung) ───────────────────────────────────────────────────
-// Liest `sample-data/` über den Dev-Server und hält Änderungen im Speicher —
-// damit lässt sich der PoC ohne Ordnerauswahl vorführen.
+// ── Demo (development only) ──────────────────────────────────────────────────
+// Reads `sample-data/` via the dev server and keeps changes in memory —
+// so the PoC can be demonstrated without selecting a folder.
 export class DemoBackend implements StorageBackend {
   kind = 'local' as const;
   name = 'Demo (sample-data)';
   private overrides = new Map<string, string>();
   private extra = new Map<string, Set<string>>();
-  /** gelöschte Pfade — die Beispieldaten selbst bleiben unangetastet */
+  /** deleted paths — the sample data itself stays untouched */
   private removed = new Set<string>();
 
   private url(p: string) { return `/sample-data/${p}`; }
@@ -169,13 +169,13 @@ export class DemoBackend implements StorageBackend {
     try {
       const res = await fetch(this.url(dir));
       if (res.ok) for (const n of (await res.json()) as string[]) names.add(n);
-    } catch { /* Ordner fehlt */ }
+    } catch { /* folder missing */ }
     return [...names]
       .filter(name => !this.removed.has(dir ? `${dir}/${name}` : name))
       .map(name => ({ name, version: '0' }));
   }
 
-  async ensureDir(): Promise<void> { /* nichts zu tun */ }
+  async ensureDir(): Promise<void> { /* nothing to do */ }
 
   async delete(path: string): Promise<DeleteResult> {
     this.overrides.delete(path);

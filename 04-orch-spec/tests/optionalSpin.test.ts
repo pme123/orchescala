@@ -1,8 +1,8 @@
-// Camunda 7: ein Pfad in JSON (Spin) wirft bei `prop("x")`, wenn das Feld fehlt
-// («SPIN/JACKSON-JSON-01004 Unable to find 'x'»). Ein optionales Feld wird darum
-// erst geprüft (`hasProp`, `isNull`) — wie `execution.getVariable` bei einer
-// optionalen Variable. Und das Element einer Mehrfachausführung kennt beim Export
-// die Felder seiner Sammlung — sonst endete der Pfad ohne `boolValue()`.
+// Camunda 7: a path in JSON (Spin) throws on `prop("x")` if the field is missing
+// («SPIN/JACKSON-JSON-01004 Unable to find 'x'»). An optional field is therefore
+// checked first (`hasProp`, `isNull`) — like `execution.getVariable` for an
+// optional variable. And the element of a multi-instance knows on export
+// the fields of its collection — otherwise the path would end without `boolValue()`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -13,7 +13,7 @@ import { importExpression } from '../src/juelFeel';
 import type { VarNode } from '../src/feel';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
-// linkedom hat keinen XMLSerializer — `toString()` liefert das XML
+// linkedom has no XMLSerializer — `toString()` returns the XML
 (globalThis as unknown as { XMLSerializer: unknown }).XMLSerializer = class { serializeToString(n: Node) { return String(n); } };
 
 const card: VarNode = {
@@ -30,9 +30,9 @@ test('an optional field is checked before it is read', () => {
     juel: '(card.hasProp("newModuleDebitInsurance") && !card.prop("newModuleDebitInsurance").isNull() ? card.prop("newModuleDebitInsurance").boolValue() : null)',
     plain: '(card.hasProp("newModuleDebitInsurance") && !card.prop("newModuleDebitInsurance").isNull() ? card.prop("newModuleDebitInsurance").boolValue() : null)',
   });
-  // ein Pflichtfeld wird gelesen wie bisher
+  // a required field is read as before
   assert.equal((feelToJuel('card.clientKey', { vars: [card] }) as { juel: string }).juel, 'card.prop("clientKey").numberValue()');
-  // eine optionale Variable am Anfang: erst `execution.getVariable`
+  // an optional variable at the start: first `execution.getVariable`
   assert.equal((feelToJuel('card.clientKey', { vars: [{ ...card, optional: true }], optional: new Set(['card']) }) as { juel: string }).juel,
     '(execution.getVariable("card") != null ? execution.getVariable("card").prop("clientKey").numberValue() : null)');
 });

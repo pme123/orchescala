@@ -1,10 +1,10 @@
-// Eingabefeld für einen Mapping-Wert mit Pfad-Vervollständigung.
+// Input field for a mapping value with path completion.
 //
-// Beginnt der Wert mit `=`, ist er ein FEEL-Ausdruck (Camunda 8). Beim Tippen
-// schlägt das Feld die Prozessvariablen und ihre Pfade vor — `client.` zeigt
-// die Felder von `client`, `client.addr` filtert darin. Pfeiltasten wählen,
-// Enter oder Tab übernimmt, Escape schliesst. Die Prüfung des Ausdrucks
-// (Syntax, Pfade, Typ) macht der Aufrufer; hier geht es nur ums Tippen.
+// If the value starts with `=`, it is a FEEL expression (Camunda 8). While typing,
+// the field suggests the process variables and their paths — `client.` shows
+// the fields of `client`, `client.addr` filters within them. Arrow keys select,
+// Enter or Tab accepts, Escape closes. The check of the expression
+// (syntax, paths, type) is done by the caller; this is only about typing.
 import { useEffect, useRef, useState } from 'react';
 import { FEEL_TYPE_LABEL, completions, isFeel, tokenizeFeel, type Completion, type FeelTokenKind, type VarNode } from '../feel';
 import { cls } from '../ui';
@@ -12,18 +12,18 @@ import { cls } from '../ui';
 export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className, size, multiline, mono = true }: {
   value: string;
   onChange: (v: string) => void;
-  /** Prozessvariablen für die Vorschläge — ohne sie gibt es keine */
+  /** process variables for the suggestions — without them there are none */
   variables: VarNode[] | null;
   isDark: boolean;
   disabled?: boolean;
   placeholder?: string;
   title?: string;
   className?: string;
-  /** `md`: so gross wie die übrigen Felder im Klassenbauer */
+  /** `md`: as large as the other fields in the class builder */
   size?: 'sm' | 'md';
-  /** immer mehrzeilig: bricht um und wächst mit dem Text (z. B. eine Beschreibung) — sonst nur beim Bearbeiten */
+  /** always multi-line: wraps and grows with the text (e.g. a description) — otherwise only while editing */
   multiline?: boolean;
-  /** Text in Festbreitenschrift — FEEL (`= …`) steht immer so */
+  /** text in monospace font — FEEL (`= …`) is always shown like this */
   mono?: boolean;
 }) {
   const c = cls(isDark);
@@ -35,14 +35,14 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   const open = !!range && items.length > 0;
   const backRef = useRef<HTMLDivElement>(null);
   const highlight = !!variables && isFeel(value);
-  // Beim Bearbeiten ganz zu sehen: mehrzeilig, umgebrochen, wächst mit dem
-  // Text — sonst eine Zeile wie die übrigen Felder
+  // Fully visible while editing: multi-line, wrapped, grows with the
+  // text — otherwise a single line like the other fields
   const [focused, setFocused] = useState(false);
   const expanded = multiline || focused;
   const box = size === 'md' ? 'text-[11px] leading-[18px] px-2 py-1' : 'text-[10px] px-1.5 py-0.5';
-  // FEEL immer in Festbreitenschrift — sonst stünde die Färbung neben dem Text
+  // FEEL always in monospace font — otherwise the highlighting would sit next to the text
   const font = mono || highlight ? 'font-mono' : '';
-  // Farben: Variablen dunkelblau, Zeichenketten grün, FEEL (Funktionen, Schlüsselwörter) dunkelviolett
+  // Colours: variables dark blue, strings green, FEEL (functions, keywords) dark violet
   const tone: Record<FeelTokenKind, string> = {
     variable: isDark ? 'text-blue-300' : 'text-blue-800',
     string: isDark ? 'text-green-400' : 'text-green-700',
@@ -51,9 +51,9 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     plain: '',
   };
 
-  // Vorschläge erst, wenn vor dem Cursor ein Buchstabe des Namens steht oder
-  // ein Punkt (`client.` → die Felder) — sonst übernähme Enter (neue Zeile)
-  // den obersten Vorschlag
+  // Suggestions only when a letter of the name stands before the cursor, or
+  // a dot (`client.` → the fields) — otherwise Enter (new line) would accept
+  // the topmost suggestion
   const refresh = (text: string, cursor: number | null) => {
     if (!variables || cursor == null) { setRange(null); return; }
     const r = completions(text, cursor, variables);
@@ -68,15 +68,15 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
 
   const accept = (item: Completion) => {
     if (!range) return;
-    // steht schon eine Klammer dahinter (`string|(x)`), kommt nur der Name
+    // if there is already a parenthesis after it (`string|(x)`), only the name is inserted
     const hasParen = !!item.doc && /^\s*\(/.test(value.slice(range.to));
     const insert = hasParen ? item.doc!.name : item.insert;
     const next = value.slice(0, range.from) + insert + value.slice(range.to);
-    // Funktionen: der Cursor steht zwischen den Klammern
+    // functions: the cursor goes between the parentheses
     const cursor = range.from + insert.length - (hasParen ? 0 : (item.back ?? 0));
     onChange(next);
     close();
-    // Cursor hinter das Eingesetzte — die nächste Ebene kommt mit «.»
+    // cursor after the inserted text — the next level comes with «.»
     requestAnimationFrame(() => {
       const el = inputRef.current;
       if (!el) return;
@@ -85,7 +85,7 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     });
   };
 
-  // aktiven Eintrag im Blick halten
+  // keep the active entry in view
   useEffect(() => {
     if (!open) return;
     listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' });
@@ -96,7 +96,7 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => (a + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => (a - 1 + items.length) % items.length); }
     else if (e.key === 'Enter' || e.key === 'Tab') {
-      // schon ganz getippt: Enter gibt die neue Zeile, statt dasselbe nochmals einzusetzen
+      // already typed completely: Enter gives the new line instead of inserting the same again
       if (e.key === 'Enter' && range && items[active]?.insert === value.slice(range.from, range.to)) { close(); return; }
       e.preventDefault();
       accept(items[active]);
@@ -116,18 +116,18 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
         style={highlight ? { color: 'transparent', caretColor: isDark ? '#e5e7eb' : '#111827' } : undefined}
         onChange={e => { onChange(e.target.value); refresh(e.target.value, e.target.selectionStart); }}
         onKeyDown={onKeyDown}
-        // Cursor bewegt: eine offene Liste folgt (oder schliesst) — geöffnet wird nur beim Tippen
+        // cursor moved: an open list follows (or closes) — it only opens while typing
         onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) && open) refresh(value, e.currentTarget.selectionStart); }}
         onClick={() => { if (open) close(); }}
         onFocus={() => setFocused(true)}
         onBlur={e => {
           setFocused(false);
-          // zugeklappt wieder vom Anfang an
+          // collapsed, back from the start
           e.currentTarget.scrollLeft = 0;
           if (backRef.current) backRef.current.scrollLeft = 0;
           setTimeout(close, 120);
         }}
-        // Prosa (eine Beschreibung) darf die Rechtschreibprüfung haben, Ausdrücke nicht
+        // prose (a description) may have the spell check, expressions not
         autoComplete="off" spellCheck={!mono && !highlight}
         className={`block w-full resize-none ${box} rounded border outline-none ${font} ${expanded
           ? '[field-sizing:content] max-h-[60vh] overflow-y-auto'
@@ -169,7 +169,7 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
               </button>
             ))}
           </div>
-          {/* Erklärung zum gewählten Vorschlag */}
+          {/* explanation of the selected suggestion */}
           {items[active] && <Explain item={items[active]} isDark={isDark} tone={tone} />}
         </div>
       )}
@@ -177,7 +177,7 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   );
 }
 
-/** Erklärung unter der Liste: Funktion mit Beispiel, oder Variable mit Herkunft */
+/** explanation below the list: function with example, or variable with its origin */
 function Explain({ item, isDark, tone }: { item: Completion; isDark: boolean; tone: Record<FeelTokenKind, string> }) {
   const c = cls(isDark);
   const box = `px-2 py-1.5 border-t text-[10px] leading-snug ${c.border2} ${c.muted}`;

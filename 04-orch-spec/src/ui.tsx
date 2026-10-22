@@ -1,5 +1,5 @@
-// Gemeinsame Bausteine der Oberfläche: Farbklassen je Modus, Status-Chip und
-// die Symbole je Schritt-Art. Bewusst klein gehalten — die Views bleiben lesbar.
+// Shared building blocks of the UI: colour classes per mode, status chip and
+// the symbols per step kind. Deliberately kept small — the views stay readable.
 import {
   GripVertical,
   Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand, SquarePlus, SquareDashed,
@@ -30,12 +30,12 @@ export const cls = (isDark: boolean) => ({
 
 export const STEP_ICON: Record<StepKind, typeof Cog> = {
   start: Play, end: Square, service: Cog, user: User, call: Boxes, send: Send, receive: Inbox,
-  // Teilprozess (Call Activity) ≠ eingebetteter Subprozess: der trägt im BPMN das [+]
+  // Subprocess (call activity) ≠ embedded subprocess: the latter carries the [+] in the BPMN
   rule: Table2, script: Code2, manual: Hand, subprocess: SquarePlus, gateway: GitBranch,
   event: Zap, goto: CornerDownRight,
 };
 
-/** Das Symbol eines Schritts — ein Ereignis-Subprozess gestrichelt, wie im BPMN */
+/** The symbol of a step — an event subprocess dashed, as in the BPMN */
 export const stepIcon = (step: Pick<Step, 'kind' | 'eventSubprocess'>): typeof Cog =>
   step.kind === 'subprocess' && step.eventSubprocess ? SquareDashed : STEP_ICON[step.kind];
 
@@ -47,7 +47,7 @@ export const KIND_LABEL: Record<StepKind, string> = {
 
 export function StatusChip({ status, isDark, onClick, title, muted }: {
   status: Status; isDark: boolean; onClick?: () => void; title?: string;
-  /** leise — für den Status, der die Regel ist, damit die Abweichungen herausstechen */
+  /** subtle — for the status that is the rule, so that the deviations stand out */
   muted?: boolean;
 }) {
   const m = STATUS_META[status];
@@ -70,10 +70,10 @@ export function LoopChip({ step, isDark }: { step: Step; isDark: boolean }) {
   );
 }
 
-// Blöcke, die an keinem Sequenzfluss hängen: Ereignis-Subprozesse und
-// Link-Ziele ohne erkennbares Gegenstück. Sie stehen am Ende des Ablaufs.
+// Blocks that hang on no sequence flow: event subprocesses and
+// link targets without a recognizable counterpart. They come at the end of the flow.
 export function BlockChip({ step, isDark }: { step: Step; isDark: boolean }) {
-  // ein eigener Block bekommt im Baum eine Klammer — der Chip bleibt dem Ereignis-Subprozess
+  // an own block gets a bracket in the tree — the chip is left to the event subprocess
   if (!step.eventSubprocess) return null;
   const label = step.eventSubprocess ? 'Ereignis-Subprozess' : 'eigener Block';
   const title = step.eventSubprocess
@@ -88,14 +88,14 @@ export function BlockChip({ step, isDark }: { step: Step; isDark: boolean }) {
   );
 }
 
-/** Farbe der Pattern — dieselbe im Baum, im Panel und im Admin */
+/** Colour of the pattern — the same in the tree, in the panel and in the admin */
 export const patternTone = (isDark: boolean) =>
   isDark ? 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300' : 'border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800';
 
 export const epicTone = (isDark: boolean) =>
   isDark ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-300' : 'border-indigo-300 bg-indigo-50 text-indigo-800';
 
-/** Ein Epic am Prozess — abgeschlossene gestrichelt und blasser */
+/** An epic on the process — closed ones dashed and paler */
 export function EpicChip({ name, closed, isDark, title, children }: {
   name: string; closed?: boolean; isDark: boolean; title?: string; children?: React.ReactNode;
 }) {
@@ -108,7 +108,7 @@ export function EpicChip({ name, closed, isDark, title, children }: {
   );
 }
 
-/** Ein Pattern an einem Schritt: Name, Werte im Tooltip */
+/** A pattern on a step: name, values in the tooltip */
 export function PatternChip({ name, params, isDark, title }: { name: string; params?: Record<string, string>; isDark: boolean; title?: string }) {
   const werte = Object.entries(params ?? {}).filter(([, v]) => v !== '');
   return (
@@ -120,9 +120,9 @@ export function PatternChip({ name, params, isDark, title }: { name: string; par
 }
 
 /**
- * Die beim Import erkannten Pattern: je Pattern ein Chip mit Anzahl, im
- * Tooltip die Stellen. Ohne Definitionen im Admin wird nichts erkannt —
- * das steht dann da, statt einer leeren Zeile.
+ * The patterns recognized on import: one chip with a count per pattern, in the
+ * tooltip the places. Without definitions in the admin nothing is recognized —
+ * that is then stated, instead of an empty line.
  */
 export function PatternSummary({ items, nameOf, hasDefs, isDark }: {
   items: Array<{ id: string; where: string[] }>; nameOf: (id: string) => string; hasDefs: boolean; isDark: boolean;
@@ -151,8 +151,8 @@ export function ErrorChip({ n, isDark }: { n: number; isDark: boolean }) {
   );
 }
 
-// Farbe des Verzweigungs-Strichs — macht parallele Zweige auf einen Blick
-// unterscheidbar (der wichtigste visuelle Unterschied zur Confluence-Tabelle).
+// Colour of the branch line — makes parallel branches distinguishable at a glance
+// (the most important visual difference to the Confluence table).
 export const BRANCH_COLORS = [
   { dark: 'border-sky-500/50 text-sky-300',       light: 'border-sky-400 text-sky-700' },
   { dark: 'border-emerald-500/50 text-emerald-300', light: 'border-emerald-400 text-emerald-700' },
@@ -164,8 +164,8 @@ export const BRANCH_COLORS = [
 export const GATEWAY_ICON = { exclusive: Split, parallel: Merge, inclusive: Split, eventBased: Zap };
 
 /**
- * Griff an der linken Kante eines Panels: ziehen ändert die Breite
- * (zwischen `min` und `max`). Das Panel braucht `relative`.
+ * Handle on the left edge of a panel: dragging changes the width
+ * (between `min` and `max`). The panel needs `relative`.
  */
 export function PanelWidthHandle({ isDark, width, onWidth, min = 320, max = 800 }: {
   isDark: boolean; width: number; onWidth: (w: number) => void; min?: number; max?: number;

@@ -1,7 +1,7 @@
-// Die Regeln der Anmeldung ohne Browser und IdP - damit testbar (tests/pagesAuth.test.ts).
+// The rules of the sign-in without browser and IdP - so they are testable (tests/pagesAuth.test.ts).
 
-/** Gleichzeitige Aufrufe teilen sich einen laufenden: eine Erneuerung, eine Anmeldung - nicht je
-  * Aufruf (ein rotierendes Refresh-Token gilt nur einmal). Ist er fertig, startet der nächste neu. */
+/** Concurrent calls share a running one: one renewal, one sign-in - not one per
+  * call (a rotating refresh token is valid only once). When it is done, the next one starts anew. */
 export function singleFlight<T>(run: () => Promise<T>): () => Promise<T> {
   let running: Promise<T> | null = null;
   return () => {
@@ -12,17 +12,17 @@ export function singleFlight<T>(run: () => Promise<T>): () => Promise<T> {
   };
 }
 
-/** Wohin nach der Anmeldung: nur ein Pfad dieser Seite (ein /, nicht //host oder /\host) - der
-  * state kommt mit der URL vom IdP zurück. Sonst die Startseite der App. */
+/** Where to go after the sign-in: only a path of this page (one /, not //host or /\host) - the
+  * state comes back with the URL from the IdP. Otherwise the start page of the app. */
 export function safeReturnTo(state: unknown, base: string): string {
   return typeof state === 'string' && /^\/(?![/\\])/.test(state) ? state : base;
 }
 
-/** Die Weiterleitung zum IdP: geht die Seite (`pagehide`), endet das Warten mit ihr - es bleibt offen.
-  * Bleibt sie `ms` nach `started()` (Weiterleitung blockiert) oder kommt sie zurück (`pageshow` aus dem
-  * bfcache), ein Fehler statt ewig «busy». Die Listener vor dem Start - die Weiterleitung kann schon
-  * darin beginnen; die Uhr erst danach (ein langsamer IdP ist kein Fehler); `cancel`, wenn sie gar
-  * nicht erst startet. Vor `started()` lehnt `wait` nie ab - niemand wartet dann schon darauf. */
+/** The redirect to the IdP: if the page goes away (`pagehide`), the waiting ends with it - it stays open.
+  * If it stays `ms` after `started()` (redirect blocked) or comes back (`pageshow` from the
+  * bfcache), an error instead of «busy» forever. The listeners before the start - the redirect may already
+  * begin inside it; the clock only afterwards (a slow IdP is not an error); `cancel` if it does not
+  * start at all. Before `started()`, `wait` never rejects - nobody is waiting for it yet then. */
 export function watchLeaving(target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, ms: number, error: () => Error) {
   let left = false;
   let timer: ReturnType<typeof setTimeout> | undefined;

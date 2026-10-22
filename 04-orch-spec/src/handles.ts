@@ -1,12 +1,12 @@
-// Ordner-Zugriffe über die Sitzung hinaus merken.
+// Remember folder access beyond the session.
 //
-// Ein `FileSystemDirectoryHandle` lässt sich in IndexedDB ablegen — der
-// Browser gibt ihn beim nächsten Start zurück, verlangt aber die Erlaubnis
-// neu. Genau dafür `ensureRead`: fragt zuerst still nach dem bestehenden
-// Recht und erst dann den Nutzer.
+// A `FileSystemDirectoryHandle` can be stored in IndexedDB — the
+// browser returns it on the next start, but asks for permission
+// again. That is exactly what `ensureRead` is for: it first silently asks for the existing
+// permission and only then the user.
 //
-// Genutzt für den Datenordner (`dir`) und für jeden Projekt-Ordner
-// (`project:<id>`) des Domain-Katalogs.
+// Used for the data folder (`dir`) and for every project folder
+// (`project:<id>`) of the domain catalog.
 
 const DB = 'orch-spec';
 const STORE = 'handles';
@@ -57,10 +57,10 @@ export async function delHandle(key: string): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } catch { /* dann bleibt er eben liegen */ }
+  } catch { /* then it just stays there */ }
 }
 
-/** Leserecht sicherstellen — erst still, dann mit Rückfrage. */
+/** Ensure read permission — first silently, then with a prompt. */
 export async function ensureRead(handle: FileSystemDirectoryHandle): Promise<boolean> {
   const h = handle as FileSystemDirectoryHandle & {
     queryPermission?: (d: { mode: 'read' }) => Promise<PermissionState>;

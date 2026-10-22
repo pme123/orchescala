@@ -1,8 +1,8 @@
-// Engine wechseln: das Diagramm von Camunda 7 nach 8 umwandeln oder zurück.
+// Switch engine: convert the diagram from Camunda 7 to 8 or back.
 //
-// Der Dialog wandelt erst zur Probe um und zeigt, was dabei offen bleibt —
-// umgestellt wird erst auf «Umwandeln». Danach liest der Abgleich das neue
-// Diagramm ein wie jede andere Änderung (Engine, Mappings, Topics).
+// The dialog first does a trial conversion and shows what stays open —
+// the switch only happens on «Umwandeln». Afterwards the sync reads the new
+// diagram like any other change (engine, mappings, topics).
 import { useMemo } from 'react';
 import { AlertTriangle, ArrowRightLeft, Check, X } from 'lucide-react';
 import { convertBpmn } from '../engineConvert';
@@ -15,7 +15,7 @@ export default function EngineDialog({ spec, bpmn, isDark, onConvert, onClose }:
   spec: ProcessSpec;
   bpmn: string;
   isDark: boolean;
-  /** umgewandeltes Diagramm (bzw. null ohne Diagramm) und die Ziel-Engine */
+  /** converted diagram (or null without a diagram) and the target engine */
   onConvert: (xml: string | null, target: EngineId) => void;
   onClose: () => void;
 }) {

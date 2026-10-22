@@ -1,22 +1,22 @@
-// FEEL-Ausdrücke in Mappings (Camunda 8).
+// FEEL expressions in mappings (Camunda 8).
 //
-// In Camunda 8 ist ein Mapping-Wert, der mit `=` beginnt, ein FEEL-Ausdruck.
-// Die App prüft ihn beim Tippen auf drei Dinge:
+// In Camunda 8 a mapping value that starts with `=` is a FEEL expression.
+// The app checks it while typing for three things:
 //
-//   a) ist es gültiges FEEL (Syntax),
-//   b) passt der Typ des Ergebnisses zum Zielfeld,
-//   c) gibt es die Variablen und Pfade, auf die er zeigt (`client.address.zip`).
+//   a) is it valid FEEL (syntax),
+//   b) does the type of the result fit the target field,
+//   c) do the variables and paths it points to exist (`client.address.zip`).
 //
-// Gerechnet wird nicht symbolisch, sondern **mit Beispielwerten**: aus dem
-// Datenmodell des Prozesses entsteht ein Kontext, in dem jede bekannte
-// Variable einen zum Typ passenden Wert hat. `feelin` wertet den Ausdruck
-// darin aus — was dabei fehlt, meldet es als Warnung mit Position, und der
-// Typ des Ergebnisses ist der Typ, der am Zielfeld ankäme.
+// Evaluation is not symbolic but **with example values**: from the
+// data model of the process a context is built in which every known
+// variable has a value matching its type. `feelin` evaluates the expression
+// in it — whatever is missing it reports as a warning with a position, and the
+// type of the result is the type that would arrive at the target field.
 //
-// Woher die Variablen kommen: das `In` des Prozesses, das `InitIn` (die vom
-// Init-Worker gesetzten Variablen), die Prozessvariablen der Spezifikation und
-// die Ausgaben aller Schritte. Letztere haben meist keinen bekannten Typ —
-// bei ihnen bleibt die Prüfung stumm, statt falsch zu warnen.
+// Where the variables come from: the `In` of the process, the `InitIn` (the variables
+// set by the init worker), the process variables of the specification and
+// the outputs of all steps. The latter mostly have no known type —
+// for them the check stays silent instead of warning wrongly.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
 import { C7_LABEL } from './engineLabels';
@@ -41,39 +41,39 @@ export const FEEL_TYPE_LABEL: Record<FeelType, string> = {
   time: 'Zeit', duration: 'Dauer', list: 'Liste', context: 'Objekt', nil: 'null', any: 'unbekannt',
 };
 
-/** Ein Knoten im Variablenbaum — eine Prozessvariable oder ein Feld darin. */
+/** A node in the variable tree — a process variable or a field in it. */
 export interface VarNode {
   name: string;
   type: FeelType;
-  /** Scala-Typ zur Anzeige, z. B. `Option[Seq[InAddress]]` */
+  /** Scala type for display, e.g. `Option[Seq[InAddress]]` */
   label: string;
   description?: string;
-  /** Felder (bei Objekt) bzw. Felder der Elemente (bei Liste) */
+  /** Fields (for an object) or fields of the elements (for a list) */
   children?: VarNode[];
-  /** Objekt mit beliebigen Schlüsseln (Map) — Pfade darin lassen sich nicht prüfen */
+  /** Object with arbitrary keys (Map) — paths into it cannot be checked */
   open?: boolean;
   optional?: boolean;
-  /** woher die Variable kommt: `In`, `InitIn`, `Variable`, `Ausgabe von …` */
+  /** where the variable comes from: `In`, `InitIn`, `Variable`, `Ausgabe von …` */
   source: string;
 }
 
-/** Was am Zielfeld ankommen darf. */
+/** What may arrive at the target field. */
 export interface ExpectedType {
   accepts: FeelType[];
   label: string;
-  /** Art des Typs — bestimmt Farbe und Zeichen des Chips in der Mapping-Zeile */
+  /** Kind of type — determines colour and symbol of the chip in the mapping row */
   kind: ExpectedKind;
-  /** bei einem einfachen enum die erlaubten Werte — bei einem festen Fall genau einer */
+  /** for a simple enum the allowed values — for a fixed case exactly one */
   values?: string[];
 }
 
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
 
 /**
- * Was die Bedingung eines Zweigs liefern muss: ein Boolean — `null` geht auch.
- * In Camunda 7 wird es in JUEL zu `false`, in Camunda 8 schreibt der Export
- * die Bedingung null-sicher (`(…) = true`, siehe nullSafeCondition). Ein
- * fehlender optionaler Wert nimmt so in beiden Engines den anderen Zweig.
+ * What the condition of a branch must yield: a Boolean — `null` works too.
+ * In Camunda 7 it becomes `false` in JUEL, in Camunda 8 the export writes
+ * the condition null-safe (`(…) = true`, see nullSafeCondition). A
+ * missing optional value thus takes the other branch in both engines.
  */
 export const conditionExpected = (_engine?: EngineId): ExpectedType =>
   ({ accepts: ['boolean', 'nil'], label: 'Bedingung', kind: 'scalar' });
@@ -85,9 +85,9 @@ export interface FeelIssue {
 
 const isScalar = (t: string): boolean => (SCALA_TYPES as readonly string[]).includes(t);
 
-// Prozessvariablen sind JSON: Datum, Zeit und Dauer kommen als Text an.
-// Der Beispielwert ist deshalb ein Text; ein Zielfeld dieses Typs nimmt
-// beides — den Text und den echten FEEL-Wert (`date(…)`, `today()`).
+// Process variables are JSON: date, time and duration arrive as text.
+// The example value is therefore a text; a target field of this type accepts
+// both — the text and the real FEEL value (`date(…)`, `today()`).
 const SCALAR_FEEL: Record<string, FeelType> = {
   String: 'string', Iban: 'string', Iso8601Duration: 'string',
   Boolean: 'boolean',
@@ -101,7 +101,7 @@ const SCALAR_ACCEPTS: Record<string, FeelType[]> = {
   Iso8601Duration: ['string', 'duration'],
 };
 
-// ── Variablenbaum ────────────────────────────────────────────────────────────
+// ── Variable tree ────────────────────────────────────────────────────────────
 
 const MAX_DEPTH = 6;
 
@@ -110,8 +110,8 @@ import { enumHasCase, splitEnumCase } from './scalaTypes';
 
 interface Builder { idx: TypeIndex; model: Model | null }
 
-/** Ein Feld des Klassenbauers als Knoten — mit seinen Unterfeldern. */
-/** Ein Feld mit Vorgabewert ist immer da — auch wenn es `Option[…]` ist */
+/** A field of the class builder as a node — with its subfields. */
+/** A field with a default value is always present — even if it is `Option[…]` */
 const mayBeMissing = (f: { optional?: boolean; default?: string }): boolean => !!f.optional && !f.default?.trim();
 
 function nodeOfField(f: Field, source: string, b: Builder, depth: number, seen: Set<string>): VarNode {
@@ -136,8 +136,8 @@ function nodeOf(
   b: Builder, depth: number, seen: Set<string>,
 ): VarNode {
   const base = baseNode(typeRef, b, depth, seen, o.enumCase);
-  // Eine Map ist ein Objekt mit beliebigen Schlüsseln — ihre Werte kennt der
-  // Baum, die Schlüssel nicht; Pfade hinein bleiben deshalb ungeprüft
+  // A map is an object with arbitrary keys — the tree knows its values,
+  // not the keys; paths into it therefore stay unchecked
   const node: VarNode = {
     name, source: o.source, label: o.label,
     type: o.collection ? 'list' : o.map ? 'context' : base.type,
@@ -149,7 +149,7 @@ function nodeOf(
   return node;
 }
 
-/** Typ und Unterfelder eines Grundtyps (ohne Option/Seq); `enumCase` = nur diese Ausprägung. */
+/** Type and subfields of a base type (without Option/Seq); `enumCase` = only this case. */
 function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
   if (isScalar(typeRef)) return { type: SCALAR_FEEL[typeRef] ?? 'string' };
   if (depth >= MAX_DEPTH || seen.has(typeRef)) return { type: 'context' };
@@ -157,8 +157,8 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
 
   const own = b.idx.byId.get(typeRef);
   if (own) {
-    // ein ADT ist im JSON ein Objekt — sichtbar sind die Felder aller Fälle,
-    // bei einer Ausprägung nur die gemeinsamen und die dieses Falls
+    // an ADT is an object in JSON — visible are the fields of all cases,
+    // for a single case only the shared ones and those of this case
     if (own.kind === 'enum' && !isAdt(own)) return { type: 'string' };
     const cases = (own.values ?? []).filter(v => !enumCase || v.name === enumCase);
     const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...cases.flatMap(v => v.fields ?? [])] : (own.fields ?? []);
@@ -169,7 +169,7 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
   const dom = b.idx.domainOf(typeRef);
   if (dom) return domainNode(dom, b, depth, inner, enumCase);
 
-  // Service-Objekt (`svc:`): der Katalog kennt es vielleicht unter seinem Namen
+  // Service object (`svc:`): the catalog may know it under its name
   const svc = b.idx.serviceOf(typeRef);
   if (svc) {
     const found = resolveType(svc.name, b.model, svc.pkg);
@@ -191,7 +191,7 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     const shape = typeShape(p.type);
     const scalar = isScalar(shape.base);
     const ref = scalar ? null : resolveType(shape.base, b.model, dom.pkg);
-    // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums
+    // `CustomDocContents.\`QI-Deklaration\`` — a case of an ADT enum
     const split = !scalar && !ref ? splitEnumCase(shape.base) : null;
     const enumRef = split ? resolveType(split.base, b.model, dom.pkg) : null;
     const isCase = !!split && enumHasCase(enumRef, split.enumCase);
@@ -205,11 +205,11 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
 }
 
 /**
- * Alle Prozessvariablen mit ihren Pfaden. Bei gleichem Namen gilt die erste
- * Quelle — und zuerst kommt, was im Prozess **wirksam** ist: das `InitIn`
- * (der Init-Worker setzt es zu Beginn; ein optionales Feld des `In` hat dort
- * seinen Pflicht-Zwilling mit Vorgabe), dann das `InConfig` (immer mit
- * Vorgabe), dann das `In`, die Prozessvariablen und die Ausgaben.
+ * All process variables with their paths. For equal names the first
+ * source wins — and first comes what is **effective** in the process: the `InitIn`
+ * (the init worker sets it at the beginning; an optional field of the `In` has
+ * its required twin with a default there), then the `InConfig` (always with
+ * default), then the `In`, the process variables and the outputs.
  */
 export function processVariables(spec: ProcessSpec, model: Model | null): VarNode[] {
   const types = spec.types ?? [];
@@ -218,12 +218,12 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   const have = new Set<string>();
   const add = (n: VarNode) => { if (n.name && !have.has(n.name)) { have.add(n.name); out.push(n); } };
 
-  // Das InitIn — als Typ beschrieben; sonst kennt man nur die Namen (unten, nach dem In)
+  // The InitIn — described as a type; otherwise only the names are known (below, after the In)
   const initIn = types.find(t => t.initIn);
   if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, 'InitIn', b, 0, new Set()));
 
-  // Das InConfig — eigene Stellschrauben und die der Schleifen; alle mit
-  // Vorgabe, also immer da
+  // The InConfig — own tuning knobs and those of the loops; all with
+  // a default, so always present
   const inConfig = types.find(t => t.inConfig);
   for (const f of inConfig?.fields ?? []) add(nodeOfField(f, 'InConfig', b, 0, new Set()));
   for (const l of loopSettings(spec)) {
@@ -231,20 +231,20 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     add(nodeOf(l.name, t, { optional: false, collection: false, source: 'InConfig', label: t }, b, 0, new Set()));
   }
 
-  // Das In — als ADT die gemeinsamen Felder und die aller Fälle (im JSON
-  // stehen sie nebeneinander; welcher Fall es ist, entscheidet sich zur Laufzeit)
+  // The In — as an ADT the shared fields and those of all cases (in JSON
+  // they sit side by side; which case it is is decided at runtime)
   const root = types.find(t => t.root);
   const rootFields = root?.kind === 'enum'
     ? [...(root.fields ?? []), ...(root.values ?? []).flatMap(v => v.fields ?? [])]
     : (root?.fields ?? []);
   for (const f of rootFields) add(nodeOfField(f, 'In', b, 0, new Set()));
 
-  // ohne InitIn-Typ: die Ausgaben des Init-Workers, Typ unbekannt — nach dem
-  // In, damit dessen Typ nicht verloren geht
+  // without an InitIn type: the outputs of the init worker, type unknown — after the
+  // In, so that its type is not lost
   if (!initIn) for (const o of initOutputs(spec)) add({ name: o.name, type: 'any', label: '?', source: 'InitIn', ...(o.description ? { description: o.description } : {}) });
 
-  // Das Pattern «Prozess-Bezeichnung» (von Orchescala): der Init-Worker setzt
-  // sie als `callingProcessKeyDE/FR` (ProcessLabels.labelKeyDe/Fr)
+  // The pattern «Prozess-Bezeichnung» (from Orchescala): the init worker sets
+  // it as `callingProcessKeyDE/FR` (ProcessLabels.labelKeyDe/Fr)
   const labels = spec.processLabels;
   if (labels?.de || labels?.fr) {
     for (const [lang, value] of [['DE', labels.de], ['FR', labels.fr]] as const) {
@@ -255,7 +255,7 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
 
   for (const v of spec.variables ?? []) {
     const t = (v.type ?? '').trim();
-    // eine Klasse (`DebitCardDetail`, `Seq[Card]`): die eigene bzw. die der Domain — samt Feldern
+    // a class (`DebitCardDetail`, `Seq[Card]`): the own one or the domain's — with fields
     const shape = typeShape(t);
     const ref = !t || isScalar(shape.base) ? null
       : types.find(x => x.name === shape.base)?.id ?? (() => { const d = resolveType(shape.base, model, packageOf(spec, model)); return d ? domainRef(d.id) : null; })();
@@ -265,7 +265,7 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
   }
 
   for (const s of allSteps(spec.steps)) {
-    // das Ergebnis erst, wenn eine Ausgabe danach fragt — es braucht den Katalog
+    // the result only when an output asks for it — it needs the catalog
     let results: VarNode[] | null = null;
     const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
     for (const o of s.outputs ?? []) {
@@ -278,9 +278,9 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     }
   }
 
-  // Eigene Worker und Benutzeraufgaben schreiben ihr `Out` direkt in die
-  // Prozessvariablen — ohne Mapping. Die Felder: aus der beschriebenen
-  // Interaktion, sonst aus der Domain (der Init-Worker ist oben das InitIn).
+  // Own workers and user tasks write their `Out` directly into the
+  // process variables — without mapping. The fields: from the described
+  // interaction, otherwise from the domain (the init worker is the InitIn above).
   for (const s of allSteps(spec.steps)) {
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind !== 'customTask' && kind !== 'userTask') continue;
@@ -295,22 +295,22 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     if (dom) for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source });
   }
 
-  // Eine Entscheidung (Business-Rule-Task) schreibt ihr Ergebnis in **eine**
-  // Variable (`resultVariable`) — ohne Mapping, wie die eigenen Worker oben
-  // Das gilt für jede Entscheidung, auch eine fremde: die Engine setzt die
-  // Variable; ohne bekanntes Out ist sie `any`, dann prüft niemand ihre Felder.
+  // A decision (business rule task) writes its result into **one**
+  // variable (`resultVariable`) — without mapping, like the own workers above
+  // This applies to every decision, also an external one: the engine sets the
+  // variable; without a known Out it is `any`, then nobody checks its fields.
   for (const s of allSteps(spec.steps)) {
     if (s.kind !== 'rule' || !s.resultVariable) continue;
-    // Camunda 8 mit Output-Mappings: Zeebe übernimmt nur die gemappten Variablen
-    // (oben bei den Ausgaben) — die resultVariable bleibt lokal am Task
+    // Camunda 8 with output mappings: Zeebe only takes over the mapped variables
+    // (above with the outputs) — the resultVariable stays local to the task
     if (spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name)) continue;
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
 
-  // Was die Engine selbst führt — in Camunda 7 an der Ausführung (`execution.…`,
-  // der Export übersetzt es), in Camunda 8 unter diesen Namen
-  // in Camunda 8 setzt sie der InitWorker — als String (der Key ist zu gross für JavaScript);
-  // ohne InitWorker fehlt sie: dann unbekannt, damit ihr Gebrauch gemeldet wird
+  // What the engine itself keeps — in Camunda 7 on the execution (`execution.…`,
+  // the export translates it), in Camunda 8 under these names
+  // in Camunda 8 the InitWorker sets it — as a String (the key is too big for JavaScript);
+  // without InitWorker it is missing: then unknown, so that its use is reported
   if (spec.engine !== 'c8' || allSteps(spec.steps).some(s => isInitWorker(s, spec.processId)))
     add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz, gesetzt vom InitWorker, wenn er fertig ist — ${C7_LABEL}: execution.processInstanceId` });
   add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
@@ -319,11 +319,11 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
 }
 
 /**
- * Die Prozessvariablen, die fehlen dürfen — Camunda 7 liest sie mit
- * `execution.getVariable("x")` (siehe feelJuel.ts). Nicht dazu gehört, was
- * der Init-Worker immer setzt: ein Pflichtfeld des `InitIn`, eine seiner
- * Ausgaben und ein optionales Feld des `In` mit Vorgabe (sein Pflicht-Zwilling
- * im `InitIn`) — auch wenn das `In` es optional führt.
+ * The process variables that may be missing — Camunda 7 reads them with
+ * `execution.getVariable("x")` (see feelJuel.ts). Not included is what
+ * the init worker always sets: a required field of the `InitIn`, one of its
+ * outputs and an optional field of the `In` with a default (its required twin
+ * in the `InitIn`) — even if the `In` has it as optional.
  */
 export function optionalVariables(spec: ProcessSpec, model: Model | null = null): Set<string> {
   const types = spec.types ?? [];
@@ -337,9 +337,9 @@ export function optionalVariables(spec: ProcessSpec, model: Model | null = null)
 }
 
 /**
- * Wie FEEL für Camunda 7 übersetzt wird (siehe feelJuel.ts): welche Variablen
- * fehlen dürfen, die Felder der Variablen (das Ende eines Spin-Pfads) und die
- * Ergebnisse der DMN Decisions — eine Map bzw. Liste, kein JSON.
+ * How FEEL is translated for Camunda 7 (see feelJuel.ts): which variables
+ * may be missing, the fields of the variables (the end of a Spin path) and the
+ * results of the DMN decisions — a Map or List, not JSON.
  */
 export function juelOptions(spec: ProcessSpec, model: Model | null = null): JuelOptions {
   return {
@@ -350,28 +350,28 @@ export function juelOptions(spec: ProcessSpec, model: Model | null = null): Juel
 }
 
 /**
- * Was im **Quell-Ausdruck einer Ausgabe** sichtbar ist: das Ergebnis des
- * Services. Der Worker gibt sein `Out` zurück, und dessen Felder werden zu
- * Variablen des Jobs — `= accountId`, nicht `= out.accountId`. Dazu die
- * Prozessvariablen, die in Camunda 8 im selben Kontext stehen.
+ * What is visible in the **source expression of an output**: the result of the
+ * service. The worker returns its `Out`, and its fields become
+ * variables of the job — `= accountId`, not `= out.accountId`. Plus the
+ * process variables, which in Camunda 8 are in the same context.
  *
- * Woher das `Out` kommt: die Out-Klasse der Interaktion; sonst das
- * `<Objekt>.Out` im Domain-Katalog (über Topic bzw. gerufenen Prozess);
- * sonst die Ausgabe-Parameter des Katalog-Eintrags, ohne Typ.
+ * Where the `Out` comes from: the Out class of the interaction; otherwise the
+ * `<Objekt>.Out` in the domain catalog (via topic or called process);
+ * otherwise the output parameters of the catalog entry, without type.
  */
 /**
- * Das `In` bzw. `Out` des Service-Objekts im Domain-Katalog — gefunden über
- * das Topic, den gerufenen Prozess oder den Namen der Interaktion. Dort
- * stehen die **echten** Scala-Typen; sie sind der Massstab, wo der Schritt
- * keine eigene Klasse hat.
+ * The `In` or `Out` of the service object in the domain catalog — found via
+ * the topic, the called process or the name of the interaction. There
+ * are the **real** Scala types; they are the yardstick where the step
+ * has no class of its own.
  */
 export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | null, member: 'In' | 'Out'): DomainType | null {
   const all = model?.domainTypes ?? [];
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
-  // eine Interaktion: ihr Objekt über den Schlüssel, aus genau seinem Package —
-  // der Name bzw. das Topic allein trafen das erste Objekt irgendeines Prozesses
+  // an interaction: its object via the key, from exactly its package —
+  // the name or the topic alone hit the first object of any process
   if (ia) return originMember(interactionOrigin(ia, model, packageOf(spec, model)), member, model);
-  // eine Entscheidung (DMN) heisst über ihre decisionId — die Schreibweise kann abweichen
+  // a decision (DMN) is named by its decisionId — the spelling may differ
   const decision = step.kind === 'rule' && step.topic
     ? all.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase())
     : undefined;
@@ -379,19 +379,19 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
     : step.topic ? all.find(t => t.topicName === step.topic && t.owner)
     : step.calledProcess ? all.find(t => t.processName === step.calledProcess && t.owner)
     : undefined;
-  // In/Out aus dem Package des Objekts — gleichnamige Objekte anderer Projekte
-  // (`GetAccounts` in vollmacht und fil-is) zählen nicht
+  // In/Out from the package of the object — objects of the same name in other projects
+  // (`GetAccounts` in vollmacht and fil-is) do not count
   if (owner) return all.find(t => t.pkg === owner.pkg && t.name === `${owner.owner}.${member}`) ?? null;
-  // ein Service ohne `topicName` im Katalog: das Objekt über seinen Namen und
-  // das abgeleitete Package (`valiant-fil-is-cardV4.GetX` → `GetX` in
-  // `valiant.fil.is.domain.card.v4`) — gleichnamige Objekte anderer Versionen zählen nicht
+  // a service without `topicName` in the catalog: the object via its name and
+  // the derived package (`valiant-fil-is-cardV4.GetX` → `GetX` in
+  // `valiant.fil.is.domain.card.v4`) — objects of the same name in other versions do not count
   const ref = step.serviceId ?? step.topic;
   const obj = ref && step.kind === 'service' ? catalogObject(ref, model) : null;
   return obj ? all.find(t => t.pkg === obj.pkg && t.name === `${obj.object}.${member}`) ?? null : null;
 }
 
-/** Erwarteter Typ eines Feldes laut Domain-Katalog — `null`, wenn unbekannt. */
-/** Ein Feld des Domain-Typs — bei einem enum auch aus seinen Fällen */
+/** Expected type of a field according to the domain catalog — `null` if unknown. */
+/** A field of the domain type — for an enum also from its cases */
 const domainField = (dom: DomainType | null, name: string) =>
   dom?.fields?.find(f => f.name === name) ?? dom?.cases?.flatMap(c => c.fields ?? []).find(f => f.name === name);
 
@@ -406,24 +406,24 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   else if (shape.map) { accepts = ['context']; kind = 'map'; }
   else if (isScalar(shape.base)) { accepts = SCALAR_ACCEPTS[shape.base] ?? [SCALAR_FEEL[shape.base] ?? 'string']; kind = 'scalar'; }
   else {
-    // `ProcessStatus.canceled.type` — ein fester Fall: genau dieser Wert
+    // `ProcessStatus.canceled.type` — a fixed case: exactly this value
     const split = resolveType(shape.base, model, dom!.pkg) ? null : splitEnumCase(shape.base);
     const caseOf = split ? resolveType(split.base, model, dom!.pkg) : null;
     if (split && caseOf && enumHasCase(caseOf, split.enumCase) && !caseOf.cases?.length && !caseOf.fields?.length) {
       return { accepts: shape.optional ? ['string', 'nil'] : ['string'], label: p.type, kind: 'enum', values: [split.enumCase] };
     }
     const ref = resolveType(shape.base, model, dom!.pkg);
-    if (!ref) return null;                    // Typ nicht im Katalog — kein Urteil
+    if (!ref) return null;                    // type not in the catalog — no verdict
     if (ref.kind === 'enum' && !ref.cases?.length && !ref.fields?.length) { accepts = ['string']; kind = 'enum'; values = ref.values; }
     else if (ref.kind === 'alias') return null;
     else { accepts = ['context']; kind = ref.kind === 'enum' ? 'enum' : 'class'; }
   }
-  // fehlt der Wert, greift die Vorgabe — null ist dann erlaubt
+  // if the value is missing, the default applies — null is then allowed
   if (shape.optional || p.default?.trim()) accepts = [...accepts, 'nil'];
   return { accepts, label: p.type, kind, ...(values?.length ? { values } : {}) };
 }
 
-/** Ist das Feld laut Domain-Katalog Pflicht (nicht `Option[…]`)? null = Feld unbekannt. */
+/** Is the field required according to the domain catalog (not `Option[…]`)? null = field unknown. */
 export function domainRequired(dom: DomainType | null, name: string): boolean | null {
   const p = domainField(dom, name);
   if (!p) return null;
@@ -433,20 +433,20 @@ export function domainRequired(dom: DomainType | null, name: string): boolean | 
 const inConfigFieldOf = (dom: DomainType | null) => dom?.fields?.find(x => /(?:^|\.)InConfig$/.test(typeShape(x.type).base));
 
 /**
- * Das Feld `inConfig: Option[InConfig]` eines Domain-`In` — null ohne. Ein Aufrufer
- * gibt es nicht mit: sein eigenes `inConfig` ist ein anderes als das des Aufgerufenen;
- * nur einzelne Felder daraus (Mocks).
+ * The field `inConfig: Option[InConfig]` of a domain `In` — null if absent. A caller
+ * does not pass it along: its own `inConfig` is different from that of the callee;
+ * only individual fields from it (mocks).
  */
 export const inConfigField = (dom: DomainType | null): string | null => inConfigFieldOf(dom)?.name ?? null;
 
-/** Warnung an einer aktiven Zeile `inConfig` */
+/** Warning on an active row `inConfig` */
 export const inConfigWarning = (name: string): string =>
   `«${name}» nicht mitgeben — das InConfig des Aufgerufenen ist ein anderes als das eigene; nur einzelne Felder daraus (z. B. Mocks) mitgeben.`;
 
 /**
- * Die Felder des `InConfig` eines Domain-`In` (`inConfig: Option[InConfig]`) —
- * Mocks und Stellschrauben (`postAccountMock`). Ein Aufrufer gibt sie als
- * eigene Variablen mit; das `InConfig` liest sie dort. Leer ohne `InConfig`.
+ * The fields of the `InConfig` of a domain `In` (`inConfig: Option[InConfig]`) —
+ * mocks and tuning knobs (`postAccountMock`). A caller passes them as
+ * its own variables; the `InConfig` reads them there. Empty without `InConfig`.
  */
 export function inConfigFields(dom: DomainType | null, model: Model | null): string[] {
   const f = inConfigFieldOf(dom);
@@ -458,9 +458,9 @@ export function inConfigFields(dom: DomainType | null, model: Model | null): str
 }
 
 /**
- * Was die Domain im `In` kennt: die Felder (bei einem enum auch die der Fälle,
- * dazu `inConfig` — siehe `inConfigWarning`) und die des `InConfig`. Der Katalog aus der OpenAPI kennt
- * davon nicht alles — `inConfig` und die Mocks fehlen dort.
+ * What the domain knows in the `In`: the fields (for an enum also those of the cases,
+ * plus `inConfig` — see `inConfigWarning`) and those of the `InConfig`. The catalog from the OpenAPI does
+ * not know all of it — `inConfig` and the mocks are missing there.
  */
 export function domainInputNames(dom: DomainType | null, model: Model | null): string[] {
   return [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].map(f => f.name).concat(inConfigFields(dom, model));
@@ -474,7 +474,7 @@ export function resultVariables(step: Step, spec: ProcessSpec, model: Model | nu
   return out;
 }
 
-/** Nur das Ergebnis des Schritts — ohne die Prozessvariablen (siehe resultVariables) */
+/** Only the result of the step — without the process variables (see resultVariables) */
 function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service: ServiceDef | null, built?: Builder): VarNode[] {
   const types = spec.types ?? [];
   const b: Builder = built ?? { idx: indexTypes(types, model), model };
@@ -489,9 +489,9 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
   } else {
     const dom = ownOut ? null : stepDomainMember(step, spec, model, 'Out');
     if (step.kind === 'rule' && step.resultVariable) {
-      // Entscheidung: das Ergebnis steht in **einer** Variable — je nach Form ein
-      // Wert, ein Objekt mit den Feldern des Out oder eine Liste davon. Die
-      // Felder aus der DMN Decision des Prozesses, sonst aus der Domain
+      // Decision: the result is in **one** variable — depending on the form a
+      // value, an object with the fields of the Out or a list of them. The
+      // fields from the DMN decision of the process, otherwise from the domain
       const fields = ownOut
         ? (ownOut.fields ?? []).map(f => nodeOfField(f, `Ergebnis (${ownOut.name})`, b, 0, new Set()))
         : dom ? domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? [] : [];
@@ -508,9 +508,9 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
       else if (form === 'resultList') add({ name, type: 'list', children: fields, label, source });
       else add({ name, type: 'context', children: fields, label, source });
     } else if (dom?.fields?.length || dom?.cases?.some(c => c.fields?.length)) {
-      // enum mit Fällen: die gemeinsamen Felder und die der gewählten Ausprägung
+      // enum with cases: the shared fields and those of the selected case
       const v = dom.cases?.length ? variantsOf(step, spec, model, 'outputs', service) : null;
-      // ohne Wahl kein Fall — ein Name, den es nicht gibt (leer hiesse: alle)
+      // no selection, no case — a name that does not exist (empty would mean: all)
       const chosen = v ? chosenVariant(step, 'outputs', v).name : null;
       const enumCase = !v || chosen === ALL_VARIANTS ? undefined : chosen ?? '\u0000';
       for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)]), enumCase).children ?? []) add({ ...n, source: `Ergebnis (${dom.name})` });
@@ -522,9 +522,9 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
 }
 
 /**
- * Der Typ einer Ausgabe: liest sie einen Pfad aus dem Ergebnis des Schritts
- * (`= debitCardDetail`, `= result.basicData`), hat die Prozessvariable dessen
- * Typ samt Feldern — sonst bleibt er unbekannt.
+ * The type of an output: if it reads a path from the result of the step
+ * (`= debitCardDetail`, `= result.basicData`), the process variable has its
+ * type with fields — otherwise it stays unknown.
  */
 function outputNode(o: Mapping, results: () => VarNode[]): VarNode | null {
   const path = /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(o.expression.trim())?.[1].split('.').map(x => x.trim());
@@ -534,7 +534,7 @@ function outputNode(o: Mapping, results: () => VarNode[]): VarNode | null {
   return node;
 }
 
-/** Erwarteter Typ eines Zielfelds — `null`, wenn er nicht bekannt ist. */
+/** Expected type of a target field — `null` if it is not known. */
 export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: Model | null = null): ExpectedType | null {
   if (!f) return null;
   const idx = indexTypes(types, model);
@@ -550,18 +550,18 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
     const enumish = own?.kind === 'enum' || dom?.kind === 'enum';
     if ((own?.kind === 'enum' && !isAdt(own)) || (dom?.kind === 'enum' && !dom.cases?.length && !dom.fields?.length)) {
       accepts = ['string']; kind = 'enum';
-      // ein fester Fall lässt nur seinen Wert zu, sonst jeder Fall der Auswahl
+      // a fixed case only allows its value, otherwise every case of the selection
       values = f.enumCase ? [f.enumCase.replace(/^`|`$/g, '')] : own ? (own.values ?? []).map(v => v.name).filter(Boolean) : dom?.values;
     }
     else if (dom?.kind === 'alias') return null;
     else { accepts = ['context']; kind = enumish ? 'enum' : 'class'; }
   }
-  // fehlt der Wert, greift die Vorgabe — null ist dann erlaubt
+  // if the value is missing, the default applies — null is then allowed
   if (f.optional || f.default?.trim()) accepts = [...accepts, 'nil'];
   return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}) };
 }
 
-// ── Beispielwerte ────────────────────────────────────────────────────────────
+// ── Example values ───────────────────────────────────────────────────────────
 
 const SAMPLE: Partial<Record<FeelType, unknown>> = {
   string: 'text', number: 1, boolean: true, date: '2024-01-31', 'date time': '2024-01-31T12:00:00', time: '12:00:00', duration: 'PT1M',
@@ -581,7 +581,7 @@ export function sampleContext(vars: VarNode[]): Record<string, unknown> {
   return ctx;
 }
 
-// ── Prüfung ──────────────────────────────────────────────────────────────────
+// ── Check ────────────────────────────────────────────────────────────────────
 
 export const isFeel = (expression: string): boolean => expression.trimStart().startsWith('=');
 
@@ -597,13 +597,13 @@ export function feelType(value: unknown): FeelType {
   return typeof value as FeelType;
 }
 
-/** `client.address.` vor einer Position → die Pfadglieder `client`, `address` */
+/** `client.address.` before a position → the path segments `client`, `address` */
 function chainBefore(text: string, at: number): string[] | null {
   const m = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*\.\s*$/.exec(text.slice(0, at));
   return m ? m[1].replace(/\s/g, '').split('.') : null;
 }
 
-/** Liegt auf dem Pfad ein Knoten ohne bekannten Inhalt (Typ unbekannt oder Map)? */
+/** Is there a node on the path without known content (type unknown or Map)? */
 function openOnPath(vars: VarNode[], chain: string[]): boolean {
   let pool = vars;
   for (const seg of chain) {
@@ -616,9 +616,9 @@ function openOnPath(vars: VarNode[], chain: string[]): boolean {
 }
 
 /**
- * Die Felder der Elemente der Liste, die an dieser Stelle gefiltert wird
- * (`liste[ … hier … ]`) — null, wenn man sie nicht kennt: die Liste ist
- * unbekannt, ohne Typ, offen oder ohne bekannte Felder.
+ * The fields of the elements of the list that is filtered at this position
+ * (`liste[ … hier … ]`) — null if they are not known: the list is
+ * unknown, without type, open or without known fields.
  */
 function filteredElements(body: string, at: number, vars: VarNode[]): VarNode[] | null {
   const code = body.slice(0, at).replace(/"(?:[^"\\]|\\.)*"/g, m => ' '.repeat(m.length));
@@ -640,7 +640,7 @@ function filteredElements(body: string, at: number, vars: VarNode[]): VarNode[] 
   return node?.type === 'list' && node.children?.length ? node.children : null;
 }
 
-/** Namen im Ausdruck, die eine Variable ohne bekannten Typ treffen. */
+/** Names in the expression that hit a variable without a known type. */
 function touchesUnknown(body: string, vars: VarNode[]): boolean {
   const unknown = new Set(vars.filter(v => v.type === 'any').map(v => v.name));
   if (!unknown.size) return false;
@@ -649,7 +649,7 @@ function touchesUnknown(body: string, vars: VarNode[]): boolean {
   return false;
 }
 
-/** Ist der Ausdruck ein blosser Pfad, auf dem etwas fehlen darf? Dann welches Glied. */
+/** Is the expression a bare path on which something may be missing? Then which segment. */
 function optionalOnPath(body: string, vars: VarNode[]): { path: string; label: string } | null {
   if (!/^[A-Za-z_]\w*(\s*\.\s*[A-Za-z_]\w*)*$/.test(body)) return null;
   const chain = body.replace(/\s/g, '').split('.');
@@ -666,10 +666,10 @@ function optionalOnPath(body: string, vars: VarNode[]): { path: string; label: s
 
 const quoted = (msg: string): string => /'([^']*)'/.exec(msg)?.[1] ?? '';
 
-// Camunda-Funktionen, die `feelin` nicht kennt (Scala-FEEL der Engine hat sie).
-// Sie stehen im Auswertekontext; die Namen mit Leerzeichen erkennt der Parser
-// dort selbst. `is defined` und `get or else` dürfen auf Unbekanntes zeigen —
-// dafür sind sie da (siehe `guardedSpans`).
+// Camunda functions that `feelin` does not know (the engine's Scala FEEL has them).
+// They are in the evaluation context; the parser recognises the names with spaces
+// there itself. `is defined` and `get or else` may point to unknown things —
+// that is what they are for (see `guardedSpans`).
 const CAMUNDA_FUNCTIONS: Record<string, unknown> = {
   'is defined': (v: unknown) => v !== undefined && v !== null,
   'get or else': (v: unknown, d: unknown) => v ?? d,
@@ -678,17 +678,17 @@ const CAMUNDA_FUNCTIONS: Record<string, unknown> = {
   'to json': (o: unknown) => JSON.stringify(o) ?? null,
 };
 
-// Namen, die die Engine in Multi-Instance-Aktivitäten setzt: `loopCounter`
-// und das Element der Sammlung (Name aus dem BPMN)
+// Names the engine sets in multi-instance activities: `loopCounter`
+// and the element of the collection (name from the BPMN)
 
-/** Die Mehrfachausführungen, in denen ein Schritt liegt — er selbst und seine Vorfahren (Subprozesse) */
+/** The multi-instance executions a step lies in — itself and its ancestors (subprocesses) */
 export function multiInstanceScopes(steps: Step[] | undefined): Map<string, MultiInstanceSpec[]> {
   const out = new Map<string, MultiInstanceSpec[]>();
   const visit = (list: Step[] | undefined, inherited: MultiInstanceSpec[]) => {
     for (const s of list ?? []) {
       const own = s.multiInstance ? [...inherited, s.multiInstance] : inherited;
       out.set(s.id, own);
-      // die Kinder eines Subprozesses und die Pfade an Gateways/Fehlern liegen im selben Bereich
+      // the children of a subprocess and the paths at gateways/errors lie in the same scope
       visit(s.children, own);
       for (const b of s.branches ?? []) visit(b.steps, inherited);
       for (const e of s.errors ?? []) visit(e.steps, inherited);
@@ -699,9 +699,9 @@ export function multiInstanceScopes(steps: Step[] | undefined): Map<string, Mult
 }
 
 /**
- * Die Variablen, die in einer Mehrfachausführung dazukommen: `loopCounter`
- * und das Element der Sammlung. Zeigt die Sammlung auf eine Liste mit bekannten
- * Feldern, hat das Element diese Felder; sonst bleibt sein Typ offen.
+ * The variables added in a multi-instance execution: `loopCounter`
+ * and the element of the collection. If the collection points to a list with known
+ * fields, the element has these fields; otherwise its type stays open.
  */
 export function withMultiInstance(vars: VarNode[], scopes: MultiInstanceSpec[] | undefined): VarNode[] {
   if (!scopes?.length) return vars;
@@ -728,9 +728,9 @@ export function withMultiInstance(vars: VarNode[], scopes: MultiInstanceSpec[] |
 }
 
 /**
- * Bereiche im Ausdruck, in denen Fehlendes erlaubt ist: das Argument von
- * `is defined(…)` und das erste von `get or else(…, …)`. Was `feelin` dort
- * als «nicht gefunden» meldet, ist genau die Absicherung — keine Warnung.
+ * Ranges in the expression where missing values are allowed: the argument of
+ * `is defined(…)` and the first one of `get or else(…, …)`. What `feelin` reports there
+ * as «nicht gefunden» is exactly the safeguard — no warning.
  */
 function guardedSpans(body: string): { from: number; to: number }[] {
   const spans: { from: number; to: number }[] = [];
@@ -752,16 +752,16 @@ function guardedSpans(body: string): { from: number; to: number }[] {
 
 export interface FeelCheck {
   issues: FeelIssue[];
-  /** Typ des Ergebnisses — null, wenn nicht auswertbar */
+  /** Type of the result — null if it cannot be evaluated */
   result: FeelType | null;
 }
 
 /**
- * Einen Mapping-Wert prüfen. `vars` = die Prozessvariablen; ohne sie wird nur
- * die Syntax geprüft (Ausgaben zeigen auf das Ergebnis des Services, nicht
- * auf den Prozess). `expected` = was das Zielfeld verlangt.
+ * Check a mapping value. `vars` = the process variables; without them only
+ * the syntax is checked (outputs point to the result of the service, not
+ * to the process). `expected` = what the target field requires.
  */
-/** Ein Text, der fest dasteht, muss ein Wert der Auswahl sein — bei einem festen Fall genau dieser. */
+/** A fixed text must be a value of the selection — for a fixed case exactly this one. */
 function enumValueIssues(body: string, expected: ExpectedType | null): FeelIssue[] {
   const literal = /^"((?:[^"\\]|\\.)*)"$/.exec(body)?.[1];
   if (!expected?.values?.length || literal == null || expected.values.includes(literal)) return [];
@@ -775,8 +775,8 @@ function enumValueIssues(body: string, expected: ExpectedType | null): FeelIssue
 
 export function checkFeel(expression: string, vars: VarNode[] | null, expected: ExpectedType | null = null): FeelCheck {
   const source = expression.trimStart().slice(1).trim();
-  // `feelin` kennt die Schreibweise `` `mein-name` `` nicht: der Name wird durch
-  // einen Platzhalter ersetzt, der im Kontext denselben Wert trägt
+  // `feelin` does not know the notation `` `mein-name` ``: the name is replaced by
+  // a placeholder that carries the same value in the context
   const aliases = new Map<string, string>();
   const parts = source.split(/("(?:[^"\\]|\\.)*")/);
   const body = parts.map((part, i) => i % 2 ? part : part.replace(/`([^`]+)`/g, (_, name: string) => {
@@ -789,7 +789,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
     vars = [...vars, ...[...aliases].flatMap(([alias, name]) => vars!.filter(v => v.name === name).map(v => ({ ...v, name: alias })))];
   }
   if (!body) return { issues: [{ level: 'error', text: 'Nach «=» fehlt der FEEL-Ausdruck.' }], result: null };
-  // `liste[0]` ist in FEEL immer null — Listen zählen ab 1
+  // `liste[0]` is always null in FEEL — lists count from 1
   if (/\[\s*0\s*\]/.test(body.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
     return { issues: [{ level: 'error', text: 'Index [0] gibt es in FEEL nicht — Listen zählen ab 1, das erste Element ist [1].' }], result: null };
   }
@@ -813,7 +813,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
 
   const unknown = touchesUnknown(body, vars) || /\bfrom\s+json\s*\(/.test(body);
   const guarded = guardedSpans(body);
-  // `if is defined(x) and x != null …` — das zweite `x` ist abgesichert, auch wenn es fehlt
+  // `if is defined(x) and x != null …` — the second `x` is guarded, even if it is missing
   const guardedNames = new Set([...body.matchAll(/\b(?:is\s+defined|get\s+or\s+else)\s*\(\s*([A-Za-z_]\w*)/g)].map(m => m[1]));
   let pathFailed = false;
   for (const w of warnings) {
@@ -823,15 +823,15 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       case 'NO_VARIABLE_FOUND': {
         const raw = quoted(w.message);
         const name = shown(raw);
-        const re = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // feelin meldet auch Namen wie «??»
-        // eine unbekannte Funktion meldet feelin zuerst als Variable
+        const re = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // feelin also reports names like «??»
+        // feelin reports an unknown function first as a variable
         if (warnings.some(x => x.type === 'NO_FUNCTION_FOUND' && x.position.from === w.position.from)) {
           issues.push({ level: 'error', text: `Funktion «${name}» gibt es nicht.` });
         } else if (new RegExp(`\\b(?:for|some|every)\\s+${re}\\s+in\\b[^\\]]*\\[[^\\]]*(?<![\\w.])${re}\\s*\\.`).test(body)) {
-          // `for i in items[i.active = true]` — die Schleifenvariable gilt erst nach dem `in`
+          // `for i in items[i.active = true]` — the loop variable only applies after the `in`
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
         } else if (name === 'processInstanceKey') {
-          // der alte Name aus Camunda 8 — Orchescala setzt die eigene ID heute engine-agnostisch
+          // the old name from Camunda 8 — Orchescala now sets its own ID engine-agnostically
           issues.push({ level: 'error', text: '«processInstanceKey» ist der alte Name — der InitWorker setzt heute «processInstanceId».' });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
@@ -842,25 +842,25 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       case 'NO_CONTEXT_ENTRY_FOUND':
       case 'NO_PROPERTY_FOUND': {
         const chain = chainBefore(body, w.position.from);
-        // Typ unbekannt oder Map — kein Urteil, auch nicht über das Ergebnis
+        // type unknown or Map — no verdict, not even about the result
         if (chain && openOnPath(vars, chain)) { pathFailed = true; break; }
-        // `liste[item.feld = …]`: `item` ist ein Element der gefilterten Liste — kennt
-        // man deren Elemente nicht (JSON, Liste ohne bekannte Felder), gibt es kein Urteil
+        // `liste[item.feld = …]`: `item` is an element of the filtered list — if its
+        // elements are not known (JSON, list without known fields), there is no verdict
         if (chain?.[0] === 'item') {
           const elements = filteredElements(body, w.position.from, vars);
           if (elements === null || openOnPath(elements, chain.slice(1))) { pathFailed = true; break; }
         }
-        if (pathFailed && w.type === 'NO_PROPERTY_FOUND') break; // Folgefehler auf null
+        if (pathFailed && w.type === 'NO_PROPERTY_FOUND') break; // follow-up error on null
         const key = shown(quoted(w.message));
         const prefix = /([A-Za-z_][\w]*(?:\s*\.\s*[A-Za-z_][\w]*)*)\s*\.\s*$/.exec(body.slice(0, w.position.from))?.[1]?.replace(/\s/g, '');
         const text = prefix ? `Pfad «${shown(prefix)}.${key}» gibt es nicht — «${shown(prefix)}» hat kein Feld «${key}».` : `Feld «${key}» gibt es nicht.`;
-        // derselbe Pfad mehrmals im Ausdruck — einmal gemeldet genügt
+        // the same path several times in the expression — reporting it once is enough
         if (!issues.some(i => i.text === text)) issues.push({ level: 'error', text });
         pathFailed = true;
         break;
       }
       case 'NO_FUNCTION_FOUND':
-        break; // schon über NO_VARIABLE_FOUND gemeldet
+        break; // already reported via NO_VARIABLE_FOUND
       case 'INVALID_TYPE':
       case 'NOT_COMPARABLE':
       case 'INVALID_ARGUMENTS':
@@ -873,8 +873,8 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   }
 
   const result = feelType(value);
-  // Ein optionaler Wert (ohne Vorgabe) auf ein Pflichtfeld: die Beispielwerte
-  // sind nie null, darum hier am Pfad selbst — `= client.address.zip`
+  // An optional value (without default) on a required field: the example values
+  // are never null, hence here on the path itself — `= client.address.zip`
   if (!issues.length && expected && !expected.accepts.includes('nil') && !unknown && !pathFailed) {
     const opt = optionalOnPath(body, vars);
     if (opt) {
@@ -899,18 +899,18 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
   return { issues, result: unknown || pathFailed ? null : result };
 }
 
-// ── Vervollständigung ────────────────────────────────────────────────────────
+// ── Completion ───────────────────────────────────────────────────────────────
 
 export interface Completion {
-  /** was eingesetzt wird */
+  /** what is inserted */
   insert: string;
-  /** Variable bzw. Feld — fehlt bei Funktionen und Schlüsselwörtern */
+  /** Variable or field — missing for functions and keywords */
   node?: VarNode;
-  /** Funktion bzw. Schlüsselwort mit Erklärung */
+  /** Function or keyword with explanation */
   doc?: FeelDoc;
-  /** voller Pfad zur Anzeige */
+  /** full path for display */
   path: string;
-  /** Zeichen, die der Cursor nach dem Einsetzen zurückspringt (in die Klammer) */
+  /** Characters the cursor jumps back after inserting (into the parenthesis) */
   back?: number;
 }
 
@@ -921,23 +921,23 @@ export interface CompletionResult {
 }
 
 /**
- * Vorschläge für den Pfad unter dem Cursor: `client.addr|` → die Felder von
- * `client`, die mit `addr` beginnen. Ausserhalb eines FEEL-Ausdrucks (kein
- * `=`) oder innerhalb einer Zeichenkette gibt es keine.
+ * Suggestions for the path under the cursor: `client.addr|` → the fields of
+ * `client` that start with `addr`. Outside a FEEL expression (no
+ * `=`) or inside a string there are none.
  */
 export function completions(text: string, cursor: number, vars: VarNode[]): CompletionResult | null {
   if (!isFeel(text)) return null;
   const eq = text.indexOf('=');
   if (cursor <= eq) return null;
   const before = text.slice(0, cursor);
-  // in einer Zeichenkette? (ungerade Zahl von Anführungszeichen davor)
+  // inside a string? (odd number of quotes before)
   if ((before.slice(eq + 1).match(/"/g)?.length ?? 0) % 2 === 1) return null;
   const m = /([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*\.)?([A-Za-z_][\w]*)?$/.exec(before);
   if (!m) return null;
   const [, chain, partial = ''] = m;
-  // nach `=` ohne Token: nur, wenn nicht mitten in etwas anderem (z. B. `1|`)
+  // after `=` without a token: only if not in the middle of something else (e.g. `1|`)
   if (!chain && !partial && /[\w"\])]$/.test(before)) return null;
-  // Schlüsselwörter und Funktionsaufrufe nicht vervollständigen
+  // do not complete keywords and function calls
   if (!chain && partial && /^(if|then|else|for|in|return|and|or|not|null|true|false|some|every|satisfies|between|function|instance|of)$/.test(partial)) return null;
 
   let pool: VarNode[] = vars;
@@ -955,10 +955,10 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
     .concat(needle ? pool.filter(v => !v.name.toLowerCase().startsWith(needle) && v.name.toLowerCase().includes(needle)) : [])
     .map(node => ({ insert: node.name, node, path: `${chain ?? ''}${node.name}` }));
 
-  // Funktionen und Schlüsselwörter: nur ausserhalb eines Pfads und erst ab dem
-  // ersten Buchstaben. Namen aus mehreren Wörtern (`upper case`) erkennt man
-  // auch, wenn schon das erste Wort getippt ist: es zählt das längste Ende
-  // des Getippten, mit dem ein Name beginnt.
+  // Functions and keywords: only outside a path and only from the
+  // first letter on. Names of several words (`upper case`) are recognised
+  // even when the first word is already typed: what counts is the longest end
+  // of the typed text with which a name begins.
   let from = cursor - partial.length;
   if (!chain && partial) {
     const words = /((?:[A-Za-z_]\w*\s+){0,3}[A-Za-z_]\w*)$/.exec(before)?.[1]?.split(/\s+/) ?? [partial];
@@ -968,9 +968,9 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
       if (FEEL_DOCS.some(d => d.name.startsWith(t))) { typed = words.slice(-n).join(' '); break; }
     }
     const t = typed.toLowerCase();
-    // eine Funktion, die schon dasselbe heisst, bleibt dabei — `string` neben `string join`
+    // a function already named the same stays — `string` next to `string join`
     const docs = FEEL_DOCS.filter(d => d.name.startsWith(t) && (d.name !== typed || d.kind === 'function'));
-    // mehrere Wörter getippt: nur Funktionen passen, keine Variablen
+    // several words typed: only functions fit, no variables
     if (docs.length && typed !== partial) { from = cursor - typed.length; items.length = 0; }
     items.push(...docs.map(doc => ({ insert: doc.insert, doc, path: doc.name, back: doc.back })));
   }
@@ -978,7 +978,7 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
   return { from, to: cursor, items };
 }
 
-// ── Einfärben ────────────────────────────────────────────────────────────────
+// ── Colouring ────────────────────────────────────────────────────────────────
 
 export type FeelTokenKind = 'variable' | 'string' | 'feel' | 'comment' | 'plain';
 export interface FeelToken { text: string; kind: FeelTokenKind }
@@ -987,9 +987,9 @@ const DOC_NAMES = FEEL_DOCS.map(d => d.name).sort((a, b) => b.length - a.length)
 const DOC_KIND = new Map(FEEL_DOCS.map(d => [d.name, d.kind]));
 
 /**
- * Den Ausdruck in Stücke zerlegen, die das Eingabefeld einfärbt: Zeichenketten
- * (grün), Variablen und ihre Pfade (blau), FEEL selbst — Funktionen und
- * Schlüsselwörter — (violett). Alles andere bleibt, wie es ist.
+ * Split the expression into pieces that the input field colours: strings
+ * (green), variables and their paths (blue), FEEL itself — functions and
+ * keywords — (violet). Everything else stays as it is.
  */
 export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
   const names = new Set(vars.map(v => v.name));
@@ -1011,7 +1011,7 @@ export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
       const word = m[0];
       const prev = text[i - 1];
       const inPath = afterDot;
-      // Funktions- und Schlüsselwörter, auch mit Leerzeichen im Namen (`upper case`)
+      // function words and keywords, also with spaces in the name (`upper case`)
       const doc = inPath || (prev && /[\w]/.test(prev)) ? undefined
         : DOC_NAMES.find(n => n.startsWith(word) && rest.startsWith(n) && !/\w/.test(rest[n.length] ?? ' '));
       const call = /^\s*\(/.test(rest.slice((doc ?? word).length));
@@ -1034,17 +1034,17 @@ const FEEL_WORDS = new Set([
 ]);
 
 /**
- * Die Variablen, auf die ein FEEL-Ausdruck zugreift — der erste Namensteil
- * eines Pfads (`consultant.name` → `consultant`), in Reihenfolge des
- * Auftretens. Nicht dazu zählen: Text in Anführungszeichen, Funktionsnamen
- * (`upper case(x)`), Pfadteile nach dem Punkt, Schlüsselwörter und die
- * Laufvariablen von `for`/`some`/`every`. Gilt auch für Ausdrücke mit
- * `if … then … else`, Filtern (`items[price > 1]`) und Kontexten.
+ * The variables a FEEL expression accesses — the first name part
+ * of a path (`consultant.name` → `consultant`), in order of
+ * appearance. Not included: text in quotes, function names
+ * (`upper case(x)`), path parts after the dot, keywords and the
+ * loop variables of `for`/`some`/`every`. Also applies to expressions with
+ * `if … then … else`, filters (`items[price > 1]`) and contexts.
  */
 export function referencedVariables(expression: string): string[] {
   if (!isFeel(expression)) return [];
   const names: string[] = [];
-  // Text durch Leerraum ersetzen, `name`-Schreibweise in Backticks als Namen erhalten
+  // replace text with whitespace, keep the `name` notation in backticks as names
   const quoted: string[] = [];
   const code = expression.trimStart().slice(1)
     .replace(/"(?:[^"\\]|\\.)*"/g, ' ')
@@ -1052,14 +1052,14 @@ export function referencedVariables(expression: string): string[] {
   const bound = new Set<string>();
   for (const m of code.matchAll(/\b(?:for|some|every)\s+([A-Za-z_][\w]*)\s+in\b/g)) bound.add(m[1]);
   for (const m of code.matchAll(/,\s*([A-Za-z_][\w]*)\s+in\b/g)) bound.add(m[1]);
-  // Schlüssel eines Kontexts (`{ a: x }`) sind keine Variablen
+  // keys of a context (`{ a: x }`) are not variables
   for (const m of code.matchAll(/[{,]\s*([A-Za-z_][\w]*)\s*:/g)) bound.add(m[1]);
   for (const m of code.matchAll(/(?<![\w.])([A-Za-z_][\w]*)(?![\w])/g)) {
     const name = m[1].replace(/^__bq(\d+)$/, (_, i: string) => quoted[+i]);
     const rest = code.slice(m.index! + name.length);
     if (FEEL_WORDS.has(name) || bound.has(m[1])) continue;
-    if (/^\s*\(/.test(rest)) continue;                     // Funktionsaufruf
-    if (/^\s+[A-Za-z_]/.test(rest) && !/^\s+(?:in|and|or|then|else|return|satisfies|instance|between|of)\b/.test(rest)) continue; // Teil eines Funktionsnamens mit Leerzeichen
+    if (/^\s*\(/.test(rest)) continue;                     // function call
+    if (/^\s+[A-Za-z_]/.test(rest) && !/^\s+(?:in|and|or|then|else|return|satisfies|instance|between|of)\b/.test(rest)) continue; // part of a function name with spaces
     if (!names.includes(name)) names.push(name);
   }
   return names;

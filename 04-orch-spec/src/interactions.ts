@@ -1,17 +1,17 @@
-// Interaktionen aus dem Ablauf ableiten.
+// Derive interactions from the flow.
 //
-// Welcher Schritt spricht mit aussen — und braucht damit ein eigenes Objekt
-// mit `In` und/oder `Out`?
+// Which step talks to the outside — and thus needs its own object
+// with `In` and/or `Out`?
 //
-//  · **Benutzeraufgabe** — immer. `val name` ist die BPMN-Element-ID.
-//  · **Eigener Worker** — ein Service-Task, dessen Topic zu diesem Prozess
-//    gehört (`<prozess>-<Name>`). Fremde Services haben ihre Domain im eigenen
-//    Projekt; die gehören nicht hierher.
-//  · **Signal / Nachricht** — werfende Ereignisse mit Signal- oder
-//    Message-Definition.
+//  · **User task** — always. `val name` is the BPMN element ID.
+//  · **Own worker** — a service task whose topic belongs to this process
+//    (`<prozess>-<Name>`). Foreign services have their domain in their own
+//    project; they don't belong here.
+//  · **Signal / message** — throwing events with a signal or
+//    message definition.
 //
-// Der **Init-Worker** ist ausgenommen: sein Topic ist der Prozess selbst, und
-// sein Ergebnis ist das `InitIn` — das erzeugt der Generator ohnehin.
+// The **init worker** is excluded: its topic is the process itself, and
+// its result is the `InitIn` — the generator creates that anyway.
 
 import type {
   DomainField, DomainType, Field, Interaction, InteractionKind, Mapping, Model,
@@ -34,8 +34,8 @@ const UMLAUTE: Record<string, string> = {
 
 /**
  * «Depot Activity Unlock Advisor» → `DepotActivityUnlockAdvisor`.
- * Umlaute werden umschrieben, sonst bliebe von «Rückbestätigung» ein
- * `RCkbestTigung` übrig.
+ * Umlauts are transliterated, otherwise «Rückbestätigung» would end up
+ * as `RCkbestTigung`.
  */
 export function pascal(text: string): string {
   const ascii = text.replace(/[äöüÄÖÜßàâéèêîïôûç]/g, c => UMLAUTE[c] ?? c);
@@ -45,15 +45,15 @@ export function pascal(text: string): string {
 }
 
 /**
- * Vorschlag für den Scala-Objektnamen einer Interaktion.
+ * Suggestion for the Scala object name of an interaction.
  *
- * Steht das Objekt schon in der Domain, gilt sein Name — das Topic allein
- * verrät ihn nicht: der Worker mit dem Topic
- * `…createPensionProductV1.CreatePensionProduct` heisst `ComposePensionProduct`,
- * und `CreatePensionProduct` ist der Prozess selbst.
+ * If the object is already in the domain, its name applies — the topic alone
+ * does not reveal it: the worker with the topic
+ * `…createPensionProductV1.CreatePensionProduct` is called `ComposePensionProduct`,
+ * and `CreatePensionProduct` is the process itself.
  */
 export function suggestName(step: Step, kind: InteractionKind, processId: string, model: Model | null = null): string {
-  // DMN Decision: der Teil der decisionId nach der Prozess-ID — `…orderCardV1-SubStatusKeyDmn` → `SubStatusKeyDmn`
+  // DMN decision: the part of the decisionId after the process ID — `…orderCardV1-SubStatusKeyDmn` → `SubStatusKeyDmn`
   if (kind === 'decision' && step.topic) {
     const bekannt = (model?.domainTypes ?? []).find(t => t.keyName === 'decisionId' && t.key?.toLowerCase() === step.topic!.toLowerCase() && t.owner);
     if (bekannt) return bekannt.owner!;
@@ -65,43 +65,43 @@ export function suggestName(step: Step, kind: InteractionKind, processId: string
     if (bekannt) return bekannt.owner!;
     // `globex-depot-openPensionAccount3aV1-EvalNextPortfolioIdSuffix`
     const tail = step.topic.slice(processId.length).replace(/^[-.]/, '');
-    // Trägt das Topic nur den Prozessnamen, hilft es nicht weiter
+    // if the topic only carries the process name, it is of no help
     if (tail && pascal(tail) !== pascal(processId.split(/[-.]/).pop() ?? '')) return pascal(tail);
   }
   const base = pascal(step.name).replace(/Task$/, '');
   return `${base}${INTERACTION_META[kind].suffix}`;
 }
 
-/** Der Schlüssel: `val name` / `val topicName` / `val messageName`. */
+/** The key: `val name` / `val topicName` / `val messageName`. */
 function keyOf(step: Step, kind: InteractionKind): string {
   if (kind === 'userTask') return step.id;
   if (kind === 'customTask' || kind === 'decision') return step.topic ?? step.id;
   return step.name;
 }
 
-/** Zu welcher Art Interaktion gehört dieser Schritt — oder zu keiner? */
+/** Which kind of interaction does this step belong to — or to none? */
 export function interactionKind(step: Step, processId: string): InteractionKind | null {
   if (step.kind === 'user') return 'userTask';
-  // DMN Decision dieses Prozesses (`decisionRef` beginnt mit der Prozess-ID) —
-  // eine fremde Entscheidung hat ihre Domain anderswo, sie bleibt ein Katalog-Eintrag
+  // DMN decision of this process (`decisionRef` starts with the process ID) —
+  // a foreign decision has its domain elsewhere, it stays a catalog entry
   if (step.kind === 'rule') {
     return step.topic && processId && step.topic.toLowerCase().startsWith(processId.toLowerCase()) ? 'decision' : null;
   }
   if (step.kind === 'service') {
-    // Nur die Worker dieses Prozesses; fremde Services haben ihre eigene Domain
+    // only the workers of this process; foreign services have their own domain
     if (!step.topic || !processId) return null;
     if (isInitWorker(step, processId)) return null;
     if (!step.topic.startsWith(processId)) return null;
     return 'customTask';
   }
-  // Eine empfangene Nachricht beschreibt der RE mit ihrem `In` — die
-  // werfende Seite genauso, beide nutzen denselben DSL. Das gilt auch für ein
-  // Nachrichten-Startereignis: der Prozessstart selbst ist davon ausgenommen,
-  // seine Felder stehen im `In` des Prozesses (siehe `missingInteractions`).
+  // A received message is described by the RE with its `In` — the
+  // throwing side likewise, both use the same DSL. This also applies to a
+  // message start event: the process start itself is excluded,
+  // its fields are in the process's `In` (see `missingInteractions`).
   if (step.kind !== 'receive' && step.eventKind !== 'message' && !(step.eventKind === 'signal' && step.eventDirection === 'throw')) return null;
-  // Nur die Nachrichten und Signale dieses Prozesses — wie bei den Workern: ein
-  // Name eines anderen Prozesses (`valiant-bpmn-stopEscalation-…`, `valiant-cancel-…`
-  // aus einem Pattern) ist Verdrahtung, sein Objekt liegt dort
+  // only the messages and signals of this process — as with the workers: a
+  // name of another process (`valiant-bpmn-stopEscalation-…`, `valiant-cancel-…`
+  // from a pattern) is wiring, its object lives there
   if (step.messageName && processId && !step.messageName.startsWith(processId.replace(/V\d+$/, ''))) return null;
   return step.eventKind === 'signal' ? 'signal' : 'message';
 }
@@ -113,12 +113,12 @@ export interface Suggestion {
   key: string;
 }
 
-/** Alle Schritte, die eine Interaktion brauchen und noch keine haben. */
+/** All steps that need an interaction and don't have one yet. */
 /**
- * Schritte ohne eigenes Objekt: was zu einem Pattern gehört — auch alles in einem
- * Pattern-Block (Ereignis-Subprozess «Einmalige Ausführung») — und eine Nachricht mit
- * dem Namen des Prozesses selbst: sie bringt sein `In` (ein zweiter Start mit demselben
- * businessKey, solange der Prozess läuft).
+ * Steps without their own object: whatever belongs to a pattern — also everything in a
+ * pattern block (event subprocess «Einmalige Ausführung») — and a message with
+ * the name of the process itself: it brings its `In` (a second start with the same
+ * businessKey while the process is running).
  */
 export function wiringSteps(spec: Pick<ProcessSpec, 'steps' | 'processId'>): Set<string> {
   const out = new Set<string>();
@@ -135,8 +135,8 @@ export function wiringSteps(spec: Pick<ProcessSpec, 'steps' | 'processId'>): Set
 }
 
 /**
- * Eine vorbereitete Interaktion (Entwurf) an einem solchen Schritt fällt weg — samt
- * ihren Klassen. Ältere Importe legten sie an (`CompensateIfProcessME`).
+ * A prepared interaction (draft) on such a step is dropped — together with
+ * its classes. Older imports created them (`CompensateIfProcessME`).
  */
 export function withoutWiringInteractions<T extends Pick<ProcessSpec, 'steps' | 'processId' | 'interactions' | 'types'>>(spec: T): T {
   const wiring = wiringSteps(spec);
@@ -152,12 +152,12 @@ export function withoutWiringInteractions<T extends Pick<ProcessSpec, 'steps' | 
 export function missingInteractions(spec: ProcessSpec, model: Model | null = null): Suggestion[] {
   const processId = spec.processId ?? '';
   const known = new Set((spec.interactions ?? []).map(i => i.stepId));
-  // Der Start des Prozesses ist keine eigene Nachricht — das ist sein `In`.
+  // The start of the process is not a message of its own — that is its `In`.
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
   const wiring = wiringSteps(spec);
   const out: Suggestion[] = [];
   for (const step of allSteps(spec.steps)) {
-    // ein Schritt, der zu einem Pattern gehört, ist Verdrahtung — kein eigenes Objekt
+    // a step that belongs to a pattern is wiring — no object of its own
     if (step.kind === 'goto' || known.has(step.id) || step.id === startId || wiring.has(step.id)) continue;
     const kind = interactionKind(step, processId);
     if (!kind) continue;
@@ -166,7 +166,7 @@ export function missingInteractions(spec: ProcessSpec, model: Model | null = nul
   return out;
 }
 
-/** Aus einem Vorschlag eine Interaktion machen. */
+/** Turn a suggestion into an interaction. */
 export function toInteraction(s: Suggestion): Interaction {
   return {
     id: uid('ia'),
@@ -175,22 +175,22 @@ export function toInteraction(s: Suggestion): Interaction {
     name: s.name,
     key: s.key,
     ...(s.step.description ? { descr: s.step.description } : {}),
-    // DMN Decision: die Ergebnisform aus dem BPMN (`camunda:mapDecisionResult`)
+    // DMN decision: the result form from the BPMN (`camunda:mapDecisionResult`)
     ...(s.kind === 'decision' && s.step.decisionResult ? { decisionResult: s.step.decisionResult } : {}),
     status: 'draft',
   };
 }
 
 /**
- * Die Felder des `InitIn` — die Ausgaben des Init-Workers. Der steht nicht im
- * Ablauf (Verdrahtung, keine Fachlichkeit); der Import legt seine Ausgaben
- * beim Prozess ab.
+ * The fields of the `InitIn` — the outputs of the init worker. It is not in the
+ * flow (wiring, not business logic); the import stores its outputs
+ * with the process.
  */
 export function initOutputs(spec: ProcessSpec): Mapping[] {
   return (spec.initOutputs ?? []).filter(o => !o.disabled);
 }
 
-/** Die Timer der Ereignisse und Boundary-Events — mit ihrer Variable und Vorgabe */
+/** The timers of the events and boundary events — with their variable and default */
 export function timerSettings(spec: ProcessSpec): Array<{ name: string; timerKind: TimerSpec['kind']; default?: string }> {
   const found = new Map<string, { timerKind: TimerSpec['kind']; default?: string }>();
   const add = (t: TimerSpec | undefined) => {
@@ -207,9 +207,9 @@ export function timerSettings(spec: ProcessSpec): Array<{ name: string; timerKin
 }
 
 /**
- * Namen, die in Schleifen-Angaben stecken: aus `Tried ${maxOpenAccount} times?`
- * und `wait ${timerWaitOpenAccount}` werden die Felder des `InConfig` — dazu die
- * Variablen der Timer an Ereignissen (siehe timerSettings), mit ihrer Vorgabe.
+ * Names contained in loop settings: `Tried ${maxOpenAccount} times?`
+ * and `wait ${timerWaitOpenAccount}` become the fields of the `InConfig` — plus the
+ * variables of the timers on events (see timerSettings), with their default.
  */
 export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'timer' | 'max' | 'counter'; default?: string; timerKind?: TimerSpec['kind'] }> {
   const found = new Map<string, 'timer' | 'max' | 'counter'>();
@@ -223,13 +223,13 @@ export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'ti
       }
     }
   }
-  // Zu jedem `max…` gehört ein `counter…` — Orchescala zählt damit die Versuche
+  // every `max…` has a `counter…` — Orchescala uses it to count the attempts
   for (const [name, kind] of [...found]) {
     if (kind !== 'max') continue;
     const counter = `counter${name.slice(3)}`;
     if (!found.has(counter)) found.set(counter, 'counter');
   }
-  // die Timer der Ereignisse: jede Variable eine Konstante im InConfig, mit ihrer Vorgabe
+  // the timers of the events: each variable a constant in the InConfig, with its default
   const timers = new Map(timerSettings(spec).map(t => [t.name, t]));
   for (const name of timers.keys()) if (!found.has(name)) found.set(name, 'timer');
   return [...found].map(([name, kind]) => {
@@ -238,17 +238,17 @@ export function loopSettings(spec: ProcessSpec): Array<{ name: string; kind: 'ti
   });
 }
 
-/** Schritte, deren Ergebnis sich für Tests überschreiben lässt (`…Mock`). */
+/** Steps whose result can be overridden for tests (`…Mock`). */
 export function mockableSteps(spec: ProcessSpec): Step[] {
-  // der Init-Worker nicht: gemockt wird dort der Prozess selbst (outputMock)
-  // ebenso wenig ein Schritt im Block eines Patterns: den füllt das Pattern
+  // not the init worker: there the process itself is mocked (outputMock)
+  // nor a step in a pattern's block: the pattern fills it
   return allSteps(spec.steps).filter(s => (s.kind === 'service' || s.kind === 'call') && !isInitWorker(s, spec.processId) && !s.pattern);
 }
 
 /**
- * Der Typ für `InitIn`: die Felder kommen aus den Ausgaben des Init-Workers.
- * Neue Ausgaben kommen dazu, bereits gepflegte Typen bleiben — deshalb ein
- * Abgleich statt eines Neuaufbaus.
+ * The type for `InitIn`: the fields come from the outputs of the init worker.
+ * New outputs are added, types already maintained stay — hence a
+ * reconciliation instead of a rebuild.
  */
 export function syncInitIn(spec: ProcessSpec): TypeDef[] | null {
   const outs = initOutputs(spec);
@@ -274,13 +274,13 @@ export function syncInitIn(spec: ProcessSpec): TypeDef[] | null {
   return existing ? types.map(t => (t.initIn ? next : t)) : [...types, next];
 }
 
-// ── Klassen einer Interaktion ────────────────────────────────────────────────
+// ── Classes of an interaction ────────────────────────────────────────────────
 
-/** Der Katalog-Eintrag zu einem Schritt — bei Benutzeraufgaben über die ID. */
+/** The catalog entry for a step — for user tasks via the ID. */
 export function catalogEntry(step: Step, model: Model | null): ServiceDef | null {
   const services = model?.services ?? [];
-  // Entscheidungen: die camunda:decisionRef im BPMN und die Referenz aus der
-  // OpenAPI unterscheiden sich teils in der Gross-/Kleinschreibung
+  // decisions: the camunda:decisionRef in the BPMN and the reference from the
+  // OpenAPI sometimes differ in upper/lower case
   const ref = step.kind === 'rule' ? step.topic?.toLowerCase() : undefined;
   return services.find(s =>
     (step.kind === 'user' && s.kind === 'user' && s.name === step.id)
@@ -288,18 +288,18 @@ export function catalogEntry(step: Step, model: Model | null): ServiceDef | null
     || (step.topic && (s.id === step.topic || s.topic === step.topic))
     || (ref && s.kind === 'rule' && s.id.toLowerCase() === ref)
     || (step.calledProcess && s.calledProcess === step.calledProcess))
-    // eine Entscheidung, die der Katalog (noch) nicht kennt — er ist so alt wie
-    // sein letzter Aufbau —, die Domain aber schon: der Eintrag aus dem Domain-Objekt
+    // a decision the catalog does not know (yet) — it is as old as
+    // its last build — but the domain does: the entry from the domain object
     ?? (ref ? decisionFromDomain(ref, model) : null);
 }
 
-/** Ein Katalog-Eintrag aus einem Domain-Objekt der Art Decision (`decisionId`, `In`, `Out`). */
+/** A catalog entry from a domain object of kind Decision (`decisionId`, `In`, `Out`). */
 function decisionFromDomain(ref: string, model: Model | null): ServiceDef | null {
   const types = model?.domainTypes ?? [];
   const hit = types.find(t => t.owner && t.keyName === 'decisionId' && t.key?.toLowerCase() === ref);
   if (!hit?.owner || !hit.key) return null;
   const member = (m: 'In' | 'Out') => types.find(t => t.owner === hit.owner && t.pkg === hit.pkg && t.name === `${hit.owner}.${m}`) ?? domainMember(hit.owner!, m, model);
-  // keine Pflicht-Eingaben: eine Entscheidung liest ihr In direkt aus den Prozessvariablen
+  // no mandatory inputs: a decision reads its In directly from the process variables
   const params = (m: 'In' | 'Out'): ServiceParam[] => (member(m)?.fields ?? []).map(f => ({
     name: f.name,
     ...(f.description ? { description: f.description } : {}),
@@ -308,14 +308,14 @@ function decisionFromDomain(ref: string, model: Model | null): ServiceDef | null
     id: hit.key, name: hit.owner, kind: 'rule', topic: hit.key,
     ...(hit.ownerDescr ? { description: hit.ownerDescr } : {}),
     inputs: params('In'), outputs: params('Out'),
-    // nicht aus dem Katalog — sondern aus der Domain des Projekts
+    // not from the catalog — but from the project's domain
     fromDomain: true,
   };
 }
 
 /**
- * `In` bzw. `Out` einer Interaktion anlegen. Kennt der Katalog die Felder
- * (aus der OpenAPI), kommen sie mitsamt Beschreibung — sonst ein leeres Feld.
+ * Create the `In` or `Out` of an interaction. If the catalog knows the fields
+ * (from the OpenAPI), they come along with their description — otherwise an empty field.
  */
 export function createMemberType(
   ia: Interaction,
@@ -324,10 +324,10 @@ export function createMemberType(
   model: Model | null = null,
   ownPkg?: string,
 ): TypeDef {
-  // Steht der Typ schon in der Domain, gilt der — dort stehen die **echten**
-  // Scala-Typen. Der Katalog aus der OpenAPI kennt nur Namen und Bedeutung.
-  // Das Objekt über den Schlüssel der Interaktion, aus seinem Package — der Name
-  // allein trifft in mehreren Prozessen
+  // If the type is already in the domain, that one applies — the **real**
+  // Scala types are there. The catalog from the OpenAPI only knows names and meaning.
+  // The object via the interaction's key, from its package — the name
+  // alone matches in several processes
   const fromDomain = ownPkg != null
     ? originMember(interactionOrigin(ia, model, ownPkg), member, model)
     : domainMember(ia.name, member, model);
@@ -353,9 +353,9 @@ export function createMemberType(
 }
 
 /**
- * In bzw. Out als Typ aus dem Katalog (`type In = PostProcessOrderUT.Out`, siehe
- * Interaction.inAlias): seine Felder als Kopie — für Mappings und Prüfungen;
- * exportiert wird nur der Alias.
+ * In or Out as a type from the catalog (`type In = PostProcessOrderUT.Out`, see
+ * Interaction.inAlias): its fields as a copy — for mappings and checks;
+ * only the alias is exported.
  */
 export function aliasMemberType(ia: Interaction, member: 'In' | 'Out', dom: DomainType, model: Model | null = null): TypeDef {
   const base = { id: uid('t'), name: `${ia.name}.${member}`, interactionId: ia.id, status: 'draft' as const, description: `= ${dom.name}` };
@@ -370,9 +370,9 @@ export function aliasMemberType(ia: Interaction, member: 'In' | 'Out', dom: Doma
 }
 
 /**
- * Was im Katalog als In bzw. Out taugt: `X.In` / `X.Out` mit Feldern oder
- * Fällen — ohne die Objekte, die schon Interaktionen dieses Prozesses sind
- * (die stehen in der Auswahl als `= X.In`).
+ * What in the catalog is usable as In or Out: `X.In` / `X.Out` with fields or
+ * cases — without the objects that are already interactions of this process
+ * (those appear in the picker as `= X.In`).
  */
 export function catalogMembers(model: Model | null, member: 'In' | 'Out', ownPkg: string, exclude: Set<string>): DomainType[] {
   return (model?.domainTypes ?? [])
@@ -381,34 +381,34 @@ export function catalogMembers(model: Model | null, member: 'In' | 'Out', ownPkg
     .sort((a, b) => Number(b.pkg === ownPkg) - Number(a.pkg === ownPkg) || a.name.localeCompare(b.name) || a.pkg.localeCompare(b.pkg));
 }
 
-// ── Felder aus der Domain übernehmen ─────────────────────────────────────────
+// ── Take over fields from the domain ─────────────────────────────────────────
 
 
 /**
- * Einen Typnamen im Katalog auflösen. Die Reihenfolge ist entscheidend: ein
- * **genauer** Name schlägt einen Member gleichen Endes (`Account` ist der
- * Schema-Typ, nicht `GetAccount.Account`), und innerhalb dessen gewinnt das
- * Paket, aus dem das Feld stammt.
+ * Resolve a type name in the catalog. The order is crucial: an
+ * **exact** name beats a member with the same ending (`Account` is the
+ * schema type, not `GetAccount.Account`), and within that the
+ * package the field comes from wins.
  */
 export function resolveType(base: string, model: Model | null, pkg?: string): DomainType | null {
-  // die Typen aus `orchescala.domain` (`ProcessStatus`) gibt es immer — auch ohne Katalog;
-  // nachgeschlagen im Index statt über den ganzen Katalog (das läuft bei jedem Tastendruck)
+  // the types from `orchescala.domain` (`ProcessStatus`) always exist — even without a catalog;
+  // looked up in the index instead of across the whole catalog (this runs on every keystroke)
   const index = catalogIndex(model?.domainTypes);
   const named = index.byName.get(base) ?? [];
-  // `t.name.endsWith(".X.Out")`: solche Namen enden alle auf denselben letzten Teil (`Out`)
+  // `t.name.endsWith(".X.Out")`: such names all end in the same last part (`Out`)
   const suffixed = (index.byLast.get(base.slice(base.lastIndexOf('.') + 1)) ?? []).filter(t => t.name.endsWith(`.${base}`));
   const kandidaten = [
     (t: DomainType) => t.name === base && t.pkg === pkg,
     (t: DomainType) => t.name === base && !!pkg && t.pkg.startsWith(pkg.replace(/\.schema$/, '')),
-    // was Orchescala ohne Import mitbringt, geht einem gleichnamigen Typ eines
-    // anderen Projekts vor (`ProcessStatus`, nicht `…directActivation.ProcessStatus`)
+    // what Orchescala brings without an import takes precedence over a type of the same name
+    // from another project (`ProcessStatus`, not `…directActivation.ProcessStatus`)
     (t: DomainType) => t.name === base && (t.pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(t.pkg)),
     (t: DomainType) => t.name === base,
     (t: DomainType) => t.name.endsWith(`.${base}`) && t.pkg === pkg,
     (t: DomainType) => t.name.endsWith(`.${base}`),
   ];
   for (const [i, passt] of kandidaten.entries()) {
-    // die ersten vier verlangen den genauen Namen, die letzten zwei die Endung
+    // the first four require the exact name, the last two the ending
     const treffer = (i < 4 ? named : suffixed).find(passt);
     if (treffer) return treffer;
   }
@@ -416,15 +416,15 @@ export function resolveType(base: string, model: Model | null, pkg?: string): Do
 }
 
 /**
- * Ein Scala-Feld in ein Feld des Klassenbauers übersetzen: `Option[Seq[X]]`
- * wird zu optional + mehrfach, `String :| ValidEmail` zu Typ + Einschränkung,
- * und ein Verweis auf einen anderen Typ zeigt auf den Katalog-Eintrag.
+ * Translate a Scala field into a field of the class builder: `Option[Seq[X]]`
+ * becomes optional + multiple, `String :| ValidEmail` type + constraint,
+ * and a reference to another type points to the catalog entry.
  */
 export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string): Field {
   const shape = typeShape(p.type);
   const scalar = (SCALA_TYPES as readonly string[]).includes(shape.base);
   let ref = scalar ? null : resolveType(shape.base, model, pkg);
-  // `CustomDocContents.\`QI-Deklaration\`` — eine Ausprägung eines ADT-enums
+  // `CustomDocContents.\`QI-Deklaration\`` — a case of an ADT enum
   let enumCase: string | undefined;
   if (!scalar && !ref) {
     const split = splitEnumCase(shape.base);
@@ -448,36 +448,36 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
   };
 }
 
-/** Die Art des Domain-Objekts laut DSL — wie sie der Katalog führt (`DomainType.dsl`). */
+/** The kind of the domain object according to the DSL — as the catalog holds it (`DomainType.dsl`). */
 const DSL_OF: Record<InteractionKind, string> = {
   userTask: 'UserTask', customTask: 'CustomTask', signal: 'SignalEvent', message: 'MessageEvent', decision: 'Decision',
 };
 
-/** `${execution.getProcessInstanceId()}` (BPMN) und `${SignalEvent.Dynamic_ProcessInstance}` (Domain) sind derselbe Platzhalter. */
+/** `${execution.getProcessInstanceId()}` (BPMN) and `${SignalEvent.Dynamic_ProcessInstance}` (domain) are the same placeholder. */
 const normKey = (k: string) => k.replace(/\$\{[^}]*\}/g, '{}');
 
-/** Woher das Objekt einer Interaktion stammt. */
+/** Where the object of an interaction comes from. */
 export interface InteractionOrigin {
-  /** Objekt im Katalog — fehlt bei einer neuen Interaktion */
+  /** object in the catalog — missing for a new interaction */
   owner?: string;
   pkg?: string;
-  /** aus einer anderen Domain (anderer Prozess, anderes Projekt): referenziert, nicht exportiert */
+  /** from another domain (other process, other project): referenced, not exported */
   foreign: boolean;
-  /** der Schlüssel steht in mehreren fremden Packages — gilt als neu, ist zu prüfen */
+  /** the key is in several foreign packages — counts as new, needs checking */
   ambiguous?: string[];
 }
 
 /**
- * Die Herkunft einer Interaktion — gesucht über ihren **Schlüssel** (Topic des
- * Workers, ID der Benutzeraufgabe, `messageName`), nicht über den Namen: Namen
- * wie `PostProcessOrderUT` gibt es in mehreren Prozessen. Exportiert wird nur,
- * was noch nicht im Katalog steht oder im Package des Prozesses (`ownPkg`).
+ * The origin of an interaction — looked up via its **key** (topic of the
+ * worker, ID of the user task, `messageName`), not via the name: names
+ * like `PostProcessOrderUT` exist in several processes. Only what is
+ * not yet in the catalog or is in the process's package (`ownPkg`) is exported.
  *
- * - steht `ia.pkg` (beim Anlegen gemerkt), gilt das
- * - ein Treffer im eigenen Package: das eigene Objekt
- * - ein Schlüssel mit Platzhalter (`valiant-cancel-${…}`) gilt je Prozessinstanz —
- *   den definiert jeder Prozess selbst: ohne eigenen Treffer neu
- * - genau ein fremder Treffer: referenziert; mehrere: neu, aber zu prüfen
+ * - if `ia.pkg` is set (remembered on creation), that applies
+ * - a match in the own package: the own object
+ * - a key with a placeholder (`valiant-cancel-${…}`) applies per process instance —
+ *   each process defines it itself: without its own match, new
+ * - exactly one foreign match: referenced; several: new, but needs checking
  */
 export function interactionOrigin(
   ia: Pick<Interaction, 'kind' | 'key' | 'pkg'>,
@@ -486,11 +486,11 @@ export function interactionOrigin(
 ): InteractionOrigin {
   const key = ia.key?.trim() ?? '';
   const dsl = DSL_OF[ia.kind];
-  const hits = new Map<string, DomainType>(); // je Package ein Objekt
+  const hits = new Map<string, DomainType>(); // one object per package
   for (const t of model?.domainTypes ?? []) {
     if (!t.owner || t.dsl !== dsl) continue;
     const matches = ia.kind === 'customTask' ? t.topicName === key
-      // die decisionRef im BPMN und die decisionId der Domain unterscheiden sich teils in der Schreibweise
+      // the decisionRef in the BPMN and the decisionId of the domain sometimes differ in spelling
       : ia.kind === 'decision' ? !!t.key && t.key.toLowerCase() === key.toLowerCase()
         : !!t.key && normKey(t.key) === normKey(key);
     if (key && matches && !hits.has(t.pkg)) hits.set(t.pkg, t);
@@ -504,36 +504,36 @@ export function interactionOrigin(
   return foreign.length ? { foreign: false, ambiguous: foreign.map(t => t.pkg).sort() } : { foreign: false };
 }
 
-/** Eine neue Interaktion merkt sich das Package ihres Objekts im Katalog (siehe `Interaction.pkg`). */
+/** A new interaction remembers the package of its object in the catalog (see `Interaction.pkg`). */
 export function withOrigin(ia: Interaction, model: Model | null, ownPkg: string): Interaction {
   if (ia.pkg) return ia;
   const { pkg } = interactionOrigin(ia, model, ownPkg);
   return pkg ? { ...ia, pkg } : ia;
 }
 
-/** `In` / `Out` des Objekts einer Interaktion — aus genau seinem Package. */
+/** `In` / `Out` of the object of an interaction — from exactly its package. */
 export function originMember(origin: InteractionOrigin, member: 'In' | 'Out', model: Model | null): DomainType | null {
   if (!origin.owner || !origin.pkg) return null;
   return (model?.domainTypes ?? []).find(t => t.pkg === origin.pkg && t.name === `${origin.owner}.${member}`) ?? null;
 }
 
-/** Der Domain-Typ zu einem Objekt-Member, z. B. `CheckDuplicatesUT.In`. */
+/** The domain type for an object member, e.g. `CheckDuplicatesUT.In`. */
 export function domainMember(name: string, member: string, model: Model | null): DomainType | null {
   return (model?.domainTypes ?? []).find(t => t.name === `${name}.${member}`) ?? null;
 }
 
-/** Der Schritt, zu dem eine Interaktion gehört. */
+/** The step an interaction belongs to. */
 export function interactionStep(spec: ProcessSpec, ia: Interaction): Step | null {
   return allSteps(spec.steps).find(s => s.id === ia.stepId) ?? null;
 }
 
 /**
- * Blosse Typnamen nachträglich auflösen. Kannte der Katalog einen Typ beim
- * Import nicht, blieb sein Name im Feld stehen — `ProcessCallOrigin` oder
- * `CustomDocContents.\`QI-Deklaration\``. Kennt der Katalog ihn jetzt
- * eindeutig, wird daraus der Verweis (samt Ausprägung), so wie es der Import
- * gemacht hätte. Gibt die geänderten Typen zurück — oder null, wenn nichts
- * zu tun war.
+ * Resolve bare type names afterwards. If the catalog did not know a type at
+ * import, its name stayed in the field — `ProcessCallOrigin` or
+ * `CustomDocContents.\`QI-Deklaration\``. If the catalog now knows it
+ * unambiguously, it becomes the reference (including the case), just as the import
+ * would have done. Returns the changed types — or null if there was nothing
+ * to do.
  */
 export function healLooseTypes(types: TypeDef[], model: Model | null): TypeDef[] | null {
   const all = model?.domainTypes ?? [];
@@ -548,7 +548,7 @@ export function healLooseTypes(types: TypeDef[], model: Model | null): TypeDef[]
     if (!t || own.has(t) || parseDomainRef(t) || parseServiceRef(t) || (SCALA_TYPES as readonly string[]).includes(t)) return null;
     const direkt = unique(t);
     if (direkt) return { ...f, type: domainRef(direkt.id) };
-    // `Enum.\`Fall\`` bzw. `Enum.Fall` — der Fall gehört zum Feld, der Verweis zum Enum
+    // `Enum.\`Fall\`` or `Enum.Fall` — the case belongs to the field, the reference to the enum
     const split = splitEnumCase(t);
     if (!split) return null;
     const en = unique(split.base);

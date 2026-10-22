@@ -1,6 +1,6 @@
-// Scala-Typausdrücke lesen.
+// Reading Scala type expressions.
 //
-// Aus einer Parameterliste wie
+// From a parameter list like
 //
 //   case class InAddress(
 //       street: String,
@@ -10,25 +10,25 @@
 //       countryKey: String = "CH"
 //   )
 //
-// werden Name, voller Typausdruck, Vorgabe und Beschreibung — und daraus
-// lässt sich der Typ in die Bestandteile zerlegen, die der Klassenbauer führt:
-// **optional** (`Option[…]`), **mehrfach** (`Seq[…]`), **Einschränkung**
-// (`:| …`) und der Grundtyp.
+// we get name, full type expression, default and description — and from that
+// the type can be split into the parts the class builder keeps:
+// **optional** (`Option[…]`), **multiple** (`Seq[…]`), **refinement**
+// (`:| …`) and the base type.
 //
-// Bewusst ein Zeichen-Scanner statt eines Regex: Klammern, Zeichenketten und
-// mehrzeilige Annotationen lassen sich anders nicht sicher trennen.
+// Deliberately a character scanner instead of a regex: brackets, strings and
+// multi-line annotations cannot be separated reliably otherwise.
 
 import type { DomainType } from './types';
 
 export interface ScalaParam {
   name: string;
-  /** voller Ausdruck, z. B. `Option[Seq[InPerson]]` */
+  /** full expression, e.g. `Option[Seq[InPerson]]` */
   type: string;
-  /** Vorgabewert, z. B. `None` oder `"CH"` */
+  /** default value, e.g. `None` or `"CH"` */
   default?: string;
-  /** Text aus `@description(…)` */
+  /** Text from `@description(…)` */
   description?: string;
-  /** der Ausdruck in `@description(…)`, wenn er kein reiner Text ist (`clientKeyDescr`) */
+  /** the expression in `@description(…)` if it is not plain text (`clientKeyDescr`) */
   descriptionExpr?: string;
   [key: string]: unknown;
 }
@@ -37,8 +37,8 @@ const OPEN = '([{';
 const CLOSE = ')]}';
 
 /**
- * Eine Klammerebene abschreiten und dabei Zeichenketten überspringen.
- * Liefert die Position hinter der schliessenden Klammer.
+ * Walk one bracket level, skipping strings along the way.
+ * Returns the position after the closing bracket.
  */
 function skipBalanced(text: string, start: number): number {
   let depth = 0;
@@ -66,7 +66,7 @@ function skipBalanced(text: string, start: number): number {
   return i;
 }
 
-/** Die Parameterliste an den Kommas der obersten Ebene zerlegen. */
+/** Split the parameter list at the top-level commas. */
 export function splitParams(raw: string): string[] {
   const text = stripComments(raw);
   const out: string[] = [];
@@ -100,9 +100,9 @@ export function splitParams(raw: string): string[] {
 }
 
 /**
- * Kommentare entfernen — zwischen den Feldern stehen oft welche
- * (`// NNK Master Read`), und die würden als Teil des Namens gelesen.
- * Zeichenketten bleiben unangetastet.
+ * Remove comments — there are often some between the fields
+ * (`// NNK Master Read`), and they would be read as part of the name.
+ * Strings stay untouched.
  */
 export function stripComments(text: string): string {
   let out = '';
@@ -143,20 +143,20 @@ const STRING_LITERAL = String.raw`(?:"""[\s\S]*?"""(?:\.stripMargin)?|"(?:[^"\\\
 const PLAIN_TEXT = new RegExp(String.raw`^${STRING_LITERAL}(?:\s*\+\s*${STRING_LITERAL})*$`);
 
 /**
- * Der Inhalt von `@description(…)`, wenn er **kein reiner Text** ist: eine
- * Referenz (`clientKeyDescr`), ein Aufruf (`serviceOrProcessMockDescr(…)`)
- * oder ein `s"…"` mit Platzhaltern. Der Export muss ihn so zurückschreiben —
- * als Text verlöre er die Referenz.
+ * The content of `@description(…)` if it is **not plain text**: a
+ * reference (`clientKeyDescr`), a call (`serviceOrProcessMockDescr(…)`)
+ * or an `s"…"` with placeholders. The export must write it back as is —
+ * as text it would lose the reference.
  */
 export function descriptionExpression(raw: string): string | undefined {
   const t = raw.trim();
   if (!t || PLAIN_TEXT.test(t)) return undefined;
-  // `s"…"` ohne `$` ist auch nur Text
+  // `s"…"` without `$` is just text too
   if (/^s"/.test(t) && !t.includes('$') && PLAIN_TEXT.test(t.slice(1))) return undefined;
   return t.includes('"""') ? t : t.replace(/\s*\n\s*/g, ' ');
 }
 
-/** Führende Annotationen abtrennen; `@description` wird dabei mitgenommen. */
+/** Split off leading annotations; `@description` is taken along. */
 function stripAnnotations(param: string): { rest: string; description?: string; descriptionExpr?: string } {
   let text = param.trim();
   let description: string | undefined;
@@ -166,7 +166,7 @@ function stripAnnotations(param: string): { rest: string; description?: string; 
     const paren = text.indexOf('(');
     const nameEnd = text.search(/[\s(]/);
     if (paren < 0 || (nameEnd >= 0 && nameEnd < paren && text.slice(nameEnd, paren).trim())) {
-      // Annotation ohne Klammern, z. B. `@deprecated`
+      // annotation without parentheses, e.g. `@deprecated`
       text = text.slice(nameEnd < 0 ? text.length : nameEnd).trim();
       continue;
     }
@@ -180,23 +180,23 @@ function stripAnnotations(param: string): { rest: string; description?: string; 
   return { rest: text, description, descriptionExpr };
 }
 
-/** Aus dem Inhalt von `@description(…)` bzw. `val descr = …` einen lesbaren Text machen. */
+/** Turn the content of `@description(…)` or `val descr = …` into readable text. */
 export function cleanText(raw: string): string {
   let t = raw.trim();
-  // `s"…"`, `"""…""".stripMargin`, verkettete Teile — das Nötigste abtragen
+  // `s"…"`, `"""…""".stripMargin`, concatenated parts — strip the bare minimum
   t = t.replace(/\.stripMargin\b.*$/s, '').trim();
   if (t.startsWith('s"') || t.startsWith('f"')) t = t.slice(1);
   if (t.startsWith('"""')) {
     t = t.slice(3, t.endsWith('"""') ? -3 : undefined);
     t = t.split('\n').map(l => l.replace(/^\s*\|?/, '')).join('\n');
   } else if (t.startsWith('"')) {
-    // aneinandergehängte Zeichenketten zusammenziehen
+    // merge concatenated strings
     t = t.split(/"\s*\+\s*s?"/).join('').replace(/^"|"$/g, '');
   }
   return t.replace(/\\n/g, '\n').replace(/\\"/g, '"').trim();
 }
 
-/** Ein Parameter: `name: Type = default`. */
+/** A parameter: `name: Type = default`. */
 export function parseParam(param: string): ScalaParam | null {
   const { rest, description, descriptionExpr } = stripAnnotations(stripComments(param));
   const colon = topLevelIndex(rest, ':');
@@ -217,7 +217,7 @@ export function parseParam(param: string): ScalaParam | null {
   };
 }
 
-/** Erstes Vorkommen eines Zeichens auf oberster Klammerebene. */
+/** First occurrence of a character at the top bracket level. */
 function topLevelIndex(text: string, ch: string): number {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
@@ -230,7 +230,7 @@ function topLevelIndex(text: string, ch: string): number {
   return -1;
 }
 
-/** Das `=` der Vorgabe — nicht `=>`, `==`, `<=`, `>=`, `!=`. */
+/** The `=` of the default — not `=>`, `==`, `<=`, `>=`, `!=`. */
 function topLevelAssign(text: string): number {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
@@ -257,20 +257,20 @@ function skipString(text: string, start: number): number {
   return i + 1;
 }
 
-/** Die ganze Parameterliste eines `case class`-Kopfes. */
+/** The whole parameter list of a `case class` header. */
 export function parseParams(text: string): ScalaParam[] {
   return splitParams(text).map(parseParam).filter((p): p is ScalaParam => !!p);
 }
 
-// ── Zerlegung eines Typausdrucks ─────────────────────────────────────────────
+// ── Decomposing a type expression ────────────────────────────────────────────
 export interface TypeShape {
-  /** Grundtyp ohne Hüllen, z. B. `InPerson` */
+  /** base type without wrappers, e.g. `InPerson` */
   base: string;
   optional: boolean;
   collection: boolean;
-  /** `Map[String, T]` — `base` ist dann der Werttyp */
+  /** `Map[String, T]` — `base` is then the value type */
   map: boolean;
-  /** Iron-Refinement hinter `:|` */
+  /** Iron refinement after `:|` */
   constraint?: string;
 }
 
@@ -278,14 +278,14 @@ const WRAPPERS_OPTIONAL = ['Option'];
 const WRAPPERS_COLLECTION = ['Seq', 'List', 'Set', 'Vector', 'Array', 'Iterable'];
 
 /**
- * `Option[Seq[String :| ValidEmail]]` → base `String`, optional, mehrfach,
- * Einschränkung `ValidEmail`. Hüllen werden in beliebiger Reihenfolge
- * abgetragen; was übrig bleibt, ist der Grundtyp.
+ * `Option[Seq[String :| ValidEmail]]` → base `String`, optional, multiple,
+ * refinement `ValidEmail`. Wrappers are stripped in any
+ * order; what remains is the base type.
  */
 /**
- * Die Vorgabe eines festen Falls (`processStatus: ProcessStatus.succeeded.type =
- * ProcessStatus.succeeded`) ist der Fall selbst — sie folgt aus dem Typ, der
- * Export schreibt sie ohnehin. Keine eigene Vorgabe also.
+ * The default of a fixed case (`processStatus: ProcessStatus.succeeded.type =
+ * ProcessStatus.succeeded`) is the case itself — it follows from the type, the
+ * export writes it anyway. So no default of its own.
  */
 export function isFixedCaseDefault(enumCase: string | undefined, value: string | undefined): boolean {
   if (!enumCase || !value?.trim()) return false;
@@ -302,12 +302,12 @@ export function typeShape(expr: string): TypeShape {
 
   for (let guard = 0; guard < 6; guard++) {
     const m = /^([A-Za-z_]\w*)\s*\[([\s\S]*)\]$/.exec(t);
-    // die Klammer am Ende muss die nach der Hülle schliessen — `Option[String] | Seq[X]` ist keine Hülle
+    // the bracket at the end must close the one after the wrapper — `Option[String] | Seq[X]` is not a wrapper
     if (!m || !balanced(m[2])) break;
     const [, wrapper, inner] = m;
     if (WRAPPERS_OPTIONAL.includes(wrapper)) { optional = true; t = inner.trim(); continue; }
     if (WRAPPERS_COLLECTION.includes(wrapper)) { collection = true; t = inner.trim(); continue; }
-    // `Map[String, T]` — nur mit Text-Schlüssel, so kommt es im JSON an
+    // `Map[String, T]` — only with a text key, that is how it arrives in JSON
     const mv = wrapper === 'Map' ? /^String\s*,\s*([\s\S]+)$/.exec(inner.trim()) : null;
     if (mv) { map = true; t = mv[1].trim(); continue; }
     break;
@@ -317,7 +317,7 @@ export function typeShape(expr: string): TypeShape {
   if (refine >= 0) {
     constraint = t.slice(refine + 2).trim();
     t = t.slice(0, refine).trim();
-    // die Hüllen können auch innerhalb des Refinements stehen
+    // the wrappers can also be inside the refinement
     const inner = typeShape(t);
     optional = optional || inner.optional;
     collection = collection || inner.collection;
@@ -328,7 +328,7 @@ export function typeShape(expr: string): TypeShape {
   return { base: t, optional, collection, map, ...(constraint ? { constraint } : {}) };
 }
 
-/** Klammern ausgeglichen, ohne je unter null zu fallen? */
+/** Brackets balanced, without ever dropping below zero? */
 function balanced(text: string): boolean {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
@@ -341,13 +341,13 @@ function balanced(text: string): boolean {
 }
 
 /**
- * Ein Union- oder Schnitt-Typ (`Option[String] | Seq[X]`, `A & B`) auf oberster
- * Ebene — die App bildet ihn nicht ab (ein Feld hat einen Grundtyp); `:|` (Iron) zählt nicht.
+ * A union or intersection type (`Option[String] | Seq[X]`, `A & B`) at the top
+ * level — the app does not represent it (a field has one base type); `:|` (Iron) does not count.
  */
 export function isCompoundType(text: string): boolean {
-  // `:|` bindet stärker als `|` und `&` (Scala: Vorrang nach dem ersten Zeichen) — also ist
-  // `String :| ValidUUID | Long` eine Union `(String :| ValidUUID) | Long`; mehrere
-  // Einschränkungen stehen darum in Klammern: `Int :| (Greater[0] & Less[10])`
+  // `:|` binds tighter than `|` and `&` (Scala: precedence by the first character) — so
+  // `String :| ValidUUID | Long` is a union `(String :| ValidUUID) | Long`; several
+  // refinements are therefore in parentheses: `Int :| (Greater[0] & Less[10])`
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -359,7 +359,7 @@ export function isCompoundType(text: string): boolean {
   return false;
 }
 
-/** Position von `:|` auf oberster Klammerebene. */
+/** Position of `:|` at the top bracket level. */
 function topLevelRefine(text: string): number {
   let depth = 0;
   for (let i = 0; i < text.length - 1; i++) {
@@ -373,17 +373,17 @@ function topLevelRefine(text: string): number {
 }
 
 /**
- * `CustomDocContents.\`QI-Deklaration\`` (ADT-Fall) bzw. `ProcessStatus.canceled.type`
- * (Fall eines einfachen enums, Singleton-Typ) → enum und Fall; null, wenn kein Punkt darin ist.
+ * `CustomDocContents.\`QI-Deklaration\`` (ADT case) or `ProcessStatus.canceled.type`
+ * (case of a simple enum, singleton type) → enum and case; null if there is no dot in it.
  */
 export function splitEnumCase(base: string): { base: string; enumCase: string } | null {
   const m = /^([A-Za-z_][\w.]*?)\.(`[^`]+`|[A-Za-z_]\w*)(\.type)?$/.exec(base.trim());
   if (!m) return null;
-  // beim Singleton-Typ ohne Backticks — so steht der Fall in `values`
+  // for the singleton type without backticks — that is how the case appears in `values`
   return { base: m[1], enumCase: m[3] ? m[2].replace(/^`|`$/g, '') : m[2] };
 }
 
-/** Hat das enum diesen Fall — als ADT-Fall (`cases`) oder als Wert (`values`)? */
+/** Does the enum have this case — as an ADT case (`cases`) or as a value (`values`)? */
 export function enumHasCase(en: DomainType | null | undefined, c: string): boolean {
   if (en?.kind !== 'enum') return false;
   const bare = c.replace(/^`|`$/g, '');
@@ -391,38 +391,38 @@ export function enumHasCase(en: DomainType | null | undefined, c: string): boole
 }
 
 /**
- * Die Imports einer Datei, die ein Ausdruck in `@description(…)` braucht: die
- * ausdrücklichen, deren Name darin vorkommt (`SendProcessEvent.processName`),
- * und — für frei stehende Namen wie `timerStartEscalationDescr`, die aus einem
- * Objekt kommen — die Objekt-Wildcards (`…Escalation.*`).
+ * The imports of a file that an expression in `@description(…)` needs: the
+ * explicit ones whose name occurs in it (`SendProcessEvent.processName`),
+ * and — for free-standing names like `timerStartEscalationDescr` that come from an
+ * object — the object wildcards (`…Escalation.*`).
  */
 export function importsForExpression(expr: string, imports: string[] | undefined): string[] {
   if (!imports?.length) return [];
   const names = new Set(expr.match(/[A-Za-z_]\w*/g) ?? []);
   const explicit = imports.filter(i => !i.endsWith('.*') && names.has(i.slice(i.lastIndexOf('.') + 1)));
-  // ein frei stehender Name (klein, nicht nach einem Punkt) — kein Feld eines Objekts
+  // a free-standing name (lowercase, not after a dot) — not a field of an object
   const bare = /(^|[^\w.$])[a-z]\w*(?![\w(.])/.test(expr.replace(/"(?:[^"\\]|\\.)*"/g, m => m.replace(/[^${}.\w]/g, ' ')));
   const objectWildcards = bare ? imports.filter(i => /\.[A-Z]\w*\.\*$/.test(i)) : [];
   return [...new Set([...explicit, ...objectWildcards])];
 }
 
-// ── Beispielwerte ────────────────────────────────────────────────────────────
+// ── Example values ───────────────────────────────────────────────────────────
 //
-// Das Companion trägt die Beispieldaten:
+// The companion carries the example data:
 //
 //   lazy val example = In(
 //     clientId = 1000,
 //     mainCardHolder = Some(CardHolder.example)
 //   )
 //
-// Der Klassenbauer führt je Feld den **inneren** Wert (`CardHolder.example`);
-// `Some(…)`, `Seq(…)` und `Map("key" -> …)` setzt der Export nach Option,
-// Seq und Map des Feldes wieder darum (siehe `exampleValue` in scala.ts).
+// The class builder keeps the **inner** value per field (`CardHolder.example`);
+// the export puts `Some(…)`, `Seq(…)` and `Map("key" -> …)` back around it according to Option,
+// Seq and Map of the field (see `exampleValue` in scala.ts).
 
 /**
- * Die Argumente eines Konstruktor-Aufrufs `X(a = 1, b = "x")` (ohne die
- * Klammern) nach Feldnamen; ein Argument ohne Namen gilt nach seiner
- * Position. Ein Wert über mehrere Zeilen wird zu einer Zeile.
+ * The arguments of a constructor call `X(a = 1, b = "x")` (without the
+ * parentheses) by field name; an argument without a name counts by its
+ * position. A value spanning several lines becomes one line.
  */
 export function exampleArgs(raw: string, fieldNames: string[]): Map<string, string> {
   const out = new Map<string, string>();
@@ -439,7 +439,7 @@ export function exampleArgs(raw: string, fieldNames: string[]): Map<string, stri
   return out;
 }
 
-/** `Some(x)` → `x` — nur, wenn der Aufruf den ganzen Ausdruck umfasst und genau ein Argument hat. */
+/** `Some(x)` → `x` — only if the call spans the whole expression and has exactly one argument. */
 function unwrapCall(expr: string, names: string[]): string | null {
   const m = /^([A-Za-z_]\w*)\s*\(/.exec(expr);
   if (!m || !names.includes(m[1])) return null;
@@ -452,12 +452,12 @@ function unwrapCall(expr: string, names: string[]): string | null {
 const LITERAL = /^(".*"|-?\d+(\.\d+)?L?)$/s;
 
 /**
- * Das Beispiel eines Domain-Feldes, wie es der Klassenbauer führt: ohne
- * `Some(…)` / `Seq(…)` / `Map("key" -> …)` und ohne `.refineUnsafe` an
- * einem Literal — das setzt der Export wieder. Lässt sich eine Hülle nicht
- * abtragen (`None`, `Seq(a, b)`, `Seq.empty`), bleibt der ganze Ausdruck;
- * der Export übernimmt ihn dann wörtlich. Nichts, wenn das Beispiel
- * dasselbe ist, was die App ohnehin ableitet (`CardAccount.example`).
+ * The example of a domain field as the class builder keeps it: without
+ * `Some(…)` / `Seq(…)` / `Map("key" -> …)` and without `.refineUnsafe` on
+ * a literal — the export adds that back. If a wrapper cannot be
+ * stripped (`None`, `Seq(a, b)`, `Seq.empty`), the whole expression stays;
+ * the export then takes it over literally. Nothing if the example
+ * is the same as what the app derives anyway (`CardAccount.example`).
  */
 export function exampleOf(p: { type: string; example?: string }): string | undefined {
   const full = p.example?.trim();

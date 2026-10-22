@@ -1,7 +1,7 @@
-// Was eine Seite vom Gateway braucht - ohne die Anmeldung (der Designer von orch-spec hat keine).
+// What a page needs from the gateway - without the sign-in (the orch-spec designer has none).
 
-/** Ein Aufruf des Gateways, der nicht geklappt hat – die Seite zeigt ihren Text zum Status.
-  * `login`: die Anmeldung selbst geht nicht (IdP weg, config.json fehlt) - die Seite zeigt die Meldung. */
+/** A gateway call that did not work – the page shows its text for the status.
+  * `login`: the sign-in itself does not work (IdP gone, config.json missing) - the page shows the message. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Was eine Seite aufruft - der Gateway, oder im Designer von orch-spec ein Ersatz mit Beispieldaten. */
+/** What a page calls - the gateway, or in the orch-spec designer a substitute with sample data. */
 export type Gateway = {
   call: (service: string, input: unknown, isPublic: boolean) => Promise<unknown>;
   start: (process: string, businessKey: string | undefined, input: unknown, isPublic: boolean) => Promise<unknown>;

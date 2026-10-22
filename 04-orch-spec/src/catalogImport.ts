@@ -1,26 +1,26 @@
-// Katalog ersetzen — und vorher sagen, was dabei verloren geht.
+// Replace the catalog — and say beforehand what gets lost in the process.
 //
-// In der Bankenzone liegen die Quellen nicht; dort kommt der Katalog als
-// Datei herein und **ersetzt** den bestehenden. Ein Ersetzen kann Einträge
-// wegnehmen, auf die Spezifikationen zeigen: ein Service, den ein Schritt
-// ruft, oder ein Domain-Typ, den ein Feld verwendet. Beides bliebe sonst als
-// roter Verweis zurück, und niemand wüsste, wann er entstanden ist.
+// In the banking zone the sources are not available; there the catalog comes in as a
+// file and **replaces** the existing one. A replacement can remove entries
+// that specifications point to: a service that a step
+// calls, or a domain type that a field uses. Both would otherwise remain as a
+// red reference, and nobody would know when it came about.
 //
-// Deshalb wird vor dem Ersetzen verglichen — und nur gefragt, wenn wirklich
-// etwas fehlt.
+// That is why a comparison is made before replacing — and the user is only asked if something
+// is really missing.
 
 import { allSteps } from './bpmn.ts';
 import { parseDomainRef } from './serviceTypes.ts';
 import type { DomainDefault, DomainType, ProcessSpec, ServiceDef } from './types.ts';
 
 export interface Referenced {
-  /** Service-IDs, Topics und gerufene Prozesse aus allen Schritten */
+  /** Service IDs, topics and called processes from all steps */
   services: Set<string>;
-  /** IDs der Domain-Typen, die in Feldern stehen */
+  /** IDs of the domain types used in fields */
   types: Set<string>;
 }
 
-/** Worauf die Spezifikationen zeigen. */
+/** What the specifications point to. */
 export function referenced(specs: ProcessSpec[]): Referenced {
   const services = new Set<string>();
   const types = new Set<string>();
@@ -44,9 +44,9 @@ export interface Losses {
 }
 
 /**
- * Was der neue Katalog nicht mehr hergibt, obwohl eine Spezifikation es
- * verwendet. Ein Service gilt als vorhanden, wenn ihn seine ID, sein Topic
- * oder sein gerufener Prozess trifft — genauso sucht ihn die Prozessansicht.
+ * What the new catalog no longer provides, although a specification
+ * uses it. A service counts as present if its ID, its topic
+ * or its called process matches it — the process view searches for it the same way.
  */
 export function losses(
   current: { services?: ServiceDef[]; domainTypes?: DomainType[] },
@@ -80,17 +80,17 @@ export interface CatalogFile {
   domainDefaults?: DomainDefault[];
   domainSources?: string[];
   projects?: Array<{ id: string; name: string; types?: number }>;
-  /** Projektname → Farbe (`ProjectConfig.color`) — schreibt `prepareDocs` aus der Orchescala-Konfiguration */
+  /** Project name → colour (`ProjectConfig.color`) — written by `prepareDocs` from the Orchescala configuration */
   projectColors?: Record<string, string>;
 }
 
-/** Was in einer eingelesenen Katalog-Datei steht — oder warum sie nicht taugt. */
+/** What a catalog file that was read contains — or why it is not usable. */
 export function readCatalogFile(text: string): { ok: true; data: CatalogFile } | { ok: false; message: string } {
   let raw: unknown;
   try { raw = JSON.parse(text); }
   catch { return { ok: false, message: 'Die Datei ist kein gültiges JSON.' }; }
   const d = (raw ?? {}) as CatalogFile;
-  // nur Projektfarben: das schreibt `prepareDocs` auch ohne Node.js
+  // only project colours: `prepareDocs` writes that even without Node.js
   const colors = d.projectColors && typeof d.projectColors === 'object' && Object.keys(d.projectColors).length > 0;
   const projectColors = colors ? withoutNoColor(d.projectColors!) : undefined;
   if (!Array.isArray(d.services) && !Array.isArray(d.domainTypes) && !colors) {
@@ -107,19 +107,19 @@ export function readCatalogFile(text: string): { ok: true; data: CatalogFile } |
   };
 }
 
-/** Was in Orchescala «keine Farbe» heisst (`ProjectConfig.color` ist `#fff`, die Doku nimmt `white`) */
+/** What means «keine Farbe» in Orchescala (`ProjectConfig.color` is `#fff`, the docs use `white`) */
 const NO_COLOR = new Set(['', '#fff', '#ffffff', 'white']);
 
-/** Projektfarben ohne die, die keine sind — sonst stünde «weiss» als gewählte Farbe da */
+/** Project colours without those that are none — otherwise «weiss» would show as the chosen colour */
 export function withoutNoColor(colors: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(colors).filter(([, c]) => typeof c === 'string' && !NO_COLOR.has(c.trim().toLowerCase())));
 }
 
 /**
- * Ohne die Marke `generated`. Sie sagt nur, dass ein Eintrag aus der gerade
- * mitgelieferten `catalog.generated.json` stammt — in einer Datei hat sie
- * nichts verloren: Ein Export mit der Marke käme beim Import als «mitgeliefert»
- * herein und würde beim Speichern aus der model.json gefiltert.
+ * Without the `generated` marker. It only says that an entry comes from the
+ * `catalog.generated.json` just shipped — it has no business being
+ * in a file: an export with the marker would come in on import as «mitgeliefert»
+ * and would be filtered out of the model.json on save.
  */
 export function withoutGenerated<T extends { generated?: boolean }>(entries: T[]): T[] {
   return entries.map(e => {

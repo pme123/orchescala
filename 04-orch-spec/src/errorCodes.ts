@@ -1,23 +1,23 @@
-// Behandelte Fehler im BPMN: `_handledErrors` und `_regexHandledErrors`.
+// Handled errors in the BPMN: `_handledErrors` and `_regexHandledErrors`.
 //
-// Ein Eintrag ist ein fester Text (`404`, `.*timeout.*`) oder — mit `=`
-// davor — ein FEEL-Ausdruck, der den Text liefert (`= errorCodes.notFound`).
-// Ein Ausdruck darf einen Text oder eine Liste von Texten liefern. Die Form im
-// BPMN hängt an der Engine:
+// An entry is a fixed text (`404`, `.*timeout.*`) or — with `=`
+// in front — a FEEL expression that yields the text (`= errorCodes.notFound`).
+// An expression may yield a text or a list of texts. The form in the
+// BPMN depends on the engine:
 //
-//   Camunda 8   eine Liste         =["404"]  bzw. mit Ausdrücken
+//   Camunda 8   a list             =["404"]  or with expressions
 //                                  =flatten(["404", errorCodes.notFound])
-//   Camunda 7   Text mit Kommas    404, ${errorCodes.notFound}
-//               ein Ausdruck allein ${errorCodes.all} — dann kommt sein Wert
-//               (auch eine Liste) unverändert beim Worker an
+//   Camunda 7   text with commas   404, ${errorCodes.notFound}
+//               an expression alone ${errorCodes.all} — then its value
+//               (even a list) arrives unchanged at the worker
 //
-// Beide Formen werden wieder zur Liste der Einträge gelesen.
+// Both forms are read back into the list of entries.
 
 import type { EngineId } from './types.ts';
 import { feelBody, feelToJuel } from './feelJuel.ts';
 import { importExpression } from './juelFeel.ts';
 
-/** Ein FEEL-Text: `"…"` mit maskiertem `\` und `"` */
+/** A FEEL text: `"…"` with escaped `\` and `"` */
 export const feelString = (v: string): string => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
 const unquote = (s: string): string | null => {
@@ -25,7 +25,7 @@ const unquote = (s: string): string | null => {
   return m ? m[1].replace(/\\(["\\])/g, '$1') : null;
 };
 
-/** An Kommas auf oberster Ebene trennen — nicht in Text, Klammern oder `${…}` */
+/** Split at top-level commas — not in text, brackets or `${…}` */
 function splitTop(text: string): string[] {
   const out: string[] = [];
   let depth = 0, quote = false, cur = '';
@@ -47,12 +47,12 @@ function splitTop(text: string): string[] {
   return out.filter(Boolean);
 }
 
-/** Einträge → Wert im BPMN. `onIssue` meldet FEEL, das nicht nach JUEL geht (bleibt dann als FEEL stehen). */
+/** Entries → value in the BPMN. `onIssue` reports FEEL that does not translate to JUEL (it then stays as FEEL). */
 export function errorListSource(entries: string[], engine: EngineId, onIssue?: (entry: string, reason: string) => void): string {
   const list = entries.map(e => e.trim()).filter(Boolean);
   if (engine === 'c8') {
     const items = `[${list.map(e => feelBody(e)?.trim() ?? feelString(e)).join(', ')}]`;
-    // ein Ausdruck kann selbst eine Liste liefern — `flatten` macht daraus eine Liste von Texten
+    // an expression can itself yield a list — `flatten` turns it into a list of texts
     return list.some(e => feelBody(e) != null) ? `=flatten(${items})` : `=${items}`;
   }
   return list.map(e => {
@@ -65,7 +65,7 @@ export function errorListSource(entries: string[], engine: EngineId, onIssue?: (
   }).join(', ');
 }
 
-/** Wert im BPMN → Einträge. Liest Liste und Text mit Kommas, gleich aus welcher Engine. */
+/** Value in the BPMN → entries. Reads a list and text with commas, regardless of the engine. */
 export function parseErrorList(source: string): string[] {
   const t = source.trim();
   if (!t) return [];
@@ -74,14 +74,14 @@ export function parseErrorList(source: string): string[] {
     let b = body.trim();
     const flat = /^flatten\(\s*(\[[\s\S]*\])\s*\)$/.exec(b);
     if (flat) b = flat[1];
-    // Liste: jedes Element ein Text oder ein Ausdruck
+    // list: each element a text or an expression
     const list = /^\[([\s\S]*)\]$/.exec(b);
     if (list) return splitTop(list[1]).map(x => unquote(x) ?? `= ${x}`);
-    // ein Text (auch einer mit Kommas aus einer alten Umwandlung)
+    // a text (also one with commas from an old conversion)
     const text = unquote(b);
     if (text != null) return splitTop(text);
     return [`= ${b}`];
   }
-  // Camunda 7: Text mit Kommas, Ausdrücke als `${…}`
+  // Camunda 7: text with commas, expressions as `${…}`
   return splitTop(t).map(x => (/^[$#]\{/.test(x) ? importExpression(x) : x));
 }
