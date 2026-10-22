@@ -27,6 +27,10 @@ const STOP_TEXT: Partial<Record<Stop, string>> = {
   cancelled: 'Abgebrochen.',
 };
 
+/** What came of «Übernehmen»: nothing (taken over and saved), refused (the draft stays - e.g. the spec
+  * changed since the draft began), or taken over but not saved (the view has it, the file not). */
+export type AcceptOutcome = void | { refused: string } | { saveError: string };
+
 export type AiChatProps<D> = {
   isDark: boolean;
   apiKey: string;
@@ -44,7 +48,7 @@ export type AiChatProps<D> = {
   /** the differences of the draft - shown above Accept/Discard */
   changes: React.ReactNode;
   /** takes the draft over; `requests`: what the RE asked for it (for the log) */
-  onAccept: (d: D, requests: string[]) => void;
+  onAccept: (d: D, requests: string[]) => AcceptOutcome | Promise<AcceptOutcome>;
   /** undo of the last accepted draft - where the designer has no undo of its own (processes) */
   undo?: { label: string; run: () => void } | null;
   /** «Übernommen – …» */
@@ -77,12 +81,16 @@ export function AiChat<D>(p: AiChatProps<D>) {
   const turn = useRef(0);
   // the draft comes from a turn that did not finish (step limit, cut off, cancelled, error) - it may be half done
   const [incomplete, setIncomplete] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  // the request from outside (a new page with a description) - started once
+  const started = useRef(false);
   const end = useRef<HTMLDivElement>(null);
   const add = (...e: Entry[]) => setEntries((list) => [...list, ...e]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [entries, busy]);
   // leaving the designer or deleting the key stops a running request
-  useEffect(() => () => { turn.current++; abort.current?.abort(); }, []);
+  // (in dev, StrictMode mounts twice: the request from outside is then started again on the second mount)
+  useEffect(() => () => { turn.current++; abort.current?.abort(); started.current = false; }, []);
 
   const ask = async (text: string) => {
     if (!text.trim() || busy) return;
@@ -138,20 +146,31 @@ export function AiChat<D>(p: AiChatProps<D>) {
   };
 
   // a request from outside (a new page with a description): start right away, once
-  const started = useRef(false);
   useEffect(() => {
     if (p.initialPrompt && !started.current) { started.current = true; void ask(p.initialPrompt); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.initialPrompt]);
 
-  const accept = () => {
-    if (!draft) return;
-    p.onAccept(draft, requests.current);
+  const accept = async () => {
+    if (!draft || accepting) return;
+    setAccepting(true);
+    let r: AcceptOutcome;
+    try {
+      r = await p.onAccept(draft, requests.current);
+    } catch (e) {
+      r = { refused: `Übernehmen fehlgeschlagen: ${errorText(e)}` };
+    } finally {
+      setAccepting(false);
+    }
+    // refused: nothing changed - the draft stays, to discard it or to try again
+    if (r && 'refused' in r) { add({ kind: 'note', text: r.refused, tone: 'error' }); return; }
     requests.current = [];
     setIncomplete(false);
     p.onDraft(null);
-    note.current = 'Der RE hat deinen Entwurf übernommen – er ist jetzt der gespeicherte Stand.';
-    add({ kind: 'note', text: p.acceptedText, tone: 'ok', undo: true });
+    note.current = 'Der RE hat deinen Entwurf übernommen – er ist jetzt der Stand der Spezifikation.';
+    add(r && 'saveError' in r
+      ? { kind: 'note', text: `Übernommen, aber nicht gespeichert: ${r.saveError}`, tone: 'error' }
+      : { kind: 'note', text: p.acceptedText, tone: 'ok', undo: true });
   };
   const discard = () => {
     p.onDraft(null);
@@ -257,8 +276,8 @@ export function AiChat<D>(p: AiChatProps<D>) {
             </div>
           )}
           <div className="flex gap-2 pt-1">
-            <button onClick={discard} className={`flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}><X size={11} /> Verwerfen</button>
-            <button onClick={accept} className={`ml-auto flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}><Check size={11} /> {incomplete ? 'Trotzdem übernehmen' : 'Übernehmen'}</button>
+            <button onClick={discard} disabled={accepting} className={`flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}><X size={11} /> Verwerfen</button>
+            <button onClick={() => void accept()} disabled={accepting} className={`ml-auto flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}><Check size={11} /> {incomplete ? 'Trotzdem übernehmen' : 'Übernehmen'}</button>
           </div>
         </div>
       )}

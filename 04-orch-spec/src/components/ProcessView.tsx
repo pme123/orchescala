@@ -41,6 +41,7 @@ import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
 import { useAiKey } from '../ai/key';
 import type { ProcessDraft } from '../ai/processTools';
+import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
 import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
@@ -49,6 +50,9 @@ import { collectDiagram, overlayPasted } from '../copyPaste';
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 // the chat of the AI mode with the Anthropic SDK - only loaded with a key
+/** The same process apart from the time of the last change (a draft against the state now). */
+const sameSpec = (a: ProcessSpec, b: ProcessSpec) =>
+  a === b || JSON.stringify({ ...a, updatedAt: undefined }) === JSON.stringify({ ...b, updatedAt: undefined });
 const ProcessAiPanel = lazy(() => import('../ai/ProcessAiPanel').then(m => ({ default: m.ProcessAiPanel })));
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
@@ -149,7 +153,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const [aiDraft, setAiDraft] = useState<ProcessDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   /** the state before the last accepted draft - for undo, as long as nothing else changed */
-  const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedXml: string } | null>(null);
+  const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedSpec: ProcessSpec | null; acceptedXml: string } | null>(null);
   // deleting the key turns the AI off at once - the draft is gone too
   useEffect(() => { if (!aiKey) { setAiDraft(null); setAiOpen(false); } }, [aiKey]);
   const canEdit = mayEdit && !aiDraft;
@@ -955,13 +959,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
   // Claude's draft accepted: the way of a change in the diagram (commitPlan) - with the source «KI» in the
   // change log and the requests of the RE as note. Undo once, as long as nothing else changed.
-  const acceptAi = async (d: ProcessDraft, requests: string[]) => {
-    const before = { spec: specRef.current ?? d.base.spec, xml: xmlRef.current ?? d.base.xml };
+  // Refused when the process changed since the draft began (reloaded, synced) - the draft would overwrite that.
+  const acceptAi = async (d: ProcessDraft, requests: string[]): Promise<AcceptOutcome> => {
+    const before = { spec: specRef.current ?? d.base.spec, xml: xmlRef.current ?? '' };
+    if (before.xml !== d.base.xml || !sameSpec(before.spec, d.base.spec))
+      return { refused: 'Der Prozess hat sich seit dem Entwurf geändert (neu geladen oder abgeglichen) – Entwurf verwerfen und Claude nochmals fragen.' };
     const note = `Mit KI (Claude): ${requests.map(r => `«${r}»`).join(' · ')}`;
     const ok = await commitPlan(d.spec, d.xml, null, [], { source: 'ai', note: note.length > 400 ? `${note.slice(0, 399)}…` : note });
-    setAiUndo(ok ? { ...before, acceptedXml: d.xml } : null);
+    // `latest` is the spec that commitPlan set - any later change (also one only in the spec) makes it another object
+    setAiUndo(ok ? { ...before, acceptedSpec: latest.current, acceptedXml: d.xml } : null);
+    return ok ? undefined : { saveError: 'das Diagramm (BPMN) – siehe Speicherstatus oben' };
   };
-  const aiUndoable = !!aiUndo && xml === aiUndo.acceptedXml;
+  const aiUndoable = !!aiUndo && xml === aiUndo.acceptedXml && spec === aiUndo.acceptedSpec;
   const undoAi = () => {
     if (!aiUndo) return;
     void commitPlan(aiUndo.spec, aiUndo.xml, null, [], { source: 'ai', note: 'KI-Änderung rückgängig gemacht' });
@@ -1335,7 +1344,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
               <ProcessAiPanel isDark={isDark} apiKey={aiKey} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)}
                 draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
-                onAccept={(d, requests) => void acceptAi(d, requests)}
+                onAccept={acceptAi}
                 undo={aiUndoable ? { label: 'Den Stand vor der letzten KI-Änderung wiederherstellen', run: undoAi } : null}
                 onSelect={setSelected} />
             </Suspense>

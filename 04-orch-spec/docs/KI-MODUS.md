@@ -59,6 +59,9 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
 - Wurde Claude nicht fertig (Schrittgrenze, Antwort abgeschnitten, angehalten,
   Fehler), steht ein Hinweis über dem Entwurf und der Button heisst **Trotzdem
   übernehmen**: Der Entwurf kann halb fertig sein.
+- Hat sich die Seite oder der Prozess seit Beginn des Entwurfs geändert (neu
+  geladen, abgeglichen), wird **Übernehmen** abgelehnt: Der Entwurf würde diese
+  Änderung überschreiben. Verwerfen und Claude nochmals fragen.
 - Im selben Gespräch lässt sich weiter am Entwurf arbeiten («noch etwas
   kürzer»). **Neues Gespräch** (Symbol oben im Chat) beginnt von vorn.
 - **Neue Seite:** Mit Key hat der Dialog «Neu» ein Feld **Beschreibung für

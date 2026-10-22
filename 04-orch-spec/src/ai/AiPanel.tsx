@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import specSource from '../pages/runtime/spec.ts?raw';
 import type { BlockKey, Targets } from '../pages/designer/model';
 import type { App, Page } from '../pages/runtime/spec';
-import { AiChat, ChangeLine } from './AiChat';
+import { AiChat, ChangeLine, type AcceptOutcome } from './AiChat';
 import { pagePrompt, pageSystem } from './context';
 import { pageDiff } from './diff';
 import { draftChanged, pageToolKit, startDraft, type PageDraft } from './pageTools';
@@ -36,7 +36,12 @@ export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft
       changed={draftChanged}
       openPoints={(d) => d.openPoints}
       firstPrompt={(text) => pagePrompt(slug, text, true)}
-      onAccept={(d) => onAccept(d.page)}
+      onAccept={(d): AcceptOutcome => {
+        // the page changed since the draft began (reloaded) - taking the draft over would overwrite that
+        if (JSON.stringify(page) !== JSON.stringify(d.base))
+          return { refused: 'Die Seite hat sich seit dem Entwurf geändert (neu geladen) – Entwurf verwerfen und Claude nochmals fragen.' };
+        onAccept(d.page);
+      }}
       acceptedText="Übernommen – rückgängig mit ⌘Z."
       placeholder="Was soll sich ändern?"
       hint={<>

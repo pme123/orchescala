@@ -4,7 +4,7 @@
 import { useMemo } from 'react';
 import { targetsOf } from '../pages/designer/model';
 import type { Model, ProcessSpec } from '../types';
-import { AiChat, ChangeLine } from './AiChat';
+import { AiChat, ChangeLine, type AcceptOutcome } from './AiChat';
 import { processPrompt, processSystem } from './context';
 import { processDiff } from './diff';
 import { processDraftChanged, processToolKit, startProcessDraft, type ProcessDraft } from './processTools';
@@ -20,7 +20,7 @@ export function ProcessAiPanel({ isDark, apiKey, spec, xml, model, specs, draft,
   specs: ProcessSpec[];
   draft: ProcessDraft | null;
   onDraft: (d: ProcessDraft | null) => void;
-  onAccept: (d: ProcessDraft, requests: string[]) => void;
+  onAccept: (d: ProcessDraft, requests: string[]) => Promise<AcceptOutcome>;
   undo: { label: string; run: () => void } | null;
   onSelect: (id: string) => void;
 }) {
