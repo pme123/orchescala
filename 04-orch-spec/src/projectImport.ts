@@ -567,6 +567,8 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   const matched: string[] = [];
   const processId = spec.processId ?? '';
   const startId = spec.steps.find(s => s.kind === 'start')?.id;
+  /** in the package of the process or below — like `ownProcess` of the Converter */
+  const inProcessPkg = (o: DomainType) => o.pkg === pkg || o.pkg.startsWith(`${pkg}.`);
 
   /** `type In = OrderCardUT.In`: resolved once all interactions are there — see below */
   const aliases: Array<{ iaId: string; member: 'In' | 'Out'; target: DomainType; copyId: string }> = [];
@@ -596,10 +598,10 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     // A signal describes the object also when the process **catches** it
     // (start event of an event subprocess, intermediate event)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
-    // A decision in the package of the process belongs to it — even if its
-    // decisionRef does not start with the process ID (`valiant-bpmn-map-actions`)
+    // A decision in the package of the process (or a sub-package) belongs to it — even if
+    // its decisionRef does not start with the process ID (`valiant-bpmn-map-actions`)
     const ownDecision = step.kind === 'rule' && !!step.topic
-      && objects.some(o => o.pkg === pkg && objectKind(o) === 'decision' && o.key?.toLowerCase() === step.topic!.toLowerCase())
+      && objects.some(o => inProcessPkg(o) && objectKind(o) === 'decision' && o.key?.toLowerCase() === step.topic!.toLowerCase())
       ? 'decision' as const : null;
     const byPrefix = interactionKind(step, processId);
     const kind = byTopic ? 'customTask' : (byPrefix ?? ownDecision ?? caughtSignal);
@@ -610,7 +612,7 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       if (objectKind(o) !== kind) return false;
       if (kind === 'customTask') return o.topicName === step.topic;
       if (kind === 'userTask' && o.key) return o.key === step.id;
-      if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase() && (!ownPkgOnly || o.pkg === pkg);
+      if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase() && (!ownPkgOnly || inProcessPkg(o));
       // Signal / message: via the name in the BPMN (up to the dynamic part)
       const key = (o.key ?? '').split('${')[0];
       if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;

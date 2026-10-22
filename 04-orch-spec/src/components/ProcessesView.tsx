@@ -209,27 +209,29 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     const rows = withServiceRows(withStatus(pending.enriched?.spec ?? pending.bare.spec, createStatus), model, { importing: true }).spec;
     try {
       // the tables of the matched decisions right from the project — editable at the step then.
-      // Only looked up here: they are written once the spec exists (no spec with this name before)
-      setBusy('DMN-Tabellen werden gesucht …');
-      let found: FoundDmn[] = [];
-      try {
+      // Written only when there is no spec with this name (its tables stay untouched);
+      // referenced only once saved — nothing points to a table that is not there
+      const problems: string[] = [];
+      let saved: FoundDmn[] = [];
+      if (!specs.some(s => s.slug === rows.slug)) {
+        setBusy('DMN-Tabellen werden gesucht …');
         const r = await findProjectDmns(rows, model, setBusy);
-        found = r.found;
-        if (r.failed.length) console.warn('[orch-spec] DMN-Tabelle nicht gelesen:', r.failed);
-      } catch { /* no table — the step offers to fetch it */ }
-      const spec = withDmnFiles(rows, found);
+        const w = await saveProjectDmns(rows.slug, r.found, saveDmn);
+        saved = w.saved;
+        problems.push(...r.failed.map(f => `DMN-Tabelle nicht gelesen: ${f}`), ...w.failed.map(f => `DMN-Tabelle nicht gespeichert: ${f}`));
+      }
+      const spec = withDmnFiles(rows, saved);
       setBusy(null);
       const res = await createSpec(spec);
       if (!res.ok) { setError(res.message); return; }
-      // a table that cannot be saved stays referenced — the step reports it missing and offers to fetch it
-      const dmns = await saveProjectDmns(spec.slug, found, saveDmn);
-      if (dmns.failed.length) console.warn('[orch-spec] DMN-Tabelle nicht gespeichert:', dmns.failed);
       // The BPMN stays next to the specification — so it can be
       // edited directly in the process view.
       const w = await saveBpmn(spec.slug, pending.xml);
-      if (!w.ok) setError(w.message);
+      if (!w.ok) problems.push(w.message);
       console.info(`[orch-spec] ${pending.stepCount} Schritte importiert`);
       setPending(null);
+      // something went wrong: stay in the list so the message is seen — the spec is there
+      if (problems.length) { setError(`«${spec.title || spec.slug}» angelegt — ${problems.join('; ')}`); return; }
       onOpen(spec.slug);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

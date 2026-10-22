@@ -313,7 +313,9 @@ export function foreignOrigin(step: Step, model: Model | null): ForeignOrigin | 
       : step.kind === 'call' ? !!step.calledProcess && t.processName === step.calledProcess
         : !!step.topic && t.topicName === step.topic));
   if (!hit?.owner) return null;
-  const project = hit.pkg.split('.domain')[0].replace(/\./g, '-');
+  // the part before `.domain` (as a whole segment) — without it the package itself
+  const m = /^(.*?)\.domain(\.|$)/.exec(hit.pkg);
+  const project = m ? m[1].replace(/\./g, '-') : hit.pkg;
   return { object: hit.owner, pkg: hit.pkg, project };
 }
 

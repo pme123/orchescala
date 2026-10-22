@@ -122,3 +122,18 @@ test('any matched interaction is the process\'s own - a worker without the proce
     .flatMap(f => [...f.errors, ...f.warnings]);
   assert.deepEqual(found.filter(m => m.includes('nicht im Katalog')), []);
 });
+
+test('a decision in a sub-package of the process package is its own too', () => {
+  const sub = scanScala(decisionSource(DECISION).replace(`package ${PKG}`, `package ${PKG}.rules`), 'MapActionsDmn.scala');
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, [...scanScala(processSource, 'SendEvent.scala'), ...sub], null)!;
+  assert.deepEqual(r.matched, ['MapActionsDmn']);
+  assert.deepEqual(r.unmatched, []);
+});
+
+test('the project of a foreign object: the part before the `.domain` segment - else the package', () => {
+  const step = { id: 'S', name: 'all', kind: 'rule', topic: 'acme-demo-subStatus-all' } as Step;
+  const at = (pkg: string) => foreignOrigin(step, { domainTypes: scanScala(decisionSource('acme-demo-subStatus-all'), 'X.scala').map(t => ({ ...t, pkg })) } as never)?.project;
+  assert.equal(at('acme.demo.domain'), 'acme-demo');
+  assert.equal(at('acme.demo.domains.x'), 'acme.demo.domains.x');
+  assert.equal(at('acme.demo.rules'), 'acme.demo.rules');
+});

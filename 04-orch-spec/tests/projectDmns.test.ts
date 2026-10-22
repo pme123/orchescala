@@ -155,3 +155,11 @@ test('a table that cannot be read is reported - not taken for "not found"', asyn
   assert.deepEqual(r.found, []);
   assert.deepEqual(r.failed, ['ia1Dmn: NotReadableError']);
 });
+
+test('linking keeps a table the spec references meanwhile - and skips a vanished interaction', async () => {
+  const found = await foundOne();
+  const s = spec([decision('ia1', 'acme-bpmn-map-actions', 'own.dmn')]);
+  assert.equal(withDmnFiles(s, found), s);
+  const gone = spec([decision('other', 'acme-bpmn-map-actions')]);
+  assert.equal(withDmnFiles(gone, found), gone);
+});

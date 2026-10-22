@@ -131,11 +131,14 @@ export async function saveProjectDmns(slug: string, found: FoundDmn[], saveDmn: 
   return out;
 }
 
-/** The spec referencing the given tables (`dmnFile`). */
+/**
+ * The spec referencing the given tables (`dmnFile`) — only where it has none
+ * yet; an interaction that is gone meanwhile is skipped.
+ */
 export function withDmnFiles(spec: ProcessSpec, tables: FoundDmn[]): ProcessSpec {
-  if (!tables.length) return spec;
   const files = new Map(tables.map(t => [t.iaId, t.file]));
-  return { ...spec, interactions: (spec.interactions ?? []).map(i => (files.has(i.id) ? { ...i, dmnFile: files.get(i.id) } : i)) };
+  if (!(spec.interactions ?? []).some(i => files.has(i.id) && !i.dmnFile)) return spec;
+  return { ...spec, interactions: (spec.interactions ?? []).map(i => (files.has(i.id) && !i.dmnFile ? { ...i, dmnFile: files.get(i.id) } : i)) };
 }
 
 /**
