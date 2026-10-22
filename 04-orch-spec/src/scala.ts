@@ -315,8 +315,9 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
   if (!own || f.enumCase) throw new DefaultError('für diesen Typ ohne «=» als Scala-Ausdruck angeben.');
   if (own.kind === 'enum') {
     if (isAdt(own)) throw new DefaultError('für eine Auswahl mit Fällen ohne «=» als Scala-Ausdruck angeben.');
-    const values = (own.values ?? []).map(x => x.name).filter(Boolean);
-    if (typeof v !== 'string' || !values.includes(v)) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
+    // an imported value may carry its backticks (`` `Ohne Angabe` ``) — FEEL names it without
+    const values = (own.values ?? []).map(x => caseName(x.name)).filter(Boolean);
+    if (typeof v !== 'string' || !values.includes(caseName(v))) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
     return `${own.name}.${caseIdent(v)}`;
   }
   // a class from a context: missing optional fields are None

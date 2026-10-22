@@ -7,7 +7,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
-import { checkTypes, nameSuggestion, renameEnumValue, scalaFiles, scalaName } from '../src/scala';
+import { checkTypes, indexTypes, nameSuggestion, renameEnumValue, scalaDefault, scalaFiles, scalaName } from '../src/scala';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -305,4 +305,14 @@ test('renaming an enum value: the fields that use it as a fixed case follow', ()
   assert.deepEqual(next[0].values?.map(v => v.name), ['ONLY_GAMIFICATION', 'GRAVITON']);
   assert.deepEqual(next[1].fields?.map(f => f.enumCase), ['ONLY_GAMIFICATION', 'GRAVITON']);
   assert.deepEqual(checkTypes(next).filter(i => !i.warn), []);
+});
+
+test('a FEEL default names an enum value without backticks - also one imported with them', () => {
+  const types = [{ id: 'e', name: 'Channel', kind: 'enum', values: [{ name: 'Mail' }, { name: '`Ohne Angabe`' }, { name: 'type' }] }];
+  const idx = indexTypes(types as never, null);
+  const dflt = (d: string) => scalaDefault({ id: 'f', name: 'channel', type: 'e', default: d } as never, idx);
+  assert.equal(dflt('= "Ohne Angabe"').scala, 'Channel.`Ohne Angabe`');
+  assert.equal(dflt('= "`Ohne Angabe`"').scala, 'Channel.`Ohne Angabe`');
+  assert.equal(dflt('= "type"').scala, 'Channel.`type`');
+  assert.equal(dflt('= "Mail"').scala, 'Channel.Mail');
 });
