@@ -727,7 +727,8 @@ function enumDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).map(v => v.name).filter(Boolean);
   const first = cases[0] ?? 'unknown';
   // Cases that appear somewhere as a fixed type (`X.fall.type`) need their own givens
-  const fixed = fixedCasesOf(t.id, idx).filter(c => cases.includes(c));
+  // compared without backticks — an imported value keeps them (`` `Ohne Angabe` ``)
+  const fixed = fixedCasesOf(t.id, idx).filter(c => cases.some(v => caseName(v) === c));
   return [
     `enum ${t.name}:`,
     `  case ${cases.length ? cases.map(caseIdent).join(', ') : 'unknown'}`,

@@ -452,3 +452,12 @@ test('suggestions: umlauts and accents are written out, no letter gets lost', ()
   // nothing to write out — no suggestion rather than a mangled one
   assert.equal(nameSuggestion('field', '名前 x'), undefined);
 });
+
+test('a fixed case of a value imported in backticks gets its givens', () => {
+  const spec = withType({ id: 't-ch', name: 'Channel', kind: 'enum', values: [{ name: 'Mail' }, { name: '`Ohne Angabe`' }] });
+  const types = [...((spec as { types: object[] }).types), { id: 't-use', name: 'UsesChannel', kind: 'case', fields: [{ id: 'u1', name: 'channel', type: 't-ch', enumCase: 'Ohne Angabe' }] }];
+  const code = scalaFiles({ ...(spec as object), types } as never, { domainTypes: domain() } as never).map(f => f.content).join('\n');
+  assert.match(code, /given ApiSchema\[Channel\.`Ohne Angabe`\.type\] = deriveEnumApiSchema/);
+  assert.match(code, /given InOutCodec\[Channel\.`Ohne Angabe`\.type\] = deriveEnumValueInOutCodec/);
+  assert.match(code, /channel: Channel\.`Ohne Angabe`\.type/);
+});
