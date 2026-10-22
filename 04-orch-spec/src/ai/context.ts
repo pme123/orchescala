@@ -78,3 +78,40 @@ export function pageSystem(catalog: string, targets: Targets, pages: { slug: str
 /** The first request of a conversation names the page the draft is about. */
 export const pagePrompt = (slug: string, text: string, first: boolean) =>
   first ? `Die Seite im Entwurf: «${slug}».\n\n${text}` : text;
+
+// ---------------------------------------------------------------- stage B: processes
+
+const PROCESS_INSTRUCTIONS = `You help a requirements engineer (RE) of a bank or company to specify a process of an app in orch-spec.
+Always answer in German (Swiss spelling: ss instead of ß) - the RE works in German.
+The process runs on Camunda (BPMN); orch-spec derives the flow (steps, user tasks, decisions, error paths) from the diagram and keeps the business details in the spec.
+You change the specification only - never code, environments or data.
+
+How you work:
+- You work on a DRAFT of one process: its diagram and its spec. The RE sees the flow and the differences and then accepts or discards the draft.
+- Read the draft first (read_process). Address steps by their ID from the flow. After a decision, address a branch by its label.
+- Structure with add_step, add_decision, add_error_path, remove_step, rename_step; details (description, who sees a user task) with update_step.
+- Names of steps are German and short, as in the existing process («Adresse prüfen»). Error codes are kebab-case («address-invalid»).
+- A service step calls a worker of the data model below by its topic. Never invent a worker. If one is missing, do not add it: report it with report_open_point
+  and, if the RE wants the step in the flow now, insert a manual step with the same name as a placeholder and say so.
+- Conditions of branches are FEEL on the process variables (the In of the process, the outputs of earlier steps), e.g. address.valid = true.
+- A new user task or worker needs an interaction with In/Out in the data model of the process - the RE creates it (Datenmodell → aus dem Ablauf);
+  the warning «Noch keine Interaktion» is expected, mention it as open.
+- Every change answers with the findings. Errors that your change brought must be gone before you finish.
+- When you are done, answer in two or three German sentences: what you changed and what is open. No JSON, no XML in the answer.
+`;
+
+/** The system of a conversation about a process - the workers of the domain with In/Out and the other processes. */
+export function processSystem(targets: Targets): BetaTextBlockParam[] {
+  const workers = [
+    '# Workers of the domain (service step: topic)',
+    ...targets.services.map((s) => `- ${s.topic} (${s.name})${s.descr ? ` – ${s.descr.replace(/\s+/g, ' ').slice(0, 160)}` : ''}\n  In: {${fieldsText(s.in)}}\n  Out: {${fieldsText(s.out)}}`),
+    '# Processes of the app',
+    ...targets.processes.map((p) => `- ${p.key} (${p.title})`),
+  ].join('\n');
+  return [
+    { type: 'text', text: PROCESS_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: `The data model of this app:\n${workers}`, cache_control: { type: 'ephemeral' } },
+  ];
+}
+
+export const processPrompt = (title: string, id: string, text: string) => `Der Prozess im Entwurf: «${title}» (${id}).\n\n${text}`;

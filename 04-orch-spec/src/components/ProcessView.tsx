@@ -9,7 +9,7 @@ import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Zap, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare, Puzzle, History, Database, ClipboardPaste,
+  MessageSquare, Puzzle, History, Database, ClipboardPaste, Loader2, Sparkles,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
@@ -39,6 +39,8 @@ import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
 import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
+import { useAiKey } from '../ai/key';
+import type { ProcessDraft } from '../ai/processTools';
 import SyncPanel from './SyncPanel';
 import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
@@ -46,6 +48,8 @@ import { collectDiagram, overlayPasted } from '../copyPaste';
 
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
+// the chat of the AI mode with the Anthropic SDK - only loaded with a key
+const ProcessAiPanel = lazy(() => import('../ai/ProcessAiPanel').then(m => ({ default: m.ProcessAiPanel })));
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
@@ -138,7 +142,17 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
-  const { canEdit } = usePermissions();
+  const { canEdit: mayEdit } = usePermissions();
+  // ── AI mode (E19, E20, stage B): only with a key. While Claude's draft is open, the view shows it
+  // (diagram and flow) read only - until the RE accepts or discards it
+  const aiKey = useAiKey();
+  const [aiDraft, setAiDraft] = useState<ProcessDraft | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  /** the state before the last accepted draft - for undo, as long as nothing else changed */
+  const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedXml: string } | null>(null);
+  // deleting the key turns the AI off at once - the draft is gone too
+  useEffect(() => { if (!aiKey) { setAiDraft(null); setAiOpen(false); } }, [aiKey]);
+  const canEdit = mayEdit && !aiDraft;
   const author = useAuthor();
   const authorRef = useRef(author);
   authorRef.current = author;
@@ -451,6 +465,9 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   }, [update, saveBpmn, slug]);
 
   const byId = useMemo(() => new Map(allSteps(spec?.steps).map(s => [s.id, s])), [spec]);
+  // what the view shows: Claude's draft while there is one
+  const shownSpec = aiDraft?.spec ?? spec;
+  const shownById = useMemo(() => (aiDraft ? new Map(allSteps(aiDraft.spec.steps).map(s => [s.id, s])) : byId), [aiDraft, byId]);
   const byIdRef = useRef(byId);
   byIdRef.current = byId;
   // per status the steps (with interaction and its classes) and the classes without a step —
@@ -621,7 +638,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
   // in the row; computed once per state of the specification. Deferred
   // (useDeferredValue): they check every FEEL expression against the types — that
   // should not slow down typing, they follow as soon as one pauses
-  const deferredSpec = useDeferredValue(spec);
+  const deferredSpec = useDeferredValue(shownSpec);
   const findings = useMemo(
     () => (deferredSpec ? collectFindings(deferredSpec, model, allSteps(deferredSpec.steps)) : new Map<string, Finding>()),
     [deferredSpec, model],
@@ -934,7 +951,22 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
   if (!spec) return <div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Lade Spezifikation …</div>;
 
-  const selectedStep = selected ? byId.get(selected) ?? null : null;
+  const selectedStep = selected ? shownById.get(selected) ?? null : null;
+
+  // Claude's draft accepted: the way of a change in the diagram (commitPlan) - with the source «KI» in the
+  // change log and the requests of the RE as note. Undo once, as long as nothing else changed.
+  const acceptAi = async (d: ProcessDraft, requests: string[]) => {
+    const before = { spec: specRef.current ?? d.base.spec, xml: xmlRef.current ?? d.base.xml };
+    const note = `Mit KI (Claude): ${requests.map(r => `«${r}»`).join(' · ')}`;
+    const ok = await commitPlan(d.spec, d.xml, null, [], { source: 'ai', note: note.length > 400 ? `${note.slice(0, 399)}…` : note });
+    setAiUndo(ok ? { ...before, acceptedXml: d.xml } : null);
+  };
+  const aiUndoable = !!aiUndo && xml === aiUndo.acceptedXml;
+  const undoAi = () => {
+    if (!aiUndo) return;
+    void commitPlan(aiUndo.spec, aiUndo.xml, null, [], { source: 'ai', note: 'KI-Änderung rückgängig gemacht' });
+    setAiUndo(null);
+  };
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -1040,6 +1072,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                   : c.btn}`}>
             <MessageSquare size={12} /> {offeneKommentare || ''}
           </button>
+          {aiKey && mayEdit && (
+            <button onClick={() => { setAiOpen(o => !o); setCommentsOpen(false); setAuditOpen(false); }}
+              title="Claude – den Ablauf im Gespräch ändern (KI-Modus)"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
+                aiOpen || aiDraft ? (isDark ? 'border-violet-400/50 bg-violet-500/15 text-violet-200' : 'border-violet-400 bg-violet-50 text-violet-800') : c.btn}`}>
+              <Sparkles size={12} /> Claude
+            </button>
+          )}
           <button onClick={() => setExportOpen(true)}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
             <Download size={12} /> Export
@@ -1121,7 +1161,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
               {showDiagram && xml && (
                 <div className={`flex-shrink-0 border-b ${c.border} relative`} style={{ height }}>
                   <Suspense fallback={<div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Modeler wird geladen …</div>}>
-                    <BpmnEditor xml={xml} isDark={isDark} canEdit={canEdit} engine={spec.engine}
+                    <BpmnEditor xml={aiDraft?.xml ?? xml} isDark={isDark} canEdit={canEdit} engine={spec.engine}
                       onChange={(text, pasted) => { void applyXml(text, 'Diagramm', true, { source: 'manual', note: 'Im Diagramm geändert' }, pasted); }}
                       onCopy={copyDiagram}
                       onSelect={id => setSelected(id)}
@@ -1135,8 +1175,8 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 </div>
               )}
               <div className="flex-1 overflow-y-auto px-4 py-3">
-                <StepList steps={spec.steps} depth={0} isDark={isDark} collapsed={collapsed} toggle={toggle}
-                  selected={selected} onSelect={setSelected} byId={byId}
+                <StepList steps={(shownSpec ?? spec).steps} depth={0} isDark={isDark} collapsed={collapsed} toggle={toggle}
+                  selected={selected} onSelect={setSelected} byId={shownById}
                   matches={matches} matchesSelf={matchesSelf} filterActive={active}
                   onStatus={canEdit ? (id, s) => patchStep(id, { status: s }) : undefined}
                   findings={findings}
@@ -1260,7 +1300,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
                 </p>
               </div>
 
-              <StepDetail step={selectedStep} spec={spec}
+              <StepDetail step={selectedStep} spec={shownSpec ?? spec}
                 isDark={isDark} canEdit={canEdit} model={model}
                 onPatch={patchStep} onSyncId={syncStepId} onClose={() => setSelected(null)} onGoto={setSelected}
                 projectPrefixes={projectPrefixes} onRenameProject={renameProject}
@@ -1288,6 +1328,18 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
             onClose={() => setAuditOpen(false)}
             width={commentsW} overlay={narrow}
             onWidth={w => { setCommentsW(w); localStorage.setItem(COMMENTS_W_KEY, String(w)); }} />
+        )}
+        {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
+        {aiKey && mayEdit && (
+          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+            <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
+              <ProcessAiPanel isDark={isDark} apiKey={aiKey} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)}
+                draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
+                onAccept={(d, requests) => void acceptAi(d, requests)}
+                undo={aiUndoable ? { label: 'Den Stand vor der letzten KI-Änderung wiederherstellen', run: undoAi } : null}
+                onSelect={setSelected} />
+            </Suspense>
+          </div>
         )}
         {commentsOpen && (
           <CommentsPanel spec={spec} isDark={isDark} targets={targets}
