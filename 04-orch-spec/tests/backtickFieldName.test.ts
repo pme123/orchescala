@@ -363,3 +363,21 @@ end Doc
   assert.deepEqual(scanned.find(t => t.name === 'Commented')!.fields?.map(f => f.name), ['first', 'second (2)']);
   assert.deepEqual(scanned.find(t => t.name === 'Doc')!.cases?.map(c => [c.name, c.fields?.map(f => f.name)]), [['Brief', ['empfaenger']], ['Mail', ['to']]]);
 });
+
+test('an ADT with names in backticks: shared def, case, object, end and a field typed to a case', () => {
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain(), null)!;
+  const spec = { ...r.spec, types: [
+    ...(r.spec.types ?? []),
+    { id: 't-doc', name: 'DocContent', kind: 'enum', fields: [{ id: 'c1', name: 'type', type: 'String' }],
+      values: [{ name: 'QR-Rechnung', fields: [{ id: 'q1', name: 'betrag Franken', type: 'BigDecimal' }] }, { name: 'Brief', fields: [{ id: 'b1', name: 'empfaenger', type: 'String' }] }] },
+    { id: 't-use', name: 'UsesDoc', kind: 'case', fields: [{ id: 'u1', name: 'qr', type: 't-doc', enumCase: 'QR-Rechnung' }] },
+  ] } as never;
+  const code = scalaFiles(spec, { domainTypes: domain() } as never).map(f => f.content).join('\n');
+  assert.match(code, /def `type`: String/);
+  assert.match(code, /case `QR-Rechnung`\(/);
+  assert.match(code, /`betrag Franken`: BigDecimal/);
+  assert.match(code, /object `QR-Rechnung`:/);
+  assert.match(code, /end `QR-Rechnung`/);
+  assert.match(code, /qr: DocContent\.`QR-Rechnung`/);
+  assert.ok(!/``/.test(code), 'no doubled backticks');
+});
