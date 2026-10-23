@@ -5,7 +5,7 @@ import { copyBlock, convertBlock, flatten, hasIds, keyOfId, newBlock, relocateBl
 import type { Component, Page } from '../src/pages/runtime/spec';
 import { addThread, countIndex, setResolved } from '../src/comments';
 import { diffPages, entryOf } from '../src/audit';
-import { blockOfTarget, blockTarget, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from '../src/pages/designer/pageComments';
+import { blockOfTarget, blockTarget, carryComments, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from '../src/pages/designer/pageComments';
 
 const body: Component[] = [
   { type: 'heading', text: 'Termin' },
@@ -86,6 +86,20 @@ test('rememberPagePlaces, keepComments - a removed block keeps its name; an olde
   assert.equal(keepComments(withComment, withComment), withComment);
   assert.equal(cleanSpec({ comments: [], epics: undefined }), undefined);
   assert.deepEqual(cleanSpec({ project: 'acme-shop', comments: [] }), { project: 'acme-shop' });
+});
+
+test('carryComments - an undo that removes a commented block: the thread stays and keeps its name', () => {
+  const id = page.body[0].id!;
+  // the block was added (before: without it), then commented - undo goes back to the state without it
+  const before: Page = { ...page, body: page.body.slice(1) };
+  const now: Page = { ...page, spec: addThread({}, blockTarget(id), me, 'Passt das?') };
+  const undone = carryComments(before, now);
+  assert.equal(undone.spec?.comments?.length, 1);
+  assert.equal(undone.spec?.comments?.[0].place, 'Überschrift «Termin»');
+  // redo brings the block back - the thread is at its place again, the remembered name does no harm
+  const redone = carryComments(now, undone);
+  assert.equal(redone.spec?.comments?.[0].target, blockTarget(id));
+  assert.equal(carryComments(now, now), now); // nothing to do
 });
 
 // ---------------------------------------------------------------- the change log

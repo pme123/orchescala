@@ -54,3 +54,11 @@ export function keepComments(next: Page, current: Page): Page {
   if (JSON.stringify(next.spec?.comments ?? []) === JSON.stringify(comments ?? [])) return next;
   return { ...next, spec: cleanSpec({ ...next.spec, comments }) };
 }
+
+/** `next` as the page after a change of `current` - an edit, an undo or redo, a draft of Claude: the comments
+  * of now (keepComments), and a thread whose building block is gone remembers its name (rememberPagePlaces). */
+export function carryComments(next: Page, current: Page): Page {
+  const kept = keepComments(next, current);
+  const places = rememberPagePlaces(current, kept);
+  return places === kept.spec?.comments ? kept : { ...kept, spec: cleanSpec({ ...kept.spec, comments: places }) };
+}

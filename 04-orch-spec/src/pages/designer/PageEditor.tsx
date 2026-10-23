@@ -14,7 +14,7 @@ import { diffPages, entryOf, type AuditEntry, type AuditOrigin } from '../../aud
 import AuditPanel from '../../components/AuditPanel';
 import { CommentBubble, CommentsContext, CommentsPanel } from '../../components/Comments';
 import { useTeamsNotify } from '../../components/useTeamsNotify';
-import { blockOfTarget, blockTarget, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from './pageComments';
+import { blockOfTarget, blockTarget, carryComments, cleanSpec, pageCommentTargets, pageTarget } from './pageComments';
 import { knownPrefixes } from '../../stepIds';
 import { useStore } from '../../store';
 import { taskStepText, userTasksOfPage, userTaskSteps } from '../taskLinks';
@@ -232,9 +232,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, onO
     if (!canEdit || !current) return;
     // every building block keeps an ID of its own (a new one, a copy, one from Claude); the comments are
     // those of now (an older state, a draft does not bring old ones back), a removed block's remember its name
-    const fixed = keepComments(hasIds(raw.body) ? raw : { ...raw, body: withIds(raw.body) }, current);
-    const places = rememberPagePlaces(current, fixed);
-    const next = places === fixed.spec?.comments ? fixed : { ...fixed, spec: cleanSpec({ ...fixed.spec, comments: places }) };
+    const next = carryComments(hasIds(raw.body) ? raw : { ...raw, body: withIds(raw.body) }, current);
     // nothing changed (a drop at the same place, moving at the edge): no step, no save
     if (next === current || JSON.stringify(next) === JSON.stringify(current)) return;
     history.current = record(history.current, current, coalesce, Date.now());
@@ -256,7 +254,8 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, onO
     const done = travel(history.current, current, dir);
     if (!done) return;
     history.current = done.history;
-    store(keepComments(done.value, current));
+    // like an edit: a block that the step removes leaves its threads with its name
+    store(carryComments(done.value, current));
     // a building block that no longer exists afterwards is no longer selected
     setSelected((s) => (s !== null && blockAt(done.value.body, s) ? s : null));
     setHistoryTick((t) => t + 1);
