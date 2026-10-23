@@ -175,6 +175,8 @@ export async function rebuild(
   const gezaehlt: ProjectFolder[] = [];
   let files = 0;
   let skipped = 0;
+  // one time for the whole build — only projects that were read get it
+  const scannedAt = new Date().toISOString();
   // access per root first — while the click still counts as a user action
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
   for (const p of projects) if (p.root && !roots.has(p.root)) await handleFor(p, roots);
@@ -198,7 +200,7 @@ export async function rebuild(
     const zusammen = mergeDomainTypes(types, gelesen.types);
     types = zusammen.types;
     discarded.push(...zusammen.discarded);
-    gezaehlt.push({ ...p, types: types.length - vorher, scannedAt: new Date().toISOString() });
+    gezaehlt.push({ ...p, types: types.length - vorher, scannedAt });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
   return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped };

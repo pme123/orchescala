@@ -3,7 +3,7 @@
 // remembered but not readable (folder access is remembered per address of the app) —
 // the catalog may be older than the project. The dialog says so and offers folder / ZIP.
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { findDomain, findSyncDomain } from '../src/projectImport';
 import { scanScala } from '../src/domainScan';
 import type { Model } from '../src/types';
@@ -37,4 +37,36 @@ test('no own project folder remembered: the sync uses the catalog', async () => 
 test('the first import from the BPMN still uses the catalog', async () => {
   const r = await findDomain(PID, model(['acme-demo']));
   assert.equal(r?.source, 'Katalog');
+});
+
+// ── the folder is remembered and opens, but reading it fails ────────────────
+
+const g = globalThis as unknown as { indexedDB: unknown };
+const realIndexedDb = g.indexedDB;
+after(() => { g.indexedDB = realIndexedDb; });
+
+/** IndexedDB with the remembered handles — only what getHandle needs */
+function fakeIndexedDb(handles: Record<string, unknown>) {
+  const request = <T>(result: T) => {
+    const req: { result: T; onsuccess?: () => void } = { result };
+    setTimeout(() => req.onsuccess?.());
+    return req;
+  };
+  g.indexedDB = {
+    open: () => request({
+      transaction: () => ({ objectStore: () => ({ get: (key: string) => request(handles[key] ?? null) }) }),
+    }),
+  };
+}
+
+test('own project folder whose reading fails (access revoked, folder moved): like not readable', async () => {
+  const broken = {
+    kind: 'directory', name: 'acme-demo',
+    queryPermission: async () => 'granted',
+    // eslint-disable-next-line require-yield
+    entries: async function* () { throw new DOMException('acme-demo', 'NotAllowedError'); },
+  };
+  fakeIndexedDb({ 'project:p-acme-demo': broken });
+  const r = await findSyncDomain(PID, model(['acme-demo']));
+  assert.deepEqual(r, { blocked: true, unreadable: ['acme-demo'] });
 });

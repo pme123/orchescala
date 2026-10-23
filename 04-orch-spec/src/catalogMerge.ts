@@ -75,22 +75,23 @@ const scanTime = (projects: Array<{ name: string; scannedAt?: string }> | undefi
 
 /**
  * Per project: does the model.json's scan apply (otherwise the catalog's)?
- * The later `scannedAt` wins; a scan without a time counts as older than one
+ * Only where the model.json has types of the project — a scan that found
+ * nothing (or a project only listed) never wipes the catalog's types. Then
+ * the later `scannedAt` wins; a scan without a time counts as older than one
  * with a time. Neither side has a time (scans from before `scannedAt`): the
- * model.json wins where it has types of the project — it is scanned locally
- * on demand, the catalog only with the next release.
+ * model.json wins — it is scanned locally on demand, the catalog only with
+ * the next release.
  */
 export function projectWinners(user: Model, gen: CatalogFile, projectOf: (t: DomainType) => string | null): (project: string) => boolean {
   const userTime = scanTime(user.projects);
   const genTime = scanTime(gen.projects);
   const userHas = new Set((user.domainTypes ?? []).map(projectOf).filter((p): p is string => !!p));
   return project => {
+    if (!userHas.has(project)) return false;
     const u = userTime.get(project);
     const g = genTime.get(project);
     if (u != null && g != null) return u >= g;
-    if (u != null) return true;
-    if (g != null) return false;
-    return userHas.has(project);
+    return g == null;
   };
 }
 
@@ -105,7 +106,7 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
   const ownTypes = new Map((user.domainTypes ?? []).map(t => [t.id, t]));
   const projectOf = projectsOf([...(gen.domainTypes ?? []), ...(user.domainTypes ?? [])]);
   const userWins = projectWinners(user, gen, projectOf);
-  const fromUser = (t: DomainType) => { const p = projectOf(t); return p != null && userWins(p); };
+  const fromUser = (t: DomainType) => (p => p != null && userWins(p))(projectOf(t));
   const genTypes = (gen.domainTypes ?? []).filter(t => !fromUser(t)).map(t => {
     const own = ownTypes.get(t.id);
     const newer = Object.fromEntries(NEWER_SCAN.filter(k => own?.[k] != null && t[k] == null).map(k => [k, own![k]]));

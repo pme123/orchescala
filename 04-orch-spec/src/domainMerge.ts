@@ -230,9 +230,13 @@ const fieldSig = (f: Field) =>
  * reference before (`dom:…v1.SendEvent.In.ReceivingSystems`), today the field keeps
  * the alias (`SendEvent.In.ReceivingSystems`). That is no change of the field.
  */
-const sameType = (a: string, b: string) => a === b
-  || (a.startsWith('dom:') && b.includes('.') && a.endsWith(`.${b}`))
-  || (b.startsWith('dom:') && a.includes('.') && b.endsWith(`.${a}`));
+const sameType = (a: string, b: string) => a === b || aliasOf(a, b) || aliasOf(b, a);
+/** `dom:<package>.<name>` with `name` the alias path from its object (`SendEvent.In.ReceivingSystems`) */
+const aliasOf = (ref: string, name: string) => {
+  if (!ref.startsWith('dom:') || !/^[A-Z]\w*(\.\w+)+$/.test(name) || !ref.endsWith(`.${name}`)) return false;
+  // what is before it is the package (lower case only) — not part of another object's path
+  return /^[a-z]\w*(\.[a-z]\w*)*$/.test(ref.slice(4, -name.length - 1));
+};
 const sameField = (a: Field, b: Field) => sameType(a.type, b.type) && fieldSig({ ...a, type: '' }) === fieldSig({ ...b, type: '' });
 
 /**

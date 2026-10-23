@@ -157,3 +157,16 @@ test('sync: a specification from before (the alias as a catalog reference `dom:`
   const field = (after.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
   assert.equal(field.type, 'SendEvent.In.ReceivingSystems');
 });
+
+test('sync: another type with the same tail is still a change', () => {
+  const { spec } = imported();
+  const pointing = (type: string) => ({
+    ...spec,
+    types: (spec.types ?? []).map(t => ({ ...t, fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type } : f)) })),
+  });
+  const changed = (type: string) =>
+    mergeDomain(pointing(type), imported().spec, { status: { added: 'implemented', changed: 'changed' } }).report.changed;
+  // `Other.SendEvent.In.ReceivingSystems` lives in another object — not the alias of this process
+  assert.deepEqual(changed(`dom:${PKG}.Other.SendEvent.In.ReceivingSystems`), ['In']);
+  assert.deepEqual(changed(`dom:${PKG}.SendEvent.In.ReceivingSystems`), []);
+});

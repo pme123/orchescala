@@ -130,7 +130,14 @@ async function searchDomain(
     }
     onProgress?.(`${p.name} wird gelesen …`);
     const files: ProjectFile[] = [];
-    await readSources(handle, p.name, files, () => {});
+    try {
+      await readSources(handle, p.name, files, () => {});
+    } catch (e) {
+      // access revoked while reading, folder moved: for the own folder like no access
+      if (!own) throw e;
+      unreadable.push(p.name);
+      return null;
+    }
     const domain = scanDomain(files);
     return hasProcess(domain, processId) ? { domain, source: `Ordner ${p.name}` } : null;
   };

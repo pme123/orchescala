@@ -151,3 +151,24 @@ test('a type without source belongs to the project of its package root', () => {
   const merged = mergeGeneratedCatalog(model(newScan()), { domainTypes: [...oldScan(), fromApi] });
   assert.ok(!acmeIds(merged).includes(fromApi.id), 'part of the older scan of acme-demo');
 });
+
+test('the own scan has a time but no types of the project: the catalog keeps them', () => {
+  // «Neu aufbauen» found nothing, or the project is only listed — that wipes nothing
+  const merged = mergeGeneratedCatalog(
+    { ...model([]), projects: project('2026-10-23T07:00:00Z') } as Model,
+    { domainTypes: oldScan(), projects: project('2026-10-21T14:00:00Z') },
+  );
+  assert.ok(acmeIds(merged).includes(OLD));
+});
+
+test('a type without source whose package root belongs to several projects is merged by ID as before', () => {
+  // two projects with the same package root — then it cannot be said which one the type belongs to
+  const twin = scanScala('package acme.demo.domain.other\n\ncase class Other(id: String)\n',
+    'acme-demo-twin/01-domain/src/main/scala/acme/demo/domain/other/Other.scala');
+  const noSource = { id: 'acme.demo.domain.sendEvent.v1.Legacy', name: 'Legacy', pkg: 'acme.demo.domain.sendEvent.v1', kind: 'case', fields: [] } as unknown as DomainType;
+  const merged = mergeGeneratedCatalog(model(newScan()), { domainTypes: [...oldScan(), ...twin, noSource] });
+  // not part of either project: it stays, as with the merge by ID
+  assert.ok(acmeIds(merged).includes(noSource.id));
+  // the types with a source are still merged per project
+  assert.ok(!acmeIds(merged).includes(OLD));
+});
