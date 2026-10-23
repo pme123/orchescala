@@ -734,7 +734,9 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     `  given InOutCodec[${t.name}] = deriveInOutCodec`,
     ...(companions.length ? ['', companions.join('\n\n')] : []),
     '',
-    `  lazy val example = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
+    // typed with the enum: the example of a case is typed with the case (for `.copy`) — as the
+    // example of the type it is passed to `process(…)`, which needs the codec of the enum
+    `  lazy val example: ${t.name} = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
     `end ${t.name}`,
   ].join('\n');
 }

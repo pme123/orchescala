@@ -267,6 +267,8 @@ test('export: exampleMinimal - an alias of an alias, None.type, a refined Option
   const caseMinimal = minimalAfter(file.content, 'object Done:');
   assert.match(caseMinimal, /\brs = None/, file.content);
   assert.doesNotMatch(caseMinimal, /count/);
+  // the example of the enum is typed with the enum — `process(…)` needs its codec, not one of the case
+  assert.match(file.content, /\n    lazy val example: Out = Done\.example\n  end Out/, file.content);
 });
 
 test('unionAllowsNone: a member naming another alias counts with its target - without a loop', () => {
