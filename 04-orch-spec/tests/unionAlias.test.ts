@@ -6,6 +6,7 @@ import { DOMParser } from 'linkedom';
 import { DEFAULT_MERGE_STATUS, importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
+import { healLooseTypes } from '../src/interactions';
 import { mergeDomain } from '../src/domainMerge';
 import { isScalaTypeExpression, scalaFiles } from '../src/scala';
 import { isCompoundType, typeShape, unionAllowsNone } from '../src/scalaTypes';
@@ -187,6 +188,20 @@ test('sync: a spec from before gets noneAlias from the domain', () => {
   const { spec: merged } = mergeDomain(strip(spec), spec, { status: DEFAULT_MERGE_STATUS });
   const field = (merged.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
   assert.equal(field.noneAlias, 'SendEvent.In.ReceivingSystems');
+});
+
+test('export: still None after the app turned the alias into a catalog reference (healLooseTypes)', () => {
+  const { spec, domain } = imported();
+  // the catalog knows the alias: opening the spec makes the field type `dom:<pkg>.SendEvent.In.ReceivingSystems`
+  const model = { domainTypes: domain } as never;
+  const healed = { ...spec, types: healLooseTypes(spec.types ?? [], model) ?? spec.types };
+  const field = (healed.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.type, `dom:${PKG}.SendEvent.In.ReceivingSystems`);
+  assert.equal(field.noneAlias, 'SendEvent.In.ReceivingSystems');
+  for (const m of [model, null]) {
+    const file = scalaFiles(healed, m).find(f => f.path.endsWith('/SendEvent.scala'))!;
+    assert.match(minimalAfter(file.content, 'object In:'), /receivingSystems = None/, file.content);
+  }
 });
 
 test('sync: noneAlias goes away when the domain alias no longer allows None', () => {

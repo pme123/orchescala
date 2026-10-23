@@ -176,8 +176,11 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
     home,
     ownPkg: ownPkg ?? '',
-    // `noneAlias` only while the field still has that alias as its type
-    mayBeMissing: (f: Field) => !!f.optional || (!!f.noneAlias && f.noneAlias === f.type && !f.collection && !f.map),
+    // `noneAlias` only while the field still has that alias as its type — by its name or as the
+    // catalog reference the app makes of it once the catalog knows it (`healLooseTypes`:
+    // `dom:<pkg>.SendEvent.In.Rs`)
+    mayBeMissing: (f: Field) => !!f.optional || (!!f.noneAlias && !f.collection && !f.map &&
+      f.noneAlias === (parseDomainRef(f.type) ? domainNameOf(f.type) : f.type)),
   };
 }
 
