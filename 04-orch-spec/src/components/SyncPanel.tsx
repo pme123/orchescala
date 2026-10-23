@@ -218,11 +218,13 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                   <>
                     <p className={`text-[10px] ${c.muted2}`}>
                       {dom.kept} unverändert · {dom.added.length} neu · {dom.changed.length} geändert
+                      {dom.foreign.length ? ` · ${dom.foreign.length} nicht vom Prozess (entfernt)` : ''}
                       {dom.stale.length ? ` · ${dom.stale.length} ${removeStale ? 'entfernt' : 'nur in der Spezifikation'}` : ''}
                       {dom.confirmed.length ? ` · ${dom.confirmed.length} Angepasste ${bestaetigt}` : ''}
                     </p>
                     <Lines isDark={isDark} items={[...dom.added.map(n => `+ ${n}`), ...dom.changed.map(n => `~ ${n}`),
                       ...dom.confirmed.map(n => `✓ ${n} ${bestaetigt}`),
+                      ...dom.foreign.map(n => `− ${n} — Service eines anderen Projekts`),
                       ...dom.stale.map(n => `${removeStale ? '−' : '?'} ${n}`)]} />
                     {!!dom.stale.length && (
                       <label className={`flex items-center gap-1.5 text-[10px] ${c.muted2}`}

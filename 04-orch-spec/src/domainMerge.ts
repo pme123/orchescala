@@ -20,13 +20,19 @@
 // flow, everything else by name.
 
 import type { EnumValue, Field, Interaction, ProcessSpec, Status, TypeDef } from './types';
-import { settle, type MergeStatus } from './bpmn';
+import { allSteps, settle, type MergeStatus } from './bpmn';
+import { interactionKind } from './interactions';
 
 export interface DomainMergeReport {
   added: string[];
   changed: string[];
   /** what the domain does not know (any more) — removed or only reported, depending on `removeStale` */
   stale: string[];
+  /**
+   * Workers that are not the process's own — the step calls a service of another
+   * project (an earlier import took it for an own worker). Always removed, with their In/Out.
+   */
+  foreign: string[];
   /** interactions prepared as a draft (steps without a domain object) */
   prepared: string[];
   /** were on «Angepasst», match the domain — get the chosen status */
@@ -57,7 +63,7 @@ const roleOf = (t: TypeDef) => ROLES.find(r => !!t[r]);
  * missing interactions are prepared (`preparedOnly`).
  */
 export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: DomainMergeOptions): { spec: ProcessSpec; report: DomainMergeReport } {
-  const report: DomainMergeReport = { added: [], changed: [], stale: [], prepared: [], confirmed: [], kept: 0 };
+  const report: DomainMergeReport = { added: [], changed: [], stale: [], foreign: [], prepared: [], confirmed: [], kept: 0 };
   const pTypes = previous.types ?? [];
   const pIas = previous.interactions ?? [];
   const pById = new Map(pTypes.map(t => [t.id, t]));
@@ -157,12 +163,25 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     else report.kept++;
   }
   // the remaining ones of the specification stay — even without a step in the flow
-  // (the class builder marks them and offers to remove them). One that was
-  // implemented is no longer known to the domain (e.g. a worker of another project
-  // that an earlier import took for an own one): reported, removed on request.
+  // (the class builder marks them and offers to remove them). A worker whose step
+  // calls a service of another project is no interaction of the process at all
+  // (an earlier import took it for an own one): it always goes. One that was
+  // implemented and is no longer known to the domain: reported, removed on request.
+  const stepById = new Map(allSteps(previous.steps).map(s => [s.id, s]));
+  const isForeignWorker = (ia: Interaction) => {
+    const step = ia.kind === 'customTask' ? stepById.get(ia.stepId) : undefined;
+    return !!step && step.kind === 'service' && interactionKind(step, previous.processId ?? '') === null;
+  };
   const droppedIas = new Set<string>();
+  const foreignIas = new Set<string>();
   for (const ia of pIas) {
     if (touched.has(ia.id)) continue;
+    if (!!fresh.types?.length && isForeignWorker(ia)) {
+      report.foreign.push(ia.name);
+      droppedIas.add(ia.id);
+      foreignIas.add(ia.id);
+      continue;
+    }
     const gone = !!fresh.types?.length && wasImplemented(ia);
     if (gone) report.stale.push(ia.name);
     if (gone && opts.removeStale) { droppedIas.add(ia.id); continue; }
@@ -208,7 +227,19 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     for (const v of t.values ?? []) use(v.fields);
   }
   for (const ia of interactions) for (const id of [ia.inTypeId, ia.outTypeId]) if (id) used.add(id);
+  // what only a foreign worker brought along goes with it: its In/Out and the
+  // classes only they reference (the service has its own domain elsewhere)
+  const foreignTypes = new Set<string>();
+  const todo = rest.filter(t => t.interactionId && foreignIas.has(t.interactionId)).map(t => t.id);
+  while (todo.length) {
+    const id = todo.pop()!;
+    const t = pById.get(id);
+    if (!t || foreignTypes.has(id) || roleOf(t) || (used.has(id) && !(t.interactionId && foreignIas.has(t.interactionId)))) continue;
+    foreignTypes.add(id);
+    for (const x of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) todo.push(x.type);
+  }
   for (const t of rest) {
+    if (foreignTypes.has(t.id)) { report.foreign.push(t.name); continue; }
     const gone = !!fresh.types?.length && wasImplemented(t) && !used.has(t.id);
     if (gone) report.stale.push(t.name);
     if (gone && opts.removeStale) continue;

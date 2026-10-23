@@ -69,8 +69,8 @@ test('a worker of another project stays a service - a neighbouring package of th
 });
 
 // A specification imported before the fix still has the foreign worker as an
-// interaction. The sync reports it — and removes it, with its In/Out, on request.
-test('sync: a stored interaction the domain no longer knows is stale - removed with its In/Out on request', async () => {
+// interaction. The sync always removes it, with its In/Out and the classes only it used.
+test('sync: a stored worker of another project is removed - without the stale checkbox', async () => {
   const { mergeDomain } = await import('../src/domainMerge');
   const spec = importBpmn(bpmn, 'address-change').spec;
   const fresh = enrichSpec({ ...spec, project: 'acme-demo' }, domain, null)!.spec;
@@ -79,18 +79,39 @@ test('sync: a stored interaction the domain no longer knows is stale - removed w
   const out = { id: 't-gc-out', name: 'Out', kind: 'case', status: 'implemented', interactionId: 'ia-gc', fields: [{ id: 'f-c', name: 'query', type: 't-query' }] };
   const foreign = { id: 'ia-gc', stepId: consultantStep.id, kind: 'customTask', name: 'GetConsultant', key: 'acme-person.GetConsultant', outTypeId: 't-gc-out', status: 'implemented' };
   const draft = { id: 'ia-draft', stepId: 'nowhere', kind: 'customTask', name: 'Planned', key: 'x', status: 'draft' };
-  const previous = { ...fresh, interactions: [...(fresh.interactions ?? []), foreign, draft], types: [...(fresh.types ?? []), query, out] } as never;
+  // an own worker the domain dropped, without a step any more: only stale
+  const old = { id: 'ia-old', stepId: 'gone', kind: 'customTask', name: 'OldWorker', key: 'acme-demo-addressChange.Old', status: 'implemented' };
+  const previous = { ...fresh, interactions: [...(fresh.interactions ?? []), foreign, draft, old], types: [...(fresh.types ?? []), query, out] } as never;
   const status = { added: 'implemented', changed: 'changed' } as const;
 
-  const kept = mergeDomain(previous, fresh, { status });
-  assert.ok(kept.report.stale.includes('GetConsultant'), `reported: ${kept.report.stale}`);
-  assert.ok(kept.spec.interactions?.some(i => i.id === 'ia-gc'), 'stays without removeStale');
-
-  const removed = mergeDomain(previous, fresh, { status, removeStale: true });
-  const ids = (removed.spec.interactions ?? []).map(i => i.id);
+  const r = mergeDomain(previous, fresh, { status });
+  const ids = (r.spec.interactions ?? []).map(i => i.id);
   assert.ok(!ids.includes('ia-gc'), 'the foreign worker is removed');
-  assert.ok(ids.includes('ia-draft'), 'a draft is ahead of the domain - it stays');
-  const typeIds = (removed.spec.types ?? []).map(t => t.id);
+  assert.ok(r.report.foreign.includes('GetConsultant'), `reported: ${r.report.foreign}`);
+  const typeIds = (r.spec.types ?? []).map(t => t.id);
   assert.ok(!typeIds.includes('t-gc-out'), 'its Out goes with it');
   assert.ok(!typeIds.includes('t-query'), 'and the class only its Out used');
+  assert.ok(ids.includes('ia-draft'), 'a draft is ahead of the domain - it stays');
+  assert.ok(ids.includes('ia-old'), 'an own stale worker stays without removeStale');
+  assert.ok(r.report.stale.includes('OldWorker'));
+  assert.ok(!r.report.stale.includes('GetConsultant'), 'the foreign one is not «nur in der Spezifikation»');
+
+  const removed = mergeDomain(previous, fresh, { status, removeStale: true });
+  assert.ok(!(removed.spec.interactions ?? []).some(i => i.id === 'ia-old'), 'the own stale worker goes on request');
+});
+
+test('sync: a class the foreign worker shares with the process stays', async () => {
+  const { mergeDomain } = await import('../src/domainMerge');
+  const spec = importBpmn(bpmn, 'address-change').spec;
+  const fresh = enrichSpec({ ...spec, project: 'acme-demo' }, domain, null)!.spec;
+  const consultantStep = spec.steps.find(s => s.topic === 'acme-person.GetConsultant')!;
+  const shared = { id: 't-shared', name: 'Address', kind: 'case', status: 'implemented', fields: [{ id: 'f-s', name: 'street', type: 'String' }] };
+  const out = { id: 't-gc-out', name: 'Out', kind: 'case', status: 'implemented', interactionId: 'ia-gc', fields: [{ id: 'f-a', name: 'address', type: 't-shared' }] };
+  const user = { id: 't-user', name: 'Customer', kind: 'case', status: 'draft', fields: [{ id: 'f-u', name: 'address', type: 't-shared' }] };
+  const foreign = { id: 'ia-gc', stepId: consultantStep.id, kind: 'customTask', name: 'GetConsultant', key: 'acme-person.GetConsultant', outTypeId: 't-gc-out', status: 'implemented' };
+  const previous = { ...fresh, interactions: [...(fresh.interactions ?? []), foreign], types: [...(fresh.types ?? []), shared, out, user] } as never;
+  const r = mergeDomain(previous, fresh, { status: { added: 'implemented', changed: 'changed' } });
+  const typeIds = (r.spec.types ?? []).map(t => t.id);
+  assert.ok(!typeIds.includes('t-gc-out'));
+  assert.ok(typeIds.includes('t-shared'), 'still used by another class');
 });
