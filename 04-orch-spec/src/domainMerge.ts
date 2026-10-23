@@ -230,7 +230,7 @@ const fieldSig = (f: Field) =>
  * reference before (`dom:…v1.SendEvent.In.ReceivingSystems`), today the field keeps
  * the alias (`SendEvent.In.ReceivingSystems`). That is no change of the field — but
  * only if the reference points to exactly that alias: in the package of the type the
- * field belongs to, or one above it (`pkg`, from its `domainId`).
+ * field belongs to, or any package above it (`pkg`, from its `domainId`).
  */
 const sameType = (a: string, b: string, pkg?: string) => a === b || aliasOf(a, b, pkg) || aliasOf(b, a, pkg);
 const aliasOf = (ref: string, name: string, pkg?: string) => {
