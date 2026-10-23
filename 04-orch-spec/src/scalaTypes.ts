@@ -426,6 +426,30 @@ export function isCompoundType(text: string): boolean {
   return false;
 }
 
+/**
+ * A union type with a member that can be `None` (`Option[String] | Seq[X]`, `None.type | X`) —
+ * a field of that type may be missing although it is no `Option[…]`.
+ */
+export function unionAllowsNone(text: string): boolean {
+  const members: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') { i = skipString(text, i) - 1; continue; }
+    if (OPEN.includes(c)) depth++;
+    else if (CLOSE.includes(c)) depth--;
+    else if (depth === 0 && c === '|' && text[i - 1] !== ':') {
+      members.push(text.slice(from, i));
+      from = i + 1;
+    }
+  }
+  if (!members.length) return false;
+  members.push(text.slice(from));
+  // `Option[…]` on the outside only — `Seq[Option[X]]` is never None
+  return members.map(m => m.trim()).some(m => m === 'None.type' || (/^Option\s*\[/.test(m) && typeShape(m).optional));
+}
+
 /** Position of `:|` at the top bracket level. */
 function topLevelRefine(text: string): number {
   let depth = 0;

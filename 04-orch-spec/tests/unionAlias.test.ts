@@ -7,7 +7,7 @@ import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
 import { isScalaTypeExpression, scalaFiles } from '../src/scala';
-import { isCompoundType, typeShape } from '../src/scalaTypes';
+import { isCompoundType, typeShape, unionAllowsNone } from '../src/scalaTypes';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -129,6 +129,30 @@ test('export: the union alias is written as it was imported', () => {
   const { spec, domain } = imported();
   const file = scalaFiles(spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
   assert.match(file.content, /receivingSystems: SendEvent\.In\.ReceivingSystems,/);
+});
+
+test('unionAllowsNone: an Option[…] or None.type on the outside of a union member', () => {
+  assert.ok(unionAllowsNone('Option[String] | Seq[ReceivingSystem]'));
+  assert.ok(unionAllowsNone('Seq[X] | Option[Seq[X]]'));
+  assert.ok(unionAllowsNone('None.type | String'));
+  assert.ok(!unionAllowsNone('String :| ValidUUID | Long'));
+  assert.ok(!unionAllowsNone('Seq[Option[String]] | Long'));
+  assert.ok(!unionAllowsNone('Option[String]'));
+  assert.ok(!unionAllowsNone('Option[A | B]'));
+  assert.ok(!unionAllowsNone('String | "Option[x]"'));
+});
+
+test('export: exampleMinimal sets a union alias with an Option to None - other aliases not', () => {
+  const { spec, domain } = imported();
+  const file = scalaFiles(spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  const minimal = /lazy val exampleMinimal = example\.copy\(([\s\S]*?)\)/.exec(file.content)?.[1] ?? '';
+  assert.match(minimal, /receivingSystems = None/, file.content);
+  assert.match(minimal, /tags = None/);
+  assert.doesNotMatch(minimal, /pid = None/);
+  // without the domain (no alias known) only the Option fields
+  const bare = scalaFiles(spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  const bareMinimal = /lazy val exampleMinimal = example\.copy\(([\s\S]*?)\)/.exec(bare.content)?.[1] ?? '';
+  assert.doesNotMatch(bareMinimal, /receivingSystems/);
 });
 
 test('import: a union alias at the top of the file is reported as unresolved - its simple name is no Scala path', () => {

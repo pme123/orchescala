@@ -20,7 +20,7 @@ import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
-import { isFixedCaseDefault } from './scalaTypes.ts';
+import { isFixedCaseDefault, unionAllowsNone } from './scalaTypes.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -64,6 +64,12 @@ export interface TypeIndex {
   defaultNamed: (name: string) => DomainDefault | null;
   /** Object and package of a service or process — from the catalog, otherwise derived (`objectOf`) */
   objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
+  /**
+   * The field may be missing: `Option[…]`, or a union alias of the domain with an `Option[…]`
+   * in it (`type ReceivingSystems = Option[String] | Seq[X]`) — the alias stays the type, but
+   * `exampleMinimal` sets it to `None` too.
+   */
+  mayBeMissing: (f: Field) => boolean;
 }
 
 /** A custom class of the data model (`schema/`) — not the In / Out of the process or of an interaction. */
@@ -159,6 +165,10 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     const wanted = typeKey(f.constraint?.trim() ? `${nameOf(f.type)} :| ${f.constraint.trim()}` : nameOf(f.type));
     return defaults.find(d => d.name === name && typeKey(d.type!) === wanted) ?? null;
   };
+  // the import keeps a union alias as the field type by its name (`SendEvent.In.ReceivingSystems`)
+  const noneAliases = new Set((model?.domainTypes ?? [])
+    .filter(d => d.kind === 'alias' && !!d.target && unionAllowsNone(d.target) && (!ownPkg || d.pkg === ownPkg))
+    .map(d => d.name));
   return {
     byId,
     serviceOf,
@@ -170,6 +180,7 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
     home,
     ownPkg: ownPkg ?? '',
+    mayBeMissing: (f: Field) => !!f.optional || (!f.collection && !f.map && noneAliases.has(f.type)),
   };
 }
 
@@ -619,7 +630,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
   const fields = exampleFields(finished(t.fields, idx), idx);
   const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
   // exampleMinimal leaves out everything that may be missing
-  const optional = fields.filter(f => f.optional);
+  const optional = fields.filter(f => idx.mayBeMissing(f));
   const minimal = optional.length
     ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '    ')}\n  )`
     : 'lazy val exampleMinimal = example';
@@ -694,7 +705,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
     const fields = exampleFields(fieldsOf(v), idx);
     const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
-    const optional = fields.filter(f => f.optional);
+    const optional = fields.filter(f => idx.mayBeMissing(f));
     const minimal = optional.length
       ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '      ')}\n    )`
       : 'lazy val exampleMinimal = example';
