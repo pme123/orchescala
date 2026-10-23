@@ -24,7 +24,7 @@ import { AlertTriangle, Database, FolderOpen, Loader2, MessageSquare, RefreshCw,
 import { allSteps, patternDiff, type MergeReport, type MergeStatus } from '../bpmn';
 import { commentTargets } from '../comments';
 import { mergeDomain, type DomainMergeReport } from '../domainMerge';
-import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type DomainHit } from '../projectImport';
+import { enrichSpec, findSyncDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type DomainHit } from '../projectImport';
 import { STATUSES, STATUS_META, type Model, type ProcessSpec, type Status } from '../types';
 import { cls } from '../ui';
 
@@ -81,6 +81,8 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   const zipRef = useRef<HTMLInputElement>(null);
   // undefined = being searched, null = none found
   const [hit, setHit] = useState<DomainHit | null | undefined>(undefined);
+  // the own project folder is remembered but not readable — no fallback to the catalog
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>('Domain wird gesucht …');
   const [error, setError] = useState('');
   // Only with the domain: what is newly added is already in the project — implemented
@@ -97,9 +99,13 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   useEffect(() => {
     let alive = true;
     setHit(undefined);
+    setUnreadable([]);
     setBusy('Domain wird gesucht …');
-    (processId ? findDomain(processId, model, t => alive && setBusy(t)) : Promise.resolve(null))
-      .then(h => { if (alive) setHit(h); })
+    (processId ? findSyncDomain(processId, model, t => alive && setBusy(t)) : Promise.resolve(null))
+      .then(h => {
+        if (!alive) return;
+        if (h && 'blocked' in h) { setHit(null); setUnreadable(h.unreadable); } else setHit(h);
+      })
       .catch(e => { if (alive) { setHit(null); setError(e instanceof Error ? e.message : String(e)); } })
       .finally(() => { if (alive) setBusy(null); });
     return () => { alive = false; };
@@ -212,19 +218,6 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                   {domainOnly ? 'Domain' : 'mit der Domain abgleichen'}
                   {r?.enriched && <> — <span className="font-mono">{r.enriched.object}</span> aus {hit.source}</>}
                 </label>
-                {!!hit.unreadable?.length && (
-                  <div className="space-y-1">
-                    <p className={`text-[10px] ${warn}`}>
-                      <AlertTriangle size={10} className="inline mr-1 -mt-0.5" />
-                      Der Projekt-Ordner {hit.unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich
-                      den Zugriff je Adresse der App. Abgeglichen wird {hit.source === 'Katalog' ? 'mit dem Katalog — der kann älter sein als das Projekt' : `mit ${hit.source}`}.
-                    </p>
-                    <button onClick={pickDir} disabled={!!busy}
-                      className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
-                      <FolderOpen size={12} /> Projekt-Ordner wählen
-                    </button>
-                  </div>
-                )}
                 {hit.note && <p className={`text-[10px] ${warn}`}><AlertTriangle size={10} className="inline mr-1 -mt-0.5" />{hit.note}</p>}
                 {withDomain && !r?.enriched && <p className={`text-[10px] ${warn}`}>Die Domain kennt <span className="font-mono">{processId}</span> nicht.</p>}
                 {dom && (
@@ -258,8 +251,13 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
               <div className="space-y-1.5">
                 <p className={`text-[10px] ${warn}`}>
                   <AlertTriangle size={10} className="inline mr-1 -mt-0.5" />
-                  Kein Domain-Objekt mit <span className="font-mono">val processName = "{processId}"</span> im Katalog oder in den
-                  gemerkten Projekt-Ordnern — Projekt-Ordner oder ZIP wählen{domainOnly ? '.' : ', oder nur den Ablauf abgleichen.'}
+                  {unreadable.length ? <>
+                    Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich
+                    den Zugriff je Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt
+                  </> : <>
+                    Kein Domain-Objekt mit <span className="font-mono">val processName = "{processId}"</span> im Katalog oder in den
+                    gemerkten Projekt-Ordnern
+                  </>} — Projekt-Ordner oder ZIP wählen{domainOnly ? '.' : ', oder nur den Ablauf abgleichen.'}
                 </p>
                 <div className="flex items-center gap-2">
                   <button onClick={pickDir} disabled={!!busy}

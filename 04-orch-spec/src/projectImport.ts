@@ -74,12 +74,17 @@ export interface DomainHit {
   source: string;
   /** Caveat about the source, e.g. an older catalog without the cases of the enums */
   note?: string;
-  /**
-   * The process's own project folders that are remembered but could not be read
-   * (no access at this address of the app, folder moved) — the hit then comes
-   * from the catalog, which is only as current as its last build.
-   */
-  unreadable?: string[];
+}
+
+/**
+ * The sync found the process's own project folder remembered but could not read
+ * it (no access at this address of the app, folder moved). It does not fall back
+ * to the catalog — that is only as current as its last build.
+ */
+export interface DomainBlocked {
+  blocked: true;
+  /** the own project folders that could not be read */
+  unreadable: string[];
 }
 
 /**
@@ -97,6 +102,22 @@ const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || 
  * per folder); otherwise an older catalog with a caveat. `null` = nothing.
  */
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
+  const r = await searchDomain(processId, model, onProgress, false);
+  return r && 'blocked' in r ? null : r;
+}
+
+/**
+ * Like `findDomain`, for the sync: if the process has its own remembered
+ * project folder and it cannot be read, the sync does not silently use the
+ * catalog — it says so, and one chooses the folder (or a ZIP).
+ */
+export function findSyncDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
+  return searchDomain(processId, model, onProgress, true);
+}
+
+async function searchDomain(
+  processId: string, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
+): Promise<DomainHit | DomainBlocked | null> {
   const catalog = model?.domainTypes ?? [];
   const inCatalog = hasProcess(catalog, processId);
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
@@ -122,16 +143,16 @@ export async function findDomain(processId: string, model: Model | null, onProgr
     const hit = await fromFolder(p, true);
     if (hit) return hit;
   }
-  // silently on the catalog would hide that it may be older than the project
-  const missed = unreadable.length ? { unreadable } : {};
-  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog', ...missed };
+  // the sync does not fall back silently: the catalog may be older than the project
+  if (stopIfOwnUnreadable && unreadable.length) return { blocked: true, unreadable };
+  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog' };
   for (const p of folders.filter(p => !own.includes(p))) {
     const hit = await fromFolder(p);
-    if (hit) return { ...hit, ...missed };
+    if (hit) return hit;
   }
   if (inCatalog) {
     return {
-      domain: catalog, source: 'Katalog', ...missed,
+      domain: catalog, source: 'Katalog',
       note: 'Der Katalog ist von einem älteren Stand: Fälle und gemeinsame Felder der enums sowie die Schlüssel der Objekte fehlen darin. Katalog neu aufbauen (Admin → Katalog) oder den Projekt-Ordner wählen.',
     };
   }
