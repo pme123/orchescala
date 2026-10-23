@@ -43,7 +43,7 @@ class DocsJsonTest extends FunSuite:
       val scalaOut = os.temp.dir(prefix = "docs-json-scala")
       val tsOut    = os.temp.dir(prefix = "docs-json-ts")
       val r        = DocsJson.write(docsPath, scalaOut)
-      os.proc("node", "tools/docs2json.ts", docsPath.toString, "--out", tsOut.toString, "--spec", "spec/")
+      os.proc("node", "tools/docs2json.ts", docsPath.toString, "--out", tsOut.toString, "--spec", "spec/", "--ops", "ops/")
         .call(cwd = orchDocPath, stdout = os.Inherit, stderr = os.Inherit)
       def json(p: os.Path) = parse(os.read(p)).toOption.getOrElse(fail(s"not JSON: $p"))
       val scalaDocs = json(r.docsJson)

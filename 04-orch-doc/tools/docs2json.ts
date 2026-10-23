@@ -1,6 +1,6 @@
 // CLI: an Orchescala `00-docs` folder (markdown) → orch-doc data.
 //
-//   node tools/docs2json.ts <path/to/00-docs> [--out site] [--company globex] [--spec spec/]
+//   node tools/docs2json.ts <path/to/00-docs> [--out site] [--company globex] [--spec spec/] [--ops ops/]
 //
 // Reads CONFIG.conf, VERSIONS.conf and src/docs/*.md and writes
 //   <out>/index.json                       list of companies (merged if it exists)
@@ -27,6 +27,7 @@ if (!docsDir || docsDir.startsWith('--') || !existsSync(join(docsDir, 'src/docs'
 }
 const out = opt('--out', 'site');
 const spec = opt('--spec', '');   // where orch-spec is deployed, relative to the site root
+const ops = opt('--ops', '');     // where orch-ops is deployed, relative to the site root
 const src = join(docsDir, 'src/docs');
 const read = (f: string) => existsSync(join(src, f)) ? readFileSync(join(src, f), 'utf8') : '';
 
@@ -237,6 +238,7 @@ const ref: CompanyRef = {
   logo: logoFile ? `${company}/${logoFile}` : undefined, url: prev?.url,
 };
 if (spec) siteIndex.specUrl = spec;
+if (ops) siteIndex.opsUrl = ops;
 siteIndex.companies = [...siteIndex.companies.filter(c => c.id !== company), ref].sort((a, b) => a.id.localeCompare(b.id));
 writeFileSync(indexPath, JSON.stringify(siteIndex, null, 2));
 

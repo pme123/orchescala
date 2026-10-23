@@ -341,16 +341,17 @@ lazy val dmnTesterClient = project
   .dependsOn(dmnTester.js)
 
 lazy val bundleDocClient = taskKey[Seq[File]](
-  "Builds the documentation apps (orch-doc: site app + single-file API page, orch-spec) with vite into 04-orch-doc/bundle"
+  "Builds the documentation apps (orch-doc: site app + single-file API page, orch-spec, orch-ops) with vite into 04-orch-doc/bundle"
 )
 lazy val checkDocBundle = taskKey[Unit]("Fails if the documentation apps were not built")
 
 /** The documentation apps - orch-doc (the company documentation site and the standalone API
-  * page every project ships as its OpenApi.html) and orch-spec (process specifications).
-  * React + vite in `04-orch-doc` / `04-orch-spec`; the vite builds are part of the sbt build,
+  * page every project ships as its OpenApi.html), orch-spec (process specifications) and
+  * orch-ops (recurring errors in operation and their workarounds).
+  * React + vite in `04-orch-doc` / `04-orch-spec` / `04-orch-ops`; the vite builds are part of the sbt build,
   * so nobody has to remember `npm run build`. Published as `orchescala-orch-doc` - resources
   * only: `OrchDocApi.html` (the single-file API page, read by the helper's ApiGenerator and
-  * served by the gateway at /docs) and `orch-doc-site/` (the site app incl. orch-spec).
+  * served by the gateway at /docs) and `orch-doc-site/` (the site app incl. orch-spec and orch-ops).
   */
 lazy val orchDocClient = project
   .in(file("./04-orch-doc"))
@@ -374,8 +375,9 @@ lazy val orchDocClient = project
       val log       = s.log
       val clientDir = baseDirectory.value
       val specDir   = (LocalRootProject / baseDirectory).value / "04-orch-spec"
+      val opsDir    = (LocalRootProject / baseDirectory).value / "04-orch-ops"
       val bundleDir = clientDir / "bundle"
-      val apps      = Seq(clientDir, specDir)
+      val apps      = Seq(clientDir, specDir, opsDir)
       val inputs    = (apps.flatMap(d => Seq("src", "public", "tools", "tests").map(d / _)).flatMap(_.allPaths.get()) ++
         apps.flatMap(d =>
           Seq("index.html", "api.html", "package.json", "package-lock.json", "vite.config.ts", "vite.single.config.ts", "tsconfig.json")
@@ -398,6 +400,10 @@ lazy val orchDocClient = project
             NpmBuild.run("orch-spec", "npm ci", specDir, log)
           // orch-spec's unit tests (node:test) - a failing test stops the build, also on CI
           NpmBuild.run("orch-spec", "npm test", specDir, log)
+          // orch-ops likewise: built from orch-doc's `build:ops`, own node_modules, own tests
+          if (!(opsDir / "node_modules" / ".bin" / "vite").exists())
+            NpmBuild.run("orch-ops", "npm ci", opsDir, log)
+          NpmBuild.run("orch-ops", "npm test", opsDir, log)
           NpmBuild.build("the documentation apps", clientDir, Seq("build:all", "build:single"), log)
           // orch-spec's catalog tools as standalone node scripts - the helper runs them (if
           // Node.js is there) to generate the spec catalog of a company's site
@@ -426,6 +432,7 @@ lazy val orchDocClient = project
              |Install it, or build them yourself:
              |  npm --prefix 04-orch-doc ci
              |  npm --prefix 04-orch-spec ci
+             |  npm --prefix 04-orch-ops ci
              |  npm --prefix 04-orch-doc run build:all
              |  npm --prefix 04-orch-doc run build:single""".stripMargin
         )

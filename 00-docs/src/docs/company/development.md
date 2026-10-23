@@ -82,7 +82,7 @@ Be aware that this overwrites `release.md`
 
 `prepareDocs` ends with a local preview of the documentation site: the site is assembled into
 `00-docs/site` (this company and its siblings, the project APIs at their released versions,
-orch-spec with its catalog) and served - the URL is printed (`Preview ready: http://localhost:3004/`)
+orch-spec with its catalog, orch-ops) and served - the URL is printed (`Preview ready: http://localhost:3004/`)
 and the command keeps running until you stop it with Ctrl-C. A failure in the spec catalog or
 the sibling repos does not stop the preview, it is printed and the preview continues with what is
 available. Everything needed ships with orchescala; Node.js is only used for the orch-spec
@@ -99,13 +99,18 @@ Release the company documentation.
 ```
 
 Builds the documentation site (this company and its siblings, the project APIs at their released
-versions, orch-spec) into `00-docs/site` and uploads it to `/site` on the WebDAV server. `/site`
+versions, orch-spec, orch-ops) into `00-docs/site` and uploads it to `/site` on the WebDAV server. `/site`
 is never deleted as a whole: the projects' own folders (`/site/<company>/<project>/`, published
 by each project) and the classic sites of older releases (`/site/<company>/<tag>/`) stay - only
-`assets/` and `spec/` are replaced. Needs Java and git only - Node.js just for the orch-spec catalog.
+`assets/`, `spec/` and `ops/` are replaced. Needs Java and git only - Node.js just for the orch-spec catalog.
+
+The site links two apps in its top bar: **Spec** (`spec/`, process specifications) and **Ops**
+(`ops/`, the recurring errors in operation with their workarounds - a counter per error, search,
+status tags, screenshots). Orch Ops keeps its data in a shared folder of its own (local or
+SharePoint), chosen in the app - the site only serves the app.
 
 @:callout(info)
-The documentation apps (Orch Doc, Orch Spec) are licensed under the
+The documentation apps (Orch Doc, Orch Spec, Orch Ops) are licensed under the
 [Business Source License 1.1](https://github.com/pme123/orchescala/blob/master/04-orch-doc/LICENSE):
 non-production use is free, production use - publishing the site for a company - needs a license
 from z9nai GmbH.

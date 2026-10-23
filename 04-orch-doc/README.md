@@ -9,14 +9,14 @@ no build step on the doc server — deploy to WebDAV.
 
 ## Part of orchescala
 
-This is orchescala's `04-orch-doc`. The sbt build bundles it (and orch-spec) with vite —
+This is orchescala's `04-orch-doc`. The sbt build bundles it (and orch-spec, orch-ops) with vite —
 `sbt orchDocClient/bundleDocClient`, run automatically before packaging — into `bundle/`, which
 is published as the `orchescala-orch-doc` jar:
 
 - `OrchDocApi.html` — the standalone API page (`npm run build:single`, everything inlined).
   The helper writes it into every project as `03-api/OpenApi.html` / `PostmanOpenApi.html`
   (`./helper.scala update`), the gateway serves it at `/docs`.
-- `orch-doc-site/` — the site app incl. orch-spec (`npm run build:all`).
+- `orch-doc-site/` — the site app incl. orch-spec and orch-ops (`npm run build:all`).
 
 ## License
 
@@ -53,7 +53,7 @@ at <http://localhost:3004/>:
    (`openApi.yml` in the root) are handled; a missing tag falls back to HEAD
    with a warning.
 3. **Older releases** (classic static sites) for the version switcher.
-4. **This app** and **orch-spec** (`spec/`), both built.
+4. **This app**, **orch-spec** (`spec/`) and **orch-ops** (`ops/`), all built.
 
 Run `./helper.scala prepareDocs` first when the release data changed, or let
 the script do it with `--prepare`. All options:
@@ -61,7 +61,7 @@ the script do it with `--prepare`. All options:
 ```bash
 node tools/assemble.ts <00-docs> [more 00-docs …] \
   [--prepare] [--git-temp <dir>] [--out <dir>] \
-  [--old-releases] [--no-spec] [--no-build] [--serve [port]]
+  [--old-releases] [--no-spec] [--no-ops] [--no-build] [--serve [port]]
 ```
 
 `dist-site/` is exactly what would be uploaded to the WebDAV `site/` folder.
@@ -82,7 +82,7 @@ node tools/assemble.ts <00-docs> [more 00-docs …] \
 Plus: dark mode, a version switcher to older releases, and a top bar with the
 customer's name and logo on the left (`logo`/`url` in `index.json`; the
 converter takes `src/docs/logo.svg|png`, else the favicon), **Catalogs · Spec
-(experimental) · Orchescala** aligned with the content, and *by z9nai GmbH* on
+(experimental) · Ops (experimental) · Orchescala** aligned with the content, and *by z9nai GmbH* on
 the right. Older releases keep their classic static site
 at `<company>/<tag>/` — the app only links there. The `OpenApi.html` per
 project is untouched.
@@ -94,7 +94,7 @@ Everything is defined in [`src/types.ts`](src/types.ts):
 ```
 site/
   index.html + assets/        ← this app (npm run build → dist/)
-  index.json                  ← SiteIndex: companies (name, logo, url), specUrl, orchescalaUrl
+  index.json                  ← SiteIndex: companies (name, logo, url), specUrl, opsUrl, orchescalaUrl
   globex/
     docs.json                 ← CompanyDocs: release, projects, graph, dependencies,
                                 releaseTables, releaseNotes, catalog, devStats, pages
@@ -104,12 +104,13 @@ site/
     2026-06/ …                ← older releases, classic static sites (unchanged)
   initech/…
   spec/                       ← orch-spec (optional, see below)
+  ops/                        ← orch-ops (optional, see below)
 ```
 
 ### Today: convert the markdown sources
 
 ```bash
-node tools/docs2json.ts <path/to/00-docs> --out site [--spec spec/]
+node tools/docs2json.ts <path/to/00-docs> --out site [--spec spec/] [--ops ops/]
 ```
 
 reads `CONFIG.conf`, `VERSIONS.conf` and `src/docs/*.md` and writes
@@ -164,16 +165,26 @@ catalog of this site at `../` (see *Prozesse von der Doku-Site* in orch-spec).
 Note: for SharePoint login, orch-spec's redirect URI must include the new
 location (`https://<host>/site/spec/`).
 
+## Deploying orch-ops with it
+
+`npm run build:all` also builds orch-ops (`../04-orch-ops`, the recurring errors in
+operation and their workarounds) into `dist/ops/`, with a relative base. With
+`--ops ops/` in `index.json` the top bar shows an **Ops** button. orch-ops keeps
+its data in its own shared folder (local or SharePoint), not in the site — the site
+only serves the app. For SharePoint login its redirect URI must include
+`https://<host>/site/ops/`.
+
 ## Scripts
 
 | | |
 | --- | --- |
-| `npm run site` | assemble the complete site (docs + APIs + spec) and serve on :3004 |
+| `npm run site` | assemble the complete site (docs + APIs + spec + ops) and serve on :3004 |
 | `npm run dev` | dev server on :3003 with `sample-data/site/` |
 | `npm run sample` | regenerate the sample data from `globex-orchescala/00-docs` |
 | `npm run build` | type-check + production build → `dist/` |
 | `npm run build:spec` | build `../orch-spec` into `dist/spec/` |
-| `npm run build:all` | both |
+| `npm run build:ops` | build `../04-orch-ops` into `dist/ops/` |
+| `npm run build:all` | all three |
 
 ## Layout of the code
 
@@ -189,5 +200,5 @@ src/
     DepGraph.tsx   SVG dependency graph (bands per group, ranked, barycenter order)
     Overview.tsx · Release.tsx · Dependencies.tsx · Catalog.tsx · DevStats.tsx · MdPage.tsx
 tools/docs2json.ts 00-docs → site data
-tools/assemble.ts  one run: docs + versioned APIs + old releases + spec, served locally
+tools/assemble.ts  one run: docs + versioned APIs + old releases + spec + ops, served locally
 ```

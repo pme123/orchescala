@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+/.claude/*
+!/.claude/launch.json
+/.idea/*
+/dist-tests/
+# Real operational data (customer/staff data) and the data anonymized from
+# it — the repo is public, none of it belongs here.
+/real-data/
+/sample-data/
+/anonymize.local.json
+/*.html
+!/index.html

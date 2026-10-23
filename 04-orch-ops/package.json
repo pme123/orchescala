@@ -1,0 +1,37 @@
+{
+  "name": "orch-ops",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "vite --port=3005",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --log-level=warning && node --test \"dist-tests/*.test.mjs\"",
+    "import:confluence": "node tools/confluence2errors.ts",
+    "anonymize": "node tools/anonymize.ts real-data sample-data"
+  },
+  "dependencies": {
+    "@azure/msal-browser": "^5.19.0",
+    "lucide-react": "^0.546.0",
+    "marked": "^18.0.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/wicg-file-system-access": "^2023.10.5",
+    "@vitejs/plugin-react": "^5.0.4",
+    "linkedom": "^0.18.13",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
