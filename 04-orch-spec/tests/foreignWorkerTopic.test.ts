@@ -67,3 +67,30 @@ test('a worker of another project stays a service - a neighbouring package of th
   assert.ok(!names.includes('customTask:GetConsultant'), `GetConsultant is a foreign service: ${names}`);
   assert.ok(names.includes('customTask:CheckAddress'), `CheckAddress is a worker of the project: ${names}`);
 });
+
+// A specification imported before the fix still has the foreign worker as an
+// interaction. The sync reports it — and removes it, with its In/Out, on request.
+test('sync: a stored interaction the domain no longer knows is stale - removed with its In/Out on request', async () => {
+  const { mergeDomain } = await import('../src/domainMerge');
+  const spec = importBpmn(bpmn, 'address-change').spec;
+  const fresh = enrichSpec({ ...spec, project: 'acme-demo' }, domain, null)!.spec;
+  const consultantStep = spec.steps.find(s => s.topic === 'acme-person.GetConsultant')!;
+  const query = { id: 't-query', name: 'ConsultantQuery', kind: 'case', status: 'implemented', fields: [{ id: 'f-q', name: 'q', type: 'String' }] };
+  const out = { id: 't-gc-out', name: 'Out', kind: 'case', status: 'implemented', interactionId: 'ia-gc', fields: [{ id: 'f-c', name: 'query', type: 't-query' }] };
+  const foreign = { id: 'ia-gc', stepId: consultantStep.id, kind: 'customTask', name: 'GetConsultant', key: 'acme-person.GetConsultant', outTypeId: 't-gc-out', status: 'implemented' };
+  const draft = { id: 'ia-draft', stepId: 'nowhere', kind: 'customTask', name: 'Planned', key: 'x', status: 'draft' };
+  const previous = { ...fresh, interactions: [...(fresh.interactions ?? []), foreign, draft], types: [...(fresh.types ?? []), query, out] } as never;
+  const status = { added: 'implemented', changed: 'changed' } as const;
+
+  const kept = mergeDomain(previous, fresh, { status });
+  assert.ok(kept.report.stale.includes('GetConsultant'), `reported: ${kept.report.stale}`);
+  assert.ok(kept.spec.interactions?.some(i => i.id === 'ia-gc'), 'stays without removeStale');
+
+  const removed = mergeDomain(previous, fresh, { status, removeStale: true });
+  const ids = (removed.spec.interactions ?? []).map(i => i.id);
+  assert.ok(!ids.includes('ia-gc'), 'the foreign worker is removed');
+  assert.ok(ids.includes('ia-draft'), 'a draft is ahead of the domain - it stays');
+  const typeIds = (removed.spec.types ?? []).map(t => t.id);
+  assert.ok(!typeIds.includes('t-gc-out'), 'its Out goes with it');
+  assert.ok(!typeIds.includes('t-query'), 'and the class only its Out used');
+});

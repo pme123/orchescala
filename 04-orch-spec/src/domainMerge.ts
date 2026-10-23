@@ -157,8 +157,17 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
     else report.kept++;
   }
   // the remaining ones of the specification stay — even without a step in the flow
-  // (the class builder marks them and offers to remove them)
-  for (const ia of pIas) if (!touched.has(ia.id)) interactions.push(ia);
+  // (the class builder marks them and offers to remove them). One that was
+  // implemented is no longer known to the domain (e.g. a worker of another project
+  // that an earlier import took for an own one): reported, removed on request.
+  const droppedIas = new Set<string>();
+  for (const ia of pIas) {
+    if (touched.has(ia.id)) continue;
+    const gone = !!fresh.types?.length && wasImplemented(ia);
+    if (gone) report.stale.push(ia.name);
+    if (gone && opts.removeStale) { droppedIas.add(ia.id); continue; }
+    interactions.push(ia);
+  }
 
   // ── Merge types ─────────────────────────────────────────────────
   const types: TypeDef[] = [];
@@ -193,6 +202,8 @@ export function mergeDomain(previous: ProcessSpec, fresh: ProcessSpec, opts: Dom
   const used = new Set<string>();
   const use = (fs: Field[] | undefined) => { for (const x of fs ?? []) used.add(x.type); };
   for (const t of [...types, ...rest]) {
+    // the In/Out of a removed interaction go with it — what they reference no longer counts
+    if (t.interactionId && droppedIas.has(t.interactionId)) continue;
     use(t.fields);
     for (const v of t.values ?? []) use(v.fields);
   }
