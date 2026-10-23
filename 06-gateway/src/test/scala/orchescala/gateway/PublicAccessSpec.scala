@@ -127,15 +127,15 @@ object PublicAccessSpec extends ZIOSpecDefault:
   private def post(publicAccess: PublicAccess, path: String, body: String): ZIO[Any, Response, Response] =
     Ref.make(Option.empty[(Option[String], Option[JsonObject])]).flatMap(got => post(routes(publicAccess, got), path, body))
 
-  /** At most `d` - without waiting for a stuck effect to stop (`disconnect`): a wait fails the test, it
-    * does not hang it. Measured on the live clock - also in a test on ZIO's `TestClock`, where the effect
-    * itself stays on the test clock: the bound does not move the test clock, it only stops a wait in real
-    * time.
+  /** At most `d` of real time - without waiting for a stuck effect to stop (`disconnect`): a wait fails
+    * the test, it does not hang it. It does not move ZIO's `TestClock`.
     */
   private def bounded[R, E, A](d: Duration)(zio: ZIO[R, E, A]): ZIO[R, E, Option[A]] =
     Live.withLive(zio.disconnect)(_.timeout(d))
 
-  /** The sleeps on ZIO's `TestClock` that end `d` from now - also stopped ones (the test clock keeps them). */
+  /** The sleeps on ZIO's `TestClock` that end `d` from now - also stopped ones (the test clock keeps them).
+    * Any sleep of `d` counts: the tests use a callTimeout no other sleep on the path has (e.g. 1234 ms).
+    */
   private def sleepsEndingIn(d: Duration) =
     for
       now    <- Clock.instant
@@ -147,7 +147,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
     * would miss it.
     */
   private def timeoutSet(d: Duration, before: Int) =
-    bounded(5.seconds)((ZIO.yieldNow *> sleepsEndingIn(d)).repeatUntil(_ > before))
+    bounded(5.seconds)((Live.live(ZIO.sleep(1.milli)) *> sleepsEndingIn(d)).repeatUntil(_ > before))
       .someOrFail(s"no timeout of ${d.render} set on the test clock")
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PublicAccess")(
@@ -398,23 +398,29 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(response.status == Status.ServiceUnavailable)
       @@ TestAspect.withLiveClock,
       test("more than maxConcurrentCalls at once - a 503 at once"):
+        // on ZIO's TestClock, not moved: the timeout of the first call never fires - it cannot stop it
+        // before it reaches the engine, nor before it is released
         for
           token    <- techTokenOf(ManualClock())
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          arrived  <- Promise.make[Nothing, Unit]
           release  <- Promise.make[Nothing, Unit]
           one       = access.copy(login = Some(login), maxConcurrentCalls = 1)
-          r         = routes(one, got, release.await, Some(token))
+          r         = routes(one, got, arrived.succeed(()) *> release.await, Some(token))
           first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
-          _        <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
-          second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+          _        <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
+          second   <- bounded(5.seconds):
+                        post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+                      .someOrFail("the second call did not answer")
           _        <- release.succeed(())
-          done     <- first.join
+          done     <- bounded(5.seconds)(first.join).someOrFail("the first call did not answer")
         yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
-      @@ TestAspect.withLiveClock,
+      ,
       test("a call that takes too long - interrupted; its slot is free once it has stopped"):
         // on the test clock (as "the caller is gone"): the timeout of the call fires only when the clock is
         // moved - not while the first call is still on its way to the engine
-        val one = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1.second)
+        // a callTimeout no other sleep on the path has - see sleepsEndingIn
+        val one = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1234.millis)
         /** The first call in the engine and past its timeout - and the second call, to be made. */
         def pastTimeout(slow: UIO[Unit]) =
           for
@@ -439,6 +445,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
           stopped     <- pastTimeout(ZIO.never.onInterrupt(interrupted.succeed(())))
           first       <- stopped._1
           wasStopped  <- interrupted.isDone
+          // asked once: the slot is free before the first call answers (`ensuring` before the answer) - unlike
+          // in "the caller is gone", where there is no answer to wait for
           second      <- stopped._2
           // not interruptible - still running after its timeout (until released), the next call finds no slot
           hold        <- Promise.make[Nothing, Unit]
@@ -469,8 +477,9 @@ object PublicAccessSpec extends ZIOSpecDefault:
           answer      = n.getAndUpdate(_ + 1).flatMap: i =>
                           if i == 0 then arrived.succeed(()) *> ZIO.never.onInterrupt(stopped.succeed(()))
                           else ZIO.unit
-          // requestsPerMinute high so that asking again is not stopped by the rate limit (429)
-          one         = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
+          // requestsPerMinute high so that asking again is not stopped by the rate limit (429); a callTimeout
+          // no other sleep on the path has - see sleepsEndingIn
+          one         = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 234.millis, requestsPerMinute = 1000)
           r           = routes(one, got, answer, Some(token))
           other       = post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
           before     <- sleepsEndingIn(one.callTimeout)
