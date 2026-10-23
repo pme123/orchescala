@@ -5,7 +5,7 @@
 import type { Component, Page } from '../pages/runtime/spec';
 import { pageProblem } from '../pages/runtime/validate';
 import {
-  blockAt, flatten, insertBlock, pageFindings, placeBlock, relocateBlock, removeBlock, updateBlock,
+  blockAt, copyBlock, flatten, insertBlock, pageFindings, placeBlock, relocateBlock, removeBlock, updateBlock,
   type BlockKey, type PageFinding, type Place, type Targets,
 } from '../pages/designer/model';
 import { failed, isObject, json, type ToolKit, type ToolOutcome } from './toolkit';
@@ -153,7 +153,9 @@ export function runPageTool(name: string, input: unknown, d: PageDraft, ctx: Pag
     }
     case 'insert_block': {
       if (!isObject(args.block)) return failed(d, '«block» fehlt oder ist kein Objekt.');
-      const block = args.block as Component;
+      // a new building block gets new IDs (also inside a section) - an ID copied from an existing block
+      // would otherwise take over that block's comments and change log when it comes first
+      const block = copyBlock(args.block as Component);
       const place = PLACES.includes(args.place as Place) ? (args.place as Place) : 'after';
       if (args.at !== undefined && !(asKey(args.at) && blockAt(body, args.at))) return failed(d, `Einen Baustein «${String(args.at)}» gibt es nicht.`);
       const r = args.at === undefined ? insertBlock(body, block) : placeBlock(body, block, args.at as BlockKey, place);

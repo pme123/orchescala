@@ -12,7 +12,7 @@ import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost'
 import { changedKeys, pageDiff } from '../src/ai/diff';
 import { aiEnabled, KEY_STORAGE, looksLikeKey, maskKey, readKey, writeKey, type KeyStore } from '../src/ai/key';
 import { draftChanged, newErrors, outlineOf, pageToolKit, runPageTool, startDraft, type PageContext } from '../src/ai/pageTools';
-import { targetsOf } from '../src/pages/designer/model';
+import { flatten, targetsOf, withIds } from '../src/pages/designer/model';
 import type { Page } from '../src/pages/runtime/spec';
 import type { Model } from '../src/types';
 
@@ -90,6 +90,19 @@ test('tools - insert a field block into the section, the outline and the finding
   // the page itself is untouched - only the draft changed
   assert.equal(book.body[1].type === 'section' && book.body[1].body.length, 1);
   assert.equal(r.draft.base, book);
+});
+
+test('tools - an inserted block gets new IDs: an ID copied from an existing block does not take over its comments', () => {
+  const page = { ...book, body: withIds(book.body) };
+  const section = page.body[1];
+  const d = startDraft('book', page);
+  // Claude inserts a copy of the section (with the IDs it read) before the original
+  const r = runPageTool('insert_block', { block: structuredClone(section), at: '1', place: 'before' }, d, ctx);
+  assert.equal(r.isError, undefined);
+  const ids = flatten(r.draft.page.body).map(({ block }) => block.id);
+  assert.equal(new Set(ids).size, ids.length); // no ID twice
+  assert.equal(r.draft.page.body[2].id, section.id); // the original keeps its ID
+  assert.notEqual(r.draft.page.body[1].id, section.id);
 });
 
 test('tools - update, move, remove and the page properties', () => {
