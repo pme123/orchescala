@@ -165,10 +165,22 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     const wanted = typeKey(f.constraint?.trim() ? `${nameOf(f.type)} :| ${f.constraint.trim()}` : nameOf(f.type));
     return defaults.find(d => d.name === name && typeKey(d.type!) === wanted) ?? null;
   };
-  // the import keeps a union alias as the field type by its name (`SendEvent.In.ReceivingSystems`)
-  const noneAliases = new Set((model?.domainTypes ?? [])
-    .filter(d => d.kind === 'alias' && !!d.target && unionAllowsNone(d.target) && (!ownPkg || d.pkg === ownPkg))
-    .map(d => d.name));
+  // the import keeps a union alias as the field type by its name (`SendEvent.In.ReceivingSystems`) —
+  // only the aliases of the process's package: the name alone is not unique across processes
+  const aliases = new Map((model?.domainTypes ?? [])
+    .filter(d => d.kind === 'alias' && !!d.target && !!ownPkg && d.pkg === ownPkg)
+    .map(d => [d.name, d.target!] as const));
+  // a name in the target (`Rs` in `type Maybe = Rs | Long`) as Scala sees it from the alias:
+  // in its object first (`SendEvent.In.Rs`), then outwards
+  const resolveFrom = (alias: string) => (name: string): string | undefined => {
+    const scopes = alias.split('.').slice(0, -1);
+    for (let n = scopes.length; n >= 0; n--) {
+      const target = aliases.get([...scopes.slice(0, n), name].join('.'));
+      if (target) return target;
+    }
+    return undefined;
+  };
+  const noneAliases = new Set([...aliases].filter(([name, target]) => unionAllowsNone(target, resolveFrom(name))).map(([name]) => name));
   return {
     byId,
     serviceOf,

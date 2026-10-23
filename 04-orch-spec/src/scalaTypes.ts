@@ -426,28 +426,47 @@ export function isCompoundType(text: string): boolean {
   return false;
 }
 
-/**
- * A union type with a member that can be `None` (`Option[String] | Seq[X]`, `None.type | X`) —
- * a field of that type may be missing although it is no `Option[…]`.
- */
-export function unionAllowsNone(text: string): boolean {
+/** The members of a union type at the top level (`:|` is no `|`) — one member if it is none. */
+export function unionMembers(text: string): string[] {
   const members: string[] = [];
   let depth = 0;
   let from = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    // a name in backticks (`a|b`) is one name
+    if (c === '`') { const end = text.indexOf('`', i + 1); if (end < 0) break; i = end; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (depth === 0 && c === '|' && text[i - 1] !== ':') {
-      members.push(text.slice(from, i));
+      members.push(text.slice(from, i).trim());
       from = i + 1;
     }
   }
-  if (!members.length) return false;
-  members.push(text.slice(from));
-  // `Option[…]` on the outside only — `Seq[Option[X]]` is never None
-  return members.map(m => m.trim()).some(m => m === 'None.type' || (/^Option\s*\[/.test(m) && typeShape(m).optional));
+  members.push(text.slice(from).trim());
+  return members;
+}
+
+/**
+ * A union type with a member that can be `None` (`Option[String] | Seq[X]`, `None.type | X`) —
+ * a field of that type may be missing although it is no `Option[…]`. A member that names
+ * another alias (`type Maybe = Rs | Long`) counts with that alias's target (`resolve`).
+ */
+export function unionAllowsNone(text: string, resolve: (name: string) => string | undefined = () => undefined): boolean {
+  const members = unionMembers(text);
+  return members.length > 1 && members.some(m => memberAllowsNone(m, resolve, new Set()));
+}
+
+function memberAllowsNone(m: string, resolve: (name: string) => string | undefined, seen: Set<string>): boolean {
+  if (m === 'None.type') return true;
+  // `Option[…]` on the outside only — `Seq[Option[X]]` is never None, nor a refined
+  // `Option[String] :| C` (`Option[String :| C]` is)
+  if (/^Option\s*\[/.test(m)) return topLevelRefine(m) < 0 && typeShape(m).optional;
+  if (!/^[\w.]+$/.test(m) || seen.has(m)) return false;
+  const target = resolve(m);
+  if (!target) return false;
+  seen.add(m);
+  return unionMembers(target).some(t => memberAllowsNone(t, resolve, seen));
 }
 
 /** Position of `:|` at the top bracket level. */

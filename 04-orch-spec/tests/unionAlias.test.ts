@@ -142,17 +142,81 @@ test('unionAllowsNone: an Option[…] or None.type on the outside of a union mem
   assert.ok(!unionAllowsNone('String | "Option[x]"'));
 });
 
+// the arguments of `lazy val exampleMinimal = example.copy(…)` after `marker` — up to its closing line
+const minimalAfter = (content: string, marker: string): string => {
+  const rest = content.slice(content.indexOf(marker));
+  const m = /lazy val exampleMinimal = example(?:\.copy\(\n([\s\S]*?)\n\s*\)\n)?/.exec(rest);
+  return m?.[1] ?? '';
+};
+
 test('export: exampleMinimal sets a union alias with an Option to None - other aliases not', () => {
   const { spec, domain } = imported();
   const file = scalaFiles(spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
-  const minimal = /lazy val exampleMinimal = example\.copy\(([\s\S]*?)\)/.exec(file.content)?.[1] ?? '';
+  const minimal = minimalAfter(file.content, 'object In:');
   assert.match(minimal, /receivingSystems = None/, file.content);
   assert.match(minimal, /tags = None/);
   assert.doesNotMatch(minimal, /pid = None/);
   // without the domain (no alias known) only the Option fields
   const bare = scalaFiles(spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
-  const bareMinimal = /lazy val exampleMinimal = example\.copy\(([\s\S]*?)\)/.exec(bare.content)?.[1] ?? '';
-  assert.doesNotMatch(bareMinimal, /receivingSystems/);
+  assert.doesNotMatch(minimalAfter(bare.content, 'object In:'), /receivingSystems/);
+});
+
+const noneSource = `package ${PKG}
+
+object SendEvent extends CompanyBpmnProcessDsl:
+  val processName = "${PID}"
+  val descr: String = ""
+
+  case class In(
+      rs: In.Rs,
+      maybe: In.Maybe,
+      noneOrInt: In.NoneOrInt,
+      refined: In.Refined,
+      inner: In.Inner,
+      list: Seq[In.Rs],
+      name: String
+  )
+  object In:
+    type Rs = Option[String] | Seq[String]
+    type Maybe = Rs | Long
+    type NoneOrInt = None.type | Int
+    type Refined = Option[String] :| MinLength[1] | Long
+    type Inner = Option[String :| MinLength[1]] | Long
+  end In
+
+  enum Out:
+    case Done(
+        rs: In.Rs,
+        count: Int
+    )
+  end Out
+
+  lazy val example = process(In.example, Out.example)
+end SendEvent
+`;
+
+test('export: exampleMinimal - an alias of an alias, None.type, a refined Option, a Seq of such an alias, an ADT case', () => {
+  const domain = scanScala(noneSource, 'SendEvent.scala');
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain, null)!;
+  const file = scalaFiles(r.spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  const inMinimal = minimalAfter(file.content, 'object In:');
+  for (const name of ['rs', 'maybe', 'noneOrInt', 'inner']) assert.match(inMinimal, new RegExp(`\\b${name} = None`), file.content);
+  // `Option[String] :| C` is no Option - None would not compile; a Seq is never None
+  for (const name of ['refined', 'list', 'name']) assert.doesNotMatch(inMinimal, new RegExp(`\\b${name} = None`), file.content);
+  const caseMinimal = minimalAfter(file.content, 'object Done:');
+  assert.match(caseMinimal, /\brs = None/, file.content);
+  assert.doesNotMatch(caseMinimal, /count/);
+});
+
+test('unionAllowsNone: a member naming another alias counts with its target - without a loop', () => {
+  const targets: Record<string, string> = { Rs: 'Option[String] | Seq[X]', A: 'B | Int', B: 'A | Long' };
+  const resolve = (n: string) => targets[n];
+  assert.ok(unionAllowsNone('Rs | Long', resolve));
+  assert.ok(!unionAllowsNone('A | String', resolve));
+  assert.ok(!unionAllowsNone('Rs', resolve)); // no union - the import resolves it to Rs itself
+  assert.ok(!unionAllowsNone('Option[String] :| MinLength[1] | Long'));
+  assert.ok(unionAllowsNone('Option[String :| MinLength[1]] | Long'));
+  assert.ok(!unionAllowsNone('`a|b` | Long'));
 });
 
 test('import: a union alias at the top of the file is reported as unresolved - its simple name is no Scala path', () => {
