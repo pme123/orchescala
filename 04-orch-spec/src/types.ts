@@ -350,6 +350,14 @@ export interface Field {
   type: string;
   /** Option[T] — may be missing */
   optional?: boolean;
+  /**
+   * From the import: the union alias that can be `None` (`type X = Option[String] | Seq[Y]`) —
+   * the field is no `Option[…]`, but `exampleMinimal` sets it to `None` too, as long as `type`
+   * is still this alias. Decided with the scanned project domain; a name in the target is
+   * followed only to an alias of the same package (`Rs` in `type Maybe = Rs | Long`) — an
+   * imported one or one of another package does not count.
+   */
+  noneAlias?: string;
   /** Seq[T] — multiple */
   collection?: boolean;
   /** Map[String, T] — the key is always text in JSON, `type` is the value */

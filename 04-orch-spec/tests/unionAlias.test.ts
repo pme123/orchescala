@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { importBpmn } from '../src/bpmn';
+import { DEFAULT_MERGE_STATUS, importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
+import { healLooseTypes } from '../src/interactions';
 import { mergeDomain } from '../src/domainMerge';
 import { isScalaTypeExpression, scalaFiles } from '../src/scala';
-import { isCompoundType, typeShape } from '../src/scalaTypes';
+import { isCompoundType, typeShape, unionAllowsNone } from '../src/scalaTypes';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -130,6 +131,158 @@ test('export: the union alias is written as it was imported', () => {
   const { spec, domain } = imported();
   const file = scalaFiles(spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
   assert.match(file.content, /receivingSystems: SendEvent\.In\.ReceivingSystems,/);
+});
+
+test('unionAllowsNone: an Option[…] or None.type on the outside of a union member', () => {
+  assert.ok(unionAllowsNone('Option[String] | Seq[ReceivingSystem]'));
+  assert.ok(unionAllowsNone('Seq[X] | Option[Seq[X]]'));
+  assert.ok(unionAllowsNone('None.type | String'));
+  assert.ok(!unionAllowsNone('String :| ValidUUID | Long'));
+  assert.ok(!unionAllowsNone('Seq[Option[String]] | Long'));
+  assert.ok(!unionAllowsNone('Option[String]'));
+  assert.ok(!unionAllowsNone('Option[A | B]'));
+  assert.ok(!unionAllowsNone('String | "Option[x]"'));
+});
+
+// the arguments of `lazy val exampleMinimal = example.copy(…)` after `marker` — up to its closing line
+// fails when the marker or the `.copy(` block is missing — a `doesNotMatch` must not pass on nothing
+const minimalAfter = (content: string, marker: string): string => {
+  const at = content.indexOf(marker);
+  assert.ok(at >= 0, `${marker} missing in\n${content}`);
+  const m = /lazy val exampleMinimal = example\.copy\(\n([\s\S]*?)\n\s*\)\n/.exec(content.slice(at));
+  assert.ok(m, `exampleMinimal = example.copy(…) missing after ${marker} in\n${content}`);
+  return m[1];
+};
+
+test('export: exampleMinimal sets a union alias with an Option to None - other aliases not; no catalog needed', () => {
+  const { spec } = imported();
+  // the app exports with the catalog as model - it does not have the project's aliases
+  const file = scalaFiles(spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  const minimal = minimalAfter(file.content, 'object In:');
+  assert.match(minimal, /receivingSystems = None/, file.content);
+  assert.match(minimal, /tags = None/);
+  assert.doesNotMatch(minimal, /pid = None/);
+});
+
+test('export: a field whose type was changed since the import is no longer set to None', () => {
+  const { spec } = imported();
+  // a scalar, or another alias by name (not known as a type id) — the flag was for the old alias
+  for (const type of ['String', 'SendEvent.In.Other']) {
+    const changed = {
+      ...spec,
+      types: (spec.types ?? []).map(t => ({ ...t, fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type } : f)) })),
+    };
+    const file = scalaFiles(changed, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+    const minimal = minimalAfter(file.content, 'object In:');
+    assert.match(minimal, /tags = None/);
+    assert.doesNotMatch(minimal, /receivingSystems/, file.content);
+  }
+});
+
+test('sync: a spec from before gets noneAlias from the domain', () => {
+  const { spec } = imported();
+  const strip = (s: typeof spec) => ({
+    ...s,
+    types: (s.types ?? []).map(t => ({ ...t, fields: t.fields?.map(({ noneAlias: _, ...f }) => f) })),
+  });
+  const { spec: merged } = mergeDomain(strip(spec), spec, { status: DEFAULT_MERGE_STATUS });
+  const field = (merged.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.noneAlias, 'SendEvent.In.ReceivingSystems');
+});
+
+test('export: still None after the app turned the alias into a catalog reference (healLooseTypes)', () => {
+  const { spec, domain } = imported();
+  // the catalog knows the alias: opening the spec makes the field type `dom:<pkg>.SendEvent.In.ReceivingSystems`
+  const model = { domainTypes: domain } as never;
+  const healed = { ...spec, types: healLooseTypes(spec.types ?? [], model) ?? spec.types };
+  const field = (healed.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.type, `dom:${PKG}.SendEvent.In.ReceivingSystems`);
+  assert.equal(field.noneAlias, 'SendEvent.In.ReceivingSystems');
+  for (const m of [model, null]) {
+    const file = scalaFiles(healed, m).find(f => f.path.endsWith('/SendEvent.scala'))!;
+    assert.match(minimalAfter(file.content, 'object In:'), /receivingSystems = None/, file.content);
+  }
+});
+
+test('sync: noneAlias goes away when the domain alias no longer allows None', () => {
+  const { spec } = imported();
+  // the domain now: `type ReceivingSystems = String | Seq[ReceivingSystem]`
+  const changed = source.replace('type ReceivingSystems = Option[String] | Seq[ReceivingSystem]', 'type ReceivingSystems = String | Seq[ReceivingSystem]');
+  const fresh = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, scanScala(changed, 'SendEvent.scala'), null)!.spec;
+  const { spec: merged } = mergeDomain(spec, fresh, { status: DEFAULT_MERGE_STATUS });
+  const field = (merged.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.type, 'SendEvent.In.ReceivingSystems');
+  assert.equal(field.noneAlias, undefined);
+  const file = scalaFiles(merged, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  assert.doesNotMatch(minimalAfter(file.content, 'object In:'), /receivingSystems/, file.content);
+});
+
+const noneSource = `package ${PKG}
+
+object SendEvent extends CompanyBpmnProcessDsl:
+  val processName = "${PID}"
+  val descr: String = ""
+
+  case class In(
+      rs: In.Rs,
+      maybe: In.Maybe,
+      same: In.Same,
+      noneOrInt: In.NoneOrInt,
+      refined: In.Refined,
+      inner: In.Inner,
+      list: Seq[In.Rs],
+      name: String
+  )
+  object In:
+    type Rs = Option[String] | Seq[String]
+    type Maybe = Rs | Long
+    type Same = Rs
+    type NoneOrInt = None.type | Int
+    type Refined = Option[String] :| MinLength[1] | Long
+    type Inner = Option[String :| MinLength[1]] | Long
+  end In
+
+  enum Out:
+    case Done(
+        rs: In.Rs,
+        count: Int
+    )
+  end Out
+
+  lazy val example = process(In.example, Out.example)
+end SendEvent
+`;
+
+test('export: exampleMinimal - an alias of an alias, None.type, a refined Option, a Seq of such an alias, an ADT case', () => {
+  const domain = scanScala(noneSource, 'SendEvent.scala');
+  const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain, null)!;
+  // `type Same = Rs` (no union): the import resolves it to `Rs` itself, with its noneAlias
+  const same = (r.spec.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'same')!;
+  assert.deepEqual([same.type, same.noneAlias], ['SendEvent.In.Rs', 'SendEvent.In.Rs']);
+  const file = scalaFiles(r.spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  const inMinimal = minimalAfter(file.content, 'object In:');
+  for (const name of ['rs', 'maybe', 'same', 'noneOrInt', 'inner']) assert.match(inMinimal, new RegExp(`\\b${name} = None`), file.content);
+  // `Option[String] :| C` is no Option - None would not compile; a Seq is never None
+  for (const name of ['refined', 'list', 'name']) assert.doesNotMatch(inMinimal, new RegExp(`\\b${name} = None`), file.content);
+  const caseMinimal = minimalAfter(file.content, 'object Done:');
+  assert.match(caseMinimal, /\brs = None/, file.content);
+  assert.doesNotMatch(caseMinimal, /count/);
+  // the example of the enum is typed with the enum — `process(…)` needs its codec, not one of the case
+  assert.match(file.content, /\n    lazy val example: Out = Done\.example\n  end Out/, file.content);
+});
+
+test('unionAllowsNone: a member naming another alias counts with its target - without a loop', () => {
+  const targets: Record<string, string> = { Rs: 'Option[String] | Seq[X]', A: 'B | Int', B: 'A | Long' };
+  const resolve = (n: string) => targets[n];
+  assert.ok(unionAllowsNone('Rs | Long', resolve));
+  assert.ok(!unionAllowsNone('A | String', resolve));
+  assert.ok(!unionAllowsNone('Rs', resolve)); // no union - the import resolves it to Rs itself
+  assert.ok(!unionAllowsNone('Option[String] :| MinLength[1] | Long'));
+  assert.ok(unionAllowsNone('Option[String :| MinLength[1]] | Long'));
+  assert.ok(!unionAllowsNone('`a|b` | Long'));
+  // a function type is no union - also when its result could be None
+  assert.ok(!unionAllowsNone('(A | B) => C | Option[D]'));
+  assert.ok(unionAllowsNone('Option[A => B] | Long'));
 });
 
 test('import: a union alias at the top of the file is reported as unresolved - its simple name is no Scala path', () => {
