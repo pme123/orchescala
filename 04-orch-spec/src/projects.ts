@@ -185,7 +185,9 @@ export async function rebuild(
     const handle = await handleFor(p, roots);
     if (!handle) {
       missing.push(p);
-      gezaehlt.push({ ...p, types: 0 });
+      // not read: no types, and no scan time of its own either
+      const { scannedAt: _s, ...unread } = p;
+      gezaehlt.push({ ...unread, types: 0 });
       continue;
     }
     onProgress(`${p.name}: Dateien lesen …`);

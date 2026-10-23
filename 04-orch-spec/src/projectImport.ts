@@ -151,7 +151,11 @@ async function searchDomain(
   // catalog is as old as its last build (Admin → Katalog, prepareDocs),
   // otherwise the sync would only see a change to the domain after that.
   const folders = model?.projects ?? [];
-  const own = folders.filter(p => processId.startsWith(`${p.name}-`));
+  // the project whose name is the longest prefix — `valiant` is not the project of
+  // `valiant-bpmn-…` when `valiant-bpmn` is listed too (folders of the same name all count)
+  const matching = folders.filter(p => processId.startsWith(`${p.name}-`));
+  const longest = Math.max(0, ...matching.map(p => p.name.length));
+  const own = matching.filter(p => p.name.length === longest);
   for (const p of own) {
     const hit = await fromFolder(p, true);
     if (hit) return hit;

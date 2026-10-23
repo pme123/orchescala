@@ -81,3 +81,13 @@ test('own project folder readable but without the process: the search goes on to
     assert.equal(r.source, 'Katalog');
   } finally { g.indexedDB = realIndexedDb; }
 });
+
+test('a shorter project name that is only a prefix is not the own project', async () => {
+  // `acme` matches `acme-demo-sendEvent` too — but `acme-demo` is the project; `acme` unreadable blocks nothing
+  const empty = { kind: 'directory', name: 'acme-demo', queryPermission: async () => 'granted', entries: async function* () { /* empty */ } };
+  fakeIndexedDb({ 'project:p-acme-demo': empty });
+  try {
+    const r = await findSyncDomain(PID, model(['acme', 'acme-demo']));
+    assert.ok(r && !('blocked' in r), 'only acme-demo is the own folder');
+  } finally { g.indexedDB = realIndexedDb; }
+});

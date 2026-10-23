@@ -96,7 +96,12 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     try { return plan(raw, from, st)?.spec.processId ?? current.processId ?? ''; } catch { return current.processId ?? ''; }
     // only per file — the status does not change the process ID
   }, [raw, from]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a folder or ZIP chosen here stays for this process — a change of the data (model)
+  // must not throw it away and block the sync again
+  const picked = useRef<string | null>(null);
   useEffect(() => {
+    if (picked.current === processId) return;
+    picked.current = null;
     let alive = true;
     setHit(undefined);
     setUnreadable([]);
@@ -119,7 +124,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
       const domain = scanDomain(await read());
       if (!domain.some(t => t.processName === processId && t.owner)) {
         setError(`In ${source} gibt es kein Objekt mit \`val processName = "${processId}"\`.`);
-      } else { setError(''); setUnreadable([]); setHit({ domain, source }); }
+      } else { setError(''); setUnreadable([]); setHit({ domain, source }); picked.current = processId; }
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
     } finally {
