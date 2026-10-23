@@ -625,14 +625,22 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   return `case class ${t.name}(${body})`;
 }
 
+/**
+ * `lazy val exampleMinimal` — the example without everything that may be missing (`mayBeMissing`);
+ * `at` is the indent of the `lazy val` (the closing `)` goes there).
+ */
+function exampleMinimal(fields: Field[], idx: TypeIndex, at: string): string {
+  const missing = fields.filter(f => idx.mayBeMissing(f));
+  return missing.length
+    ? `lazy val exampleMinimal = example.copy(\n${indent(missing.map(f => `${scalaName(f.name)} = None`).join(',\n'), `${at}  `)}\n${at})`
+    : 'lazy val exampleMinimal = example';
+}
+
 function companion(t: TypeDef, idx: TypeIndex): string {
   const fields = exampleFields(finished(t.fields, idx), idx);
   const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
   // exampleMinimal leaves out everything that may be missing
-  const optional = fields.filter(f => idx.mayBeMissing(f));
-  const minimal = optional.length
-    ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '    ')}\n  )`
-    : 'lazy val exampleMinimal = example';
+  const minimal = exampleMinimal(fields, idx, '  ');
 
   return [
     `object ${t.name}:`,
@@ -704,10 +712,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
     const fields = exampleFields(fieldsOf(v), idx);
     const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
-    const optional = fields.filter(f => idx.mayBeMissing(f));
-    const minimal = optional.length
-      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '      ')}\n    )`
-      : 'lazy val exampleMinimal = example';
+    const minimal = exampleMinimal(fields, idx, '    ');
     return [
       `  object ${caseIdent(v.name)}:`,
       args.length

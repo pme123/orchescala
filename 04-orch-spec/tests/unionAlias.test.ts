@@ -144,10 +144,13 @@ test('unionAllowsNone: an Option[…] or None.type on the outside of a union mem
 });
 
 // the arguments of `lazy val exampleMinimal = example.copy(…)` after `marker` — up to its closing line
+// fails when the marker or the `.copy(` block is missing — a `doesNotMatch` must not pass on nothing
 const minimalAfter = (content: string, marker: string): string => {
-  const rest = content.slice(content.indexOf(marker));
-  const m = /lazy val exampleMinimal = example(?:\.copy\(\n([\s\S]*?)\n\s*\)\n)?/.exec(rest);
-  return m?.[1] ?? '';
+  const at = content.indexOf(marker);
+  assert.ok(at >= 0, `${marker} missing in\n${content}`);
+  const m = /lazy val exampleMinimal = example\.copy\(\n([\s\S]*?)\n\s*\)\n/.exec(content.slice(at));
+  assert.ok(m, `exampleMinimal = example.copy(…) missing after ${marker} in\n${content}`);
+  return m[1];
 };
 
 test('export: exampleMinimal sets a union alias with an Option to None - other aliases not; no catalog needed', () => {
@@ -190,6 +193,7 @@ object SendEvent extends CompanyBpmnProcessDsl:
   case class In(
       rs: In.Rs,
       maybe: In.Maybe,
+      same: In.Same,
       noneOrInt: In.NoneOrInt,
       refined: In.Refined,
       inner: In.Inner,
@@ -199,6 +203,7 @@ object SendEvent extends CompanyBpmnProcessDsl:
   object In:
     type Rs = Option[String] | Seq[String]
     type Maybe = Rs | Long
+    type Same = Rs
     type NoneOrInt = None.type | Int
     type Refined = Option[String] :| MinLength[1] | Long
     type Inner = Option[String :| MinLength[1]] | Long
@@ -218,9 +223,12 @@ end SendEvent
 test('export: exampleMinimal - an alias of an alias, None.type, a refined Option, a Seq of such an alias, an ADT case', () => {
   const domain = scanScala(noneSource, 'SendEvent.scala');
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain, null)!;
+  // `type Same = Rs` (no union): the import resolves it to `Rs` itself, with its noneAllowed
+  const same = (r.spec.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'same')!;
+  assert.deepEqual([same.type, same.noneAllowed], ['SendEvent.In.Rs', true]);
   const file = scalaFiles(r.spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
   const inMinimal = minimalAfter(file.content, 'object In:');
-  for (const name of ['rs', 'maybe', 'noneOrInt', 'inner']) assert.match(inMinimal, new RegExp(`\\b${name} = None`), file.content);
+  for (const name of ['rs', 'maybe', 'same', 'noneOrInt', 'inner']) assert.match(inMinimal, new RegExp(`\\b${name} = None`), file.content);
   // `Option[String] :| C` is no Option - None would not compile; a Seq is never None
   for (const name of ['refined', 'list', 'name']) assert.doesNotMatch(inMinimal, new RegExp(`\\b${name} = None`), file.content);
   const caseMinimal = minimalAfter(file.content, 'object Done:');
