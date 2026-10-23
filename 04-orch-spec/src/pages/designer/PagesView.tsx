@@ -98,7 +98,7 @@ export default function PagesView({ onOpen, onOpenTask }: {
             const goal = tasks.find((t) => t.steps.length)?.steps[0];
             // a key in several processes: the link goes to the first - said in the chip, not only in the tooltip
             const ambiguous = tasks.some((t) => t.steps.length > 1);
-            const chip = 'text-[9px] px-1.5 py-0.5 rounded border';
+            const chip = 'text-[9px] px-1.5 py-0.5 rounded border whitespace-nowrap';
             const sky = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
             const taskTitle = `Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.map((t) => taskStepText(t.key, t.steps)).join('\n')}`;
             return (
@@ -120,8 +120,9 @@ export default function PagesView({ onOpen, onOpenTask }: {
                     </span>
                   ) : <span className="w-8" />}
                 </button>
-                {/* the kind of the page - next to the row (a button of its own, not inside the row's button) */}
-                <div className="w-20 flex justify-end">
+                {/* the kind of the page - next to the row (a button of its own, not inside the row's button); at least
+                    as wide as «User-Task», wider for «×2 ⚠», so the chips stay in one column and do not wrap */}
+                <div className="flex-shrink-0 min-w-[5rem] pl-1 flex justify-end">
                   {tasks.length === 0 ? (
                     <span title="Einfache Seite – schliesst keinen Benutzer-Task ab" className={`${chip} ${c.border2} ${c.muted}`}>Seite</span>
                   ) : goal && onOpenTask ? (
