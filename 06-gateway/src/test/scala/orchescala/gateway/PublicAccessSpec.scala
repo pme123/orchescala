@@ -396,27 +396,49 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
       @@ TestAspect.withLiveClock,
       test("a call that takes too long - interrupted; its slot is free once it has stopped"):
-        def calls(slow: UIO[Unit]) =
+        // on the test clock (as "the caller is gone"): the timeout of the call fires only when the clock is
+        // moved - not while the first call is still on its way to the engine
+        val one = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1.second)
+        /** The first call in the engine and past its timeout - and the second call, to be made. */
+        def pastTimeout(slow: UIO[Unit]) =
           for
-            token    <- techTokenOf(TestClock())
-            got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
-            n        <- Ref.make(0)
-            answer    = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then slow else ZIO.unit)
-            one       = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1.second) // room for a slow CI machine
-            r         = routes(one, got, answer, Some(token))
-            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
-            second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
-          yield first.status.code -> second.status.code
+            token   <- techTokenOf(TestClock())
+            got     <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+            arrived <- Promise.make[Nothing, Unit]
+            n       <- Ref.make(0)
+            answer   = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then arrived.succeed(()) *> slow else ZIO.unit)
+            r        = routes(one, got, answer, Some(token))
+            first   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
+            _       <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
+            // ZIO's TestClock (TestClock here is the spec's clock for the guard and the token): the timeout
+            // of the call was set on it when the call started - before it reached the engine
+            _       <- zio.test.TestClock.adjust(one.callTimeout)
+            second   = bounded(5.seconds):
+                         post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+                       .someOrFail("the second call did not answer")
+          yield (bounded(5.seconds)(first.join).someOrFail("the first call did not answer"), second)
         for
           interrupted <- Promise.make[Nothing, Unit]
-          // interruptible - stopped at the timeout, the next call gets the slot
-          stopped     <- calls(ZIO.never.onInterrupt(interrupted.succeed(())))
-          wasStopped  <- interrupted.isDone.repeatUntil(identity).timeout(1.second)
-          // not interruptible - still running (until released), the next call finds no slot
+          // interruptible - stopped at the timeout; it answers once it has stopped, the next call gets the slot
+          stopped     <- pastTimeout(ZIO.never.onInterrupt(interrupted.succeed(())))
+          first       <- stopped._1
+          wasStopped  <- interrupted.isDone
+          second      <- stopped._2
+          // not interruptible - still running after its timeout (until released), the next call finds no slot
           hold        <- Promise.make[Nothing, Unit]
-          busy        <- calls(hold.await.uninterruptible).ensuring(hold.succeed(())) // released also on a failure
-        yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
-      @@ TestAspect.withLiveClock,
+          busy        <- (for
+                           calls  <- pastTimeout(hold.await.uninterruptible)
+                           second <- calls._2
+                           _      <- hold.succeed(())
+                           first  <- calls._1
+                         yield first.status.code -> second.status.code)
+                           .ensuring(hold.succeed(())) // released also on a failure
+        yield assertTrue(
+          (first.status.code -> second.status.code) == (503 -> 200),
+          wasStopped,
+          busy == (503 -> 503)
+        )
+      ,
       test("the caller is gone - the call still stops at its timeout and frees its slot"):
         // on the test clock: the timeout of the call fires only when the clock is moved below - not while
         // the first call is still on its way to the engine (on a busy CI machine the token and the routing
