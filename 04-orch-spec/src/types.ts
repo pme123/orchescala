@@ -350,6 +350,11 @@ export interface Field {
   type: string;
   /** Option[T] — may be missing */
   optional?: boolean;
+  /**
+   * From the domain: `type` is a union alias that can be `None` (`Option[String] | Seq[X]`) —
+   * the field is no `Option[…]`, but `exampleMinimal` sets it to `None` too.
+   */
+  noneAllowed?: boolean;
   /** Seq[T] — multiple */
   collection?: boolean;
   /** Map[String, T] — the key is always text in JSON, `type` is the value */

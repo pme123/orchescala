@@ -20,7 +20,7 @@ import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
-import { isFixedCaseDefault, unionAllowsNone } from './scalaTypes.ts';
+import { isFixedCaseDefault } from './scalaTypes.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -65,8 +65,8 @@ export interface TypeIndex {
   /** Object and package of a service or process — from the catalog, otherwise derived (`objectOf`) */
   objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
   /**
-   * The field may be missing: `Option[…]`, or a union alias of the domain with an `Option[…]`
-   * in it (`type ReceivingSystems = Option[String] | Seq[X]`) — the alias stays the type, but
+   * The field may be missing: `Option[…]`, or a union alias that can be `None` (`noneAllowed`,
+   * `type ReceivingSystems = Option[String] | Seq[X]`) — the alias stays the type, but
    * `exampleMinimal` sets it to `None` too.
    */
   mayBeMissing: (f: Field) => boolean;
@@ -165,22 +165,6 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     const wanted = typeKey(f.constraint?.trim() ? `${nameOf(f.type)} :| ${f.constraint.trim()}` : nameOf(f.type));
     return defaults.find(d => d.name === name && typeKey(d.type!) === wanted) ?? null;
   };
-  // the import keeps a union alias as the field type by its name (`SendEvent.In.ReceivingSystems`) —
-  // only the aliases of the process's package: the name alone is not unique across processes
-  const aliases = new Map((model?.domainTypes ?? [])
-    .filter(d => d.kind === 'alias' && !!d.target && !!ownPkg && d.pkg === ownPkg)
-    .map(d => [d.name, d.target!] as const));
-  // a name in the target (`Rs` in `type Maybe = Rs | Long`) as Scala sees it from the alias:
-  // in its object first (`SendEvent.In.Rs`), then outwards
-  const resolveFrom = (alias: string) => (name: string): string | undefined => {
-    const scopes = alias.split('.').slice(0, -1);
-    for (let n = scopes.length; n >= 0; n--) {
-      const target = aliases.get([...scopes.slice(0, n), name].join('.'));
-      if (target) return target;
-    }
-    return undefined;
-  };
-  const noneAliases = new Set([...aliases].filter(([name, target]) => unionAllowsNone(target, resolveFrom(name))).map(([name]) => name));
   return {
     byId,
     serviceOf,
@@ -192,7 +176,10 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
     home,
     ownPkg: ownPkg ?? '',
-    mayBeMissing: (f: Field) => !!f.optional || (!f.collection && !f.map && noneAliases.has(f.type)),
+    // `noneAllowed` only while the field still has the alias of the import as its type (not
+    // changed to an own class or a scalar since)
+    mayBeMissing: (f: Field) => !!f.optional ||
+      (!!f.noneAllowed && !f.collection && !f.map && !isScalar(f.type) && !byId.has(f.type) && !parseDomainRef(f.type)),
   };
 }
 

@@ -6,6 +6,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
+import { mergeDomain } from '../src/domainMerge';
 import { isScalaTypeExpression, scalaFiles } from '../src/scala';
 import { isCompoundType, typeShape, unionAllowsNone } from '../src/scalaTypes';
 
@@ -149,16 +150,35 @@ const minimalAfter = (content: string, marker: string): string => {
   return m?.[1] ?? '';
 };
 
-test('export: exampleMinimal sets a union alias with an Option to None - other aliases not', () => {
-  const { spec, domain } = imported();
-  const file = scalaFiles(spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
+test('export: exampleMinimal sets a union alias with an Option to None - other aliases not; no catalog needed', () => {
+  const { spec } = imported();
+  // the app exports with the catalog as model - it does not have the project's aliases
+  const file = scalaFiles(spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
   const minimal = minimalAfter(file.content, 'object In:');
   assert.match(minimal, /receivingSystems = None/, file.content);
   assert.match(minimal, /tags = None/);
   assert.doesNotMatch(minimal, /pid = None/);
-  // without the domain (no alias known) only the Option fields
-  const bare = scalaFiles(spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
-  assert.doesNotMatch(minimalAfter(bare.content, 'object In:'), /receivingSystems/);
+});
+
+test('export: a field whose type was changed since the import is no longer set to None', () => {
+  const { spec } = imported();
+  const changed = {
+    ...spec,
+    types: (spec.types ?? []).map(t => ({ ...t, fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type: 'String' } : f)) })),
+  };
+  const file = scalaFiles(changed, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  assert.doesNotMatch(minimalAfter(file.content, 'object In:'), /receivingSystems/, file.content);
+});
+
+test('sync: a spec from before gets noneAllowed from the domain', () => {
+  const { spec } = imported();
+  const strip = (s: typeof spec) => ({
+    ...s,
+    types: (s.types ?? []).map(t => ({ ...t, fields: t.fields?.map(({ noneAllowed: _, ...f }) => f) })),
+  });
+  const { spec: merged } = mergeDomain(strip(spec), spec, { status: 'implemented' as never });
+  const field = (merged.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.noneAllowed, true);
 });
 
 const noneSource = `package ${PKG}
@@ -198,7 +218,7 @@ end SendEvent
 test('export: exampleMinimal - an alias of an alias, None.type, a refined Option, a Seq of such an alias, an ADT case', () => {
   const domain = scanScala(noneSource, 'SendEvent.scala');
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain, null)!;
-  const file = scalaFiles(r.spec, { domainTypes: domain } as never).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  const file = scalaFiles(r.spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
   const inMinimal = minimalAfter(file.content, 'object In:');
   for (const name of ['rs', 'maybe', 'noneOrInt', 'inner']) assert.match(inMinimal, new RegExp(`\\b${name} = None`), file.content);
   // `Option[String] :| C` is no Option - None would not compile; a Seq is never None
