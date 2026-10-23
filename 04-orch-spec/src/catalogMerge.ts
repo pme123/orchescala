@@ -11,6 +11,10 @@ import type { CatalogFile } from './catalogImport';
 // called process or type id) it wins; entries from the model.json
 // remain visible only where the generated catalog has nothing (legacy).
 // The user maintains no catalog — model.json belongs to the specifications.
+//
+// Domain types are the exception: a project scanned into the model.json
+// («Neu aufbauen», domain2catalog) may be newer than the release the catalog
+// was built from. Per project only one scan applies — see `projectWinners`.
 /** Defaults of a catalog entry in FEEL — older catalogs have `#{name}` */
 const feelParams = (s: ServiceDef): ServiceDef => {
   const conv = (ps: ServiceParam[] | undefined) => ps?.map(p => (p.expression ? { ...p, expression: feelIfPossible(p.expression) } : p));
@@ -19,6 +23,76 @@ const feelParams = (s: ServiceDef): ServiceDef => {
 
 /** Data of the domain scan that older catalogs don't have yet */
 const NEWER_SCAN = ['routing', 'topicName', 'ownerDescr', 'ownerDescrExpr'] as const satisfies ReadonlyArray<keyof DomainType>;
+
+// ── Domain types per project ─────────────────────────────────────────────────
+// Merged by type ID, a project that moved types into another package
+// (`…v1.CProcessState` → `…v1.schema.CProcessState`) would keep both versions:
+// the old one from the catalog, the new one from the model.json. So the
+// types of a project come from **one** side — the one scanned later.
+
+/** The project folder from the path of the source (`valiant-bpmn/01-domain/…`) */
+const projectOfSource = (t: DomainType): string | null => {
+  const at = t.source?.indexOf('/') ?? -1;
+  return at > 0 ? t.source!.slice(0, at) : null;
+};
+
+/** The package root of the project: up to `.domain` or `.worker` (`valiant.bpmn`) */
+export const packageRoot = (pkg: string): string => {
+  const parts = pkg.split('.');
+  const at = parts.findIndex(p => p === 'domain' || p === 'worker');
+  return (at > 0 ? parts.slice(0, at) : parts).join('.');
+};
+
+/**
+ * The project of each type: from its source; without one (older catalogs,
+ * OpenAPI, docs site) via the package root of the types that have one. If
+ * that is not unambiguous, the type has no project — it is merged by ID.
+ */
+function projectsOf(types: DomainType[]): (t: DomainType) => string | null {
+  const byRoot = new Map<string, Set<string>>();
+  for (const t of types) {
+    const p = projectOfSource(t);
+    if (!p || !t.pkg) continue;
+    const root = packageRoot(t.pkg);
+    byRoot.set(root, (byRoot.get(root) ?? new Set()).add(p));
+  }
+  return t => {
+    const p = projectOfSource(t);
+    if (p) return p;
+    const found = t.pkg ? byRoot.get(packageRoot(t.pkg)) : undefined;
+    return found?.size === 1 ? [...found][0] : null;
+  };
+}
+
+const scanTime = (projects: Array<{ name: string; scannedAt?: string }> | undefined) => {
+  const times = new Map<string, number>();
+  for (const p of projects ?? []) {
+    const ms = p.scannedAt ? Date.parse(p.scannedAt) : NaN;
+    if (!Number.isNaN(ms)) times.set(p.name, ms);
+  }
+  return times;
+};
+
+/**
+ * Per project: does the model.json's scan apply (otherwise the catalog's)?
+ * The later `scannedAt` wins; a scan without a time counts as older than one
+ * with a time. Neither side has a time (scans from before `scannedAt`): the
+ * model.json wins where it has types of the project — it is scanned locally
+ * on demand, the catalog only with the next release.
+ */
+export function projectWinners(user: Model, gen: CatalogFile, projectOf: (t: DomainType) => string | null): (project: string) => boolean {
+  const userTime = scanTime(user.projects);
+  const genTime = scanTime(gen.projects);
+  const userHas = new Set((user.domainTypes ?? []).map(projectOf).filter((p): p is string => !!p));
+  return project => {
+    const u = userTime.get(project);
+    const g = genTime.get(project);
+    if (u != null && g != null) return u >= g;
+    if (u != null) return true;
+    if (g != null) return false;
+    return userHas.has(project);
+  };
+}
 
 export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
   // ProcessStatus & co. from orchescala.domain always exist — as «generated», so never in the model.json
@@ -29,7 +103,10 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
   // the catalog only gets it with the next release (switches of the decoder,
   // `final val topicName`, `override def descr`); what the catalog itself has applies
   const ownTypes = new Map((user.domainTypes ?? []).map(t => [t.id, t]));
-  const genTypes = (gen.domainTypes ?? []).map(t => {
+  const projectOf = projectsOf([...(gen.domainTypes ?? []), ...(user.domainTypes ?? [])]);
+  const userWins = projectWinners(user, gen, projectOf);
+  const fromUser = (t: DomainType) => { const p = projectOf(t); return p != null && userWins(p); };
+  const genTypes = (gen.domainTypes ?? []).filter(t => !fromUser(t)).map(t => {
     const own = ownTypes.get(t.id);
     const newer = Object.fromEntries(NEWER_SCAN.filter(k => own?.[k] != null && t[k] == null).map(k => [k, own![k]]));
     return { ...t, ...newer, generated: true };
@@ -50,7 +127,11 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
       ...user.services.filter(s => !kennt.has(s.id)
         && !(s.topic && kennt.has(s.topic)) && !(s.calledProcess && kennt.has(s.calledProcess))),
     ],
-    domainTypes: [...genTypes, ...(user.domainTypes ?? []).filter(t => !typIds.has(t.id))],
+    domainTypes: [...genTypes, ...(user.domainTypes ?? []).filter(t => {
+      const p = projectOf(t);
+      // the catalog's scan of the project applies: none of the older own types stays
+      return p != null ? userWins(p) : !typIds.has(t.id);
+    })],
     domainDefaults: [...genDefaults, ...(user.domainDefaults ?? []).filter(d => !defaultIds.has(`${d.pkg}.${d.name}`))],
     domainSources: gen.domainSources ?? user.domainSources,
     ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),

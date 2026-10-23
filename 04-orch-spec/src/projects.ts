@@ -198,7 +198,7 @@ export async function rebuild(
     const zusammen = mergeDomainTypes(types, gelesen.types);
     types = zusammen.types;
     discarded.push(...zusammen.discarded);
-    gezaehlt.push({ ...p, types: types.length - vorher });
+    gezaehlt.push({ ...p, types: types.length - vorher, scannedAt: new Date().toISOString() });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
   return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped };

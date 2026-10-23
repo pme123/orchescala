@@ -79,7 +79,8 @@ export interface CatalogFile {
   domainTypes?: DomainType[];
   domainDefaults?: DomainDefault[];
   domainSources?: string[];
-  projects?: Array<{ id: string; name: string; types?: number }>;
+  /** the scanned projects — `scannedAt`: when (ISO), see `ProjectFolder.scannedAt` */
+  projects?: Array<{ id: string; name: string; types?: number; scannedAt?: string }>;
   /** Project name → colour (`ProjectConfig.color`) — written by `prepareDocs` from the Orchescala configuration */
   projectColors?: Record<string, string>;
 }
