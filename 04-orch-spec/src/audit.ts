@@ -362,8 +362,8 @@ export const bpmnReport = (r: { added: string[]; removed: string[]; changed: str
 });
 
 /** the report of the sync with the domain (`mergeDomain`) for the log. */
-export const domainReport = (r: { added: string[]; changed: string[]; stale: string[]; confirmed: string[]; prepared?: string[] }): AuditReport => ({
-  neu: r.added, geändert: r.changed, 'nur in der Spezifikation': r.stale, bestätigt: r.confirmed, vorbereitet: r.prepared ?? [],
+export const domainReport = (r: { added: string[]; changed: string[]; stale: string[]; foreign?: string[]; confirmed: string[]; prepared?: string[] }): AuditReport => ({
+  neu: r.added, geändert: r.changed, 'nur in der Spezifikation': r.stale, 'nicht vom Prozess': r.foreign ?? [], bestätigt: r.confirmed, vorbereitet: r.prepared ?? [],
 });
 
 // ── File ─────────────────────────────────────────────────────────────────────

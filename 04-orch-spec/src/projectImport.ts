@@ -131,6 +131,15 @@ export async function findDomain(processId: string, model: Model | null, onProgr
 const isScalar = (t: string) => (SCALA_TYPES as readonly string[]).includes(t);
 
 /**
+ * Does the type belong to the project of the process package (same package root
+ * up to `.domain`)? `valiant.addresschange.domain.x.v1` → `valiant.addresschange.domain`.
+ */
+function inProject(t: DomainType, pkg: string): boolean {
+  const stem = pkg.replace(/\.domain\..*$/, '.domain');
+  return t.pkg === pkg || t.pkg.startsWith(`${stem}.`) || t.pkg === stem;
+}
+
+/**
  * Translates domain types of the project into types of the specification. What belongs
  * to the project becomes an own type; foreign ones point into the catalog.
  */
@@ -151,8 +160,7 @@ class Converter {
 
   /** Does the type belong to the project of the process (same package root)? */
   private own(t: DomainType): boolean {
-    const stem = this.pkg.replace(/\.domain\..*$/, '.domain');
-    return t.pkg === this.pkg || t.pkg.startsWith(`${stem}.`) || t.pkg === stem;
+    return inProject(t, this.pkg);
   }
 
   /**
@@ -609,9 +617,11 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   for (const step of allSteps(spec.steps)) {
     if (step.kind === 'goto' || step.id === startId) continue;
     // A worker of the project is recognized by its topic — even if it does not
-    // start with the process ID (worker of a neighbouring package)
+    // start with the process ID (worker of a neighbouring package). Only one of
+    // this project: the catalog also holds the workers of other projects
+    // (`valiant-graviton-person.GetConsultant`) — those are services, not own workers.
     const byTopic = step.kind === 'service' && step.topic && step.topic !== processId
-      ? objects.find(o => objectKind(o) === 'customTask' && o.topicName === step.topic) : undefined;
+      ? objects.find(o => objectKind(o) === 'customTask' && o.topicName === step.topic && inProject(o, pkg)) : undefined;
     // A signal describes the object also when the process **catches** it
     // (start event of an event subprocess, intermediate event)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
