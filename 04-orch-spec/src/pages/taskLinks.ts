@@ -3,23 +3,12 @@
 // the process view, so this stays small (not the page designer, which is loaded only on demand).
 import { allSteps } from '../bpmn';
 import type { ProcessSpec } from '../types';
-import type { Action, Component, Page } from './runtime/spec';
-
-/** The actions of a page where they can be - on load, on buttons, on choices and in onError (as
-  * `actionsOf` in the designer model). A JSON value that only looks like an action does not count. */
-function actionsOfPage(page: Page): Action[] {
-  const actions = (list: Action[] | undefined): Action[] =>
-    (list ?? []).flatMap((a) => [a, ...('onError' in a ? actions(a.onError) : [])]);
-  const blocks = (body: Component[]): Component[] => body.flatMap((b) => (b.type === 'section' ? [b, ...blocks(b.body)] : [b]));
-  return [
-    ...actions(page.load),
-    ...blocks(page.body ?? []).flatMap((b) => (b.type === 'button' ? actions(b.actions) : b.type === 'choice' ? actions(b.onChange) : [])),
-  ];
-}
+import { actionsOf } from './pageActions';
+import type { Page } from './runtime/spec';
 
 /** The user tasks a page completes - [] for a simple page. */
 export function userTasksOfPage(page: Page): string[] {
-  return [...new Set(actionsOfPage(page).flatMap((a) => (a.do === 'completeTask' && a.taskKey.trim() ? [a.taskKey.trim()] : [])))];
+  return [...new Set(actionsOf(page).flatMap(({ action: a }) => (a.do === 'completeTask' && a.taskKey.trim() ? [a.taskKey.trim()] : [])))];
 }
 
 /** Where a user task is: the process (slug, title) and its step. */
