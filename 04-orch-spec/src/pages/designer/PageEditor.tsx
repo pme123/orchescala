@@ -2,20 +2,27 @@
 // as the app, fed with sample data of the services - and the properties of the selected building block.
 import {
   AlertTriangle, ArrowUpRight, ChevronLeft, ClipboardCheck, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
-  RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
+  History as HistoryIcon, MessageSquare, RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { changedKeys, pageDiff } from '../../ai/diff';
 import { useAiKey } from '../../ai/key';
 import type { PageDraft } from '../../ai/pageTools';
-import { usePermissions } from '../../auth';
+import { useAuth, useAuthor, usePermissions } from '../../auth';
+import { countIndex, markNotified, threadOf } from '../../comments';
+import { diffPages, entryOf, type AuditEntry, type AuditOrigin } from '../../audit';
+import AuditPanel from '../../components/AuditPanel';
+import { CommentBubble, CommentsContext, CommentsPanel } from '../../components/Comments';
+import { useTeamsNotify } from '../../components/useTeamsNotify';
+import { blockOfTarget, blockTarget, carryComments, cleanSpec, pageCommentTargets, pageTarget } from './pageComments';
+import { knownPrefixes } from '../../stepIds';
 import { useStore } from '../../store';
 import { taskStepText, userTasksOfPage, userTaskSteps } from '../taskLinks';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
 import { themeStyle } from '../runtime/theme';
 import type { Gateway } from '../runtime/gatewayTypes';
-import type { Component, Page } from '../runtime/spec';
+import type { Component, Page, PageSpec } from '../runtime/spec';
 import { BlockActions, type BlockOps } from './BlockActions';
 import { BLOCK_LABELS, BlockProps, PageProps } from './BlockProps';
 import { DataView } from './DataView';
@@ -23,7 +30,7 @@ import { IconButton } from './fields';
 import { coalesceKey, emptyHistory, record, travel, type History } from './history';
 import { designerKey, type DesignerKey } from './keys';
 import {
-  actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
+  actionsOf, blockAt, convertBlock, copyBlock, dataOf, hasIds, keyOfId, logBase, withIds, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
 
@@ -81,12 +88,18 @@ function previewGateway(targets: Targets): Gateway {
 
 const EMPTY: Targets = { services: [], processes: [], messages: [], userTasks: [] };
 
-export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
+export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, notice: initialNotice, onOpenTask }: {
   slug: string; onBack: () => void; aiPrompt?: string;
+  /** a warning to show on opening - e.g. the first log entry of a new page was not written */
+  notice?: string;
+  /** a comment from a deep link (?page=…&comment=…) - opened once the page is there */
+  focusCommentId?: string;
   /** to the user task this page completes - the process at its step */
   onOpenTask?: (specSlug: string, stepId: string) => void;
 }) {
-  const { isDark, model, specs, pages, pagesApp, savePage } = useStore();
+  const { isDark, model, specs, pages, pagesApp, savePage, loadPageAudit, knownUsers, searchDirectory, storage } = useStore();
+  const auth = useAuth();
+  const author = useAuthor();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
   const item = pages.find((p) => p.slug === slug);
@@ -103,6 +116,16 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
     undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean; can: { undo: boolean; redo: boolean };
   }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
+  /** a hint below the toolbar - Teams, the directory */
+  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn' } | null>(
+    initialNotice ? { message: initialNotice, tone: 'warn' } : null);
+  // ---- comments (like a process): at the page and at every building block, in page.spec.comments
+  const [commentsOpen, setCommentsOpen] = useState(!!focusCommentId);
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
+  // ---- history (change log): for the selected building block, otherwise for everything
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditFocus, setAuditFocus] = useState<string | null>(null);
   // ---- the AI mode (E19, E20): only with a key. Claude's draft is shown instead of the page - in the
   // outline and the preview, read only - until the RE accepts (one step of undo) or discards it
   const aiKey = useAiKey();
@@ -123,6 +146,21 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
   const saving = useRef<Promise<boolean>>(Promise.resolve(true));
   const retries = useRef(0);
   const closed = useRef(false); // after leaving: the last attempt during cleanup, no further ones
+  // ---- change log (audit.ts, like a process): `auditBase` is the state at the last cut. A cut is made on
+  // every save (everything up to then was manual work) and before and after accepting Claude's draft -
+  // that becomes an entry of its own (source «KI»). The entries go with the next save.
+  const auditBase = useRef<Page | null>(null);
+  const auditQueue = useRef<AuditEntry[]>([]);
+  const authorRef = useRef(author);
+  authorRef.current = author;
+  const cutAudit = useCallback((to: Page | null, origin: AuditOrigin = { source: 'manual' }) => {
+    const from = auditBase.current;
+    if (!from || !to) return;
+    const e = entryOf(diffPages(from, to), origin, authorRef.current);
+    if (e) auditQueue.current.push(e);
+    auditBase.current = to;
+  }, []);
+  const [savedVersion, setSavedVersion] = useState<string | null>(item?.version ?? null);
   const flush = useCallback((): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
@@ -130,11 +168,19 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
       const data = pending.current;
       if (!data) return true;
       pending.current = null;
-      const r = await savePage(slug, data, version.current);
+      cutAudit(data);
+      const audit = auditQueue.current.splice(0);
+      const r = await savePage(slug, data, version.current, audit);
+      // not saved (or only the log was not): again with the next save
+      if (r.status !== 'saved' || r.auditError) auditQueue.current.unshift(...audit);
       if (r.status === 'saved') {
         retries.current = 0;
         version.current = r.version;
-        if (!closed.current) setSaveState({ at: new Date() }); // the last attempt on leaving: nobody sees it
+        if (!closed.current) {
+          setSaveState({ at: new Date() }); // the last attempt on leaving: nobody sees it
+          setSavedVersion(r.version);
+          if (r.auditError) setNotice({ tone: 'warn', message: `Gespeichert, aber das Änderungsprotokoll nicht: ${r.auditError} Es wird mit dem nächsten Speichern nachgeholt.` });
+        }
         return true;
       }
       // don't lose it: stays pending as long as nothing newer came
@@ -150,7 +196,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
       return false;
     });
     return saving.current;
-  }, [slug, savePage]);
+  }, [slug, savePage, cutAudit]);
   useEffect(() => {
     // mounted (again - StrictMode unmounts and remounts in development): attempts allowed again
     closed.current = false;
@@ -184,22 +230,35 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
   // a page that is only loaded after mounting
   latest.current = page;
   const [, setHistoryTick] = useState(0);
-  const update = (next: Page, coalesce?: string) => {
+  const update = (raw: Page, coalesce?: string) => {
     const current = latest.current ?? page;
     if (!canEdit || !current) return;
+    // every building block keeps an ID of its own (a new one, a copy, one from Claude); the comments are
+    // those of now (an older state, a draft does not bring old ones back), a removed block's remember its name
+    const next = carryComments(hasIds(raw.body) ? raw : { ...raw, body: withIds(raw.body) }, current);
     // nothing changed (a drop at the same place, moving at the edge): no step, no save
     if (next === current || JSON.stringify(next) === JSON.stringify(current)) return;
     history.current = record(history.current, current, coalesce, Date.now());
     store(next);
     setHistoryTick((t) => t + 1);
   };
+  // an older page without IDs gets them once on opening - saved, without a step of undo
+  useEffect(() => {
+    const current = latest.current;
+    const fixed = current && canEdit && !hasIds(current.body) ? { ...current, body: withIds(current.body) } : current;
+    if (fixed && fixed !== current) store(fixed);
+    // the log compares from here - with the IDs, otherwise every building block would count as new
+    auditBase.current = logBase(auditBase.current, fixed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, page === null]);
   const step = (dir: 'undo' | 'redo') => {
     const current = latest.current ?? page;
     if (!canEdit || !current) return;
     const done = travel(history.current, current, dir);
     if (!done) return;
     history.current = done.history;
-    store(done.value);
+    // like an edit: a block that the step removes leaves its threads with its name
+    store(carryComments(done.value, current));
     // a building block that no longer exists afterwards is no longer selected
     setSelected((s) => (s !== null && blockAt(done.value.body, s) ? s : null));
     setHistoryTick((t) => t + 1);
@@ -215,8 +274,85 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
     [shown, targets, pages, slug],
   );
   const drafted = useMemo(() => (draft ? changedKeys(pageDiff(draft.base, draft.page)) : new Set<string>()), [draft]);
+  // company/project: the known prefixes - catalog, processes and the other pages
+  const prefixes = useMemo(() => knownPrefixes(model, [...specs.map((s) => s.data.project), ...pages.map((p) => p.data.spec?.project)]), [model, specs, pages]);
+  // the project most processes of this folder belong to - the first choice for a page
+  const preferred = useMemo(() => {
+    const counts = specs.reduce<Record<string, number>>((acc, s) => (s.data.project ? { ...acc, [s.data.project]: (acc[s.data.project] ?? 0) + 1 } : acc), {});
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  }, [specs]);
   const queryParams = useMemo(() => Object.fromEntries(new URLSearchParams(query)), [query]);
   const data = useMemo(() => (shown ? dataOf(shown, targets) : []), [shown, targets]);
+  // ---- comments: counts per place, the places in the order of the page
+  const commentCounts = useMemo(() => countIndex(page?.spec ?? {}), [page?.spec]);
+  const commentPlaces = useMemo(() => (page ? pageCommentTargets(page) : []), [page]);
+  /** a change of the comments - saved right away, not a step of undo (they are a history of their own) */
+  const changeComments = (holder: PageSpec) => {
+    const current = latest.current;
+    if (!current) return;
+    store({ ...current, spec: cleanSpec({ ...current.spec, comments: holder.comments }) });
+  };
+  /** to the place of a comment: select its building block, show it in the outline */
+  const gotoComment = useCallback((key: string) => {
+    const id = blockOfTarget(key);
+    const at = id && latest.current ? keyOfId(latest.current.body, id) : undefined;
+    setLeft('outline');
+    setSelected(at ?? null);
+    window.setTimeout(() => document.querySelector(`[data-cframe="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' }), 60);
+  }, []);
+  const selectComment = useCallback((key: string | null) => {
+    setActiveComment(key);
+    if (key) gotoComment(key);
+  }, [gotoComment]);
+  const openComment = useCallback((key: string) => {
+    setCommentsOpen(true);
+    setAuditOpen(false);
+    selectComment(key);
+  }, [selectComment]);
+  const commentsCtx = useMemo(() => ({
+    exact: commentCounts.exact, under: commentCounts.under,
+    active: commentsOpen ? activeComment : null, open: openComment, isDark,
+  }), [commentCounts, commentsOpen, activeComment, openComment, isDark]);
+  const openComments = page?.spec?.comments?.filter((t) => !t.resolved).length ?? 0;
+  // people for «@»: users.json, comment authors with e-mail, me
+  const mentionUsers = useMemo(() => {
+    const all = [...knownUsers.map((u) => ({ name: u.name, email: u.email })), { name: author.name, email: author.email },
+      ...(page?.spec?.comments ?? []).flatMap((t) => t.entries.map((e) => ({ name: e.author, email: e.email })))];
+    const byMail = new Map(all.filter((u) => u.name && u.email).map((u) => [u.email!.toLowerCase(), { name: u.name, email: u.email! }]));
+    return [...byMail.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  }, [knownUsers, author.name, author.email, page?.spec?.comments]);
+  // a deep link to a comment: once, as soon as the page is there
+  const focused = useRef<string | null>(null);
+  useEffect(() => {
+    if (!page || !focusCommentId || focused.current === focusCommentId) return;
+    focused.current = focusCommentId;
+    const thread = threadOf(page.spec ?? {}, focusCommentId);
+    if (!thread) { setNotice({ tone: 'warn', message: 'Der verlinkte Kommentar ist nicht mehr da.' }); return; }
+    if (thread.resolved) setShowResolved(true);
+    openComment(thread.target);
+  }, [page, focusCommentId, openComment]);
+  // Teams: the same sending as for a process - the links lead to the page
+  useTeamsNotify({
+    slug, processName: page?.title || slug, comments: page?.spec?.comments ?? [], linkKind: 'page',
+    me: auth.user?.email ? { id: auth.user.id, name: auth.user.name, email: auth.user.email } : null,
+    settings: model?.notifications?.teams,
+    placeLabel: (t) => commentPlaces.find((x) => x.key === t)?.label ?? t,
+    linkSetup: auth.ids && { ...auth.ids, ...(storage?.kind === 'sharepoint' && storage.webUrl ? { folderUrl: storage.webUrl } : {}) },
+    onDelivered: (done) => {
+      const current = latest.current;
+      if (current) changeComments(markNotified(current.spec ?? {}, done));
+      void flush();
+    },
+    tryToken: auth.tryToken,
+    onProblem: (pr) => setNotice({ tone: 'warn', message: `Teams-Benachrichtigung nicht möglich: ${pr.message} Die Kommentare bleiben gespeichert.` }),
+    onSent: (names) => setNotice({ tone: 'info', message: `Teams-Nachricht an ${names.join(', ')} gesendet.` }),
+    onFailed: (message) => setNotice({ tone: 'warn', message }),
+  });
+  useEffect(() => {
+    if (notice?.tone !== 'info') return;
+    const t = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
   const usedServices = useMemo(
     () => (shown ? actionsOf(shown).flatMap(({ action }) => (action.do === 'call' ? [action.service] : [])) : []),
     [shown],
@@ -269,7 +405,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
   /** The actions for a building block - in the preview, in the header of the properties, in the outline. */
   const opsFor = (key: BlockKey): BlockOps => ({
     move: (by) => apply(moveBlock(body(), key, by)),
-    duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), structuredClone(b), key, 'after')); },
+    duplicate: () => { const b = blockAt(body(), key); if (b) apply(placeBlock(body(), copyBlock(b), key, 'after')); },
     remove: () => { setBody(removeBlock(body(), key)); setSelected(null); },
     convert: (type) => { setBody(updateBlock(body(), key, (b) => convertBlock(b, type))); setSelected(key); },
     insert: (type, place: Place) => apply(placeBlock(body(), newBlock(type), key, place)),
@@ -337,8 +473,26 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
             <AlertTriangle size={10} /> {errors + warnings}
           </span>
         )}
+        <button onClick={() => {
+          if (auditOpen) { setAuditOpen(false); return; }
+          const id = selected !== null && page ? blockAt(page.body, selected)?.id : undefined;
+          setAuditFocus(id ? blockTarget(id) : null);
+          setAuditOpen(true); setCommentsOpen(false);
+        }}
+          title={auditOpen ? 'Verlauf schliessen' : 'Verlauf — wer hat wann was geändert'}
+          className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+            auditOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10') : c.btn}`}>
+          <HistoryIcon size={11} />
+        </button>
+        <button onClick={() => { setCommentsOpen((o) => !o); setAuditOpen(false); if (commentsOpen) setActiveComment(null); }}
+          title={commentsOpen ? 'Kommentare schliessen' : 'Alle Kommentare der Seite — Übersicht und Durchgehen'}
+          className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+            commentsOpen ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
+              : openComments ? (isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700') : c.btn}`}>
+          <MessageSquare size={11} /> {openComments || ''}
+        </button>
         {canEdit && (
-          <div className="ml-auto flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5">
             {aiKey && (
               <button onClick={() => setAiOpen((o) => !o)} title="Claude - die Seite im Gespräch ändern (KI-Modus)"
                 className={`mr-1.5 flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
@@ -350,11 +504,19 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
             <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={!editable || history.current.future.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
           </div>
         )}
-        <span className={`${canEdit ? '' : 'ml-auto '}text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
+        <span className={`text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
           {!canEdit ? 'nur lesen' : saveState.error ?? (saveState.at ? `gespeichert ${saveState.at.toLocaleTimeString('de-CH')}` : '')}
         </span>
       </div>
 
+      {notice && (
+        <div className={`flex-shrink-0 flex items-center gap-2 text-[10px] px-3 py-1.5 border-b ${c.border} ${
+          notice.tone === 'warn' ? (isDark ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-800') : (isDark ? 'bg-blue-500/10 text-blue-300' : 'bg-blue-50 text-blue-800')}`}>
+          <span className="flex-1">{notice.message}</span>
+          <button onClick={() => setNotice(null)} className="opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+      <CommentsContext.Provider value={commentsCtx}>
       <div className="flex-1 flex min-h-0">
         {/* Outline */}
         <div className={`${left === 'data' ? 'w-80' : 'w-64'} flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
@@ -371,10 +533,11 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
             <DataView isDark={isDark} nodes={data} targets={targets} usedServices={usedServices}
               onSelect={(key) => { setSelected(key); setLeft('outline'); }} />
           ) : (<>
-          <button onClick={() => setSelected(null)}
-            className={`w-full text-left px-3 py-1.5 text-[11px] ${selected === null ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
-            Seite · {shown.title}
-          </button>
+          <div data-cframe={pageTarget} onClick={() => setSelected(null)}
+            className={`group w-full flex items-center gap-1 cursor-pointer px-3 py-1.5 text-[11px] ${selected === null ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
+            <span className="flex-1 truncate">Seite · {shown.title}</span>
+            <CommentBubble target={pageTarget} quiet title="Kommentare zur Seite" />
+          </div>
           {outline.map(({ key, block: b, depth }) => {
             const over = drag?.over === key ? drag.place : undefined;
             return (
@@ -394,6 +557,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
                 onDrop={(e) => { e.preventDefault(); if (drag?.over && drag.place) apply(relocateBlock(body(), drag.from, drag.over, drag.place)); setDrag(null); }}
                 onDragEnd={() => setDrag(null)}
                 onClick={() => setSelected(key)}
+                data-cframe={b.id ? blockTarget(b.id) : undefined}
                 style={{ paddingLeft: `${4 + depth * 14}px` }}
                 className={`group relative w-full flex items-center gap-1.5 pr-1 py-1 text-[11px] cursor-pointer border-y-2 ${
                   over === 'before' ? 'border-t-sky-500 border-b-transparent' : over === 'after' ? 'border-b-sky-500 border-t-transparent' : 'border-transparent'} ${
@@ -405,6 +569,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
                   title={drafted.has(key) ? 'im Entwurf neu oder geändert' : undefined}>{ICONS[b.type]}</span>
                 <span className="truncate flex-1">{summaryOf(b) || BLOCK_LABELS[b.type]}</span>
                 {b.visible && <span className={`text-[9px] group-hover:hidden ${c.muted}`} title={`sichtbar, wenn ${b.visible}`}>if</span>}
+                {b.id && !draft && <CommentBubble target={blockTarget(b.id)} quiet title="Kommentare zu diesem Baustein" />}
                 {editable && (
                   <span className="hidden group-hover:flex">
                     <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact />
@@ -485,19 +650,41 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
         </div>
 
         {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
+        {auditOpen && page && (
+          <AuditPanel slug={slug} version={savedVersion} places={commentPlaces} isDark={isDark} load={loadPageAudit}
+            focus={auditFocus} onFocus={setAuditFocus} onGoto={gotoComment}
+            onClose={() => setAuditOpen(false)} width={400} onWidth={() => undefined} overlay={false} />
+        )}
+        {commentsOpen && page && (
+          <CommentsPanel<PageSpec> spec={page.spec ?? {}} isDark={isDark} targets={commentPlaces}
+            active={activeComment} showResolved={showResolved} onToggleResolved={setShowResolved}
+            onSelect={selectComment}
+            onClose={() => { setCommentsOpen(false); setActiveComment(null); }}
+            canEdit={canEdit} author={author} onChange={changeComments}
+            users={mentionUsers} searchUsers={searchDirectory} onDirectoryProblem={(r) => r.reason !== 'noLogin' && setNotice({ tone: 'warn', message: `${r.message} «@» schlägt bis dahin nur bekannte Personen vor.` })}
+            teamsEnabled={model?.notifications?.teams?.enabled === true}
+            width={400} onWidth={() => undefined} overlay={false} />
+        )}
         {aiKey && canEdit && (
-          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${aiOpen || draft ? '' : 'hidden'}`}>
+          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
             <AiPanel isDark={isDark} apiKey={aiKey} slug={slug} page={page} app={pagesApp?.data} targets={targets}
               pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
               draft={draft} onDraft={setDraft} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
-              onAccept={(next) => { update(next); setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null)); }}
+              onAccept={(next, requests) => {
+                // the work before by hand, then Claude's draft - an entry of its own in the log
+                cutAudit(latest.current);
+                update(next);
+                const note = `Mit KI (Claude): ${requests.map((r) => `«${r}»`).join(' · ')}`;
+                cutAudit(latest.current, { source: 'ai', note: note.length > 400 ? `${note.slice(0, 399)}…` : note });
+                setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null));
+              }}
               initialPrompt={pendingPrompt} onInitialPrompt={() => setPendingPrompt(undefined)} />
             </Suspense>
           </div>
         )}
         {/* Properties */}
-        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel} ${aiKey && canEdit && (aiOpen || draft) ? 'hidden' : ''}`}>
+        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel} ${(aiKey && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
           {block && selected !== null ? (
             // key: another building block gets fresh forms (no half JSON text of the previous one)
             <>
@@ -514,10 +701,12 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
                 onChange={(b) => setBody(updateBlock(body(), selected, () => b), coalesceKey(`props:${selected}`, blockAt(body(), selected), b))} />
             </>
           ) : (
-            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))} />
+            <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))}
+              meta={{ model, prefixes, preferred, canEdit: editable }} />
           )}
         </div>
       </div>
+      </CommentsContext.Provider>
     </div>
   );
 }

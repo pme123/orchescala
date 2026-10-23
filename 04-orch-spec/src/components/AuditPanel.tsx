@@ -8,9 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { History, Loader2, Search, X } from 'lucide-react';
 import { auditBase, coalesce, SOURCE_LABEL, type AuditChange, type AuditEntry, type AuditSource } from '../audit';
-import { allSteps } from '../bpmn';
-import { commentTargets, whenFull, whenLabel } from '../comments';
-import type { ProcessSpec } from '../types';
+import { whenFull, whenLabel } from '../comments';
 import { PanelWidthHandle, cls } from '../ui';
 import { floatingCard } from './Comments';
 
@@ -18,7 +16,8 @@ interface Props {
   slug: string;
   /** Version of the specification — it is re-read after every save */
   version: string | null;
-  spec: ProcessSpec;
+  /** the places that exist today, with their current name - of a process or a page (the comment places) */
+  places: { key: string; label: string }[];
   isDark: boolean;
   load: (slug: string) => Promise<AuditEntry[] | null>;
   /** Element location (`step:<id>`, `type:<id>` …) or null = all */
@@ -67,7 +66,7 @@ const sourceTone = (s: AuditSource, isDark: boolean) => ({
 }[s]);
 
 export default function AuditPanel(p: Props) {
-  const { spec, isDark, focus } = p;
+  const { places, isDark, focus } = p;
   const c = cls(isDark);
   const iconBtn = `p-1 rounded transition-colors ${isDark ? 'text-white/40 hover:text-white' : 'text-black/40 hover:text-black'}`;
 
@@ -100,7 +99,7 @@ export default function AuditPanel(p: Props) {
   }, [onClose]);
 
   // The locations that exist today — with their current name
-  const current = useMemo(() => new Map(commentTargets(spec, allSteps(spec.steps)).map(t => [t.key, t.label])), [spec]);
+  const current = useMemo(() => new Map(places.map(t => [t.key, t.label])), [places]);
 
   const merged = useMemo(() => (entries ? coalesce(entries) : []), [entries]);
 

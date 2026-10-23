@@ -12,7 +12,7 @@ import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost'
 import { changedKeys, pageDiff } from '../src/ai/diff';
 import { aiEnabled, KEY_STORAGE, looksLikeKey, maskKey, readKey, writeKey, type KeyStore } from '../src/ai/key';
 import { draftChanged, newErrors, outlineOf, pageToolKit, runPageTool, startDraft, type PageContext } from '../src/ai/pageTools';
-import { targetsOf } from '../src/pages/designer/model';
+import { flatten, targetsOf, withIds } from '../src/pages/designer/model';
 import type { Page } from '../src/pages/runtime/spec';
 import type { Model } from '../src/types';
 
@@ -92,6 +92,19 @@ test('tools - insert a field block into the section, the outline and the finding
   assert.equal(r.draft.base, book);
 });
 
+test('tools - an inserted block gets new IDs: an ID copied from an existing block does not take over its comments', () => {
+  const page = { ...book, body: withIds(book.body) };
+  const section = page.body[1];
+  const d = startDraft('book', page);
+  // Claude inserts a copy of the section (with the IDs it read) before the original
+  const r = runPageTool('insert_block', { block: structuredClone(section), at: '1', place: 'before' }, d, ctx);
+  assert.equal(r.isError, undefined);
+  const ids = flatten(r.draft.page.body).map(({ block }) => block.id);
+  assert.equal(new Set(ids).size, ids.length); // no ID twice
+  assert.equal(r.draft.page.body[2].id, section.id); // the original keeps its ID
+  assert.notEqual(r.draft.page.body[1].id, section.id);
+});
+
 test('tools - update, move, remove and the page properties', () => {
   const d = startDraft('book', book);
   const updated = runPageTool('update_block', { key: '0', block: { type: 'heading', text: 'Beratung buchen' } }, d, ctx);
@@ -149,6 +162,13 @@ test('newErrors - only the errors the draft brought, not those the page already 
   assert.deepEqual(newErrors(touched, ctx), []); // the old error is not Claude's
   const worse = runPageTool('update_block', { key: '2', block: { type: 'button', label: 'Buchen', actions: [{ do: 'call', service: 'acme-shop-branches' }] } }, touched, ctx).draft;
   assert.equal(newErrors(worse, ctx).length, 1);
+});
+
+test('read_page - the comments of a page (names, e-mails) never go to Claude', () => {
+  const commented: Page = { ...book, spec: { project: 'acme-shop', comments: [{ id: 'ct', target: 'page', entries: [{ id: 'ce', author: 'Anna Muster', email: 'anna@bank.ch', at: '2026-10-22T10:00:00+02:00', text: 'Geheim' }] }] } };
+  const r = runPageTool('read_page', {}, startDraft('book', commented), ctx);
+  assert.doesNotMatch(r.content, /Anna|anna@bank|Geheim|acme-shop/);
+  assert.match(r.content, /"title":"Termin buchen"/);
 });
 
 test('outlineOf - one line per block with its key, sections without their content', () => {

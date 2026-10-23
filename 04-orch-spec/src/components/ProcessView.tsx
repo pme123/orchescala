@@ -1348,7 +1348,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           </div>
         )}
         {auditOpen && !commentsOpen && (
-          <AuditPanel slug={slug} version={version} spec={spec} isDark={isDark} load={loadAudit}
+          <AuditPanel slug={slug} version={version} places={targets} isDark={isDark} load={loadAudit}
             focus={auditFocus} onFocus={setAuditFocus} onGoto={gotoTarget}
             onClose={() => setAuditOpen(false)}
             width={commentsW} overlay={narrow}

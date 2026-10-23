@@ -11,7 +11,7 @@ import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
-import { epicsOf, toggleEpic } from '../epics';
+import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
@@ -181,41 +181,10 @@ function ProjectPicker({ spec, isDark, canEdit, prefixes, onRename }: {
 function EpicPicker({ spec, model, isDark, canEdit, onChange }: {
   spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void;
 }) {
-  const c = cls(isDark);
-  const all = model?.epics ?? [];
-  const mine = epicsOf(spec, model);
-  const offen = all.filter(e => !e.closed && !mine.some(m => m.id === e.id));
-  if (!all.length && !canEdit) return null;
+  if (!(model?.epics ?? []).length && !canEdit) return null;
   return (
     <Field label="Epics" isDark={isDark}>
-      <div className="flex items-center gap-1 flex-wrap">
-        {mine.map(e => (
-          <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark}
-            title={[e.name, e.description, e.closed ? 'abgeschlossen' : ''].filter(Boolean).join(' — ')}>
-            {e.url && (
-              <a href={e.url} target="_blank" rel="noopener noreferrer" title="Epic öffnen" className="opacity-70 hover:opacity-100">
-                <ExternalLink size={9} />
-              </a>
-            )}
-            {canEdit && (
-              <button onClick={() => onChange(toggleEpic(spec, e.id, false))} title="Aus dem Epic nehmen"
-                className="opacity-70 hover:opacity-100"><X size={9} /></button>
-            )}
-          </EpicChip>
-        ))}
-        {canEdit && offen.length > 0 && (
-          <select value="" onChange={e => { if (e.target.value) onChange(toggleEpic(spec, e.target.value, true)); }}
-            className={`text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
-            <option value="">+ Epic</option>
-            {offen.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-        )}
-        {!mine.length && (!canEdit || !offen.length) && (
-          <span className={`text-[10px] ${c.muted}`}>
-            {all.some(e => !e.closed) ? 'keinem Epic zugeordnet' : 'Noch keine offenen Epics — ein Admin legt sie unter Admin → Epics an.'}
-          </span>
-        )}
-      </div>
+      <EpicChips ids={spec.epics} model={model} isDark={isDark} canEdit={canEdit} onChange={epics => onChange({ ...spec, epics })} />
     </Field>
   );
 }
