@@ -445,8 +445,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
           _          <- ZIO.when(gone.isEmpty):
                           bounded(5.seconds)(first.dump.flatMap(_.prettyPrint))
                             .flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n${d.getOrElse("(no dump within 5 s)")}"))
-          // without its caller the call still holds its slot - until its timeout
-          held       <- other
+          // without its caller the call is still in the engine and holds its slot - until its timeout
+          held       <- bounded(5.seconds)(other).someOrFail("the call while the slot is held did not answer")
+          stillIn    <- stopped.isDone.map(!_)
+          // ZIO's TestClock (TestClock here is the spec's clock for the guard and the token): the timeout of
+          // the call was set on it when the call started - before it reached the engine (`arrived`)
           _          <- zio.test.TestClock.adjust(one.callTimeout)
           wasStopped <- bounded(5.seconds)(stopped.await)
           // free once the call has stopped - asked again only for the few steps after its interruption
@@ -454,6 +457,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
                           (Live.live(ZIO.sleep(10.millis)) *> other).repeatUntil(_.status == Status.Ok)
         yield assertTrue(
           gone.isDefined,
+          stillIn,
           held.status == Status.ServiceUnavailable,
           wasStopped.isDefined,
           second.map(_.status).contains(Status.Ok)
