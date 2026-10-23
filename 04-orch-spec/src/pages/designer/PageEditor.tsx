@@ -1,7 +1,7 @@
 // The designer of a page (E15): the outline of its building blocks, the page live - with the same renderer
 // as the app, fed with sample data of the services - and the properties of the selected building block.
 import {
-  AlertTriangle, ChevronLeft, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
+  AlertTriangle, ArrowUpRight, ChevronLeft, ClipboardCheck, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
   RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -10,6 +10,7 @@ import { useAiKey } from '../../ai/key';
 import type { PageDraft } from '../../ai/pageTools';
 import { usePermissions } from '../../auth';
 import { useStore } from '../../store';
+import { taskStepText, userTasksOfPage, userTaskSteps } from '../taskLinks';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
 import { themeStyle } from '../runtime/theme';
@@ -80,7 +81,11 @@ function previewGateway(targets: Targets): Gateway {
 
 const EMPTY: Targets = { services: [], processes: [], messages: [], userTasks: [] };
 
-export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; onBack: () => void; aiPrompt?: string }) {
+export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
+  slug: string; onBack: () => void; aiPrompt?: string;
+  /** to the user task this page completes - the process at its step */
+  onOpenTask?: (specSlug: string, stepId: string) => void;
+}) {
   const { isDark, model, specs, pages, pagesApp, savePage } = useStore();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
@@ -287,6 +292,8 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
   };
   const errors = findings.filter((f) => f.level === 'error').length;
   const warnings = findings.filter((f) => f.level === 'warning').length;
+  // the user tasks this page completes and where they are (one page: no memo - this is after the early return)
+  const userTasks = userTasksOfPage(page).map((key) => ({ key, steps: userTaskSteps(key, specs) }));
 
   return (
     <div className="flex flex-col h-full">
@@ -299,6 +306,25 @@ export default function PageEditor({ slug, onBack, aiPrompt }: { slug: string; o
         <span className={`text-xs font-semibold ${c.text}`}>{page.title || slug}</span>
         <span className={`text-[10px] font-mono ${c.muted}`}>/{page.path}</span>
         <AccessChip isDark={isDark} page={shown} />
+        {/* a page for a user task: the way to it in the process (saved first, like «back») */}
+        {userTasks.map(({ key, steps }) => {
+          const at = steps[0];
+          return at && onOpenTask ? (
+            <button key={key} onClick={() => void flush().then((ok) => ok && onOpenTask(at.slug, at.stepId))}
+              title={`Diese Seite schliesst den Benutzer-Task ab: ${taskStepText(key, steps)}\n\nKlick: zum Schritt`}
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border hover:underline ${
+                isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800'}`}>
+              <ClipboardCheck size={10} /> {at.step}{steps.length > 1 && ' ⚠'} <ArrowUpRight size={10} />
+            </button>
+          ) : (
+            // not found: a warning, not a link
+            <span key={key} title={`Der Benutzer-Task «${key}» ist in keinem Prozess zu finden`}
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                isDark ? 'border-amber-500/30 text-amber-300' : 'border-amber-300 text-amber-700'}`}>
+              <AlertTriangle size={10} /> {key}
+            </span>
+          );
+        })}
         {draft && (
           <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${isDark ? 'border-violet-500/40 bg-violet-500/15 text-violet-200' : 'border-violet-300 bg-violet-50 text-violet-800'}`}
             title="Die Vorschau zeigt den Entwurf von Claude - übernehmen oder verwerfen im Panel rechts">
