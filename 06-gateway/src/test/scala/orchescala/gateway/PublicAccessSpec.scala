@@ -128,9 +128,11 @@ object PublicAccessSpec extends ZIOSpecDefault:
     Ref.make(Option.empty[(Option[String], Option[JsonObject])]).flatMap(got => post(routes(publicAccess, got), path, body))
 
   /** At most `d` - without waiting for a stuck effect to stop (`disconnect`): a wait fails the test, it
-    * does not hang it.
+    * does not hang it. Measured on the live clock - also in a test on the test clock, where the effect
+    * itself stays on the test clock.
     */
-  private def bounded[R, E, A](d: Duration)(zio: ZIO[R, E, A]): ZIO[R, E, Option[A]] = zio.disconnect.timeout(d)
+  private def bounded[R, E, A](d: Duration)(zio: ZIO[R, E, A]): ZIO[R, E, Option[A]] =
+    Live.withLive(zio.disconnect)(_.timeout(d))
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PublicAccess")(
     suite("PublicGuard")(
@@ -416,33 +418,47 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
       @@ TestAspect.withLiveClock,
       test("the caller is gone - the call still stops at its timeout and frees its slot"):
+        // on the test clock: the timeout of the call fires only when the clock is moved below - not while
+        // the first call is still on its way to the engine (on a busy CI machine the token and the routing
+        // took longer than a live timeout, and the call never reached the engine)
         for
-          token  <- techTokenOf(TestClock())
-          got    <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
-          n      <- Ref.make(0)
-          answer  = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then ZIO.never else ZIO.unit)
-          // asked again until the slot is free - no fixed wait against the clock; requestsPerMinute high so
-          // that the asking is not stopped by the rate limit (429)
-          one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
-          r       = routes(one, got, answer, Some(token))
-          first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
+          token      <- techTokenOf(TestClock())
+          got        <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          arrived    <- Promise.make[Nothing, Unit]
+          stopped    <- Promise.make[Nothing, Unit]
+          n          <- Ref.make(0)
+          // the first call stays in the engine until it is interrupted; the others answer at once
+          answer      = n.getAndUpdate(_ + 1).flatMap: i =>
+                          if i == 0 then arrived.succeed(()) *> ZIO.never.onInterrupt(stopped.succeed(()))
+                          else ZIO.unit
+          // requestsPerMinute high so that asking again is not stopped by the rate limit (429)
+          one         = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
+          r           = routes(one, got, answer, Some(token))
+          other       = post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+          first      <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
           // the first one is in the engine - else the rest would only hide this cause
-          _      <- bounded(5.seconds)(got.get.repeatUntil(_.nonEmpty)).someOrFail("the first call never reached the engine")
+          _          <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
           // the caller is gone - not waited for here (an unbounded wait hung CI); that it stops is checked below
-          _      <- first.interruptFork
-          second <- bounded(10.seconds):
-                      (ZIO.sleep(50.millis) *> post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}"))
-                        .repeatUntil(_.status == Status.Ok)
-                    .timed
-          gone   <- bounded(5.seconds)(first.await)
+          _          <- first.interruptFork
+          gone       <- bounded(5.seconds)(first.await)
           // the dump asks the stuck fiber - bounded as well
-          _      <- ZIO.when(gone.isEmpty):
-                      bounded(5.seconds)(first.dump.flatMap(_.prettyPrint))
-                        .flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n${d.getOrElse("(no dump within 5 s)")}"))
-        // freed by the timeout of the call - not only much later or never (the bound is wide for a slow
-        // CI machine; the status is in the message when it fails)
-        yield assertTrue(second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds, gone.isDefined)
-      @@ TestAspect.withLiveClock,
+          _          <- ZIO.when(gone.isEmpty):
+                          bounded(5.seconds)(first.dump.flatMap(_.prettyPrint))
+                            .flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n${d.getOrElse("(no dump within 5 s)")}"))
+          // without its caller the call still holds its slot - until its timeout
+          held       <- other
+          _          <- zio.test.TestClock.adjust(one.callTimeout)
+          wasStopped <- bounded(5.seconds)(stopped.await)
+          // free once the call has stopped - asked again only for the few steps after its interruption
+          second     <- bounded(5.seconds):
+                          (Live.live(ZIO.sleep(10.millis)) *> other).repeatUntil(_.status == Status.Ok)
+        yield assertTrue(
+          gone.isDefined,
+          held.status == Status.ServiceUnavailable,
+          wasStopped.isDefined,
+          second.map(_.status).contains(Status.Ok)
+        )
+      ,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =
           for
