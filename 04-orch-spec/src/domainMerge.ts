@@ -226,6 +226,16 @@ const fieldSig = (f: Field) =>
   JSON.stringify([f.type, !!f.optional, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '', f.default ?? '']);
 
 /**
+ * The same type, written two ways: a union alias in the process object was a catalog
+ * reference before (`dom:…v1.SendEvent.In.ReceivingSystems`), today the field keeps
+ * the alias (`SendEvent.In.ReceivingSystems`). That is no change of the field.
+ */
+const sameType = (a: string, b: string) => a === b
+  || (a.startsWith('dom:') && b.includes('.') && a.endsWith(`.${b}`))
+  || (b.startsWith('dom:') && a.includes('.') && b.endsWith(`.${a}`));
+const sameField = (a: Field, b: Field) => sameType(a.type, b.type) && fieldSig({ ...a, type: '' }) === fieldSig({ ...b, type: '' });
+
+/**
  * Fields by name: the domain determines which exist and what they look like
  * — the default too: if it has none (any more), the old one is dropped; on
  * implementation it is adjusted in the domain, that is where it applies. ID, description
@@ -251,7 +261,7 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
       exampleImports: p.example ? p.exampleImports : f.exampleImports,
       ...(f.default ? { default: f.default } : {}),
     };
-    if (fieldSig(merged) !== fieldSig(p)) changed = true;
+    if (!sameField(merged, p)) changed = true;
     return merged;
   });
   // only in the specification: reported; removed only if the type had already
