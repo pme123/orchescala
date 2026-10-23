@@ -325,6 +325,12 @@ export function diffPages(a: Page, b: Page): AuditChange[] {
   return col.out;
 }
 
+/** The first entry of a new page: created - with what it brings. Its building blocks need their IDs
+  * (withIds) - a block without one has no place in the log and would be left out. */
+export function createdPageEntry(page: Page, author: AuditAuthor): AuditEntry | null {
+  return entryOf(diffPages({ path: '', title: '', access: 'public', body: [] }, page), { source: 'manual', note: 'Seite angelegt' }, author);
+}
+
 const hasReport = (r?: AuditReport) => !!r && Object.values(r).some(v => v.length);
 
 /** an entry from a comparison — `null` if nothing changed. */

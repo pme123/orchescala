@@ -20,7 +20,7 @@ const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
-  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string };
+  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string };
 
 // Deep link (?spec=<slug>&comment=<id> or ?page=<slug>&comment=<id> for a page, see util.deepLink): on start take it from
 // the URL and remember it in the tab — so it survives the login redirect — and
@@ -423,12 +423,12 @@ export default function App() {
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PagesView onOpen={(slug, aiPrompt) => setView({ kind: 'page', slug, aiPrompt })}
+            <PagesView onOpen={(slug, aiPrompt, notice) => setView({ kind: 'page', slug, aiPrompt, notice })}
               onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'page' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PageEditor key={view.slug} slug={view.slug} aiPrompt={view.aiPrompt} focusCommentId={view.commentId} onBack={() => setView({ kind: 'pages' })}
+            <PageEditor key={view.slug} slug={view.slug} aiPrompt={view.aiPrompt} focusCommentId={view.commentId} notice={view.notice} onBack={() => setView({ kind: 'pages' })}
               onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'admin' ? (

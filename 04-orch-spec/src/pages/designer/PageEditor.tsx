@@ -88,8 +88,10 @@ function previewGateway(targets: Targets): Gateway {
 
 const EMPTY: Targets = { services: [], processes: [], messages: [], userTasks: [] };
 
-export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, onOpenTask }: {
+export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, notice: initialNotice, onOpenTask }: {
   slug: string; onBack: () => void; aiPrompt?: string;
+  /** a warning to show on opening - e.g. the first log entry of a new page was not written */
+  notice?: string;
   /** a comment from a deep link (?page=…&comment=…) - opened once the page is there */
   focusCommentId?: string;
   /** to the user task this page completes - the process at its step */
@@ -115,7 +117,8 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, onO
   }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
   /** a hint below the toolbar - Teams, the directory */
-  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn' } | null>(null);
+  const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn' } | null>(
+    initialNotice ? { message: initialNotice, tone: 'warn' } : null);
   // ---- comments (like a process): at the page and at every building block, in page.spec.comments
   const [commentsOpen, setCommentsOpen] = useState(!!focusCommentId);
   const [activeComment, setActiveComment] = useState<string | null>(null);

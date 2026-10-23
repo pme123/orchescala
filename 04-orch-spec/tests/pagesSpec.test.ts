@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { copyBlock, convertBlock, flatten, hasIds, keyOfId, logBase, newBlock, relocateBlock, withIds } from '../src/pages/designer/model';
 import type { Component, Page } from '../src/pages/runtime/spec';
 import { addThread, countIndex, setResolved } from '../src/comments';
-import { diffPages, entryOf } from '../src/audit';
+import { createdPageEntry, diffPages, entryOf } from '../src/audit';
 import { blockOfTarget, blockTarget, carryComments, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from '../src/pages/designer/pageComments';
 
 const body: Component[] = [
@@ -145,6 +145,16 @@ test('diffPages - the page, its building blocks by ID: changed field by field, n
   assert.equal(e?.source, 'ai');
   assert.equal(e?.changes.length, 8);
   assert.equal(entryOf([], { source: 'manual' }, me), null);
+});
+
+test('createdPageEntry - a new page names its building blocks; blocks without an ID are left out, never «block:undefined»', () => {
+  const fresh: Page = { path: 'p', title: 'P', access: 'public', body: [{ type: 'heading', text: 'P' }] };
+  const bare = createdPageEntry(fresh, me)!;
+  assert.ok(bare.changes.every((c) => c.target === pageTarget)); // without IDs: only the page itself
+  const ided = { ...fresh, body: withIds(fresh.body) };
+  const entry = createdPageEntry(ided, me)!;
+  assert.equal(entry.note, 'Seite angelegt');
+  assert.ok(entry.changes.some((c) => c.target === blockTarget(ided.body[0].id!) && c.op === 'add'));
 });
 
 test('diffPages - a swap of two neighbours names both, a longer move only the moved one', () => {

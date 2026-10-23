@@ -22,7 +22,8 @@ const pageEntry = ({ slug, data }: PageListItem): ListEntry => ({
 });
 
 export default function PagesView({ onOpen, onOpenTask }: {
-  onOpen: (slug: string, aiPrompt?: string) => void;
+  /** `notice`: a warning for the editor - e.g. the first log entry of a new page was not written */
+  onOpen: (slug: string, aiPrompt?: string, notice?: string) => void;
   /** to the user task of a page - the process at its step */
   onOpenTask?: (specSlug: string, stepId: string) => void;
 }) {
@@ -72,7 +73,9 @@ export default function PagesView({ onOpen, onOpenTask }: {
         }}
         onClose={() => setAppOpen(false)} />}
       {creating && <NewPage existing={pages.map((p) => p.slug)}
-        onCreate={async (slug, page, aiPrompt) => { const r = await createPage(slug, page); if (r.ok) { setCreating(false); onOpen(slug, aiPrompt); } return r; }}
+        onCreate={async (slug, page, aiPrompt) => { const r = await createPage(slug, page);
+          if (r.ok) { setCreating(false); onOpen(slug, aiPrompt, r.auditError && `Angelegt, aber der erste Eintrag im Änderungsprotokoll nicht: ${r.auditError}`); }
+          return r; }}
         onClose={() => setCreating(false)} />}
 
       {pages.length > 0 && <SpecListHead isDark={isDark} list={list} placeholder="Titel, Pfad, Projekt …" noun="Seiten" />}
