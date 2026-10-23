@@ -1729,6 +1729,13 @@ weg), Formate `|date`, `|time`, `|datetime`, `|day`, `|label:<name>` (Texte aus 
 Bedingungen (`visible`): `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, mit `&&` und `||`.
 Fehlertexte nach HTTP-Status – der Gateway gibt Anonymen nur den Status weiter.
 
+### KI-Modus – Seiten und Prozesse mit Claude
+
+Mit einem persönlichen Key der Claude API (Symbol ✦ oben rechts, nur in diesem Browser gespeichert)
+ändert Claude auf Wunsch eine Seite oder einen Prozess als **Entwurf**: geprüft mit denselben Befunden
+wie im Designer, übernommen oder verworfen vom RE. Ohne Key ist von KI nichts zu sehen. Bedienung,
+Schalter, welche Daten an Anthropic gehen und die gemessenen Kosten: [docs/KI-MODUS.md](docs/KI-MODUS.md).
+
 ## Datenablage im geteilten Ordner
 
 ```
@@ -1872,6 +1879,7 @@ verworfen: globex.core.banking.domain.client.v1 (13 Typen) — Vorrang hat inite
 | `src/components/` | Liste, Prozessansicht, Detailspalte, Klassenbauer, Export, Admin |
 | `src/pages/runtime/` | der Renderer der Seiten – App-Bundle (`vite.pages.config.ts`) und Vorschau im Designer |
 | `src/pages/designer/` | der Designer: Liste, Editor, Eigenschaften, Aktionen; `model.ts` – Ziele, Beispieldaten, Bausteine, Befunde |
+| `src/ai/` | der KI-Modus: Schalter über den Key, Agent mit Claude, Werkzeuge auf Seiten- und Prozess-Entwurf, Chat – siehe [docs/KI-MODUS.md](docs/KI-MODUS.md) |
 
 ## Offene Punkte
 
