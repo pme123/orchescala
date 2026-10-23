@@ -1,12 +1,13 @@
 // The designer of a page (E15): the outline of its building blocks, the page live - with the same renderer
 // as the app, fed with sample data of the services - and the properties of the selected building block.
 import {
-  AlertTriangle, ChevronLeft, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
+  AlertTriangle, ArrowUpRight, ChevronLeft, ClipboardCheck, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
   RotateCcw, Rows3, SquareDashed, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../../auth';
 import { useStore } from '../../store';
+import { userTasksOfPage, userTaskStep } from '../taskLinks';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
 import { themeStyle } from '../runtime/theme';
@@ -74,7 +75,11 @@ function previewGateway(targets: Targets): Gateway {
 
 const EMPTY: Targets = { services: [], processes: [], messages: [], userTasks: [] };
 
-export default function PageEditor({ slug, onBack }: { slug: string; onBack: () => void }) {
+export default function PageEditor({ slug, onBack, onOpenTask }: {
+  slug: string; onBack: () => void;
+  /** to the user task this page completes - the process at its step */
+  onOpenTask?: (specSlug: string, stepId: string) => void;
+}) {
   const { isDark, model, specs, pages, pagesApp, savePage } = useStore();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
@@ -280,6 +285,23 @@ export default function PageEditor({ slug, onBack }: { slug: string; onBack: () 
         <span className={`text-xs font-semibold ${c.text}`}>{page.title || slug}</span>
         <span className={`text-[10px] font-mono ${c.muted}`}>/{page.path}</span>
         <AccessChip isDark={isDark} page={page} />
+        {/* a page for a user task: the way to it in the process (saved first, like «back») */}
+        {userTasksOfPage(page).map((key) => {
+          const at = userTaskStep(key, specs);
+          const tone = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
+          return at && onOpenTask ? (
+            <button key={key} onClick={() => void flush().then((ok) => ok && onOpenTask(at.slug, at.stepId))}
+              title={`Diese Seite schliesst den Benutzer-Task «${at.step}» im Prozess «${at.process}» ab – Klick: zum Schritt`}
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
+              <ClipboardCheck size={10} /> {at.step} <ArrowUpRight size={10} />
+            </button>
+          ) : (
+            <span key={key} title={`Der Benutzer-Task «${key}» ist in keinem Prozess zu finden`}
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${tone}`}>
+              <ClipboardCheck size={10} /> {key}
+            </span>
+          );
+        })}
         {(errors > 0 || warnings > 0) && (
           <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
             errors ? (isDark ? 'border-rose-500/30 text-rose-300' : 'border-rose-300 text-rose-700') : (isDark ? 'border-amber-500/30 text-amber-300' : 'border-amber-300 text-amber-700')}`}>

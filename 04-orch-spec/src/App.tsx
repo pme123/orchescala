@@ -17,7 +17,7 @@ const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
-type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string } | { kind: 'admin' }
+type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
   | { kind: 'pages' } | { kind: 'page'; slug: string };
 
 // Deep link (?spec=<slug>&comment=<id>, see util.deepLink): on start take it from
@@ -407,11 +407,12 @@ export default function App() {
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PagesView onOpen={slug => setView({ kind: 'page', slug })} />
+            <PagesView onOpen={slug => setView({ kind: 'page', slug })} onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'page' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PageEditor key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'pages' })} />
+            <PageEditor key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'pages' })}
+              onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'admin' ? (
           canAdmin
@@ -422,7 +423,8 @@ export default function App() {
             )
             : <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : (
-          <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} onBack={() => setView({ kind: 'list' })} />
+          <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} focusStepId={view.stepId} onBack={() => setView({ kind: 'list' })}
+            onOpenPage={pageSlug => setView({ kind: 'page', slug: pageSlug })} />
         )}
       </div>
 

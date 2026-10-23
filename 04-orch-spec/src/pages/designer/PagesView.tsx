@@ -1,5 +1,5 @@
 // The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
-import { AlertTriangle, AppWindow, ClipboardCheck, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
+import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
@@ -7,12 +7,17 @@ import { useStore } from '../../store';
 import { cls } from '../../ui';
 import type { App, Page } from '../runtime/spec';
 import { JsonField, SelectField, TextField } from './fields';
-import { flatten, pageFindings, slugOf, targetsOf, userTasksOfPage } from './model';
+import { flatten, pageFindings, slugOf, targetsOf } from './model';
+import { userTasksOfPage, userTaskStep } from '../taskLinks';
 import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
 import { ThemeEditor } from './ThemeEditor';
 
-export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }) {
+export default function PagesView({ onOpen, onOpenTask }: {
+  onOpen: (slug: string) => void;
+  /** to the user task of a page - the process at its step */
+  onOpenTask?: (specSlug: string, stepId: string) => void;
+}) {
   const { isDark, model, specs, pages, pagesApp, pagesUnreadable, createPage, deletePage, savePagesApp } = useStore();
   const { canEdit, canDelete } = usePermissions();
   const confirm = useConfirm();
@@ -85,10 +90,8 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
             const findings = targets ? pageFindings(data, targets, pages.map((p) => p.data)).filter((f) => f.level !== 'info') : [];
             const errors = findings.filter((f) => f.level === 'error').length;
             // a page for a user task (it completes one) or a simple page
-            const tasks = userTasksOfPage(data).map((key) => {
-              const t = targets?.userTasks.find((u) => u.key === key);
-              return t ? `${t.name} – ${t.key} (${t.process})` : key;
-            });
+            const tasks = userTasksOfPage(data).map((key) => ({ key, at: userTaskStep(key, specs) }));
+            const goal = tasks.find((t) => t.at)?.at;
             return (
               <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
                 <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
@@ -99,9 +102,13 @@ export default function PagesView({ onOpen }: { onOpen: (slug: string) => void }
                   </div>
                   <span className={`hidden sm:inline text-[9px] ${c.muted}`}>{flatten(data.body).length} Bausteine</span>
                   {tasks.length ? (
-                    <span title={`Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.join('\n')}`}
-                      className={`text-[9px] px-1.5 py-0.5 rounded border ${isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800'}`}>
-                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}
+                    // inside the row's button: a span that acts as a link of its own
+                    <span role="link" tabIndex={goal && onOpenTask ? 0 : -1}
+                      title={`Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.map((t) => (t.at ? `${t.at.step} – im Prozess «${t.at.process}»` : `${t.key} – in keinem Prozess gefunden`)).join('\n')}${goal && onOpenTask ? '\n\nKlick: zum Schritt im Prozess' : ''}`}
+                      onClick={(e) => { if (!goal || !onOpenTask) return; e.stopPropagation(); onOpenTask(goal.slug, goal.stepId); }}
+                      onKeyDown={(e) => { if (goal && onOpenTask && e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); onOpenTask(goal.slug, goal.stepId); } }}
+                      className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${goal && onOpenTask ? 'hover:underline' : ''} ${isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800'}`}>
+                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}{goal && onOpenTask && <ArrowUpRight size={9} />}
                     </span>
                   ) : (
                     <span title="Einfache Seite – schliesst keinen Benutzer-Task ab"
