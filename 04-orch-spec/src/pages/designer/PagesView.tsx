@@ -9,7 +9,7 @@ import { cls } from '../../ui';
 import type { App, Page } from '../runtime/spec';
 import { JsonField, SelectField, TextField } from './fields';
 import { flatten, pageFindings, slugOf, targetsOf } from './model';
-import { userTasksOfPage, userTaskStep } from '../taskLinks';
+import { taskStepText, userTasksOfPage, userTaskSteps } from '../taskLinks';
 import { appProblem } from '../runtime/validate';
 import { AccessChip } from './PageEditor';
 import { ThemeEditor } from './ThemeEditor';
@@ -27,6 +27,9 @@ export default function PagesView({ onOpen, onOpenTask }: {
   const [appOpen, setAppOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : null), [model, specs]);
+  // per page: the user tasks it completes and where they are - once per change of pages or specs
+  const taskInfo = useMemo(() => new Map(pages.map((p) => [p.slug,
+    userTasksOfPage(p.data).map((key) => ({ key, steps: userTaskSteps(key, specs) }))])), [pages, specs]);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-6">
@@ -91,8 +94,11 @@ export default function PagesView({ onOpen, onOpenTask }: {
             const findings = targets ? pageFindings(data, targets, pages.map((p) => p.data)).filter((f) => f.level !== 'info') : [];
             const errors = findings.filter((f) => f.level === 'error').length;
             // a page for a user task (it completes one) or a simple page
-            const tasks = userTasksOfPage(data).map((key) => ({ key, at: userTaskStep(key, specs) }));
-            const goal = tasks.find((t) => t.at)?.at;
+            const tasks = taskInfo.get(slug) ?? [];
+            const goal = tasks.find((t) => t.steps.length)?.steps[0];
+            const chip = 'text-[9px] px-1.5 py-0.5 rounded border';
+            const sky = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
+            const taskTitle = `Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.map((t) => taskStepText(t.key, t.steps)).join('\n')}`;
             return (
               <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
                 <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
@@ -102,19 +108,6 @@ export default function PagesView({ onOpen, onOpenTask }: {
                     <div className={`text-[10px] font-mono truncate ${c.muted}`}>/{data.path}</div>
                   </div>
                   <span className={`hidden sm:inline text-[9px] ${c.muted}`}>{flatten(data.body).length} Bausteine</span>
-                  {tasks.length ? (
-                    // inside the row's button: a span that acts as a link of its own
-                    <span role="link" tabIndex={goal && onOpenTask ? 0 : -1}
-                      title={`Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.map((t) => (t.at ? `${t.at.step} – im Prozess «${t.at.process}»` : `${t.key} – in keinem Prozess gefunden`)).join('\n')}${goal && onOpenTask ? '\n\nKlick: zum Schritt im Prozess' : ''}`}
-                      onClick={(e) => { if (!goal || !onOpenTask) return; e.stopPropagation(); onOpenTask(goal.slug, goal.stepId); }}
-                      onKeyDown={(e) => { if (goal && onOpenTask && e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); onOpenTask(goal.slug, goal.stepId); } }}
-                      className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${goal && onOpenTask ? 'hover:underline' : ''} ${isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800'}`}>
-                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}{goal && onOpenTask && <ArrowUpRight size={9} />}
-                    </span>
-                  ) : (
-                    <span title="Einfache Seite – schliesst keinen Benutzer-Task ab"
-                      className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted}`}>Seite</span>
-                  )}
                   <AccessChip isDark={isDark} page={data} />
                   {findings.length > 0 ? (
                     <span title={findings.map((f) => f.message).join('\n')}
@@ -125,6 +118,19 @@ export default function PagesView({ onOpen, onOpenTask }: {
                     </span>
                   ) : <span className="w-8" />}
                 </button>
+                {/* the kind of the page - next to the row (a button of its own, not inside the row's button) */}
+                <div className="w-20 flex justify-end">
+                  {tasks.length === 0 ? (
+                    <span title="Einfache Seite – schliesst keinen Benutzer-Task ab" className={`${chip} ${c.border2} ${c.muted}`}>Seite</span>
+                  ) : goal && onOpenTask ? (
+                    <button onClick={() => onOpenTask(goal.slug, goal.stepId)} title={`${taskTitle}\n\nKlick: zum Schritt im Prozess`}
+                      className={`flex items-center gap-0.5 hover:underline ${chip} ${sky}`}>
+                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}<ArrowUpRight size={9} />
+                    </button>
+                  ) : (
+                    <span title={taskTitle} className={`${chip} ${sky}`}>User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}</span>
+                  )}
+                </div>
                 {canDelete && (
                   <button title="Seite löschen"
                     onClick={async () => {

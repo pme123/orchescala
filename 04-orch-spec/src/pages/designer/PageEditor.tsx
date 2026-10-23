@@ -10,7 +10,7 @@ import { useAiKey } from '../../ai/key';
 import type { PageDraft } from '../../ai/pageTools';
 import { usePermissions } from '../../auth';
 import { useStore } from '../../store';
-import { userTasksOfPage, userTaskStep } from '../taskLinks';
+import { taskStepText, userTasksOfPage, userTaskSteps } from '../taskLinks';
 import { cls } from '../../ui';
 import PageView from '../runtime/PageView';
 import { themeStyle } from '../runtime/theme';
@@ -292,6 +292,8 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
   };
   const errors = findings.filter((f) => f.level === 'error').length;
   const warnings = findings.filter((f) => f.level === 'warning').length;
+  // the user tasks this page completes and where they are (one page: no memo - this is after the early return)
+  const userTasks = userTasksOfPage(page).map((key) => ({ key, steps: userTaskSteps(key, specs) }));
 
   return (
     <div className="flex flex-col h-full">
@@ -305,19 +307,21 @@ export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
         <span className={`text-[10px] font-mono ${c.muted}`}>/{page.path}</span>
         <AccessChip isDark={isDark} page={shown} />
         {/* a page for a user task: the way to it in the process (saved first, like «back») */}
-        {userTasksOfPage(page).map((key) => {
-          const at = userTaskStep(key, specs);
-          const tone = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
+        {userTasks.map(({ key, steps }) => {
+          const at = steps[0];
           return at && onOpenTask ? (
             <button key={key} onClick={() => void flush().then((ok) => ok && onOpenTask(at.slug, at.stepId))}
-              title={`Diese Seite schliesst den Benutzer-Task «${at.step}» im Prozess «${at.process}» ab – Klick: zum Schritt`}
-              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
-              <ClipboardCheck size={10} /> {at.step} <ArrowUpRight size={10} />
+              title={`Diese Seite schliesst den Benutzer-Task ab: ${taskStepText(key, steps)}\n\nKlick: zum Schritt`}
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border hover:underline ${
+                isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800'}`}>
+              <ClipboardCheck size={10} /> {at.step}{steps.length > 1 && ' ⚠'} <ArrowUpRight size={10} />
             </button>
           ) : (
+            // not found: a warning, not a link
             <span key={key} title={`Der Benutzer-Task «${key}» ist in keinem Prozess zu finden`}
-              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${tone}`}>
-              <ClipboardCheck size={10} /> {key}
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                isDark ? 'border-amber-500/30 text-amber-300' : 'border-amber-300 text-amber-700'}`}>
+              <AlertTriangle size={10} /> {key}
             </span>
           );
         })}

@@ -7,7 +7,7 @@ import {
   blockAt, convertBlock, flatten, insertBlock, moveBlock, newBlock, pageFindings, parseScalaType, placeBlock, relocateBlock,
   dataOf, lostOnConvert, removeBlock, sampleOf, slugOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection,
 } from '../src/pages/designer/model';
-import { pagesForTask, userTasksOfPage, userTaskStep } from '../src/pages/taskLinks';
+import { pagesForTask, taskStepText, userTasksOfPage, userTaskSteps } from '../src/pages/taskLinks';
 import type { Model, ProcessSpec } from '../src/types';
 import type { Component, Page } from '../src/pages/runtime/spec';
 
@@ -533,30 +533,55 @@ test('unwrapSection - an empty section: its parent is selected (the page: no key
   assert.equal(blockAt(r.body, r.key), undefined);
 });
 
-test('userTasksOfPage, userTaskStep, pagesForTask - a page for a user task completes one (also on load or in onError), a simple page none', () => {
-  const simple: Page = { path: 'shop/book', title: 'Buchen', access: 'public', body: [{ type: 'button', label: 'Buchen', actions: [{ do: 'call', service: 'x', input: {} }] }] };
-  assert.deepEqual(userTasksOfPage(simple), []);
-  const task: Page = {
-    path: 'shop/confirm', title: 'Bestätigen', access: { roles: [] },
-    body: [
-      { type: 'button', label: 'Bestätigen', actions: [{ do: 'completeTask', taskKey: 'ConfirmTask', taskId: '{{task.taskId}}' }] },
+const simplePage: Page = { path: 'shop/book', title: 'Buchen', access: 'public', body: [{ type: 'button', label: 'Buchen', actions: [{ do: 'call', service: 'x', input: {} }] }] };
+const taskPage: Page = {
+  path: 'shop/confirm', title: 'Bestätigen', access: { roles: [] },
+  body: [
+    { type: 'button', label: 'Bestätigen', actions: [{ do: 'completeTask', taskKey: 'ConfirmTask', taskId: '{{task.taskId}}' }] },
+    { type: 'section', label: 'Mehr', body: [
       { type: 'button', label: 'Nochmals', actions: [{ do: 'call', service: 'x', input: {}, onError: [{ do: 'completeTask', taskKey: 'ConfirmTask', taskId: '{{task.taskId}}' }] }] },
-      { type: 'button', label: 'Ablehnen', actions: [{ do: 'completeTask', taskKey: 'RejectTask', taskId: '{{task.taskId}}' }] },
-      { type: 'button', label: 'Leer', actions: [{ do: 'completeTask', taskKey: ' ', taskId: '' }] },
-    ],
-  };
-  assert.deepEqual(userTasksOfPage(task), ['ConfirmTask', 'RejectTask']);
+      { type: 'choice', bind: 'x', options: [], onChange: [{ do: 'completeTask', taskKey: 'RejectTask', taskId: '{{task.taskId}}' }] },
+    ] },
+    { type: 'button', label: 'Leer', actions: [{ do: 'completeTask', taskKey: ' ', taskId: '' }] },
+  ],
+};
+const taskSpec = (slug: string, title: string): ProcessSpec => ({
+  slug, title, processId: `${slug}V1`,
+  steps: [{ id: 'ConfirmUT', kind: 'userTask', name: 'Termin prüfen', status: 'draft' }],
+  interactions: [{ id: 'i1', stepId: 'ConfirmUT', kind: 'userTask', name: 'ConfirmUT', key: 'ConfirmTask' }],
+} as unknown as ProcessSpec);
 
-  // from the page to its task in the process and back
-  const spec = {
-    slug: 'shop-confirm', title: 'Termin bestätigen', processId: 'shop-confirmV1',
-    steps: [{ id: 'ConfirmUT', kind: 'userTask', name: 'Termin prüfen', status: 'draft' }],
-    interactions: [{ id: 'i1', stepId: 'ConfirmUT', kind: 'userTask', name: 'ConfirmUT', key: 'ConfirmTask' }],
-  } as unknown as ProcessSpec;
-  const specs = [{ slug: 'shop-confirm', data: spec }];
-  assert.deepEqual(userTaskStep('ConfirmTask', specs), { key: 'ConfirmTask', slug: 'shop-confirm', process: 'Termin bestätigen', stepId: 'ConfirmUT', step: 'Termin prüfen' });
-  assert.equal(userTaskStep('RejectTask', specs), null);
-  const pages = [{ slug: 'book', data: simple }, { slug: 'confirm', data: task }];
+test('userTasksOfPage - actions on buttons, in sections, on choices and in onError; a simple page has none', () => {
+  assert.deepEqual(userTasksOfPage(simplePage), []);
+  assert.deepEqual(userTasksOfPage(taskPage), ['ConfirmTask', 'RejectTask']);
+  assert.deepEqual(userTasksOfPage({ ...simplePage, load: [{ do: 'completeTask', taskKey: 'OnLoad', taskId: 'x' }] }), ['OnLoad']);
+});
+
+test('userTasksOfPage - a value that only looks like an action (state, input, text) does not count', () => {
+  const fake = { do: 'completeTask', taskKey: 'Fake', taskId: 'x' };
+  const page = {
+    ...simplePage,
+    state: { example: fake },
+    body: [{ type: 'button', label: 'Senden', actions: [{ do: 'call', service: 'x', input: { payload: fake } }] }, { type: 'text', text: JSON.stringify(fake) }],
+  } as unknown as Page;
+  assert.deepEqual(userTasksOfPage(page), []);
+});
+
+test('userTaskSteps - from the task to its step in the process; a key in two processes gives both', () => {
+  const one = [{ slug: 'shop-confirm', data: taskSpec('shop-confirm', 'Termin bestätigen') }];
+  assert.deepEqual(userTaskSteps('ConfirmTask', one), [{ key: 'ConfirmTask', slug: 'shop-confirm', process: 'Termin bestätigen', stepId: 'ConfirmUT', step: 'Termin prüfen' }]);
+  assert.deepEqual(userTaskSteps('RejectTask', one), []);
+  assert.equal(taskStepText('RejectTask', []), 'RejectTask – in keinem Prozess gefunden');
+  assert.equal(taskStepText('ConfirmTask', userTaskSteps('ConfirmTask', one)), 'Termin prüfen – im Prozess «Termin bestätigen»');
+
+  const two = [...one, { slug: 'shop-other', data: taskSpec('shop-other', 'Anderer Prozess') }];
+  const steps = userTaskSteps('ConfirmTask', two);
+  assert.deepEqual(steps.map((t) => t.slug), ['shop-confirm', 'shop-other']);
+  assert.match(taskStepText('ConfirmTask', steps), /kommt in 2 Prozessen vor \(Termin bestätigen, Anderer Prozess\) – der Link führt zum ersten/);
+});
+
+test('pagesForTask - the pages that complete a task', () => {
+  const pages = [{ slug: 'book', data: simplePage }, { slug: 'confirm', data: taskPage }];
   assert.deepEqual(pagesForTask('ConfirmTask', pages), [{ slug: 'confirm', title: 'Bestätigen' }]);
   assert.deepEqual(pagesForTask('Other', pages), []);
 });

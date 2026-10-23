@@ -406,7 +406,6 @@ export function newBlock(type: Component['type']): Component {
 
 // ---------------------------------------------------------------- the actions of a page
 
-
 /** Every action of a page with its location - load, a button, onChange, onError. */
 export function actionsOf(page: Page): { where: string; key?: BlockKey; action: Action }[] {
   const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>

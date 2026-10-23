@@ -24,7 +24,7 @@ import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { useStore } from '../store';
-import { pagesForTask } from '../pages/taskLinks';
+import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
@@ -254,7 +254,7 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
 // ── Step level ────────────────────────────────────────────────────────────
 function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram, onOpenPage }: Props & { step: Step }) {
   const confirm = useConfirm();
-  const { pages } = useStore();
+  const { pages, specs } = useStore();
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
   const correlation = messageCorrelation(step, spec.engine);
@@ -272,6 +272,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // What the mapping can be measured against: the class of the interaction, otherwise the
   // catalog entry. If there is neither, the mapping is free.
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
+  // a user task: the pages that complete it, and whether its key is in other processes too (a page
+  // only knows the key - then it cannot tell the processes apart)
+  const taskKey = ia?.kind === 'userTask' ? ia.key : null;
+  const taskPages = useMemo(() => (taskKey ? pagesForTask(taskKey, pages) : []), [taskKey, pages]);
+  const keyElsewhere = useMemo(() => (taskKey ? userTaskSteps(taskKey, specs).filter(t => t.slug !== spec.slug || t.stepId !== step.id) : []), [taskKey, specs, spec.slug, step.id]);
   const classFieldDefs = (list: 'inputs' | 'outputs'): Field[] | null => {
     const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
     const t = id ? (spec.types ?? []).find(x => x.id === id) : null;
@@ -376,11 +381,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
             )}
             {/* a user task: the pages of the app that complete it (only where the app has pages) */}
             {ia?.kind === 'userTask' && onOpenPage && pages.length > 0 && (() => {
-              const forTask = pagesForTask(ia.key, pages);
+              const forTask = taskPages;
+              const elsewhere = keyElsewhere.length
+                ? `\n⚠ Der Schlüssel «${ia.key}» kommt auch in ${keyElsewhere.map(t => `«${t.process}»`).join(', ')} vor – die Seite gilt für alle.`
+                : '';
               const tone = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
               return forTask.length ? forTask.map(pg => (
                 <button key={pg.slug} onClick={() => onOpenPage(pg.slug)}
-                  title={`Die Seite «${pg.title}» schliesst diesen Benutzer-Task ab – Klick: zur Seite im Seiten-Designer`}
+                  title={`Die Seite «${pg.title}» schliesst diesen Benutzer-Task ab – Klick: zur Seite im Seiten-Designer${elsewhere}`}
                   className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
                   <AppWindow size={9} />{pg.title}<ArrowUpRight size={9} className="opacity-60" />
                 </button>
