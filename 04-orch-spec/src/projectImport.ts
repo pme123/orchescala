@@ -133,8 +133,11 @@ async function searchDomain(
     try {
       await readSources(handle, p.name, files, () => {});
     } catch (e) {
-      // access revoked while reading, folder moved: for the own folder like no access
-      if (!own) throw e;
+      // access revoked while reading, folder moved: for the own folder like no access —
+      // anything else is no question of access and is shown as it is
+      const access = e instanceof DOMException && ['NotAllowedError', 'NotFoundError', 'SecurityError'].includes(e.name);
+      if (!own || !access) throw e;
+      console.warn(`[orch-spec] ${p.name} nicht lesbar:`, e);
       unreadable.push(p.name);
       return null;
     }

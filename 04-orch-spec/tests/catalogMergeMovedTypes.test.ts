@@ -172,3 +172,17 @@ test('a type without source whose package root belongs to several projects is me
   // the types with a source are still merged per project
   assert.ok(!acmeIds(merged).includes(OLD));
 });
+
+test('an old catalog without any source: its types still belong to the project of the own scan', () => {
+  // catalogs from before `source`: the package root of the scanned project decides
+  const withoutSource = oldScan().map(({ source: _s, ...t }) => t as DomainType);
+  const merged = mergeGeneratedCatalog(model(newScan()), { domainTypes: withoutSource });
+  assert.ok(!acmeIds(merged).includes(OLD));
+  assert.ok(acmeIds(merged).includes(NEW));
+  const before = synced();
+  const enriched = enrichSpec(before, merged.domainTypes ?? [], merged);
+  assert.ok(enriched);
+  const { spec: after } = mergeDomain(before, enriched.spec, { status: { added: 'implemented', changed: 'changed' } });
+  const names = (after.types ?? []).map(t => t.name);
+  assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), [], 'no type twice');
+});

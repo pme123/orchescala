@@ -228,16 +228,24 @@ const fieldSig = (f: Field) =>
 /**
  * The same type, written two ways: a union alias in the process object was a catalog
  * reference before (`dom:…v1.SendEvent.In.ReceivingSystems`), today the field keeps
- * the alias (`SendEvent.In.ReceivingSystems`). That is no change of the field.
+ * the alias (`SendEvent.In.ReceivingSystems`). That is no change of the field — but
+ * only if the reference points to exactly that alias: in the package of the type the
+ * field belongs to, or one above it (`pkg`, from its `domainId`).
  */
-const sameType = (a: string, b: string) => a === b || aliasOf(a, b) || aliasOf(b, a);
-/** `dom:<package>.<name>` with `name` the alias path from its object (`SendEvent.In.ReceivingSystems`) */
-const aliasOf = (ref: string, name: string) => {
-  if (!ref.startsWith('dom:') || !/^[A-Z]\w*(\.\w+)+$/.test(name) || !ref.endsWith(`.${name}`)) return false;
-  // what is before it is the package (lower case only) — not part of another object's path
-  return /^[a-z]\w*(\.[a-z]\w*)*$/.test(ref.slice(4, -name.length - 1));
+const sameType = (a: string, b: string, pkg?: string) => a === b || aliasOf(a, b, pkg) || aliasOf(b, a, pkg);
+const aliasOf = (ref: string, name: string, pkg?: string) => {
+  if (!pkg || !ref.startsWith('dom:') || !ref.endsWith(`.${name}`)) return false;
+  const refPkg = ref.slice(4, -name.length - 1);
+  return pkg === refPkg || pkg.startsWith(`${refPkg}.`);
 };
-const sameField = (a: Field, b: Field) => sameType(a.type, b.type) && fieldSig({ ...a, type: '' }) === fieldSig({ ...b, type: '' });
+/** The package of a domain type: its id without the object path (`…v1.SendEvent.In` → `…v1`) */
+const packageOfId = (id: string | undefined) => {
+  if (!id) return undefined;
+  const parts = id.split('.');
+  const at = parts.findIndex(p => /^[A-Z]/.test(p));
+  return at > 0 ? parts.slice(0, at).join('.') : undefined;
+};
+const sameField = (a: Field, b: Field, pkg?: string) => sameType(a.type, b.type, pkg) && fieldSig({ ...a, type: '' }) === fieldSig({ ...b, type: '' });
 
 /**
  * Fields by name: the domain determines which exist and what they look like
@@ -245,7 +253,7 @@ const sameField = (a: Field, b: Field) => sameType(a.type, b.type) && fieldSig({
  * implementation it is adjusted in the domain, that is where it applies. ID, description
  * and example come from the specification.
  */
-function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, where: string, stale: string[], removeStale: boolean, wasImpl: boolean): { fields: Field[]; changed: boolean } {
+function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, where: string, stale: string[], removeStale: boolean, wasImpl: boolean, pkg?: string): { fields: Field[]; changed: boolean } {
   const before = new Map((prev ?? []).filter(f => f.name).map(f => [f.name, f]));
   let changed = false;
   const fields: Field[] = (fresh ?? []).map(f => {
@@ -265,7 +273,7 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
       exampleImports: p.example ? p.exampleImports : f.exampleImports,
       ...(f.default ? { default: f.default } : {}),
     };
-    if (!sameField(merged, p)) changed = true;
+    if (!sameField(merged, p, pkg)) changed = true;
     return merged;
   });
   // only in the specification: reported; removed only if the type had already
@@ -283,7 +291,8 @@ function mergeFields(prev: Field[] | undefined, fresh: Field[] | undefined, wher
 function mergeType(prev: TypeDef, fresh: TypeDef, stale: string[], removeStale: boolean): { type: TypeDef; changed: boolean } {
   const wasImpl = wasImplemented(prev);
   let changed = prev.kind !== fresh.kind;
-  const common = mergeFields(prev.fields, fresh.fields, '', stale, removeStale, wasImpl);
+  const pkg = packageOfId(fresh.domainId);
+  const common = mergeFields(prev.fields, fresh.fields, '', stale, removeStale, wasImpl, pkg);
   changed ||= common.changed;
   let values: EnumValue[] | undefined;
   if (fresh.kind === 'enum') {
@@ -292,7 +301,7 @@ function mergeType(prev: TypeDef, fresh: TypeDef, stale: string[], removeStale: 
       const p = before.get(v.name);
       if (!p) { changed = true; return v; }
       before.delete(v.name);
-      const fs = mergeFields(p.fields, v.fields, `${v.name}.`, stale, removeStale, wasImpl);
+      const fs = mergeFields(p.fields, v.fields, `${v.name}.`, stale, removeStale, wasImpl, pkg);
       changed ||= fs.changed;
       // only reordered in the code — that is a change too (the order of the parameters); a
       // specification without `order` (from before) does not know it — that alone is not a change

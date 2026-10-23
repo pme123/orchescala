@@ -321,5 +321,7 @@ test('sync: another type with the same tail is still a change', () => {
     mergeDomain(pointing(type), imported().spec, { status: { added: 'implemented', changed: 'changed' } }).report.changed;
   // `Other.SendEvent.In.ReceivingSystems` lives in another object — not the alias of this process
   assert.deepEqual(changed(`dom:${PKG}.Other.SendEvent.In.ReceivingSystems`), ['In']);
+  // the same object path in another package — another process's alias
+  assert.deepEqual(changed('dom:globex.core.domain.sendEvent.v1.SendEvent.In.ReceivingSystems'), ['In']);
   assert.deepEqual(changed(`dom:${PKG}.SendEvent.In.ReceivingSystems`), []);
 });
