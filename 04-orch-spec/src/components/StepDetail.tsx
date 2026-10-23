@@ -390,7 +390,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 <button key={pg.slug} onClick={() => onOpenPage(pg.slug)}
                   title={`Die Seite «${pg.title}» schliesst diesen Benutzer-Task ab – Klick: zur Seite im Seiten-Designer${elsewhere}`}
                   className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
-                  <AppWindow size={9} />{pg.title}<ArrowUpRight size={9} className="opacity-60" />
+                  <AppWindow size={9} />{pg.title}{keyElsewhere.length > 0 && ' ⚠'}<ArrowUpRight size={9} className="opacity-60" />
                 </button>
               )) : (
                 <span title={`Keine Seite der App schliesst «${ia.key}» ab (Aktion «Task abschliessen»)`}

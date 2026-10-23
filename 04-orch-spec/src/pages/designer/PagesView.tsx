@@ -96,6 +96,8 @@ export default function PagesView({ onOpen, onOpenTask }: {
             // a page for a user task (it completes one) or a simple page
             const tasks = taskInfo.get(slug) ?? [];
             const goal = tasks.find((t) => t.steps.length)?.steps[0];
+            // a key in several processes: the link goes to the first - said in the chip, not only in the tooltip
+            const ambiguous = tasks.some((t) => t.steps.length > 1);
             const chip = 'text-[9px] px-1.5 py-0.5 rounded border';
             const sky = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
             const taskTitle = `Seite für den Benutzer-Task (schliesst ihn ab):\n${tasks.map((t) => taskStepText(t.key, t.steps)).join('\n')}`;
@@ -125,10 +127,10 @@ export default function PagesView({ onOpen, onOpenTask }: {
                   ) : goal && onOpenTask ? (
                     <button onClick={() => onOpenTask(goal.slug, goal.stepId)} title={`${taskTitle}\n\nKlick: zum Schritt im Prozess`}
                       className={`flex items-center gap-0.5 hover:underline ${chip} ${sky}`}>
-                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}<ArrowUpRight size={9} />
+                      User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}{ambiguous && ' ⚠'}<ArrowUpRight size={9} />
                     </button>
                   ) : (
-                    <span title={taskTitle} className={`${chip} ${sky}`}>User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}</span>
+                    <span title={taskTitle} className={`${chip} ${sky}`}>User-Task{tasks.length > 1 ? ` ×${tasks.length}` : ''}{ambiguous && ' ⚠'}</span>
                   )}
                 </div>
                 {canDelete && (
