@@ -4,6 +4,10 @@ import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from
 import { uid } from '../../util';
 import { conditionProblem } from '../runtime/expr';
 import type { Action, Component, Page } from '../runtime/spec';
+import { actionsOf, type BlockKey, flatten } from '../pageActions';
+
+// the traversal lives in a light module (the task links use it too) - re-exported for the designer
+export { actionsOf, flatten, type BlockKey };
 
 // ---------------------------------------------------------------- Fields
 
@@ -202,9 +206,6 @@ function sampleValue(f: PField, i: number): unknown {
 
 // ---------------------------------------------------------------- the tree of building blocks
 
-/** The key of a building block: its index path in `body` - `"2"`, `"2.1"` (in a section). */
-export type BlockKey = string;
-
 export function blockAt(body: Component[], key: BlockKey): Component | undefined {
   if (!/^\d+(\.\d+)*$/.test(key)) return undefined; // '' (the page) is not a building block - Number('') would be 0
   const [head, ...rest] = key.split('.').map(Number);
@@ -388,15 +389,6 @@ export function convertBlock(b: Component, type: Component['type']): Component {
   return next as Component;
 }
 
-/** Every building block with its key - depth first, as the outline shows them. */
-export function flatten(body: Component[], prefix = ''): { key: BlockKey; block: Component; depth: number }[] {
-  return body.flatMap((block, i) => {
-    const key = prefix ? `${prefix}.${i}` : String(i);
-    const self = { key, block, depth: prefix ? prefix.split('.').length : 0 };
-    return block.type === 'section' ? [self, ...flatten(block.body, key)] : [self];
-  });
-}
-
 // ---------------------------------------------------------------- stable IDs of the building blocks
 
 /** A new ID for a building block. */
@@ -460,25 +452,6 @@ function freshBlock(type: Component['type']): Component {
 }
 
 // ---------------------------------------------------------------- the actions of a page
-
-/** Every action of a page with its location - load, a button, onChange, onError. */
-export function actionsOf(page: Page): { where: string; key?: BlockKey; action: Action }[] {
-  const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>
-    (actions ?? []).flatMap((action) => [
-      { where, key, action },
-      ...('onError' in action ? nested(`${where} (onError)`, action.onError, key) : []),
-    ]);
-  return [
-    ...nested('Laden', page.load),
-    ...flatten(page.body).flatMap(({ key, block }) =>
-      block.type === 'button'
-        ? nested(`Button «${block.label}»`, block.actions, key)
-        : block.type === 'choice'
-          ? nested(`Auswahl «${block.label ?? block.bind}»`, block.onChange, key)
-          : [],
-    ),
-  ];
-}
 
 /** The paths of the state a page knows: its state, the results of its actions (with fields), query, user. */
 export function statePaths(page: Page, targets: Targets): string[] {

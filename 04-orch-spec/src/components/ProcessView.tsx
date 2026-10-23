@@ -68,6 +68,10 @@ interface Props {
   onBack: () => void;
   /** Deep link: open the comment panel at the location of this comment */
   focusCommentId?: string;
+  /** open at this step (from a page for a user task) */
+  focusStepId?: string;
+  /** to a page of the app (from a user task) */
+  onOpenPage?: (pageSlug: string) => void;
 }
 
 /** Explain the Entra search once per session, not on every «@». */
@@ -145,7 +149,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
   }
 };
 
-export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
+export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage }: Props) {
   const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
@@ -572,6 +576,14 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
     if (faden.resolved) setShowResolved(true);
     openComment(faden.target);
   }, [spec, focusCommentId, openComment]);
+
+  // From a page for a user task: once per step, as soon as the specification is there
+  const stepFocusedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!spec || !focusStepId || stepFocusedRef.current === focusStepId) return;
+    stepFocusedRef.current = focusStepId;
+    gotoTarget(stepTarget(focusStepId));
+  }, [spec, focusStepId, gotoTarget]);
 
   // People for «@»: users.json plus comment authors with e-mail plus me
   const mentionUsers = useMemo(() => {
@@ -1315,7 +1327,7 @@ export default function ProcessView({ slug, onBack, focusCommentId }: Props) {
 
               <StepDetail step={selectedStep} spec={shownSpec ?? spec}
                 isDark={isDark} canEdit={canEdit} model={model}
-                onPatch={patchStep} onSyncId={syncStepId} onClose={() => setSelected(null)} onGoto={setSelected}
+                onPatch={patchStep} onSyncId={syncStepId} onClose={() => setSelected(null)} onGoto={setSelected} onOpenPage={onOpenPage}
                 projectPrefixes={projectPrefixes} onRenameProject={renameProject}
                 onSpecChange={next => {
                   if (next.timeToLive !== spec.timeToLive) {
