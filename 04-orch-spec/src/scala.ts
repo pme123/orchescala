@@ -793,6 +793,21 @@ const withCopy = (expr: string, values: Record<string, string> | undefined): str
   return entries.length ? `${expr}.copy(${entries.map(([k, v]) => `${k} = ${v.trim()}`).join(', ')})` : expr;
 };
 
+/**
+ * Whose `example` takes the differing values. An ADT's `example` is typed with the enum, which
+ * has no `.copy` — so the values go to a case example (typed with the case): the first case that
+ * has all of them, else the first case with fields.
+ */
+const copyTarget = (t: TypeDef, name: string, values: Record<string, string> | undefined): string => {
+  const keys = Object.entries(values ?? {}).filter(([k, v]) => k.trim() && v.trim()).map(([k]) => k);
+  if (!keys.length || !isAdt(t)) return name;
+  const common = (t.fields ?? []).map(f => f.name).filter(Boolean);
+  const cases = (t.values ?? []).filter(v => v.name && (common.length || v.fields?.some(f => f.name)));
+  const fits = cases.find(v => keys.every(k => common.includes(k) || (v.fields ?? []).some(f => f.name === k)));
+  const c = fits ?? cases[0];
+  return c ? `${name}.${caseIdent(c.name)}` : name;
+};
+
 export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeIndex): string {
   const meta = INTERACTION_META[ia.kind];
   const types = spec.types ?? [];
@@ -825,7 +840,7 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
     }
     lines.push(indent(renderType({ ...t, name }, idx), '  '));
     lines.push('');
-    return withCopy(`${name}.example`, values);
+    return withCopy(`${copyTarget(t, name, values)}.example`, values);
   };
 
   const inExpr = member(inType, 'In');
