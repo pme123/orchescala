@@ -395,13 +395,15 @@ export function convertBlock(b: Component, type: Component['type']): Component {
 export const blockId = () => uid('b');
 
 /** Every building block with an ID of its own - missing and duplicate ones (a copy) get a new one.
-  * Comments and the change log hang on it; the key (index path) changes with every move. */
+  * Comments and the change log hang on it; the key (index path) changes with every move.
+  * A hand-edited page may hold no list or no object where one belongs - that stays as it is (like `flatten`). */
 export function withIds(body: Component[]): Component[] {
   const walk = (list: Component[], taken: Set<string>): { list: Component[]; taken: Set<string> } =>
-    list.reduce<{ list: Component[]; taken: Set<string> }>((acc, b) => {
+    (Array.isArray(list) ? list : []).reduce<{ list: Component[]; taken: Set<string> }>((acc, b) => {
+      if (typeof b !== 'object' || b === null) return { list: [...acc.list, b], taken: acc.taken };
       const id = b.id && !acc.taken.has(b.id) ? b.id : blockId();
       const taken = new Set([...acc.taken, id]);
-      if (b.type !== 'section') return { list: [...acc.list, { ...b, id }], taken };
+      if (b.type !== 'section' || !Array.isArray(b.body)) return { list: [...acc.list, { ...b, id }], taken };
       const inner = walk(b.body, taken);
       return { list: [...acc.list, { ...b, id, body: inner.list }], taken: inner.taken };
     }, { list: [], taken });

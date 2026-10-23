@@ -24,6 +24,16 @@ test('withIds - every building block an ID of its own; existing ones stay, dupli
   assert.equal(body[0].id, undefined); // the input stays untouched
 });
 
+test('withIds - a hand-edited page: a section without a list, a value that is no object - no crash, it stays', () => {
+  const odd = [{ type: 'text', text: 'A' }, { type: 'section', title: 'S' }, 'nonsense'] as unknown as Component[];
+  const fixed = withIds(odd);
+  assert.equal(fixed.length, 3);
+  assert.ok(fixed[0].id && fixed[1].id);
+  assert.equal((fixed[1] as { body?: unknown }).body, undefined);
+  assert.equal(fixed[2], 'nonsense' as unknown as Component);
+  assert.deepEqual(withIds(undefined as unknown as Component[]), []);
+});
+
 test('newBlock, copyBlock, convertBlock - new ones and copies get new IDs, a conversion keeps it', () => {
   assert.match(newBlock('text').id!, /^b-/);
   const fixed = withIds(body);
