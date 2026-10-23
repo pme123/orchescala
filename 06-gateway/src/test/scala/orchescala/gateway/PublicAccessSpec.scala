@@ -142,13 +142,14 @@ object PublicAccessSpec extends ZIOSpecDefault:
       sleeps <- TestClock.sleeps
     yield sleeps.count(_ == now.plus(d))
 
-  /** Waits until more sleeps of `d` are set on ZIO's `TestClock` than `before`: the timeout of a call is
-    * set by a fiber of its own - maybe only after the call reached the engine. Moving the clock before
-    * would miss it.
+  /** Waits until exactly one more sleep of `d` is set on ZIO's `TestClock` than `before`: the timeout of a
+    * call is set by a fiber of its own - maybe only after the call reached the engine. Moving the clock
+    * before would miss it.
     */
   private def timeoutSet(d: Duration, before: Int) =
     bounded(5.seconds)((Live.live(ZIO.sleep(1.milli)) *> sleepsEndingIn(d)).repeatUntil(_ > before))
       .someOrFail(s"no timeout of ${d.render} set on the test clock")
+      .filterOrElseWith(_ == before + 1)(n => ZIO.fail(s"${n - before} sleeps of ${d.render} set on the test clock - not only the timeout"))
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PublicAccess")(
     suite("PublicGuard")(
@@ -407,14 +408,17 @@ object PublicAccessSpec extends ZIOSpecDefault:
           release  <- Promise.make[Nothing, Unit]
           one       = access.copy(login = Some(login), maxConcurrentCalls = 1)
           r         = routes(one, got, arrived.succeed(()) *> release.await, Some(token))
-          first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
-          _        <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
-          second   <- bounded(5.seconds):
-                        post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
-                      .someOrFail("the second call did not answer")
-          _        <- release.succeed(())
-          done     <- bounded(5.seconds)(first.join).someOrFail("the first call did not answer")
-        yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
+          answers  <- (for
+                         first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
+                         _      <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
+                         second <- bounded(5.seconds):
+                                     post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+                                   .someOrFail("the second call did not answer")
+                         _      <- release.succeed(())
+                         done   <- bounded(5.seconds)(first.join).someOrFail("the first call did not answer")
+                       yield second.status -> done.status)
+                         .ensuring(release.succeed(())) // released also on a failure - no call left in the engine
+        yield assertTrue(answers == (Status.ServiceUnavailable -> Status.Ok))
       ,
       test("a call that takes too long - interrupted; its slot is free once it has stopped"):
         // on the test clock (as "the caller is gone"): the timeout of the call fires only when the clock is
