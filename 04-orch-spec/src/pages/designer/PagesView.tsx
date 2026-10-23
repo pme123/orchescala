@@ -1,6 +1,7 @@
 // The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
 import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { aiEnabled, useAiKey } from '../../ai/key';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
 import { useStore } from '../../store';
@@ -14,7 +15,7 @@ import { AccessChip } from './PageEditor';
 import { ThemeEditor } from './ThemeEditor';
 
 export default function PagesView({ onOpen, onOpenTask }: {
-  onOpen: (slug: string) => void;
+  onOpen: (slug: string, aiPrompt?: string) => void;
   /** to the user task of a page - the process at its step */
   onOpenTask?: (specSlug: string, stepId: string) => void;
 }) {
@@ -58,7 +59,7 @@ export default function PagesView({ onOpen, onOpenTask }: {
         }}
         onClose={() => setAppOpen(false)} />}
       {creating && <NewPage existing={pages.map((p) => p.slug)}
-        onCreate={async (slug, page) => { const r = await createPage(slug, page); if (r.ok) { setCreating(false); onOpen(slug); } return r; }}
+        onCreate={async (slug, page, aiPrompt) => { const r = await createPage(slug, page); if (r.ok) { setCreating(false); onOpen(slug, aiPrompt); } return r; }}
         onClose={() => setCreating(false)} />}
 
       {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
@@ -145,9 +146,12 @@ export default function PagesView({ onOpen, onOpenTask }: {
 }
 
 function NewPage({ existing, onCreate, onClose }: {
-  existing: string[]; onCreate: (slug: string, page: Page) => Promise<{ ok: true } | { ok: false; message: string }>; onClose: () => void;
+  existing: string[]; onCreate: (slug: string, page: Page, aiPrompt?: string) => Promise<{ ok: true } | { ok: false; message: string }>; onClose: () => void;
 }) {
   const { isDark } = useStore();
+  // with a key (AI mode): what the page should show - Claude drafts it right after creating
+  const aiKey = useAiKey();
+  const [describe, setDescribe] = useState('');
   const c = cls(isDark);
   const [title, setTitle] = useState('');
   const [path, setPath] = useState('');
@@ -165,6 +169,10 @@ function NewPage({ existing, onCreate, onClose }: {
         <SelectField isDark={isDark} label="Zugang" value={access} onChange={setAccess}
           options={[{ value: 'public', label: 'öffentlich' }, { value: 'login', label: 'mit Login' }]} />
       </div>
+      {aiEnabled(aiKey) && (
+        <TextField isDark={isDark} label="Beschreibung für Claude" hint="optional – Claude entwirft die Seite gleich nach dem Anlegen" multiline
+          value={describe} onChange={setDescribe} placeholder="Eine Seite, auf der Kunden ihre Adresse ändern: Strasse, PLZ, Ort, gültig ab …" />
+      )}
       <div className="flex items-center gap-2">
         <span className={`text-[10px] font-mono ${taken ? 'text-rose-500' : c.muted}`}>pages/{slug}.json{slug === 'app' ? ' – reserviert für die Einstellungen der App' : taken ? ' – gibt es schon' : ''}</span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
@@ -177,7 +185,7 @@ function NewPage({ existing, onCreate, onClose }: {
               const r = await onCreate(slug, {
                 path: path.trim(), title: title.trim(), access: access === 'public' ? 'public' : { roles: [] },
                 state: {}, body: [{ type: 'heading', text: title.trim() }],
-              });
+              }, aiEnabled(aiKey) && describe.trim() ? describe.trim() : undefined);
               if (!r.ok) setError(r.message);
             } finally {
               setBusy(false);

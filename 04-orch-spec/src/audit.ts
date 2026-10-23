@@ -29,7 +29,8 @@ import { KIND_LABEL } from './ui.tsx';
 import { iaTarget, processTarget, stepTarget, sub, typeTarget } from './comments.ts';
 import { nowIsoWithTimezone, uid } from './util.ts';
 
-export type AuditSource = 'manual' | 'bpmn-sync' | 'domain-sync' | 'conversion' | 'load';
+/** `ai`: a draft of Claude that the RE accepted (AI mode, E19) - its own source, like the automatic changes */
+export type AuditSource = 'manual' | 'bpmn-sync' | 'domain-sync' | 'conversion' | 'load' | 'ai';
 
 export const SOURCE_LABEL: Record<AuditSource, string> = {
   manual: 'Von Hand',
@@ -37,6 +38,7 @@ export const SOURCE_LABEL: Record<AuditSource, string> = {
   'domain-sync': 'Abgleich Domain',
   conversion: 'Umwandlung',
   load: 'Beim Laden',
+  ai: 'KI (Claude)',
 };
 
 export interface AuditChange {

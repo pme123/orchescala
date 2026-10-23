@@ -196,7 +196,8 @@ class DefaultError extends Error {}
 const isContext = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
   && !(v instanceof FeelDate) && !(v instanceof FeelDateTime) && !(v instanceof FeelDuration);
-const scalaIdent = (name: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `\`${name}\``);
+/** An identifier as written in Scala — in backticks if it is reserved or no plain name (see scalaName) */
+const scalaIdent = (name: string) => scalaName(name);
 const scalaString = (v: string) => JSON.stringify(v);
 
 /**
@@ -314,9 +315,10 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
   if (!own || f.enumCase) throw new DefaultError('für diesen Typ ohne «=» als Scala-Ausdruck angeben.');
   if (own.kind === 'enum') {
     if (isAdt(own)) throw new DefaultError('für eine Auswahl mit Fällen ohne «=» als Scala-Ausdruck angeben.');
-    const values = (own.values ?? []).map(x => x.name).filter(Boolean);
-    if (typeof v !== 'string' || !values.includes(v)) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
-    return `${own.name}.${scalaIdent(v)}`;
+    // an imported value may carry its backticks (`` `Ohne Angabe` ``) — FEEL names it without
+    const values = (own.values ?? []).map(x => caseName(x.name)).filter(Boolean);
+    if (typeof v !== 'string' || !values.includes(caseName(v))) throw new DefaultError(`erwartet einen Wert von ${own.name}: ${values.map(x => `"${x}"`).join(', ')}.`);
+    return `${own.name}.${caseIdent(v)}`;
   }
   // a class from a context: missing optional fields are None
   if (!isContext(v)) throw new DefaultError(`erwartet einen Kontext für ${own.name}, z. B. {feld: 1}.`);
@@ -364,7 +366,7 @@ const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fiel
 export function fieldType(f: Field, idx: TypeIndex): string {
   let t = idx.nameOf(f.type);
   // a simple enum case is a singleton type (`ProcessStatus.canceled.type`), an ADT case a class
-  if (f.enumCase) t = isSimpleEnum(f.type, idx) ? `${t}.${caseIdent(f.enumCase)}.type` : `${t}.${f.enumCase}`;
+  if (f.enumCase) t = isSimpleEnum(f.type, idx) ? `${t}.${caseIdent(f.enumCase)}.type` : `${t}.${caseIdent(f.enumCase)}`;
   if (f.constraint?.trim()) t = `${t} :| ${f.constraint.trim()}`;
   if (f.map) t = `Map[String, ${t}]`;
   if (f.collection) t = `Seq[${t}]`;
@@ -489,7 +491,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   if (f.enumCase) {
     return isSimpleEnum(f.type, idx)
       ? `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`
-      : `${idx.nameOf(f.type)}.${f.enumCase}.example`;
+      : `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}.example`;
   }
   // `clientKey = defaultClientKey` — as the projects do by hand
   const fromDomain = idx.defaultOf(f);
@@ -607,7 +609,7 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
     // a fixed enum case has exactly one value; InitIn initializes process variables — defaults as in the InConfig
     const fixed = fixedCaseValue(f, idx);
     const def = fixed ? ` = ${fixed}` : isInConfigField(f, idx) ? ' = None' : t.initIn ? defaultClause(f, idx) || (f.optional ? ' = None' : '') : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${def}`;
+    return `${d}${scalaName(f.name)}: ${fieldType(f, idx)}${def}`;
   });
   const body = params.length ? `\n${indent(params.join(',\n'), '    ')}\n` : '';
   return `case class ${t.name}(${body})`;
@@ -615,11 +617,11 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 
 function companion(t: TypeDef, idx: TypeIndex): string {
   const fields = exampleFields(finished(t.fields, idx), idx);
-  const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
+  const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
   // exampleMinimal leaves out everything that may be missing
   const optional = fields.filter(f => f.optional);
   const minimal = optional.length
-    ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${f.name} = None`).join(',\n'), '    ')}\n  )`
+    ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '    ')}\n  )`
     : 'lazy val exampleMinimal = example';
 
   return [
@@ -639,7 +641,7 @@ function companion(t: TypeDef, idx: TypeIndex): string {
 function paramList(fields: Field[], idx: TypeIndex, by: string): string {
   const params = fields.map(f => {
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
-    return `${d}${f.name}: ${fieldType(f, idx)}${isInConfigField(f, idx) ? ' = None' : ''}`;
+    return `${d}${scalaName(f.name)}: ${fieldType(f, idx)}${isInConfigField(f, idx) ? ' = None' : ''}`;
   });
   return params.length ? `\n${indent(params.join(',\n'), by)}\n` : '';
 }
@@ -672,14 +674,14 @@ export function inCodeOrder(common: Field[], own: Field[], order: string[] | und
  */
 function adtDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).filter(v => v.name);
-  const first = cases[0]?.name ?? 'unknown';
+  const first = cases[0] ? caseIdent(cases[0].name) : 'unknown';
   // Shared fields: required as `def` in the body, first in every case
   const common = finished(t.fields, idx);
   // The meaning of a shared field is stated **once** — on the `def`, not
   // again in every case
   const commonDefs = common.map(f => {
     const d = fieldDescription(f) ? `${indent(fieldDescription(f), '  ')}\n` : '';
-    return `${d}  def ${f.name}: ${fieldType(f, idx)}`;
+    return `${d}  def ${scalaName(f.name)}: ${fieldType(f, idx)}`;
   });
   const commonBare = common.map(f => ({ ...f, description: undefined, descriptionExpr: undefined }));
   const fieldsOf = (v: EnumValue): Field[] =>
@@ -687,22 +689,22 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const caseLines = cases.map(v => {
     const d = v.description ? `${indent(descriptionLine(v.description), '  ')}\n` : '';
     const fields = fieldsOf(v);
-    return fields.length ? `${d}  case ${v.name}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${v.name}`;
+    return fields.length ? `${d}  case ${caseIdent(v.name)}(${paramList(fields, idx, '      ')}  )` : `${d}  case ${caseIdent(v.name)}`;
   });
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
     const fields = exampleFields(fieldsOf(v), idx);
-    const args = fields.map(f => `${f.name} = ${exampleValue(f, idx)}`);
+    const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
     const optional = fields.filter(f => f.optional);
     const minimal = optional.length
-      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${f.name} = None`).join(',\n'), '      ')}\n    )`
+      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '      ')}\n    )`
       : 'lazy val exampleMinimal = example';
     return [
-      `  object ${v.name}:`,
+      `  object ${caseIdent(v.name)}:`,
       args.length
-        ? `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}(\n${indent(args.join(',\n'), '      ')}\n    )`
-        : `    lazy val example: ${t.name}.${v.name} = ${t.name}.${v.name}()`,
+        ? `    lazy val example: ${t.name}.${caseIdent(v.name)} = ${t.name}.${caseIdent(v.name)}(\n${indent(args.join(',\n'), '      ')}\n    )`
+        : `    lazy val example: ${t.name}.${caseIdent(v.name)} = ${t.name}.${caseIdent(v.name)}()`,
       `    ${minimal}`,
-      `  end ${v.name}`,
+      `  end ${caseIdent(v.name)}`,
     ].join('\n');
   });
   return [
@@ -725,10 +727,11 @@ function enumDef(t: TypeDef, idx: TypeIndex): string {
   const cases = (t.values ?? []).map(v => v.name).filter(Boolean);
   const first = cases[0] ?? 'unknown';
   // Cases that appear somewhere as a fixed type (`X.fall.type`) need their own givens
-  const fixed = fixedCasesOf(t.id, idx).filter(c => cases.includes(c));
+  // compared without backticks — an imported value keeps them (`` `Ohne Angabe` ``)
+  const fixed = fixedCasesOf(t.id, idx).filter(c => cases.some(v => caseName(v) === c));
   return [
     `enum ${t.name}:`,
-    `  case ${cases.length ? cases.join(', ') : 'unknown'}`,
+    `  case ${cases.length ? cases.map(caseIdent).join(', ') : 'unknown'}`,
     '',
     `object ${t.name}:`,
     `  given ApiSchema[${t.name}]  = deriveEnumApiSchema`,
@@ -736,7 +739,7 @@ function enumDef(t: TypeDef, idx: TypeIndex): string {
     `  given InOutCodec[${t.name}] = deriveEnumInOutCodec`,
     ...fixed.map(c => `  given InOutCodec[${t.name}.${caseIdent(c)}.type] = deriveEnumValueInOutCodec`),
     '',
-    `  lazy val example = ${t.name}.${first}`,
+    `  lazy val example = ${t.name}.${caseIdent(first)}`,
     `end ${t.name}`,
   ].join('\n');
 }
@@ -900,7 +903,7 @@ export function renderInConfig(spec: ProcessSpec, imports: Set<string>, idx?: Ty
     const d = fieldDescription(f) ? `${fieldDescription(f)}\n` : '';
     const fixed = fixedCaseValue(f, idx!);
     const def = fixed ? ` = ${fixed}` : defaultClause(f, idx!) || (f.optional ? ' = None' : '');
-    return `${d}${f.name}: ${fieldType(f, idx!)}${def}`;
+    return `${d}${scalaName(f.name)}: ${fieldType(f, idx!)}${def}`;
   });
   for (const { name, kind, default: given, timerKind } of loopSettings(spec)) {
     if (seen.has(name)) continue;
@@ -998,7 +1001,7 @@ export function initInExpression(spec: ProcessSpec, idx: TypeIndex): string | nu
   const args = fromIn.map(f => {
     const r = scalaDefault(f, idx);
     const value = r.scala ?? `??? /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
-    return `  ${f.name} = in.${f.name}.getOrElse(${value})`;
+    return `  ${scalaName(f.name)} = in.${scalaName(f.name)}.getOrElse(${value})`;
   });
   // the worker computes the other fields of the InitIn — `???` instead of the example values:
   // so it fails until it is implemented
@@ -1305,10 +1308,57 @@ export function scalaBundle(spec: ProcessSpec, model: Model | null = null): stri
 }
 
 // ── Checks ───────────────────────────────────────────────────────────────────
-export interface TypeIssue { typeId: string; field?: string; message: string }
+export interface TypeIssue {
+  typeId: string; field?: string; message: string;
+  /** a hint, not a defect — shown amber, does not mark the type as faulty */
+  warn?: boolean;
+  /** a better name, to take over with one click — for the field, the type or the enum value `value` */
+  suggestion?: string;
+  /** the enum value the suggestion is for */
+  value?: string;
+}
+
+/**
+ * A plain Scala name from what was typed: `Mein value` → `meinValue` (field),
+ * `meine Klasse` → `MeineKlasse` (type), `ONLY GAMIFICATION` → `ONLY_GAMIFICATION`
+ * (enum value in capitals), `Ohne Angabe` → `OhneAngabe`. `undefined` if none
+ * is better (e.g. `type` — a word, but reserved).
+ */
+export function nameSuggestion(kind: 'field' | 'type' | 'value', raw: string): string | undefined {
+  const name = raw.replace(/^`|`$/g, '');
+  // umlauts and accents written out (`Größe` → `Groesse`, `Café` → `Cafe`) — no letter may get lost
+  const ascii = name
+    .replace(/Ä(?=[a-z])/g, 'Ae').replace(/Ö(?=[a-z])/g, 'Oe').replace(/Ü(?=[a-z])/g, 'Ue')
+    .replace(/Ä/g, 'AE').replace(/Ö/g, 'OE').replace(/Ü/g, 'UE')
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/[\p{L}\p{N}]/u.test(ascii.replace(/[\x00-\x7f]/g, ''))) return undefined;
+  const words = ascii.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (!words.length) return undefined;
+  const pascal = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+  const lowerFirst = pascal.charAt(0).toLowerCase() + pascal.slice(1);
+  const out = kind === 'type' ? pascal
+    : kind === 'field' ? lowerFirst
+      : words.every(w => w === w.toUpperCase()) ? words.join('_')
+        : /^[a-z]/.test(words[0]) ? lowerFirst : pascal;
+  return out !== name && /^[A-Za-z_]\w*$/.test(out) && !/^\d/.test(out) && !RESERVED.has(out) ? out : undefined;
+}
 
 const SCALA_NAME = /^[a-z][A-Za-z0-9]*$/;
+/** a line break or other control character — a name in backticks ends on its line */
+const CONTROL = /[\u0000-\u001f\u007f]/;
 const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
+/**
+ * A field name as written in Scala: a reserved word (`type`) or a name that is
+ * no plain identifier goes in backticks — the domain writes it so, the import
+ * reads it without them. Plain means ASCII on purpose: `größe` is legal Scala, but it
+ * is written `` `größe` `` (the same name) and gets a warning — process variables
+ * and FEEL are safer in ASCII.
+ */
+export function scalaName(name: string): string {
+  return RESERVED.has(name) || !/^[A-Za-z_]\w*$/.test(name) ? `\`${name}\`` : name;
+}
+
 const RESERVED = new Set(['type', 'val', 'var', 'def', 'class', 'object', 'case', 'match', 'new', 'with', 'given', 'end', 'for', 'if', 'else', 'true', 'false', 'null', 'import', 'package', 'extends', 'lazy', 'implicit', 'private', 'sealed', 'trait', 'enum', 'then', 'do', 'while', 'yield', 'return', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'abstract', 'final', 'override', 'protected', 'forSome']);
 
 /** What would break the generated Scala code — directly in the UI. */
@@ -1345,6 +1395,47 @@ export function fixedCaseValue(f: Field, idx: TypeIndex): string | null {
   return `${idx.nameOf(f.type)}.${caseIdent(f.enumCase)}`;
 }
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Rename the value or case `index` of the enum `typeId` — and the fields that use it
+ * as a fixed case (`enumCase`) or name it in a default or example, so that they keep pointing to it.
+ */
+export function renameEnumValue(types: TypeDef[], typeId: string, index: number, name: string): TypeDef[] {
+  const en = types.find(t => t.id === typeId);
+  const old = en?.values?.[index]?.name;
+  if (en == null || old == null) return types;
+  // only to a name that can be written and is still free
+  const bad = !name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name) || name === '_';
+  if (bad || en.values!.some((v, k) => k !== index && caseName(v.name) === name)) return types;
+  // a default or example naming the value: FEEL (`= "ONLY GAMIFICATION"`) or Scala (`ReceivingSystem.\`ONLY GAMIFICATION\``)
+  // not inside a longer path (`MyIn.Foo` when renaming in `In`)
+  const path = `(?<![\\w.\`])${escapeRegExp(`${en.name}.`)}(?:${escapeRegExp(caseIdent(old))}|${escapeRegExp(caseName(old))})(?![\\w\`])`;
+  const rewrite = (expr: string | undefined) => {
+    if (!expr) return expr;
+    return expr.trim().startsWith('=')
+      ? expr.replace(/"((?:[^"\\]|\\.)*)"/g, (m, v: string) => (caseName(v) === caseName(old) ? JSON.stringify(name) : m))
+      // not inside a string literal of the Scala expression
+      : expr.replace(new RegExp(`"(?:[^"\\\\]|\\\\.)*"|${path}`, 'g'), m => (m.startsWith('"') ? m : `${en.name}.${caseIdent(name)}`));
+  };
+  const follow = (fs: Field[] | undefined) => fs?.map(f => {
+    if (f.type !== typeId) return f;
+    const next = { ...f, default: rewrite(f.default), example: rewrite(f.example) };
+    if (f.enumCase && caseName(f.enumCase) === caseName(old)) next.enumCase = name;
+    // no keys that were not there
+    for (const k of ['default', 'example'] as const) if (next[k] === undefined) delete next[k];
+    return next;
+  });
+  return types.map(t => {
+    const values = t.id === typeId ? t.values!.map((v, k) => (k === index ? { ...v, name } : v)) : t.values;
+    return {
+      ...t,
+      ...(t.fields ? { fields: follow(t.fields) } : {}),
+      ...(values ? { values: values.map(v => (v.fields ? { ...v, fields: follow(v.fields) } : v)) } : {}),
+    };
+  });
+}
+
 /** The cases of an own enum that some field uses as a fixed type. */
 function fixedCasesOf(typeId: string, idx: TypeIndex): string[] {
   const out = new Set<string>();
@@ -1377,31 +1468,52 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
   // without a catalog the service reference is not checked (instead of being reported wrongly)
   const services = model ? new Set(model.services.map(s => s.id)) : null;
 
+  /** a suggestion only if the name is still free — taking it over must not create a duplicate */
+  const free = (suggestion: string | undefined, taken: Iterable<string>) =>
+    suggestion && ![...taken].some(n => caseName(n) === suggestion) ? suggestion : undefined;
+
   for (const t of types) {
     names.set(t.name, (names.get(t.name) ?? 0) + 1);
+    const otherTypes = types.filter(o => o.id !== t.id).map(o => o.name);
     // Types of an interaction are called «Objekt.In» — that is the display name;
     // what gets generated from it is `In` inside the object.
     const displayName = t.interactionId ? (t.name.split('.').pop() ?? t.name) : t.name;
-    if (!TYPE_NAME.test(displayName)) {
-      issues.push({ typeId: t.id, message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Grossbuchstabe, keine Sonderzeichen).` });
+    // a type becomes a file, an object and an import — it needs a plain name; what only
+    // deviates from the convention (lowercase first, underscore) is a hint
+    if (!/^[A-Za-z_]\w*$/.test(displayName) || RESERVED.has(displayName) || displayName === '_') {
+      const suggestion = displayName === t.name ? free(nameSuggestion('type', t.name), otherTypes) : undefined;
+      issues.push({ typeId: t.id, ...(suggestion ? { suggestion } : {}), message: `«${t.name || '(leer)'}» ist kein gültiger Scala-Typname (Buchstaben, Ziffern, _ — keine Leer- oder Sonderzeichen: daraus werden Datei und Objekt).` });
+    } else if (!TYPE_NAME.test(displayName)) {
+      const suggestion = displayName === t.name ? free(nameSuggestion('type', t.name), otherTypes) : undefined;
+      issues.push({ typeId: t.id, warn: true, ...(suggestion ? { suggestion } : {}), message: `«${t.name}»: Typnamen beginnen nach Konvention mit einem Grossbuchstaben, ohne _.` });
     }
     if (t.kind === 'enum') {
       const vals = (t.values ?? []).map(v => v.name);
       if (!vals.length) issues.push({ typeId: t.id, message: 'Enumeration ohne Werte.' });
-      if (new Set(vals).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
-      // a Scala identifier — underscores included (`EXTERNALLY_TERMINATED`)
-      for (const v of vals) if (!/^([A-Za-z][A-Za-z0-9_]*|`[^`]+`)$/.test(v)) {
-        issues.push({ typeId: t.id, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (Sonderzeichen nur in Backticks: \`QI-Deklaration\`).` });
+      // `Foo` and `` `Foo` `` are the same case
+      if (new Set(vals.map(caseName)).size !== vals.length) issues.push({ typeId: t.id, message: 'Doppelte Werte in der Enumeration.' });
+      for (const [k, v] of vals.entries()) {
+        const name = caseName(v);
+        const plain = /^[A-Za-z_]\w*$/.test(name) && !RESERVED.has(name);
+        // `_` is the wildcard — not a name, not even in backticks
+        if (!name.trim() || name !== name.trim() || name.includes('`') || CONTROL.test(name) || name === '_') {
+          issues.push({ typeId: t.id, value: v, message: `Wert «${v || '(leer)'}» ist kein gültiger Name (kein Backtick oder Zeilenumbruch darin, kein Leerzeichen am Rand).` });
+        } else if (!plain) {
+          // valid — the export writes it in backticks (`ONLY GAMIFICATION`, a case with fields
+          // like `QR-Rechnung`(…) with its object and end too), but every use in Scala needs them
+          const suggestion = free(nameSuggestion(isAdt(t) ? 'type' : 'value', name), vals.filter((_, m) => m !== k));
+          issues.push({ typeId: t.id, warn: true, value: v, ...(suggestion ? { suggestion } : {}), message: `Wert «${name}» steht in Scala in Backticks (${scalaName(name)}) — ${RESERVED.has(name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
+        }
       }
       // An ADT: the fields per case are checked like class fields
       if (!isAdt(t)) continue;
-      const common = new Set((t.fields ?? []).map(f => f.name));
+      const common = new Set((t.fields ?? []).map(f => caseName(f.name)));
       for (const v of t.values ?? []) {
         const inCase = new Set<string>();
         for (const f of v.fields ?? []) {
-          if (common.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist schon ein gemeinsames Feld — im Fall «${v.name}» nicht nochmals.` });
-          if (inCase.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt im Fall «${v.name}» doppelt vor.` });
-          inCase.add(f.name);
+          if (common.has(caseName(f.name))) issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist schon ein gemeinsames Feld — im Fall «${v.name}» nicht nochmals.` });
+          if (inCase.has(caseName(f.name))) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt im Fall «${v.name}» doppelt vor.` });
+          inCase.add(caseName(f.name));
         }
       }
     }
@@ -1410,16 +1522,28 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
     // (NoInput); «leer» in the list stays as a hint
     if (!fields.length && t.kind === 'case' && !t.initIn && !t.inConfig) issues.push({ typeId: t.id, message: 'Klasse ohne Felder.' });
     const seen = new Set<string>();
+    // the names next to a field — common fields of an ADT stand in every case
+    const siblings = (f: Field): string[] => {
+      const lists = t.kind !== 'enum' ? [t.fields ?? []]
+        : (t.fields ?? []).includes(f) ? [t.fields ?? [], ...(t.values ?? []).map(v => v.fields ?? [])]
+          : [t.fields ?? [], (t.values ?? []).find(v => v.fields?.includes(f))?.fields ?? []];
+      return lists.flat().filter(o => o !== f).map(o => o.name);
+    };
     for (const f of fields) {
-      if (!SCALA_NAME.test(f.name)) {
-        issues.push({ typeId: t.id, field: f.id, message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang).` });
-      }
-      if (RESERVED.has(f.name)) {
-        issues.push({ typeId: t.id, field: f.id, message: `«${f.name}» ist ein Scala-Schlüsselwort.` });
+      // a plain name follows the convention (lowercase first); any other goes in backticks
+      // (`display name`) — then only a backtick or a space at the edge cannot be written
+      const quoted = !/^[A-Za-z_]\w*$/.test(f.name);
+      if (quoted ? !f.name.trim() || f.name !== f.name.trim() || f.name.includes('`') || CONTROL.test(f.name) : !SCALA_NAME.test(f.name)) {
+        const suggestion = free(nameSuggestion('field', f.name), siblings(f));
+        issues.push({ typeId: t.id, field: f.id, ...(suggestion ? { suggestion } : {}), message: `«${f.name || '(leer)'}» ist kein gültiger Feldname (Kleinbuchstabe am Anfang; mit Leer- oder Sonderzeichen ohne Backtick, ohne Zeilenumbruch und ohne Leerzeichen am Rand).` });
+      } else if (scalaName(f.name) !== f.name) {
+        // valid, but every use in Scala needs the backticks — and FEEL cannot name it plainly
+        const suggestion = free(nameSuggestion('field', f.name), siblings(f));
+        issues.push({ typeId: t.id, field: f.id, warn: true, ...(suggestion ? { suggestion } : {}), message: `«${f.name}» steht in Scala in Backticks (${scalaName(f.name)}) — ${RESERVED.has(f.name) ? 'ein Scala-Schlüsselwort' : 'mit Leer- oder Sonderzeichen'}. Wenn möglich einen einfachen Namen wählen.` });
       }
       // in an ADT the same field name may appear in several cases
-      if (t.kind === 'case' && seen.has(f.name)) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
-      seen.add(f.name);
+      if (t.kind === 'case' && seen.has(caseName(f.name))) issues.push({ typeId: t.id, field: f.id, message: `Feld «${f.name}» kommt doppelt vor.` });
+      seen.add(caseName(f.name));
       // a default exists only in the InConfig and for optional fields of the
       // process input — and a FEEL default must be translatable to Scala
       // for a fixed case the default is the case itself — it follows from the type

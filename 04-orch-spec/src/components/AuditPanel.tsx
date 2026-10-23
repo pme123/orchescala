@@ -31,7 +31,7 @@ interface Props {
   overlay: boolean;
 }
 
-const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'conversion', 'load'];
+const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'conversion', 'load', 'ai'];
 
 type Range = 'all' | 'today' | '7' | '30' | 'custom';
 // as a list: Object.keys would put the numeric keys ('7', '30') first
@@ -63,6 +63,7 @@ const sourceTone = (s: AuditSource, isDark: boolean) => ({
   'domain-sync': isDark ? 'border-violet-500/40 text-violet-300' : 'border-violet-300 text-violet-700',
   conversion: isDark ? 'border-amber-500/40 text-amber-300' : 'border-amber-300 text-amber-700',
   load: isDark ? 'border-white/15 text-white/40' : 'border-black/15 text-black/40',
+  ai: isDark ? 'border-fuchsia-500/40 text-fuchsia-300' : 'border-fuchsia-300 text-fuchsia-700',
 }[s]);
 
 export default function AuditPanel(p: Props) {
@@ -200,7 +201,8 @@ export default function AuditPanel(p: Props) {
           </div>
         )}
         <div className="flex flex-wrap gap-1">
-          {SOURCES.map(s => (
+          {/* KI only where the log has entries of it - otherwise no trace of AI (E20) */}
+          {SOURCES.filter(s => s !== 'ai' || merged.some(e => e.source === 'ai')).map(s => (
             <button key={s} type="button" onClick={() => toggleSource(s)}
               title={hidden.has(s) ? 'Einblenden' : 'Ausblenden'}
               className={`text-[10px] px-1.5 py-0.5 rounded border transition-opacity ${sourceTone(s, isDark)} ${hidden.has(s) ? 'opacity-30 line-through' : ''}`}>

@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow, Sparkles } from 'lucide-react';
+import { SettingsDialog } from './ai/SettingsDialog';
+import { aiEnabled, useAiKey } from './ai/key';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -18,7 +20,7 @@ const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
-  | { kind: 'pages' } | { kind: 'page'; slug: string };
+  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string };
 
 // Deep link (?spec=<slug>&comment=<id>, see util.deepLink): on start take it from
 // the URL and remember it in the tab — so it survives the login redirect — and
@@ -45,6 +47,8 @@ function takeDeepLink(): { slug: string; commentId?: string } | null {
 
 export default function App() {
   const [feelOpen, setFeelOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const aiOn = aiEnabled(useAiKey());
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
     savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
@@ -257,8 +261,15 @@ export default function App() {
                 <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
               )}
 
-              {/* Display */}
+              {/* Display and the AI mode - the key is personal, only in this browser (violet: on) */}
               <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
+              <button onClick={() => setSettingsOpen(true)}
+                title={aiOn ? 'KI-Modus an – API-Key (nur dieser Browser)' : 'KI-Modus – mit eigenem API-Key einschalten (nur dieser Browser)'}
+                className={`flex items-center gap-1 p-1.5 rounded transition-colors ${aiOn
+                  ? (isDark ? 'text-violet-300 hover:text-violet-200' : 'text-violet-600 hover:text-violet-800')
+                  : (isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70')}`}>
+                <Sparkles size={13} />
+              </button>
               <button onClick={toggleTheme} title={isDark ? 'Helle Darstellung' : 'Dunkle Darstellung'}
                 className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
                 {isDark ? <Sun size={13} /> : <Moon size={13} />}
@@ -269,6 +280,7 @@ export default function App() {
       </div>
 
       {feelOpen && <FeelCheatSheet isDark={isDark} onClose={() => setFeelOpen(false)} />}
+      {settingsOpen && <SettingsDialog isDark={isDark} onClose={() => setSettingsOpen(false)} />}
 
       {/* Main content */}
       <div className={`flex-1 ${fullWidth ? 'overflow-hidden' : 'overflow-y-auto [scrollbar-gutter:stable]'}`}>
@@ -407,11 +419,12 @@ export default function App() {
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PagesView onOpen={slug => setView({ kind: 'page', slug })} onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
+            <PagesView onOpen={(slug, aiPrompt) => setView({ kind: 'page', slug, aiPrompt })}
+              onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'page' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PageEditor key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'pages' })}
+            <PageEditor key={view.slug} slug={view.slug} aiPrompt={view.aiPrompt} onBack={() => setView({ kind: 'pages' })}
               onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'admin' ? (

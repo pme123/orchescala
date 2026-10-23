@@ -2,9 +2,12 @@
 // as the app, fed with sample data of the services - and the properties of the selected building block.
 import {
   AlertTriangle, ArrowUpRight, ChevronLeft, ClipboardCheck, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
-  RotateCcw, Rows3, SquareDashed, TextCursorInput, Type, CalendarRange, Undo2,
+  RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { changedKeys, pageDiff } from '../../ai/diff';
+import { useAiKey } from '../../ai/key';
+import type { PageDraft } from '../../ai/pageTools';
 import { usePermissions } from '../../auth';
 import { useStore } from '../../store';
 import { userTasksOfPage, userTaskStep } from '../taskLinks';
@@ -23,6 +26,9 @@ import {
   actionsOf, blockAt, convertBlock, dataOf, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
+
+// the chat of the AI mode with the Anthropic SDK - only loaded with a key
+const AiPanel = lazy(() => import('../../ai/AiPanel').then((m) => ({ default: m.AiPanel })));
 
 const ICONS: Record<Component['type'], React.ReactNode> = {
   heading: <Heading size={12} />,
@@ -75,8 +81,8 @@ function previewGateway(targets: Targets): Gateway {
 
 const EMPTY: Targets = { services: [], processes: [], messages: [], userTasks: [] };
 
-export default function PageEditor({ slug, onBack, onOpenTask }: {
-  slug: string; onBack: () => void;
+export default function PageEditor({ slug, onBack, aiPrompt, onOpenTask }: {
+  slug: string; onBack: () => void; aiPrompt?: string;
   /** to the user task this page completes - the process at its step */
   onOpenTask?: (specSlug: string, stepId: string) => void;
 }) {
@@ -97,6 +103,18 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
     undo: () => void; redo: () => void; ops: BlockOps | null; deselect: () => void; canEdit: boolean; can: { undo: boolean; redo: boolean };
   }>(null!);
   const [saveState, setSaveState] = useState<{ at?: Date; error?: string }>({});
+  // ---- the AI mode (E19, E20): only with a key. Claude's draft is shown instead of the page - in the
+  // outline and the preview, read only - until the RE accepts (one step of undo) or discards it
+  const aiKey = useAiKey();
+  const [draft, setDraft] = useState<PageDraft | null>(null);
+  const [aiOpen, setAiOpen] = useState(!!aiPrompt);
+  // the description of a new page for Claude - sent once, then dropped (a later mount of the chat does not send it again)
+  const [pendingPrompt, setPendingPrompt] = useState(aiPrompt);
+  // deleting the key turns the AI off at once - the draft is gone too
+  // also without the right to edit (another role after a new login): the chat panel is gone, so is the draft
+  useEffect(() => { if (!aiKey || !canEdit) { setDraft(null); setAiOpen(false); } }, [aiKey, canEdit]);
+  const shown = draft?.page ?? page;
+  const editable = canEdit && !draft;
 
   // ---- save: one second after the last change and on leaving - one write after the
   // other (the next needs the version of the previous one), a failed one stays pending
@@ -191,16 +209,17 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
 
   const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : EMPTY), [model, specs]);
   const gateway = useMemo(() => previewGateway(targets), [targets]);
-  const paths = useMemo(() => (page ? statePaths(page, targets) : []), [page, targets]);
+  const paths = useMemo(() => (shown ? statePaths(shown, targets) : []), [shown, targets]);
   const findings = useMemo(
-    () => (page ? pageFindings(page, targets, pages.map((p) => (p.slug === slug ? page : p.data))) : []),
-    [page, targets, pages, slug],
+    () => (shown ? pageFindings(shown, targets, pages.map((p) => (p.slug === slug ? shown : p.data))) : []),
+    [shown, targets, pages, slug],
   );
+  const drafted = useMemo(() => (draft ? changedKeys(pageDiff(draft.base, draft.page)) : new Set<string>()), [draft]);
   const queryParams = useMemo(() => Object.fromEntries(new URLSearchParams(query)), [query]);
-  const data = useMemo(() => (page ? dataOf(page, targets) : []), [page, targets]);
+  const data = useMemo(() => (shown ? dataOf(shown, targets) : []), [shown, targets]);
   const usedServices = useMemo(
-    () => (page ? actionsOf(page).flatMap(({ action }) => (action.do === 'call' ? [action.service] : [])) : []),
-    [page],
+    () => (shown ? actionsOf(shown).flatMap(({ action }) => (action.do === 'call' ? [action.service] : [])) : []),
+    [shown],
   );
 
   // ---- keyboard: ⌘Z / ⇧⌘Z, Del, ⌘D, ⌥↑/⌥↓, Esc - not while typing in a field
@@ -225,7 +244,7 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (!page) {
+  if (!page || !shown) {
     return (
       <div className="max-w-5xl mx-auto px-6 py-6">
         <button onClick={onBack} className={`text-[11px] ${c.muted2}`}>‹ Seiten</button>
@@ -234,8 +253,8 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
     );
   }
 
-  const outline = flatten(page.body);
-  const block = selected ? blockAt(page.body, selected) : undefined;
+  const outline = flatten(shown.body);
+  const block = selected ? blockAt(shown.body, selected) : undefined;
   // the latest state, not that of the render - two actions before the next render build on each other
   const body = () => (latest.current ?? page).body;
   const setBody = (next: Component[], coalesce?: string) => update({ ...(latest.current ?? page), body: next }, coalesce);
@@ -259,7 +278,7 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
   });
   const ops = selected !== null && block ? opsFor(selected) : null;
   keys.current = {
-    undo, redo, ops, deselect: () => setSelected(null), canEdit,
+    undo, redo, ops, deselect: () => setSelected(null), canEdit: editable,
     // read on key press - two ⌘Z before the next render each see the state of the previous one
     get can() { return { undo: history.current.past.length > 0, redo: history.current.future.length > 0 }; },
   };
@@ -284,7 +303,7 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
         </button>
         <span className={`text-xs font-semibold ${c.text}`}>{page.title || slug}</span>
         <span className={`text-[10px] font-mono ${c.muted}`}>/{page.path}</span>
-        <AccessChip isDark={isDark} page={page} />
+        <AccessChip isDark={isDark} page={shown} />
         {/* a page for a user task: the way to it in the process (saved first, like «back») */}
         {userTasksOfPage(page).map((key) => {
           const at = userTaskStep(key, specs);
@@ -302,6 +321,12 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
             </span>
           );
         })}
+        {draft && (
+          <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${isDark ? 'border-violet-500/40 bg-violet-500/15 text-violet-200' : 'border-violet-300 bg-violet-50 text-violet-800'}`}
+            title="Die Vorschau zeigt den Entwurf von Claude - übernehmen oder verwerfen im Panel rechts">
+            <Sparkles size={10} /> Entwurf
+          </span>
+        )}
         {(errors > 0 || warnings > 0) && (
           <span className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
             errors ? (isDark ? 'border-rose-500/30 text-rose-300' : 'border-rose-300 text-rose-700') : (isDark ? 'border-amber-500/30 text-amber-300' : 'border-amber-300 text-amber-700')}`}>
@@ -310,8 +335,15 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
         )}
         {canEdit && (
           <div className="ml-auto flex items-center gap-0.5">
-            <IconButton isDark={isDark} title="rückgängig (⌘Z)" disabled={history.current.past.length === 0} onClick={undo}><Undo2 size={12} /></IconButton>
-            <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={history.current.future.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
+            {aiKey && (
+              <button onClick={() => setAiOpen((o) => !o)} title="Claude - die Seite im Gespräch ändern (KI-Modus)"
+                className={`mr-1.5 flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
+                  aiOpen || draft ? (isDark ? 'border-violet-400/50 bg-violet-500/15 text-violet-200' : 'border-violet-400 bg-violet-50 text-violet-800') : c.btn}`}>
+                <Sparkles size={11} /> Claude
+              </button>
+            )}
+            <IconButton isDark={isDark} title="rückgängig (⌘Z)" disabled={!editable || history.current.past.length === 0} onClick={undo}><Undo2 size={12} /></IconButton>
+            <IconButton isDark={isDark} title="wiederholen (⇧⌘Z)" disabled={!editable || history.current.future.length === 0} onClick={redo}><Redo2 size={12} /></IconButton>
           </div>
         )}
         <span className={`${canEdit ? '' : 'ml-auto '}text-[10px] ${saveState.error ? (isDark ? 'text-rose-300' : 'text-rose-700') : c.muted}`}>
@@ -337,12 +369,12 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
           ) : (<>
           <button onClick={() => setSelected(null)}
             className={`w-full text-left px-3 py-1.5 text-[11px] ${selected === null ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
-            Seite · {page.title}
+            Seite · {shown.title}
           </button>
           {outline.map(({ key, block: b, depth }) => {
             const over = drag?.over === key ? drag.place : undefined;
             return (
-              <div key={key} draggable={canEdit}
+              <div key={key} draggable={editable}
                 onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', key); setDrag({ from: key }); }}
                 onDragOver={(e) => {
                   if (!drag || drag.from === key || key.startsWith(`${drag.from}.`)) return;
@@ -364,11 +396,12 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
                   over === 'inside' ? 'ring-2 ring-inset ring-sky-500' : ''} ${
                   drag?.from === key ? 'opacity-40' : ''} ${
                   selected === key ? (isDark ? 'bg-sky-500/15 text-sky-200' : 'bg-sky-50 text-sky-900') : c.hover}`}>
-                {canEdit && <GripVertical size={11} className={`flex-shrink-0 cursor-grab opacity-0 group-hover:opacity-60 ${c.muted}`} />}
-                <span className={c.muted}>{ICONS[b.type]}</span>
+                {editable && <GripVertical size={11} className={`flex-shrink-0 cursor-grab opacity-0 group-hover:opacity-60 ${c.muted}`} />}
+                <span className={drafted.has(key) ? (isDark ? 'text-violet-300' : 'text-violet-600') : c.muted}
+                  title={drafted.has(key) ? 'im Entwurf neu oder geändert' : undefined}>{ICONS[b.type]}</span>
                 <span className="truncate flex-1">{summaryOf(b) || BLOCK_LABELS[b.type]}</span>
                 {b.visible && <span className={`text-[9px] group-hover:hidden ${c.muted}`} title={`sichtbar, wenn ${b.visible}`}>if</span>}
-                {canEdit && (
+                {editable && (
                   <span className="hidden group-hover:flex">
                     <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact />
                   </span>
@@ -376,7 +409,7 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
               </div>
             );
           })}
-          {canEdit && (
+          {editable && (
             <div className="px-3 py-2 space-y-2">
               {outline.length > 1 && (
                 <p className={`text-[9px] leading-snug ${c.muted}`}>
@@ -437,22 +470,34 @@ export default function PageEditor({ slug, onBack, onOpenTask }: {
             onClick={(e) => { if (!(e.target as HTMLElement).closest('[data-designer-block]')) setSelected(null); }}>
             {/* restarted when what the page reads at start changes (state, loading, access) - not on
                 every keystroke in a text: it shows that anyway */}
-            <PageView key={`${run}:${query}:${JSON.stringify([page.state, page.load, page.access])}`} page={page} app={pagesApp?.data ?? {}} isDark={isDark}
+            <PageView key={`${run}:${query}:${JSON.stringify([shown.state, shown.load, shown.access])}`} page={shown} app={pagesApp?.data ?? {}} isDark={isDark}
               gateway={gateway} query={queryParams}
-              user={page.access === 'public' ? undefined : { name: 'Vorschau', roles: page.access.roles }}
+              user={shown.access === 'public' ? undefined : { name: 'Vorschau', roles: shown.access.roles }}
               designer={{
                 selected: selected ?? undefined, onSelect: setSelected,
-                toolbar: canEdit ? (key) => { const b = blockAt(page.body, key); return b ? <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact /> : null; } : undefined,
+                toolbar: editable ? (key) => { const b = blockAt(shown.body, key); return b ? <BlockActions isDark={isDark} block={b} ops={opsFor(key)} compact /> : null; } : undefined,
               }} />
           </div>
         </div>
 
+        {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
+        {aiKey && canEdit && (
+          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${aiOpen || draft ? '' : 'hidden'}`}>
+            <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
+            <AiPanel isDark={isDark} apiKey={aiKey} slug={slug} page={page} app={pagesApp?.data} targets={targets}
+              pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
+              draft={draft} onDraft={setDraft} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
+              onAccept={(next) => { update(next); setSelected((s) => (s !== null && blockAt(next.body, s) ? s : null)); }}
+              initialPrompt={pendingPrompt} onInitialPrompt={() => setPendingPrompt(undefined)} />
+            </Suspense>
+          </div>
+        )}
         {/* Properties */}
-        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
+        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel} ${aiKey && canEdit && (aiOpen || draft) ? 'hidden' : ''}`}>
           {block && selected !== null ? (
             // key: another building block gets fresh forms (no half JSON text of the previous one)
             <>
-              {canEdit && ops && (
+              {editable && ops && (
                 <div className={`sticky top-0 z-20 px-3 py-1.5 border-b space-y-1 ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
                   <div className="flex items-center gap-2">
                     <span className={c.muted}>{ICONS[block.type]}</span>

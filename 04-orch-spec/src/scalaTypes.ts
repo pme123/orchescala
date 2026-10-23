@@ -39,6 +39,20 @@ const CLOSE = ')]}';
 export const CHAR_LITERAL = /^'(?:\\u[0-9a-fA-F]{4}|\\.|[^'\\])'/;
 
 /**
+ * The end of a name in backticks (`` `Brief (neu)` ``, `` `a:b` ``) that starts at `start` —
+ * what is inside is no bracket, comma, `:` or `=`. -1 if none starts there (a backtick
+ * name ends on the same line).
+ */
+export function skipBackticks(text: string, start: number): number {
+  if (text[start] !== '`') return -1;
+  for (let i = start + 1; i < text.length; i++) {
+    if (text[i] === '`') return i > start + 1 ? i + 1 : -1;
+    if (text[i] === '\n') return -1;
+  }
+  return -1;
+}
+
+/**
  * Walk one bracket level, skipping strings along the way.
  * Returns the position after the closing bracket.
  */
@@ -61,6 +75,11 @@ function skipBalanced(text: string, start: number): number {
     const char = ch === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
     if (char) {
       i += char[0].length;
+      continue;
+    }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) {
+      i = bt;
       continue;
     }
     if (OPEN.includes(ch)) depth++;
@@ -96,6 +115,11 @@ export function splitParams(raw: string): string[] {
     const char = ch === "'" ? CHAR_LITERAL.exec(text.slice(i)) : null;
     if (char) {
       i += char[0].length;
+      continue;
+    }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) {
+      i = bt;
       continue;
     }
     if (OPEN.includes(ch)) depth++;
@@ -137,6 +161,12 @@ export function stripComments(text: string): string {
     if (char) {
       out += char[0];
       i += char[0].length;
+      continue;
+    }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) {
+      out += text.slice(i, bt);
+      i = bt;
       continue;
     }
     if (text.startsWith('//', i)) {
@@ -214,13 +244,24 @@ export function cleanText(raw: string): string {
   return t.replace(/\\n/g, '\n').replace(/\\"/g, '"').trim();
 }
 
+/**
+ * A name as written in Scala — plain (`groupId`) or in backticks (`` `type` ``,
+ * a reserved word): without the backticks. `null` if it is no name.
+ */
+export function scalaIdentifier(raw: string): string | null {
+  const text = raw.trim();
+  const quoted = /^`([^`]+)`$/.exec(text);
+  if (quoted) return quoted[1];
+  return /^[A-Za-z_]\w*$/.test(text) ? text : null;
+}
+
 /** A parameter: `name: Type = default`. */
 export function parseParam(param: string): ScalaParam | null {
   const { rest, description, descriptionExpr } = stripAnnotations(stripComments(param));
   const colon = topLevelIndex(rest, ':');
   if (colon < 0) return null;
-  const name = rest.slice(0, colon).trim().replace(/^(?:val|var)\s+/, '');
-  if (!/^[A-Za-z_]\w*$/.test(name)) return null;
+  const name = scalaIdentifier(rest.slice(0, colon).trim().replace(/^(?:val|var)\s+/, ''));
+  if (!name) return null;
   const after = rest.slice(colon + 1);
   const eq = topLevelAssign(after);
   const type = (eq < 0 ? after : after.slice(0, eq)).trim();
@@ -241,6 +282,8 @@ function topLevelIndex(text: string, ch: string): number {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (c === ch && depth === 0) return i;
@@ -254,6 +297,8 @@ function topLevelAssign(text: string): number {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (c === '=' && depth === 0) {
@@ -352,6 +397,8 @@ function balanced(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c) && --depth < 0) return false;
   }
@@ -370,6 +417,8 @@ export function isCompoundType(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (depth === 0 && (c === '&' || (c === '|' && text[i - 1] !== ':'))) return true;
@@ -383,6 +432,8 @@ function topLevelRefine(text: string): number {
   for (let i = 0; i < text.length - 1; i++) {
     const c = text[i];
     if (c === '"') { i = skipString(text, i) - 1; continue; }
+    const bt = skipBackticks(text, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (OPEN.includes(c)) depth++;
     else if (CLOSE.includes(c)) depth--;
     else if (c === ':' && text[i + 1] === '|' && depth === 0) return i;
@@ -448,9 +499,9 @@ export function exampleArgs(raw: string, fieldNames: string[]): Map<string, stri
     const text = part.trim();
     if (!text) return;
     const eq = topLevelAssign(text);
-    const named = eq > 0 && /^[A-Za-z_]\w*$/.test(text.slice(0, eq).trim());
-    const name = named ? text.slice(0, eq).trim() : fieldNames[i];
-    const value = (named ? text.slice(eq + 1) : text).trim();
+    const named = eq > 0 ? scalaIdentifier(text.slice(0, eq)) : null;
+    const name = named ?? fieldNames[i];
+    const value = (named !== null ? text.slice(eq + 1) : text).trim();
     if (!name || !value) return;
     out.set(name, value.includes('"""') ? value : value.replace(/\s*\n\s*/g, ' '));
   });

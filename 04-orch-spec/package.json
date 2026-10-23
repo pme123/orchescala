@@ -17,6 +17,7 @@
     "build:pages": "vite build -c vite.pages.config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.1.0",
     "@azure/msal-browser": "^5.19.0",
     "bpmn-js": "^18.25.1",
     "camunda-bpmn-moddle": "^7.0.1",

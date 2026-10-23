@@ -21,7 +21,7 @@
 // leaves out than guesses.
 
 import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
-import { CHAR_LITERAL, cleanText, descriptionExpression, exampleArgs, parseParams, splitParams } from './scalaTypes.ts';
+import { CHAR_LITERAL, cleanText, descriptionExpression, exampleArgs, parseParams, skipBackticks, splitParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
 const IMPORT = /^import\s/;
@@ -60,6 +60,7 @@ function withoutComment(text: string): string {
     if (text[i] === '"') { open = text.startsWith('"""', i) ? '"""' : '"'; i += open.length - 1; }
     // a char literal (`'"'`, `'\''`) does not open a string
     else if (text[i] === "'") i += (CHAR_LITERAL.exec(text.slice(i))?.[0].length ?? 1) - 1;
+    else if (text[i] === '`' && skipBackticks(text, i) > 0) i = skipBackticks(text, i) - 1;
     else if (text[i] === '/' && text[i + 1] === '/') return text.slice(0, i);
   }
   return text;
@@ -124,6 +125,9 @@ function balance(line: string, depth: number, state: { triple: boolean } = { tri
     // a char literal (`'"'`, `'('`) neither opens a string nor counts as a bracket
     const char = ch === "'" ? CHAR_LITERAL.exec(line.slice(i)) : null;
     if (char) { i += char[0].length - 1; continue; }
+    // a name in backticks (`Brief (neu)`) — its brackets do not count
+    const bt = skipBackticks(line, i);
+    if (bt > 0) { i = bt - 1; continue; }
     if (ch === '/' && line[i + 1] === '/') break; // line comment
     if (ch === '(' || ch === '[') d++;
     if (ch === ')' || ch === ']') d--;
@@ -569,12 +573,14 @@ export function scanScala(source: string, path = ''): DomainType[] {
         const cd = /^\s*def\s+([a-z]\w*)\s*:\s*([^=]+?)\s*$/.exec(l);
         if (cd) { common.push({ name: cd[1], type: cd[2] }); continue; }
         const many = ENUM_CASES.exec(l);
-        if (many) { values.push(...many[1].split(',').map(v => v.trim()).filter(Boolean)); continue; }
+        if (many) { values.push(...splitParams(many[1]).map(v => v.trim()).filter(Boolean)); continue; }
         const one = ENUM_CASE.exec(l);
         if (!one) continue;
         values.push(one[1]);
-        const open = l.indexOf('(');
-        if (open < 0 || !/^\s*case\s+(?:\w+|`[^`]+`)\s*\(/.test(l)) { cases.push({ name: one[1] }); continue; }
+        // the bracket after the name — not one inside it (`Brief (neu)`(…))
+        const head = /^\s*case\s+(?:\w+|`[^`]+`)\s*\(/.exec(l);
+        if (!head) { cases.push({ name: one[1] }); continue; }
+        const open = head[0].length - 1;
         const state = { triple: false };
         let depth = balance(l.slice(open), 0, state);
         let text = l.slice(open + 1);
