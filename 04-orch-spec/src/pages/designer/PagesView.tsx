@@ -168,7 +168,8 @@ export default function PagesView({ onOpen, onOpenTask }: {
                     onClick={async () => {
                       if (!(await confirm({ title: `Seite «${data.title || slug}» löschen?` }))) return;
                       const r = await deletePage(slug, version);
-                      setDeleteError(r.ok ? null : r.message);
+                      setDeleteError(!r.ok ? r.message
+                        : r.auditError ? `Seite gelöscht, aber ihr Änderungsprotokoll nicht: ${r.auditError} Eine neue Seite mit demselben Namen würde es weiterführen.` : null);
                     }}
                     className={`p-2 mr-1 rounded ${c.muted} hover:text-rose-500`}>
                     <Trash2 size={13} />

@@ -23,7 +23,7 @@ import { DemoBackend, LocalBackend, StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, SharePointFolder } from './graph';
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
-import { appendAudit, auditPath, createdPageEntry, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
+import { appendAudit, auditPath, createdPageEntry, deleteAudit, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
 import { withIds } from './pages/designer/model';
 import { dmnPath } from './dmn';
 import type { App as PagesApp, Page } from './pages/runtime/spec';
@@ -141,7 +141,8 @@ interface StoreCtx {
   loadPageAudit: (slug: string) => Promise<AuditEntry[] | null>;
   /** `auditError`: the page is there, its first log entry is not */
   createPage: (slug: string, data: Page) => Promise<{ ok: true; auditError?: string } | { ok: false; message: string }>;
-  deletePage: (slug: string, expectedVersion: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** `auditError`: the page is gone, its log is not - a new page with the same name would continue it */
+  deletePage: (slug: string, expectedVersion: string) => Promise<{ ok: true; auditError?: string } | { ok: false; message: string }>;
   savePagesApp: (data: PagesApp, expectedVersion: string | null) => Promise<SaveResult>;
   /** People for @ mentions: users.json in the shared folder */
   knownUsers: DirectoryUser[];
@@ -957,9 +958,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!d.ok) return { ok: false as const, message: d.reason === 'conflict' ? 'Die Seite wurde inzwischen geändert – Seite neu laden.' : d.message };
     pagesWriteSeq.current++;
     if (backendRef.current === be) setPages(prev => prev.filter(p => p.slug !== slug));
-    // the log belongs to the page - a new one with the same name starts empty
-    await be.delete(auditPath(PAGES_DIR, slug));
-    return { ok: true as const };
+    // the log belongs to the page - a new one with the same name starts empty; the page is gone either way
+    const a = await deleteAudit(be, PAGES_DIR, slug);
+    return a.ok ? { ok: true as const } : { ok: true as const, auditError: a.message };
   }, []);
 
   const savePagesApp = useCallback(async (data: PagesApp, expectedVersion: string | null): Promise<SaveResult> => {

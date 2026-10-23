@@ -418,6 +418,18 @@ export async function appendAudit(files: AuditFiles, dir: string, slug: string, 
   return { ok: false, message: last };
 }
 
+/** Deletes the log of a page or process (after the file itself) - a failure or an exception is said, never
+  * thrown: the file is already gone, the caller must not report that as failed. A missing log is fine. */
+export async function deleteAudit(files: { delete(path: string): Promise<{ ok: true } | { ok: false; message: string }> },
+                                  dir: string, slug: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const d = await files.delete(auditPath(dir, slug));
+    return d.ok ? d : { ok: false, message: d.message };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 // ── Display ──────────────────────────────────────────────────────────────────
 
 /**

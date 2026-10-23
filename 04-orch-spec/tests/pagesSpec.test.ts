@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { copyBlock, convertBlock, flatten, hasIds, keyOfId, logBase, newBlock, relocateBlock, withIds } from '../src/pages/designer/model';
 import type { Component, Page } from '../src/pages/runtime/spec';
 import { addThread, countIndex, setResolved } from '../src/comments';
-import { createdPageEntry, diffPages, entryOf } from '../src/audit';
+import { auditPath, createdPageEntry, deleteAudit, diffPages, entryOf } from '../src/audit';
 import { blockOfTarget, blockTarget, carryComments, cleanSpec, keepComments, pageCommentTargets, pageTarget, rememberPagePlaces } from '../src/pages/designer/pageComments';
 
 const body: Component[] = [
@@ -163,4 +163,15 @@ test('diffPages - a swap of two neighbours names both, a longer move only the mo
   assert.deepEqual(diffPages(a, b).map((c) => [c.label, c.before, c.after]), [['Text «C»', 'Seite, Stelle 3', 'Seite, Stelle 2'], ['Text «B»', 'Seite, Stelle 2', 'Seite, Stelle 3']]);
   const far: Page = { ...a, body: [a.body[2], a.body[0], a.body[1]] };
   assert.deepEqual(diffPages(a, far).map((c) => c.label), ['Text «C»']);
+});
+
+test('deleteAudit - the log of a deleted page: done, a failure said, an exception caught (the page is gone already)', async () => {
+  const asked: string[] = [];
+  const ok = { delete: async (path: string) => { asked.push(path); return { ok: true as const }; } };
+  assert.deepEqual(await deleteAudit(ok, 'pages', 'book'), { ok: true });
+  assert.deepEqual(asked, [auditPath('pages', 'book')]);
+  const refused = { delete: async () => ({ ok: false as const, reason: 'forbidden', message: 'Keine Berechtigung.' }) };
+  assert.deepEqual(await deleteAudit(refused, 'pages', 'book'), { ok: false, message: 'Keine Berechtigung.' });
+  const throws = { delete: async (): Promise<{ ok: true }> => { throw new Error('offline'); } };
+  assert.deepEqual(await deleteAudit(throws, 'pages', 'book'), { ok: false, message: 'offline' });
 });
