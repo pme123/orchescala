@@ -83,7 +83,8 @@ const scanTime = (projects: Array<{ name: string; scannedAt?: string }> | undefi
  * the later `scannedAt` wins; a scan without a time counts as older than one
  * with a time. Neither side has a time (scans from before `scannedAt`): the
  * model.json wins — it is scanned locally on demand, the catalog only with
- * the next release.
+ * the next release. The two times come from different clocks (browser, build
+ * machine): fine for scans hours or days apart, not for minutes.
  */
 export function projectWinners(user: Model, gen: CatalogFile, projectOf: (t: DomainType) => string | null): (project: string) => boolean {
   const userTime = scanTime(user.projects);

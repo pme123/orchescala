@@ -82,6 +82,10 @@ test('a project remembered with the folder above it counts only its own types', 
   assert.deepEqual(r.projects.map(p => [p.name, p.types]), [['acme-services', 1], ['acme-customer', 1], ['acme-cards', 1]]);
   assert.equal(r.files, 3);
   assert.deepEqual(r.types.map(t => t.name).sort(), ['Advisor', 'Card', 'Client']);
+  // each project read gets the scan time — merging with the catalog, the later scan wins
+  assert.ok(r.projects.every(p => typeof p.scannedAt === 'string' && !Number.isNaN(Date.parse(p.scannedAt))));
+  // and its types name the project folder the time belongs to
+  assert.deepEqual([...new Set(r.types.map(t => t.source?.split('/')[0]))].sort(), ['acme-cards', 'acme-customer', 'acme-services']);
 });
 
 test('a remembered folder without a subfolder of the project name stays as it is', async () => {
