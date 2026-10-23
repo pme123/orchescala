@@ -2,7 +2,10 @@
 // new, changed, moved, removed, and the properties of the page. Building blocks have no ids (their
 // key is the index path), so they are matched by content: the longest common sequence stays,
 // the same block elsewhere has moved, a block of the same type at the same key has changed.
-import { flatten, type BlockKey } from '../pages/designer/model';
+import { blockName, blockTitle as titleOf, flatten, type BlockKey } from '../pages/designer/model';
+import { lcs } from '../util';
+
+export { blockName };
 import type { Component, Page } from '../pages/runtime/spec';
 import { allSteps } from '../bpmn';
 import type { ProcessSpec, Step } from '../types';
@@ -25,36 +28,6 @@ const signature = (b: Component) => {
   return JSON.stringify(own);
 };
 
-const TYPE_LABEL: Record<Component['type'], string> = {
-  heading: 'Überschrift', text: 'Text', choice: 'Auswahl', pick: 'Auswahl aus Liste', fields: 'Eingabefelder',
-  summary: 'Zusammenfassung', button: 'Button', section: 'Abschnitt', loading: 'Laden',
-};
-
-const titleOf = (b: Component) => ('label' in b && b.label ? b.label : 'text' in b && b.text ? b.text : '');
-
-export const blockName = (b: Component) => {
-  const title = titleOf(b);
-  return title ? `${TYPE_LABEL[b.type]} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : TYPE_LABEL[b.type];
-};
-
-/** Index pairs of the longest common subsequence of two lists of signatures. */
-function lcs(a: string[], b: string[]): [number, number][] {
-  // table of the lengths from the end - built row by row, without changing a row
-  const rows = a.reduceRight<number[][]>((below, x, i) => {
-    const next = below[0];
-    const row = b.reduceRight<number[]>((acc, y, j) => {
-      const right = acc[0] ?? 0;
-      return [x === y ? 1 + (next[j + 1] ?? 0) : Math.max(next[j] ?? 0, right), ...acc];
-    }, []);
-    return [row, ...below];
-  }, [new Array<number>(b.length + 1).fill(0)]);
-  const walk = (i: number, j: number): [number, number][] => {
-    if (i >= a.length || j >= b.length) return [];
-    if (a[i] === b[j]) return [[i, j], ...walk(i + 1, j + 1)];
-    return (rows[i + 1]?.[j] ?? 0) >= (rows[i]?.[j + 1] ?? 0) ? walk(i + 1, j) : walk(i, j + 1);
-  };
-  return walk(0, 0);
-}
 
 /** What changed in a fields block or a summary - the labels of the entries. */
 function detailOf(before: Component, after: Component): string | undefined {

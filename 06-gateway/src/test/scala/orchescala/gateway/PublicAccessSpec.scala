@@ -28,13 +28,13 @@ object PublicAccessSpec extends ZIOSpecDefault:
 
   private def json(s: String) = parse(s).toOption.get
 
-  /** A clock the test sets. */
-  private class TestClock extends (() => Long):
+  /** A clock the test sets - for the guard and the token (not ZIO's `TestClock`). */
+  private class ManualClock extends (() => Long):
     private val at           = AtomicLong(0L)
     def apply(): Long        = at.get()
     def set(millis: Long): Unit = at.set(millis)
 
-  private def guard(clock: TestClock, maxClients: Int = 100_000) = PublicGuard(access, clock, maxClients)
+  private def guard(clock: ManualClock, maxClients: Int = 100_000) = PublicGuard(access, clock, maxClients)
 
   private val login = OAuthConfig.ClientCredentials("realm", "http://sso.invalid", "client", "the-client-secret", "openid")
 
@@ -43,15 +43,15 @@ object PublicAccessSpec extends ZIOSpecDefault:
     "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJwcmVmZXJyZWRfdXNlcm5hbWUiOiJkZW1vLXRlY2gifQ.c2ln"
 
   /** A token whose identity provider answers with `answer` - counting the requests. */
-  private class FakeToken(clock: TestClock, answer: Either[String, String], val requests: Ref[Int])
+  private class FakeToken(clock: ManualClock, answer: Either[String, String], val requests: Ref[Int])
       extends PublicToken(login, clock):
     override protected def requestToken: IO[String, String] =
       requests.update(_ + 1) *> ZIO.sleep(10.millis).withClock(Clock.ClockLive) *> ZIO.fromEither(answer)
 
-  private def fakeToken(clock: TestClock, answer: Either[String, String]) =
+  private def fakeToken(clock: ManualClock, answer: Either[String, String]) =
     Ref.make(0).map(FakeToken(clock, answer, _))
 
-  private def techTokenOf(clock: TestClock) = fakeToken(clock, Right(s"""{"access_token":"$techToken","expires_in":300}"""))
+  private def techTokenOf(clock: ManualClock) = fakeToken(clock, Right(s"""{"access_token":"$techToken","expires_in":300}"""))
 
   /** What a fake engine got: the token and the variables. */
   private type Got = Ref[Option[(Option[String], Option[JsonObject])]]
@@ -106,7 +106,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
       got: Got,
       answer: IO[EngineError, Unit] = ZIO.unit,
       token: Option[PublicToken] = None,
-      clock: TestClock = TestClock()
+      clock: ManualClock = ManualClock()
   ) =
     given GatewayConfig = DefaultGatewayConfig(
       engineConfig = DefaultEngineConfig(validateInput = false),
@@ -127,15 +127,34 @@ object PublicAccessSpec extends ZIOSpecDefault:
   private def post(publicAccess: PublicAccess, path: String, body: String): ZIO[Any, Response, Response] =
     Ref.make(Option.empty[(Option[String], Option[JsonObject])]).flatMap(got => post(routes(publicAccess, got), path, body))
 
-  /** At most `d` - without waiting for a stuck effect to stop (`disconnect`): a wait fails the test, it
-    * does not hang it.
+  /** At most `d` of real time - without waiting for a stuck effect to stop (`disconnect`): a wait fails
+    * the test, it does not hang it. It does not move ZIO's `TestClock`.
     */
-  private def bounded[R, E, A](d: Duration)(zio: ZIO[R, E, A]): ZIO[R, E, Option[A]] = zio.disconnect.timeout(d)
+  private def bounded[R, E, A](d: Duration)(zio: ZIO[R, E, A]): ZIO[R, E, Option[A]] =
+    Live.withLive(zio.disconnect)(_.timeout(d))
+
+  /** The sleeps on ZIO's `TestClock` that end `d` from now - also stopped ones (the test clock keeps them).
+    * Any sleep of `d` counts: the tests use a callTimeout no other sleep on the path has (e.g. 1234 ms).
+    */
+  private def sleepsEndingIn(d: Duration) =
+    for
+      now    <- Clock.instant
+      sleeps <- TestClock.sleeps
+    yield sleeps.count(_ == now.plus(d))
+
+  /** Waits until exactly one more sleep of `d` is set on ZIO's `TestClock` than `before`: the timeout of a
+    * call is set by a fiber of its own - maybe only after the call reached the engine. Moving the clock
+    * before would miss it.
+    */
+  private def timeoutSet(d: Duration, before: Int) =
+    bounded(5.seconds)((Live.live(ZIO.sleep(1.milli)) *> sleepsEndingIn(d)).repeatUntil(_ > before))
+      .someOrFail(s"no timeout of ${d.render} set on the test clock")
+      .filterOrElseWith(_ == before + 1)(n => ZIO.fail(s"${n - before} sleeps of ${d.render} set on the test clock - not only the timeout"))
 
   def spec: Spec[TestEnvironment & Scope, Any] = suite("PublicAccess")(
     suite("PublicGuard")(
       test("only what is listed - per kind"):
-        val g = guard(TestClock())
+        val g = guard(ManualClock())
         assertTrue(
           g.check(Kind.worker, "acme-shop-freeSlots", "a", "{}").isRight,
           g.check(Kind.worker, "acme-shop-other", "b", "{}").left.map(_.errorCode) == Left(404),
@@ -146,7 +165,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
       ,
       test("the honeypot: filled in - refused; empty - removed before the call"):
-        val g = guard(TestClock())
+        val g = guard(ManualClock())
         assertTrue(
           g.check(Kind.worker, "acme-shop-freeSlots", "a", """{"topic":"x","_hp":"I am a bot"}""")
             .left.map(_.errorCode) == Left(400),
@@ -158,14 +177,14 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
       ,
       test("the body: a JSON object or nothing - else 400"):
-        val g = guard(TestClock())
+        val g = guard(ManualClock())
         assertTrue(
           g.body("") == Right(JsonObject.empty),
           List("[1]", "42", "\"text\"", "null", "{not json").forall(b => g.body(b).left.map(_.errorCode) == Left(400))
         )
       ,
       test("the general variables (mocking, output mapping, identity, ...) - refused"):
-        val g = guard(TestClock())
+        val g = guard(ManualClock())
         assertTrue(
           List("_servicesMocked", "_mockedWorkers", "_outputMock", "_identityCorrelation", "servicesMocked")
             .forall: field =>
@@ -173,7 +192,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
       ,
       test("the rate limit per client and minute - unknown names count as well; a new minute starts anew"):
-        val clock  = TestClock()
+        val clock  = ManualClock()
         val g      = guard(clock)
         val first  = (1 to 3).map(_ => g.admit(Kind.worker, "acme-shop-unknown", "a").left.map(_.errorCode))
         val fourth = g.admit(Kind.worker, "acme-shop-freeSlots", "a").left.map(_.errorCode)
@@ -183,12 +202,12 @@ object PublicAccessSpec extends ZIOSpecDefault:
         assertTrue(first.forall(_ == Left(404)), fourth == Left(429), other, later)
       ,
       test("many calls of one client at once - exactly requestsPerMinute admitted"):
-        val g = guard(TestClock())
+        val g = guard(ManualClock())
         for admitted <- ZIO.foreachPar(1 to 100)(_ => ZIO.succeed(g.admit(Kind.worker, "acme-shop-freeSlots", "a").isRight))
         yield assertTrue(admitted.count(identity) == 3)
       ,
       test("at most maxClients - beyond, the least recently used is forgotten (nobody is locked out)"):
-        val clock    = TestClock()
+        val clock    = ManualClock()
         val g        = guard(clock, maxClients = 3)
         val admitted = (1 to 5).map(i => g.admit(Kind.worker, "acme-shop-freeSlots", s"c$i").isRight)
         val count    = g.clients
@@ -235,7 +254,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
       ,
       test("the business key: optional or required, short and plain"):
-        val g = guard(TestClock())
+        val g = guard(ManualClock())
         assertTrue(
           g.businessKey(None, required = false) == Right(None),
           g.businessKey(Some(" "), required = false) == Right(None),
@@ -277,7 +296,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
     ),
     suite("PublicToken")(
       test("kept until shortly before it expires - at most 30 seconds, at most half its time, at least 5"):
-        val clock = TestClock()
+        val clock = ManualClock()
         for
           long     <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
           short    <- fakeToken(clock, Right("""{"access_token":"t2","expires_in":20}"""))
@@ -300,7 +319,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
       ,
       test("expires_in missing or strange: 60 seconds; as a string or a decimal: read"):
         def requests(answer: String) =
-          val clock = TestClock()
+          val clock = ManualClock()
           for
             t     <- fakeToken(clock, Right(answer))
             token <- t.token
@@ -323,7 +342,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
       ,
       test("a clock below 0 (the monotonic one can be) - logs in all the same"):
-        val clock = TestClock()
+        val clock = ManualClock()
         clock.set(-1_000_000L)
         for
           t     <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
@@ -332,13 +351,13 @@ object PublicAccessSpec extends ZIOSpecDefault:
       ,
       test("many calls at once - one fetch"):
         for
-          t      <- fakeToken(TestClock(), Right("""{"access_token":"t1","expires_in":300}"""))
+          t      <- fakeToken(ManualClock(), Right("""{"access_token":"t1","expires_in":300}"""))
           tokens <- ZIO.foreachPar(1 to 20)(_ => t.token)
           req    <- t.requests.get
         yield assertTrue(tokens.forall(_ == "t1"), req == 1)
       ,
       test("invalidated - the next call fetches a new one; not a younger one, not another token"):
-        val clock = TestClock()
+        val clock = ManualClock()
         for
           t      <- fakeToken(clock, Right("""{"access_token":"t1","expires_in":300}"""))
           _      <- t.token
@@ -351,7 +370,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(!young, !other, old, before == 1, after == 2)
       ,
       test("a failed login - a generic 503, and no new try for a few seconds"):
-        val clock = TestClock()
+        val clock = ManualClock()
         for
           t      <- fakeToken(clock, Left("connection refused: http://sso.internal:8080"))
           bad    <- fakeToken(clock, Right("<html>oops</html>"))
@@ -372,7 +391,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
     suite("PublicRoutes")(
       test("no answer within callTimeout - a 503"):
         for
-          token    <- techTokenOf(TestClock())
+          token    <- techTokenOf(ManualClock())
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
           slow      = access.copy(login = Some(login), callTimeout = 1.second) // room for a slow CI machine
           r         = routes(slow, got, ZIO.never, Some(token))
@@ -380,69 +399,125 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(response.status == Status.ServiceUnavailable)
       @@ TestAspect.withLiveClock,
       test("more than maxConcurrentCalls at once - a 503 at once"):
+        // on ZIO's TestClock, not moved: the timeout of the first call never fires - it cannot stop it
+        // before it reaches the engine, nor before it is released
         for
-          token    <- techTokenOf(TestClock())
+          token    <- techTokenOf(ManualClock())
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          arrived  <- Promise.make[Nothing, Unit]
           release  <- Promise.make[Nothing, Unit]
           one       = access.copy(login = Some(login), maxConcurrentCalls = 1)
-          r         = routes(one, got, release.await, Some(token))
-          first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
-          _        <- got.get.repeatUntil(_.nonEmpty) // the first one is in the engine
-          second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
-          _        <- release.succeed(())
-          done     <- first.join
-        yield assertTrue(second.status == Status.ServiceUnavailable, done.status == Status.Ok)
-      @@ TestAspect.withLiveClock,
+          r         = routes(one, got, arrived.succeed(()) *> release.await, Some(token))
+          answers  <- (for
+                         first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
+                         _      <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
+                         second <- bounded(5.seconds):
+                                     post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+                                   .someOrFail("the second call did not answer")
+                         _      <- release.succeed(())
+                         done   <- bounded(5.seconds)(first.join).someOrFail("the first call did not answer")
+                       yield second.status -> done.status)
+                         .ensuring(release.succeed(())) // released also on a failure - no call left in the engine
+        yield assertTrue(answers == (Status.ServiceUnavailable -> Status.Ok))
+      ,
       test("a call that takes too long - interrupted; its slot is free once it has stopped"):
-        def calls(slow: UIO[Unit]) =
+        // on the test clock (as "the caller is gone"): the timeout of the call fires only when the clock is
+        // moved - not while the first call is still on its way to the engine
+        // a callTimeout no other sleep on the path has - see sleepsEndingIn
+        val one = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1234.millis)
+        /** The first call in the engine and past its timeout - and the second call, to be made. */
+        def pastTimeout(slow: UIO[Unit]) =
           for
-            token    <- techTokenOf(TestClock())
-            got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
-            n        <- Ref.make(0)
-            answer    = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then slow else ZIO.unit)
-            one       = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 1.second) // room for a slow CI machine
-            r         = routes(one, got, answer, Some(token))
-            first    <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
-            second   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
-          yield first.status.code -> second.status.code
+            token   <- techTokenOf(ManualClock())
+            got     <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+            arrived <- Promise.make[Nothing, Unit]
+            n       <- Ref.make(0)
+            answer   = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then arrived.succeed(()) *> slow else ZIO.unit)
+            r        = routes(one, got, answer, Some(token))
+            before  <- sleepsEndingIn(one.callTimeout)
+            first   <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
+            _       <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
+            _       <- timeoutSet(one.callTimeout, before)
+            _       <- TestClock.adjust(one.callTimeout)
+            second   = bounded(5.seconds):
+                         post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+                       .someOrFail("the second call did not answer")
+          yield (bounded(5.seconds)(first.join).someOrFail("the first call did not answer"), second)
         for
           interrupted <- Promise.make[Nothing, Unit]
-          // interruptible - stopped at the timeout, the next call gets the slot
-          stopped     <- calls(ZIO.never.onInterrupt(interrupted.succeed(())))
-          wasStopped  <- interrupted.isDone.repeatUntil(identity).timeout(1.second)
-          // not interruptible - still running (until released), the next call finds no slot
+          // interruptible - stopped at the timeout; it answers once it has stopped, the next call gets the slot
+          stopped     <- pastTimeout(ZIO.never.onInterrupt(interrupted.succeed(())))
+          first       <- stopped._1
+          wasStopped  <- interrupted.isDone
+          // asked once: the slot is free before the first call answers (`ensuring` before the answer) - unlike
+          // in "the caller is gone", where there is no answer to wait for
+          second      <- stopped._2
+          // not interruptible - still running after its timeout (until released), the next call finds no slot
           hold        <- Promise.make[Nothing, Unit]
-          busy        <- calls(hold.await.uninterruptible).ensuring(hold.succeed(())) // released also on a failure
-        yield assertTrue(stopped == (503 -> 200), wasStopped.contains(true), busy == (503 -> 503))
-      @@ TestAspect.withLiveClock,
+          busy        <- (for
+                           calls  <- pastTimeout(hold.await.uninterruptible)
+                           second <- calls._2
+                           _      <- hold.succeed(())
+                           first  <- calls._1
+                         yield first.status.code -> second.status.code)
+                           .ensuring(hold.succeed(())) // released also on a failure
+        yield assertTrue(
+          (first.status.code -> second.status.code) == (503 -> 200),
+          wasStopped,
+          busy == (503 -> 503)
+        )
+      ,
       test("the caller is gone - the call still stops at its timeout and frees its slot"):
+        // on the test clock: the timeout of the call fires only when the clock is moved below - not while
+        // the first call is still on its way to the engine (on a busy CI machine the token and the routing
+        // took longer than a live timeout, and the call never reached the engine)
         for
-          token  <- techTokenOf(TestClock())
-          got    <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
-          n      <- Ref.make(0)
-          answer  = n.getAndUpdate(_ + 1).flatMap(i => if i == 0 then ZIO.never else ZIO.unit)
-          // asked again until the slot is free - no fixed wait against the clock; requestsPerMinute high so
-          // that the asking is not stopped by the rate limit (429)
-          one     = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 200.millis, requestsPerMinute = 1000)
-          r       = routes(one, got, answer, Some(token))
-          first  <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
+          token      <- techTokenOf(ManualClock())
+          got        <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
+          arrived    <- Promise.make[Nothing, Unit]
+          stopped    <- Promise.make[Nothing, Unit]
+          n          <- Ref.make(0)
+          // the first call stays in the engine until it is interrupted; the others answer at once
+          answer      = n.getAndUpdate(_ + 1).flatMap: i =>
+                          if i == 0 then arrived.succeed(()) *> ZIO.never.onInterrupt(stopped.succeed(()))
+                          else ZIO.unit
+          // requestsPerMinute high so that asking again is not stopped by the rate limit (429); a callTimeout
+          // no other sleep on the path has - see sleepsEndingIn
+          one         = access.copy(login = Some(login), maxConcurrentCalls = 1, callTimeout = 234.millis, requestsPerMinute = 1000)
+          r           = routes(one, got, answer, Some(token))
+          other       = post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}")
+          before     <- sleepsEndingIn(one.callTimeout)
+          first      <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}").fork
           // the first one is in the engine - else the rest would only hide this cause
-          _      <- bounded(5.seconds)(got.get.repeatUntil(_.nonEmpty)).someOrFail("the first call never reached the engine")
+          _          <- bounded(5.seconds)(arrived.await).someOrFail("the first call never reached the engine")
+          _          <- timeoutSet(one.callTimeout, before)
           // the caller is gone - not waited for here (an unbounded wait hung CI); that it stops is checked below
-          _      <- first.interruptFork
-          second <- bounded(10.seconds):
-                      (ZIO.sleep(50.millis) *> post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdeg", "{}"))
-                        .repeatUntil(_.status == Status.Ok)
-                    .timed
-          gone   <- bounded(5.seconds)(first.await)
+          _          <- first.interruptFork
+          gone       <- bounded(5.seconds)(first.await)
           // the dump asks the stuck fiber - bounded as well
-          _      <- ZIO.when(gone.isEmpty):
-                      bounded(5.seconds)(first.dump.flatMap(_.prettyPrint))
-                        .flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n${d.getOrElse("(no dump within 5 s)")}"))
-        // freed by the timeout of the call - not only much later or never (the bound is wide for a slow
-        // CI machine; the status is in the message when it fails)
-        yield assertTrue(second._2.map(_.status).contains(Status.Ok), second._1 < 5.seconds, gone.isDefined)
-      @@ TestAspect.withLiveClock,
+          _          <- ZIO.when(gone.isEmpty):
+                          bounded(5.seconds)(first.dump.flatMap(_.prettyPrint))
+                            .flatMap(d => ZIO.logError(s"The interrupted caller has not stopped:\n${d.getOrElse("(no dump within 5 s)")}"))
+          // without its caller the call is still in the engine and holds its slot - up to its timeout:
+          // the other call is refused by the cap (503 without asking the engine - the token is the cached one)
+          _          <- TestClock.adjust(one.callTimeout.minusMillis(1))
+          held       <- bounded(5.seconds)(other).someOrFail("the call while the slot is held did not answer")
+          stillIn    <- stopped.isDone.map(!_)
+          engine     <- n.get
+          _          <- TestClock.adjust(1.milli)
+          wasStopped <- bounded(5.seconds)(stopped.await)
+          // free once the call has stopped - asked again only for the few steps after its interruption
+          second     <- bounded(5.seconds):
+                          (Live.live(ZIO.sleep(10.millis)) *> other).repeatUntil(_.status == Status.Ok)
+        yield assertTrue(
+          gone.isDefined,
+          stillIn,
+          held.status == Status.ServiceUnavailable,
+          engine == 1,
+          wasStopped.isDefined,
+          second.map(_.status).contains(Status.Ok)
+        )
+      ,
       test("the client through the route: counted per clientIpHeader entry - or all as one without it"):
         def fourth(publicAccess: PublicAccess) =
           for
@@ -503,7 +578,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(response.status == Status.ServiceUnavailable, !body.contains("login"))
       ,
       test("a worker - called with the technical token, without the honeypot field"):
-        val clock = TestClock()
+        val clock = ManualClock()
         for
           token    <- techTokenOf(clock)
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
@@ -513,7 +588,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         yield assertTrue(response.status == Status.Ok, json(body) == json("""{"topic":"x"}"""))
       ,
       test("a process start - with the technical token and the checked body"):
-        val clock = TestClock()
+        val clock = ManualClock()
         for
           token    <- techTokenOf(clock)
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
@@ -528,7 +603,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
         )
       ,
       test("a message - with the technical token, without the honeypot field"):
-        val clock = TestClock()
+        val clock = ManualClock()
         for
           token    <- techTokenOf(clock)
           got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
@@ -540,7 +615,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
       test("what the engine answers - without its detail: 4xx keeps its status, 5xx and defects are a 503"):
         def answer(code: Int) =
           for
-            token    <- techTokenOf(TestClock())
+            token    <- techTokenOf(ManualClock())
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
             fail      = ZIO.fail(EngineError.ServiceRequestError(code, "definition x not found at http://engine.internal"))
             r         = routes(access.copy(login = Some(login)), got, fail, Some(token))
@@ -549,7 +624,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
           yield response.status.code -> body
         def defect =
           for
-            token    <- techTokenOf(TestClock())
+            token    <- techTokenOf(ManualClock())
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])
             r         = routes(access.copy(login = Some(login)), got, ZIO.die(RuntimeException("boom at http://engine.internal")), Some(token))
             response <- post(r, "/public/message/acme-shop-bookV1-verified?businessKey=r-0123456789abcdef", "{}")
@@ -570,7 +645,7 @@ object PublicAccessSpec extends ZIOSpecDefault:
       ,
       test("the technical token rejected (401) - a 503, and a new one once it is old enough; 403 keeps it"):
         def calls(code: Int) =
-          val clock = TestClock()
+          val clock = ManualClock()
           for
             token    <- techTokenOf(clock)
             got      <- Ref.make(Option.empty[(Option[String], Option[JsonObject])])

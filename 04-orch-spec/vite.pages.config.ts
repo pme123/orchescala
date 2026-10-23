@@ -39,7 +39,8 @@ function bundlePages(dir: string, strict: boolean): string {
     return data as { path: string; body: Array<Record<string, unknown>> };
   };
   const app = files.includes('app.json') ? read('app.json') : {};
-  const pages = files.filter((f) => f !== 'app.json').map(read);
+  // what only the specification knows (project, epics, comments) does not go into the app
+  const pages = files.filter((f) => f !== 'app.json').map(read).map(({ spec: _spec, ...page }: { spec?: unknown } & ReturnType<typeof read>) => page);
   // a condition that does not fit hides silently - a hand-written file needs checking too
   // in the build an abort, in the dev server a warning (the page is work in progress there)
   const problems = pages.flatMap((page) => conditionsOf(page.body).flatMap((cond) => {

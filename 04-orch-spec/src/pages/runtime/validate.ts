@@ -26,6 +26,7 @@ export function pageProblem(raw: unknown): string | null {
   if (typeof raw.title !== 'string') return '«title» fehlt';
   if (raw.access !== 'public' && !(isObject(raw.access) && Array.isArray(raw.access.roles))) return '«access» ist weder "public" noch { roles: [...] }';
   if (raw.state !== undefined && !isObject(raw.state)) return '«state» ist kein Objekt';
+  if (raw.spec !== undefined && !isObject(raw.spec)) return '«spec» ist kein Objekt';
   return actionsProblem(raw.load, 'load') ?? bodyProblem(raw.body, 'body');
 }
 

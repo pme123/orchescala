@@ -5,13 +5,13 @@
 // of the element template as a template; meanings already maintained stay.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
-import { AlertTriangle, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, AppWindow, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
-import { epicsOf, toggleEpic } from '../epics';
+import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
@@ -23,6 +23,8 @@ import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
+import { useStore } from '../store';
+import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
@@ -51,6 +53,8 @@ interface Props {
   onPattern?: (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params?: Record<string, string>, previous?: Record<string, string>) => void;
   /** is there a diagram? Without one there is nowhere a pattern could go */
   hasDiagram?: boolean;
+  /** to a page of the app - the pages that complete a user task */
+  onOpenPage?: (pageSlug: string) => void;
 }
 
 // Width, border and background come from the right column — only content here.
@@ -177,41 +181,10 @@ function ProjectPicker({ spec, isDark, canEdit, prefixes, onRename }: {
 function EpicPicker({ spec, model, isDark, canEdit, onChange }: {
   spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void;
 }) {
-  const c = cls(isDark);
-  const all = model?.epics ?? [];
-  const mine = epicsOf(spec, model);
-  const offen = all.filter(e => !e.closed && !mine.some(m => m.id === e.id));
-  if (!all.length && !canEdit) return null;
+  if (!(model?.epics ?? []).length && !canEdit) return null;
   return (
     <Field label="Epics" isDark={isDark}>
-      <div className="flex items-center gap-1 flex-wrap">
-        {mine.map(e => (
-          <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark}
-            title={[e.name, e.description, e.closed ? 'abgeschlossen' : ''].filter(Boolean).join(' — ')}>
-            {e.url && (
-              <a href={e.url} target="_blank" rel="noopener noreferrer" title="Epic öffnen" className="opacity-70 hover:opacity-100">
-                <ExternalLink size={9} />
-              </a>
-            )}
-            {canEdit && (
-              <button onClick={() => onChange(toggleEpic(spec, e.id, false))} title="Aus dem Epic nehmen"
-                className="opacity-70 hover:opacity-100"><X size={9} /></button>
-            )}
-          </EpicChip>
-        ))}
-        {canEdit && offen.length > 0 && (
-          <select value="" onChange={e => { if (e.target.value) onChange(toggleEpic(spec, e.target.value, true)); }}
-            className={`text-[10px] px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
-            <option value="">+ Epic</option>
-            {offen.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-        )}
-        {!mine.length && (!canEdit || !offen.length) && (
-          <span className={`text-[10px] ${c.muted}`}>
-            {all.some(e => !e.closed) ? 'keinem Epic zugeordnet' : 'Noch keine offenen Epics — ein Admin legt sie unter Admin → Epics an.'}
-          </span>
-        )}
-      </div>
+      <EpicChips ids={spec.epics} model={model} isDark={isDark} canEdit={canEdit} onChange={epics => onChange({ ...spec, epics })} />
     </Field>
   );
 }
@@ -248,8 +221,9 @@ function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; 
 }
 
 // ── Step level ────────────────────────────────────────────────────────────
-function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram }: Props & { step: Step }) {
+function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram, onOpenPage }: Props & { step: Step }) {
   const confirm = useConfirm();
+  const { pages, specs } = useStore();
   const c = cls(isDark);
   const { warn, warnBox, err, errBox } = tones(isDark);
   const correlation = messageCorrelation(step, spec.engine);
@@ -267,6 +241,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // What the mapping can be measured against: the class of the interaction, otherwise the
   // catalog entry. If there is neither, the mapping is free.
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
+  // a user task: the pages that complete it, and whether its key is in other processes too (a page
+  // only knows the key - then it cannot tell the processes apart)
+  const taskKey = ia?.kind === 'userTask' ? ia.key : null;
+  const taskPages = useMemo(() => (taskKey ? pagesForTask(taskKey, pages) : []), [taskKey, pages]);
+  const keyElsewhere = useMemo(() => (taskKey ? userTaskSteps(taskKey, specs).filter(t => t.slug !== spec.slug || t.stepId !== step.id) : []), [taskKey, specs, spec.slug, step.id]);
   const classFieldDefs = (list: 'inputs' | 'outputs'): Field[] | null => {
     const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
     const t = id ? (spec.types ?? []).find(x => x.id === id) : null;
@@ -369,6 +348,24 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 {ia.name}<ExternalLink size={9} className="opacity-60" />
               </button>
             )}
+            {/* a user task: the pages of the app that complete it (only where the app has pages) */}
+            {ia?.kind === 'userTask' && onOpenPage && pages.length > 0 && (() => {
+              const forTask = taskPages;
+              const elsewhere = keyElsewhere.length
+                ? `\n⚠ Der Schlüssel «${ia.key}» kommt auch in ${keyElsewhere.map(t => `«${t.process}»`).join(', ')} vor – die Seite gilt für alle.`
+                : '';
+              const tone = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
+              return forTask.length ? forTask.map(pg => (
+                <button key={pg.slug} onClick={() => onOpenPage(pg.slug)}
+                  title={`Die Seite «${pg.title}» schliesst diesen Benutzer-Task ab – Klick: zur Seite im Seiten-Designer${elsewhere}`}
+                  className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
+                  <AppWindow size={9} />{pg.title}{keyElsewhere.length > 0 && ' ⚠'}<ArrowUpRight size={9} className="opacity-60" />
+                </button>
+              )) : (
+                <span title={`Keine Seite der App schliesst «${ia.key}» ab (Aktion «Task abschliessen»)`}
+                  className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted}`}>keine Seite</span>
+              );
+            })()}
             {!ia && foreign && (
               <span title={service ? `${service.name} — im Katalog` : `«${foreign}» steht nicht im Katalog`}
                 className={`inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border truncate max-w-[16rem] ${

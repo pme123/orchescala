@@ -1,5 +1,7 @@
 // The properties of the selected block - or of the page.
-import type { Access, Component, Field, Option, Page } from '../runtime/spec';
+import type { Access, Component, Field, Option, Page, PageSpec } from '../runtime/spec';
+import { EpicChips, ProjectSelect } from '../../components/SpecMeta';
+import type { Model } from '../../types';
 import ActionsEditor from './ActionsEditor';
 import { CheckField, Group, JsonField, PathField, RowList, SelectField, TextField } from './fields';
 import type { Targets } from './model';
@@ -184,8 +186,16 @@ function OptionsEditor({ isDark, options, onChange }: { isDark: boolean; options
   );
 }
 
-export function PageProps({ page, onChange, ...ctx }: Ctx & { page: Page; onChange: (p: Page) => void }) {
+/** What the page knows besides itself - for company/project and epics. */
+export type PageMeta = { model: Model | null; prefixes: string[]; preferred?: string; canEdit: boolean };
+
+export function PageProps({ page, onChange, meta, ...ctx }: Ctx & { page: Page; onChange: (p: Page) => void; meta?: PageMeta }) {
   const { isDark } = ctx;
+  const setSpec = (patch: Partial<PageSpec>) => {
+    const spec = Object.fromEntries(Object.entries({ ...page.spec, ...patch }).filter(([, v]) => v !== undefined)) as PageSpec;
+    onChange({ ...page, spec: Object.keys(spec).length ? spec : undefined });
+  };
+  const caption = (text: string) => <span className={`block text-[10px] mb-1 ${isDark ? 'text-white/60' : 'text-black/60'}`}>{text}</span>;
   const roles = page.access === 'public' ? [] : page.access.roles;
   const setAccess = (access: Access) => onChange({ ...page, access });
   return (
@@ -201,6 +211,19 @@ export function PageProps({ page, onChange, ...ctx }: Ctx & { page: Page; onChan
             onChange={(v) => setAccess({ roles: v.split(',').map((r) => r.trim()).filter(Boolean) })} />
         )}
       </Group>
+      {meta && (
+        <Group isDark={isDark} title="Zuordnung">
+          <div>
+            {caption('Firma und Projekt')}
+            <ProjectSelect value={page.spec?.project} prefixes={meta.prefixes} preferred={meta.preferred} isDark={isDark} canEdit={meta.canEdit}
+              onChange={(project) => setSpec({ project })} />
+          </div>
+          <div>
+            {caption('Epics')}
+            <EpicChips ids={page.spec?.epics} model={meta.model} isDark={isDark} canEdit={meta.canEdit} onChange={(epics) => setSpec({ epics })} />
+          </div>
+        </Group>
+      )}
       <Group isDark={isDark} title="Anfangszustand">
         <JsonField isDark={isDark} label="Zustand" hint="dazu kommen query und user" rows={5} value={page.state}
           onChange={(state) => onChange({ ...page, state: (state as Record<string, unknown>) ?? undefined })} />

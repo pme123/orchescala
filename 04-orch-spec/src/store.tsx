@@ -23,7 +23,8 @@ import { DemoBackend, LocalBackend, StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, SharePointFolder } from './graph';
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
-import { appendAudit, auditPath, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
+import { appendAudit, auditPath, createdPageEntry, deleteAudit, makeEntry, parseAudit, type AuditAuthor, type AuditEntry } from './audit';
+import { withIds } from './pages/designer/model';
 import { dmnPath } from './dmn';
 import type { App as PagesApp, Page } from './pages/runtime/spec';
 import { appProblem, pageProblem, pageSlugProblem } from './pages/runtime/validate';
@@ -134,9 +135,14 @@ interface StoreCtx {
   pagesApp: { data: PagesApp; version: string } | null;
   /** files in pages/ that are not readable or don't fit - with the reason */
   pagesUnreadable: { file: string; problem: string }[];
-  savePage: (slug: string, data: Page, expectedVersion: string | null) => Promise<SaveResult>;
-  createPage: (slug: string, data: Page) => Promise<{ ok: true } | { ok: false; message: string }>;
-  deletePage: (slug: string, expectedVersion: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** `audit`: the entries of the change log up to this state - appended once the page is saved */
+  savePage: (slug: string, data: Page, expectedVersion: string | null, audit?: AuditEntry[]) => Promise<SaveResult>;
+  /** the change log of a page (`pages/<slug>.audit.jsonl`) - null if not readable */
+  loadPageAudit: (slug: string) => Promise<AuditEntry[] | null>;
+  /** `auditError`: the page is there, its first log entry is not */
+  createPage: (slug: string, data: Page) => Promise<{ ok: true; auditError?: string } | { ok: false; message: string }>;
+  /** `auditError`: the page is gone, its log is not - a new page with the same name would continue it */
+  deletePage: (slug: string, expectedVersion: string) => Promise<{ ok: true; auditError?: string } | { ok: false; message: string }>;
   savePagesApp: (data: PagesApp, expectedVersion: string | null) => Promise<SaveResult>;
   /** People for @ mentions: users.json in the shared folder */
   knownUsers: DirectoryUser[];
@@ -896,18 +902,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { status: 'saved', version: w.version, stale: backendRef.current !== be };
   }, []);
 
-  const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null): Promise<SaveResult> => {
+  const savePage = useCallback(async (slug: string, data: Page, expectedVersion: string | null, audit: AuditEntry[] = []): Promise<SaveResult> => {
     const bad = pageSlugProblem(slug);
     if (bad) return { status: 'error', message: bad };
+    const be = backendRef.current;
     const r = await writePageFile(`${PAGES_DIR}/${slug}.json`, data, expectedVersion);
     if (r.status === 'saved' && !r.stale)
       setPages(prev => [...prev.filter(p => p.slug !== slug), { slug, data, version: r.version }].sort(byPath));
-    return r;
+    // as for a process: only what has also been saved goes into the log - next to the page, never in it
+    if (r.status !== 'saved' || !be || r.stale) return r;
+    const a = await appendAudit(be, PAGES_DIR, slug, audit);
+    return a.ok ? r : { ...r, auditError: a.message };
   }, [writePageFile]);
 
-  const createPage = useCallback(async (slug: string, data: Page) => {
+  const loadPageAudit = useCallback(async (slug: string) => {
+    const be = backendRef.current;
+    if (!be) return null;
+    try {
+      const read = await be.read(auditPath(PAGES_DIR, slug));
+      return read ? parseAudit(read.text) : [];
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const createPage = useCallback(async (slug: string, raw: Page) => {
     const bad = pageSlugProblem(slug);
     if (bad) return { ok: false as const, message: bad };
+    // the building blocks with their IDs from the start - the first log entry names them by it
+    const data = { ...raw, body: withIds(raw.body) };
+    const be = backendRef.current;
     // without a version: only create new (createOnly)
     const r = await writePageFile(`${PAGES_DIR}/${slug}.json`, data, null);
     if (r.status !== 'saved')
@@ -915,8 +939,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : r.status === 'error' ? r.message
         // createOnly knows no conflict - if one comes anyway, name the backend's version instead of guessing
         : `Unerwartete Antwort beim Anlegen (Konflikt, Version ${r.currentVersion || '?'}) – Seite neu laden.` };
-    if (!r.stale) setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
-    return { ok: true as const };
+    // another folder in the meantime: the page and its log belong to the old one - as in savePage
+    if (r.stale || !be) return { ok: true as const };
+    setPages(prev => [...prev, { slug, data, version: r.version }].sort(byPath));
+    // the first entry: created - with what the new page brings; not written: said, the page is there
+    const first = createdPageEntry(data, authorOf());
+    const a = first ? await appendAudit(be, PAGES_DIR, slug, [first]) : { ok: true as const };
+    return a.ok ? { ok: true as const } : { ok: true as const, auditError: a.message };
   }, [writePageFile]);
 
   const deletePage = useCallback(async (slug: string, expectedVersion: string) => {
@@ -929,7 +958,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!d.ok) return { ok: false as const, message: d.reason === 'conflict' ? 'Die Seite wurde inzwischen geändert – Seite neu laden.' : d.message };
     pagesWriteSeq.current++;
     if (backendRef.current === be) setPages(prev => prev.filter(p => p.slug !== slug));
-    return { ok: true as const };
+    // the log belongs to the page - a new one with the same name starts empty; the page is gone either way
+    const a = await deleteAudit(be, PAGES_DIR, slug);
+    return a.ok ? { ok: true as const } : { ok: true as const, auditError: a.message };
   }, []);
 
   const savePagesApp = useCallback(async (data: PagesApp, expectedVersion: string | null): Promise<SaveResult> => {
@@ -973,7 +1004,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       model: mergedModel, modelError, saveModel, generatedCatalog,
       modelPath, legacyModelLeftover,
       specs, specsLoading, refreshSpecs, loadSpec, saveSpec, loadAudit, createSpec, deleteSpec, loadBpmn, saveBpmn, loadDmn, saveDmn,
-      pages, pagesApp, pagesUnreadable, savePage, createPage, deletePage, savePagesApp,
+      pages, pagesApp, pagesUnreadable, savePage, loadPageAudit, createPage, deletePage, savePagesApp,
       knownUsers, searchDirectory, requestDirectoryConsent,
     }}>
       {children}

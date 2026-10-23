@@ -15,7 +15,7 @@ import { createPortal } from 'react-dom';
 import { AtSign, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CornerDownRight, Crosshair, List, MessageSquare, RotateCcw, Send, Smile, SmilePlus, Trash2, X } from 'lucide-react';
 import {
   addReply, addThread, baseOf, EMOJIS, personKey, removeEntry, removeThread, setResolved, toggleReaction, whenFull, whenLabel,
-  type CommentAuthor, type CommentTargetInfo, type Counts,
+  type CommentAuthor, type CommentTargetInfo, type Commented, type Counts,
 } from '../comments';
 import type { DirectorySearchResult } from '../store';
 import type { CommentThread, DirectoryUser, ProcessSpec } from '../types';
@@ -401,8 +401,9 @@ function CountChip({ open, resolved, showResolved, isDark }: { open: number; res
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────
-interface PanelProps {
-  spec: ProcessSpec;
+interface PanelProps<T extends Commented> {
+  /** what carries the comments - a process, the spec part of a page */
+  spec: T;
   isDark: boolean;
   /** all locations, order = step sequence */
   targets: CommentTargetInfo[];
@@ -414,7 +415,7 @@ interface PanelProps {
   onClose: () => void;
   canEdit: boolean;
   author: CommentAuthor;
-  onChange: (spec: ProcessSpec) => void;
+  onChange: (spec: T) => void;
   /** People for «@»: users.json, comment authors, me */
   users: DirectoryUser[];
   searchUsers: (q: string) => Promise<DirectorySearchResult>;
@@ -430,7 +431,7 @@ interface PanelProps {
 
 const ORPHAN_GROUP = 'Ohne Stelle';
 
-export function CommentsPanel(p: PanelProps) {
+export function CommentsPanel<T extends Commented>(p: PanelProps<T>) {
   const confirm = useConfirm();
   const { spec, isDark, active, showResolved } = p;
   const c = cls(isDark);

@@ -9,6 +9,9 @@ import { pagePrompt, pageSystem } from './context';
 import { pageDiff } from './diff';
 import { draftChanged, pageToolKit, startDraft, type PageDraft } from './pageTools';
 
+/** a page without its comments - they change while a draft is open, without touching it */
+const withoutComments = (p: Page): Page => ({ ...p, spec: p.spec ? { ...p.spec, comments: undefined } : undefined });
+
 export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft, onDraft, onAccept, onSelect, initialPrompt, onInitialPrompt }: {
   isDark: boolean;
   apiKey: string;
@@ -21,7 +24,8 @@ export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft
   targets: Targets;
   draft: PageDraft | null;
   onDraft: (d: PageDraft | null) => void;
-  onAccept: (page: Page) => void;
+  /** the draft taken over; `requests`: what the RE asked for it (for the change log) */
+  onAccept: (page: Page, requests: string[]) => void;
   onSelect: (key: BlockKey) => void;
   /** a request that starts at once - from «Neue Seite» with a description */
   initialPrompt?: string;
@@ -37,11 +41,12 @@ export function AiPanel({ isDark, apiKey, slug, page, pages, app, targets, draft
       changed={draftChanged}
       openPoints={(d) => d.openPoints}
       firstPrompt={(text) => pagePrompt(slug, text, true)}
-      onAccept={(d): AcceptOutcome => {
-        // the page changed since the draft began (reloaded) - taking the draft over would overwrite that
-        if (JSON.stringify(page) !== JSON.stringify(d.base))
+      onAccept={(d, requests): AcceptOutcome => {
+        // the page changed since the draft began (reloaded) - taking the draft over would overwrite that;
+        // comments do not count: they are a history of their own and stay in any case (keepComments)
+        if (JSON.stringify(withoutComments(page)) !== JSON.stringify(withoutComments(d.base)))
           return { refused: 'Die Seite hat sich seit dem Entwurf geändert (neu geladen) – Entwurf verwerfen und Claude nochmals fragen.' };
-        onAccept(d.page);
+        onAccept(d.page, requests);
       }}
       acceptedText="Übernommen – rückgängig mit ⌘Z."
       placeholder="Was soll sich ändern?"

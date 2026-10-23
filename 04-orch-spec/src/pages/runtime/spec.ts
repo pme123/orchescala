@@ -1,3 +1,5 @@
+import type { CommentThread } from '../../types';
+
 // The page specification (E15) – declarative, rendered at runtime. A page reads and
 // writes a state (state); texts and inputs of the actions are templates with {{pfad}}.
 //
@@ -34,7 +36,11 @@ export type Field = {
 
 export type Option = { value: unknown; label: string; hint?: string };
 
-type Base = { visible?: Cond };
+type Base = {
+  visible?: Cond;
+  /** stable over moving and changing - comments and the change log hang on it; the renderer ignores it */
+  id?: string;
+};
 
 export type Component = Base &
   (
@@ -73,6 +79,17 @@ export type Page = {
   state?: Record<string, unknown>;
   load?: Action[];
   body: Component[];
+  /** what the specification knows about the page besides what the app shows - like a process: company
+    * and project, epics, comments. The bundle for the app (pages.json) leaves it out. */
+  spec?: PageSpec;
+};
+
+export type PageSpec = {
+  /** Orchescala project, e.g. `democompany-customer` */
+  project?: string;
+  /** IDs of the epics (`Model.epics`) this page contributes to */
+  epics?: string[];
+  comments?: CommentThread[];
 };
 
 /** The appearance of the app - e.g. from the bank's website (skill orch-theme-from-site). Everything optional;

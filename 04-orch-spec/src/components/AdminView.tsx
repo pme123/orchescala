@@ -76,7 +76,7 @@ function zustaende(model: Model, generated: CatalogFile | null): Record<'brandin
 }
 
 export default function AdminView({ onBack }: { onBack: () => void }) {
-  const { isDark, model, saveModel, storage, specs, generatedCatalog, modelPath } = useStore();
+  const { isDark, model, saveModel, storage, specs, pages, generatedCatalog, modelPath } = useStore();
   const c = cls(isDark);
 
   if (!model) return null;
@@ -151,7 +151,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
       <PatternAdmin model={model} isDark={isDark} onSave={saveModel}
         state={<StateChip tone={z.patterns.tone} label={z.patterns.label} isDark={isDark} title={z.patterns.detail} />} />
 
-      <EpicAdmin model={model} specs={specs.map(s => s.data)} isDark={isDark} onSave={saveModel}
+      <EpicAdmin model={model} specs={specs.map(s => s.data)} pages={pages.map(p => p.data.spec ?? {})} isDark={isDark} onSave={saveModel}
         state={<StateChip tone={z.epics.tone} label={z.epics.label} isDark={isDark} title={z.epics.detail} />} />
 
       <AuthSettingsForm model={model} isDark={isDark} onSave={saveModel} folderUrl={storage?.webUrl}

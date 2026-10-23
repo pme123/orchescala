@@ -21,18 +21,19 @@
 // processes of this epic. The filter stays remembered in the browser — whoever works on a
 // change comes back from the process to the same selection.
 import { overallStatus } from '../status';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowUpDown, FileCode2, Flag, FilePlus2, FolderOpen, Loader2, MessageSquare, Search, Trash2, Upload, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Loader2, MessageSquare, Trash2, Upload, X } from 'lucide-react';
+import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from './SpecList';
 import { collectFindings, withServiceRows } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
-import { useStore } from '../store';
+import { useStore, type SpecListItem } from '../store';
 import { usePermissions } from '../auth';
 import { allSteps, importBpmn, patternSummary, statusCounts, withStatus } from '../bpmn';
 import { alignPoolIds } from '../poolIds';
 import { ENGINES, applyTemplate, loadTemplate } from '../template';
 import { C7_LABEL, C8_LABEL, DEFAULT_ENGINE } from '../engineLabels';
 import { STATUS_META, STATUSES, type EngineId, type ProcessSpec, type Status } from '../types';
-import { EpicChip, PatternSummary, StatusChip, cls, epicTone } from '../ui';
+import { EpicChip, PatternSummary, StatusChip, cls } from '../ui';
 import { epicsOf } from '../epics';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
@@ -44,7 +45,10 @@ const BAR: Record<Status, string> = {
   implemented: 'bg-emerald-400', accepted: 'bg-emerald-600', changed: 'bg-rose-400',
 };
 
-const EPIC_FILTER_KEY = 'orch-spec.epicFilter';
+/** What the head of the list knows of a process. */
+const processEntry = ({ slug, data }: SpecListItem): ListEntry => ({
+  title: data.title, terms: [data.processId ?? '', slug], project: data.project, epics: data.epics, updatedAt: data.updatedAt,
+});
 
 /** «heute», «gestern», «vor 3 Tagen» … from the ISO timestamp. */
 function relativeTime(iso: string | undefined): string {
@@ -80,25 +84,11 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   /** Specification whose deletion is about to be confirmed */
   const [toDelete, setToDelete] = useState<{ slug: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // List: search, status filter, sorting
-  const [listQuery, setListQuery] = useState('');
+  // List: search, epics, sorting and the groups per project (SpecList.tsx, shared with the pages);
+  // the status is a filter of the processes only
   const [listStatus, setListStatus] = useState<Status | null>(null);
-  const [sortBy, setSortBy] = useState<'title' | 'updated'>('title');
-  const [listEpic, setListEpic] = useState<string | null>(() => {
-    try { return localStorage.getItem(EPIC_FILTER_KEY); } catch { return null; }
-  });
-  useEffect(() => {
-    try {
-      if (listEpic) localStorage.setItem(EPIC_FILTER_KEY, listEpic);
-      else localStorage.removeItem(EPIC_FILTER_KEY);
-    } catch { /* without storage the filter only applies until leaving */ }
-  }, [listEpic]);
-  // Epics in the filter: all open ones, plus closed ones as long as a process carries them
-  const epicFilter = useMemo(() => (model?.epics ?? [])
-    .map(e => ({ ...e, n: specs.filter(s => s.data.epics?.includes(e.id)).length }))
-    .filter(e => !e.closed || e.n > 0), [model, specs]);
-  // a remembered epic that no longer exists does not filter into nothing
-  const activeEpic = listEpic && epicFilter.some(e => e.id === listEpic) ? listEpic : null;
+  const byStatus = useCallback((s: SpecListItem) => !listStatus || overallStatus(s.data) === listStatus, [listStatus]);
+  const list = useSpecList(specs, processEntry, model, byStatus);
   // Per process: status counters and findings — once per state of the list
   const summaries = useMemo(() => new Map(specs.map(({ slug, data }) => {
     const counts = statusCounts(data);
@@ -112,26 +102,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     const comments = (data.comments ?? []).filter(t => !t.resolved).length;
     return [slug, { counts, total, findings, errors, comments }];
   })), [specs, model]);
-  const visible = useMemo(() => {
-    const q = listQuery.trim().toLowerCase();
-    const list = specs.filter(({ slug, data }) =>
-      (!q || `${data.title} ${data.processId ?? ''} ${data.project ?? ''} ${slug} ${epicsOf(data, model).map(e => e.name).join(' ')}`.toLowerCase().includes(q))
-      && (!listStatus || overallStatus(data) === listStatus)
-      && (!activeEpic || !!data.epics?.includes(activeEpic)));
-    return sortBy === 'updated'
-      ? [...list].sort((a, b) => (b.data.updatedAt ?? '').localeCompare(a.data.updatedAt ?? ''))
-      : list;
-  }, [specs, listQuery, listStatus, activeEpic, sortBy, model]);
-  // Groups per project, in the order of their first process
-  const groups = useMemo(() => {
-    const map = new Map<string, typeof visible>();
-    for (const item of visible) {
-      const key = item.data.project || 'ohne Projekt';
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(item);
-    }
-    return [...map.entries()];
-  }, [visible]);
+  const { visible, groups } = list;
   const [newOpen, setNewOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
@@ -466,15 +437,9 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         </div>
       )}
 
-      {/* Head of the list: search, status filter, sorting */}
+      {/* Head of the list: search, status filter, epics, sorting */}
       {specs.length > 0 && (
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <div className={`flex items-center gap-1 px-2 py-1 rounded border ${c.border2} min-w-[16rem]`}>
-            <Search size={11} className={c.muted} />
-            <input value={listQuery} onChange={e => setListQuery(e.target.value)} placeholder="Titel, Prozess-ID, Projekt …"
-              className={`flex-1 min-w-0 bg-transparent outline-none text-[11px] ${c.text}`} />
-            {listQuery && <button onClick={() => setListQuery('')} className={c.muted}><X size={10} /></button>}
-          </div>
+        <SpecListHead isDark={isDark} list={list} placeholder="Titel, Prozess-ID, Projekt …" noun="Prozesse">
           {STATUSES.filter(st => specs.some(x => overallStatus(x.data) === st)).map(st => (
             <button key={st} onClick={() => setListStatus(listStatus === st ? null : st)}
               title={`Nur Prozesse mit Status «${STATUS_META[st].label}»`}
@@ -483,26 +448,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               {STATUS_META[st].label} {specs.filter(x => overallStatus(x.data) === st).length}
             </button>
           ))}
-          {epicFilter.length > 0 && (
-            <span className={`flex items-center gap-1 flex-wrap pl-2 border-l ${c.border2}`}>
-              <Flag size={10} className={c.muted} />
-              {epicFilter.map(e => (
-                <button key={e.id} onClick={() => setListEpic(activeEpic === e.id ? null : e.id)}
-                  title={`Nur Prozesse im Epic «${e.name}»${e.description ? ` — ${e.description}` : ''}${e.closed ? ' (abgeschlossen)' : ''}`}
-                  className={`text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${epicTone(isDark)} ${
-                    e.closed ? 'border-dashed' : ''} ${activeEpic && activeEpic !== e.id ? 'opacity-30' : ''} ${
-                    activeEpic === e.id ? 'ring-1 ring-current' : ''}`}>
-                  {e.name} {e.n}
-                </button>
-              ))}
-            </span>
-          )}
-          <button onClick={() => setSortBy(sortBy === 'title' ? 'updated' : 'title')}
-            title="Sortierung wechseln"
-            className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
-            <ArrowUpDown size={10} /> {sortBy === 'title' ? 'nach Titel' : 'zuletzt geändert'}
-          </button>
-        </div>
+        </SpecListHead>
       )}
 
       {!specs.length && specsLoading ? (
@@ -516,23 +462,12 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       ) : !visible.length ? (
         <div className={`text-xs ${c.muted} py-10 text-center`}>
           Kein Prozess passt zu Suche und Filter.
-          {(listStatus || activeEpic || listQuery) && (
-            <button onClick={() => { setListStatus(null); setListEpic(null); setListQuery(''); }} className="ml-1.5 hover:underline">Filter aus</button>
+          {(listStatus || list.filtered) && (
+            <button onClick={() => { setListStatus(null); list.reset(); }} className="ml-1.5 hover:underline">Filter aus</button>
           )}
         </div>
       ) : (
-        <div className="space-y-4">
-          {groups.map(([project, items]) => (
-            // One bracket per project as in the flow: head and line on the left — only if there is more than one
-            <div key={project} className={groups.length > 1 ? `pl-3 border-l-2 ${isDark ? 'border-slate-500/40' : 'border-slate-300'}` : ''}>
-              {groups.length > 1 && (
-                <div className="flex items-baseline gap-2 mb-1.5 px-1">
-                  <span className={`text-sm font-mono font-bold ${c.muted2}`}>{project}</span>
-                  <span className={`text-[10px] uppercase tracking-widest ${c.muted}`}>{items.length} Prozess{items.length === 1 ? '' : 'e'}</span>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                {items.map(({ slug, data }) => {
+        <ProjectGroups isDark={isDark} groups={groups} noun={['Prozess', 'Prozesse']} render={({ slug, data }) => {
                   const sum = summaries.get(slug)!;
                   const engine = data.engine === 'c8' ? 'C8' : 'C7';
                   return (
@@ -600,11 +535,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
                       )}
                     </div>
                   );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
+        }} />
       )}
     </div>
   );

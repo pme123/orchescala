@@ -27,6 +27,8 @@ function pendingOf(comments: CommentThread[], myEmail: string): { thread: Commen
 export function useTeamsNotify(opts: {
   slug: string;
   processName: string;
+  /** a page of the app instead of a process - for the links */
+  linkKind?: 'spec' | 'page';
   comments: CommentThread[];
   me: { id?: string; name: string; email?: string } | null;
   settings: TeamsNotifySettings | undefined;
@@ -101,11 +103,11 @@ export function useTeamsNotify(opts: {
             recipientName: user.displayName,
             senderName: o.me.name,
             processName: o.processName,
-            processLink: deepLink(o.slug, undefined, o.linkSetup),
+            processLink: deepLink(o.slug, undefined, o.linkSetup, o.linkKind),
             lines: items.map(({ thread, entry }) => ({
               place: o.placeLabel(thread.target),
               text: entry.text,
-              link: deepLink(o.slug, entry.id, o.linkSetup),
+              link: deepLink(o.slug, entry.id, o.linkSetup, o.linkKind),
               // reply in a thread the recipient started
               ...(thread.entries[0] !== entry && (thread.entries[0]?.email ?? '').toLowerCase() === email ? { reply: true } : {}),
             })),

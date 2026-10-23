@@ -1,8 +1,13 @@
 // The designer of the pages (E15) - what a page can call, example data for the preview, the
 // tree of the building blocks and the findings. Without React, tested like the rest (tests/pagesDesigner.test.ts).
 import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from '../../types';
+import { uid } from '../../util';
 import { conditionProblem } from '../runtime/expr';
 import type { Action, Component, Page } from '../runtime/spec';
+import { actionsOf, type BlockKey, flatten } from '../pageActions';
+
+// the traversal lives in a light module (the task links use it too) - re-exported for the designer
+export { actionsOf, flatten, type BlockKey };
 
 // ---------------------------------------------------------------- Fields
 
@@ -201,9 +206,6 @@ function sampleValue(f: PField, i: number): unknown {
 
 // ---------------------------------------------------------------- the tree of building blocks
 
-/** The key of a building block: its index path in `body` - `"2"`, `"2.1"` (in a section). */
-export type BlockKey = string;
-
 export function blockAt(body: Component[], key: BlockKey): Component | undefined {
   if (!/^\d+(\.\d+)*$/.test(key)) return undefined; // '' (the page) is not a building block - Number('') would be 0
   const [head, ...rest] = key.split('.').map(Number);
@@ -338,6 +340,20 @@ function titleOf(b: Component): string | undefined {
   }
 }
 
+/** The text that names a building block - '' if it has none. */
+export const blockTitle = (b: Component) => titleOf(b) ?? '';
+
+const TYPE_NAME: Record<Component['type'], string> = {
+  heading: 'Überschrift', text: 'Text', choice: 'Auswahl', pick: 'Auswahl aus Liste', fields: 'Eingabefelder',
+  summary: 'Zusammenfassung', button: 'Button', section: 'Abschnitt', loading: 'Laden',
+};
+
+/** A building block in words: «Button «Buchen»» - for the differences, the comments, the change log. */
+export const blockName = (b: Component) => {
+  const title = blockTitle(b);
+  return title ? `${TYPE_NAME[b.type]} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : TYPE_NAME[b.type];
+};
+
 /** What a change of type of the building block loses - for the warning in the menu; null if there is nothing of its own.
   * (A section with building blocks does not change its type at all - dissolve it first.) */
 export function lostOnConvert(b: Component): string | null {
@@ -356,7 +372,7 @@ export function lostOnConvert(b: Component): string | null {
   * the binding of a selection, the condition; the rest comes from the new type. */
 export function convertBlock(b: Component, type: Component['type']): Component {
   if (b.type === type) return b;
-  const fresh = newBlock(type) as Component & Record<string, unknown>;
+  const fresh = freshBlock(type) as Component & Record<string, unknown>;
   const title = titleOf(b);
   const next: Record<string, unknown> = { ...fresh };
   if (title !== undefined && title !== '') {
@@ -368,20 +384,59 @@ export function convertBlock(b: Component, type: Component['type']): Component {
     if (b.required !== undefined) next.required = b.required;
   }
   if (b.visible) next.visible = b.visible;
+  // the same building block in another type - its comments stay with it
+  if (b.id) next.id = b.id;
   return next as Component;
 }
 
-/** Every building block with its key - depth first, as the outline shows them. */
-export function flatten(body: Component[], prefix = ''): { key: BlockKey; block: Component; depth: number }[] {
-  return body.flatMap((block, i) => {
-    const key = prefix ? `${prefix}.${i}` : String(i);
-    const self = { key, block, depth: prefix ? prefix.split('.').length : 0 };
-    return block.type === 'section' ? [self, ...flatten(block.body, key)] : [self];
-  });
+// ---------------------------------------------------------------- stable IDs of the building blocks
+
+/** A new ID for a building block. */
+export const blockId = () => uid('b');
+
+/** Every building block with an ID of its own - missing and duplicate ones (a copy) get a new one.
+  * Comments and the change log hang on it; the key (index path) changes with every move.
+  * A hand-edited page may hold no list or no object where one belongs - that stays as it is (like `flatten`). */
+export function withIds(body: Component[]): Component[] {
+  const walk = (list: Component[], taken: Set<string>): { list: Component[]; taken: Set<string> } =>
+    (Array.isArray(list) ? list : []).reduce<{ list: Component[]; taken: Set<string> }>((acc, b) => {
+      if (typeof b !== 'object' || b === null) return { list: [...acc.list, b], taken: acc.taken };
+      const id = b.id && !acc.taken.has(b.id) ? b.id : blockId();
+      const taken = new Set([...acc.taken, id]);
+      if (b.type !== 'section' || !Array.isArray(b.body)) return { list: [...acc.list, { ...b, id }], taken };
+      const inner = walk(b.body, taken);
+      return { list: [...acc.list, { ...b, id, body: inner.list }], taken: inner.taken };
+    }, { list: [], taken });
+  return walk(body, new Set()).list;
 }
+
+/** Do all building blocks have an ID of their own? */
+export const hasIds = (body: Component[]) => {
+  const ids = flatten(body).map(({ block }) => block.id);
+  return ids.every(Boolean) && new Set(ids).size === ids.length;
+};
+
+/** The state the change log compares from: the first one there is - and again once the IDs are added
+  * (opened read-only, then allowed to edit): from a state without IDs every building block would count
+  * as removed and new. */
+export const logBase = (base: Page | null, now: Page | null): Page | null =>
+  !base || (now && !hasIds(base.body) && hasIds(now.body)) ? now : base;
+
+/** A copy of a building block with new IDs - for duplicating. */
+export function copyBlock(b: Component): Component {
+  const copy = { ...structuredClone(b), id: blockId() } as Component;
+  return copy.type === 'section' ? { ...copy, body: copy.body.map(copyBlock) } : copy;
+}
+
+/** The key of the building block with this ID - undefined if it is gone. */
+export const keyOfId = (body: Component[], id: string): BlockKey | undefined => flatten(body).find(({ block }) => block.id === id)?.key;
 
 /** A new building block of a type - with what it needs to show something. */
 export function newBlock(type: Component['type']): Component {
+  return { ...freshBlock(type), id: blockId() } as Component;
+}
+
+function freshBlock(type: Component['type']): Component {
   switch (type) {
     case 'heading':
       return { type, text: 'Überschrift' };
@@ -405,25 +460,6 @@ export function newBlock(type: Component['type']): Component {
 }
 
 // ---------------------------------------------------------------- the actions of a page
-
-/** Every action of a page with its location - load, a button, onChange, onError. */
-export function actionsOf(page: Page): { where: string; key?: BlockKey; action: Action }[] {
-  const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>
-    (actions ?? []).flatMap((action) => [
-      { where, key, action },
-      ...('onError' in action ? nested(`${where} (onError)`, action.onError, key) : []),
-    ]);
-  return [
-    ...nested('Laden', page.load),
-    ...flatten(page.body).flatMap(({ key, block }) =>
-      block.type === 'button'
-        ? nested(`Button «${block.label}»`, block.actions, key)
-        : block.type === 'choice'
-          ? nested(`Auswahl «${block.label ?? block.bind}»`, block.onChange, key)
-          : [],
-    ),
-  ];
-}
 
 /** The paths of the state a page knows: its state, the results of its actions (with fields), query, user. */
 export function statePaths(page: Page, targets: Targets): string[] {

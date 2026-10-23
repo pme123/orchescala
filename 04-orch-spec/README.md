@@ -1684,6 +1684,16 @@ Eine Seite öffnet den **Designer**, dreigeteilt:
   Spezifikationen. «Eingabe vorbelegen» trägt jedes Feld des `In` als `{{feld}}` ein. Pfade
   schlagen vor, was der Zustand kennt – auch die Felder der Ergebnisse.
 
+**Wie ein Prozess** hat eine Seite eine Zuordnung zu **Firma und Projekt** und zu **Epics**
+(Eigenschaften der Seite → Zuordnung; die Liste filtert nach Epic), **Kommentare** an der Seite
+und an jedem Baustein (Sprechblase in der Gliederung, Panel mit Übersicht, «@», Teams,
+Link `?page=<slug>&comment=<id>`) und einen **Verlauf** (Uhr in der Werkzeugleiste): wer wann was
+geändert hat – von Hand oder als übernommener Entwurf von Claude (Quelle «KI (Claude)»).
+Projekt, Epics und Kommentare stehen im Teil `spec` der Seiten-Datei; das Bündeln für die App
+(`pages.json`) lässt ihn weg. Der Verlauf liegt daneben in `pages/<slug>.audit.jsonl`. Damit
+Kommentare und Verlauf beim Verschieben am Baustein bleiben, hat jeder Baustein eine feste `id`
+(der Renderer ignoriert sie); eine ältere Seite bekommt sie beim ersten Öffnen.
+
 Die **Befunde** prüfen: unbekannte Services, Prozesse, Messages und Tasks; Pfade in Texten und
 Listen, die im Zustand nicht vorkommen; ein Task-Abschluss auf einer öffentlichen Seite; doppelte
 Pfade; was der Gateway öffentlich freigeben muss (`PublicAccess.workers`,
