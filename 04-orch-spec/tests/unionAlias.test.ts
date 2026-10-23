@@ -189,6 +189,19 @@ test('sync: a spec from before gets noneAlias from the domain', () => {
   assert.equal(field.noneAlias, 'SendEvent.In.ReceivingSystems');
 });
 
+test('sync: noneAlias goes away when the domain alias no longer allows None', () => {
+  const { spec } = imported();
+  // the domain now: `type ReceivingSystems = String | Seq[ReceivingSystem]`
+  const changed = source.replace('type ReceivingSystems = Option[String] | Seq[ReceivingSystem]', 'type ReceivingSystems = String | Seq[ReceivingSystem]');
+  const fresh = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, scanScala(changed, 'SendEvent.scala'), null)!.spec;
+  const { spec: merged } = mergeDomain(spec, fresh, { status: DEFAULT_MERGE_STATUS });
+  const field = (merged.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.type, 'SendEvent.In.ReceivingSystems');
+  assert.equal(field.noneAlias, undefined);
+  const file = scalaFiles(merged, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+  assert.doesNotMatch(minimalAfter(file.content, 'object In:'), /receivingSystems/, file.content);
+});
+
 const noneSource = `package ${PKG}
 
 object SendEvent extends CompanyBpmnProcessDsl:

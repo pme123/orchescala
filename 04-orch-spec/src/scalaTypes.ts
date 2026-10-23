@@ -462,6 +462,8 @@ function memberAllowsNone(m: string, resolve: (name: string) => string | undefin
   // `Option[…]` on the outside only — `Seq[Option[X]]` is never None, nor a refined
   // `Option[String] :| C` (`Option[String :| C]` is)
   if (/^Option\s*\[/.test(m)) return topLevelRefine(m) < 0 && typeShape(m).optional;
+  // only a plain name is followed — `scala.Option[…]`, a generic alias `Foo[A]` count as no None
+  // (the safe direction: at most a `= None` is missing)
   if (!/^[\w.]+$/.test(m) || seen.has(m)) return false;
   const target = resolve(m);
   if (!target) return false;
