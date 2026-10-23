@@ -70,3 +70,14 @@ test('own project folder whose reading fails (access revoked, folder moved): lik
   const r = await findSyncDomain(PID, model(['acme-demo']));
   assert.deepEqual(r, { blocked: true, unreadable: ['acme-demo'] });
 });
+
+test('own project folder readable but without the process: the search goes on to the catalog', async () => {
+  // moved to another project or renamed — no question of access
+  const empty = { kind: 'directory', name: 'acme-demo', queryPermission: async () => 'granted', entries: async function* () { /* empty */ } };
+  fakeIndexedDb({ 'project:p-acme-demo': empty });
+  try {
+    const r = await findSyncDomain(PID, model(['acme-demo']));
+    assert.ok(r && !('blocked' in r));
+    assert.equal(r.source, 'Katalog');
+  } finally { g.indexedDB = realIndexedDb; }
+});

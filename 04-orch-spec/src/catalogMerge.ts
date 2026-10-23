@@ -45,8 +45,11 @@ export const packageRoot = (pkg: string): string => {
 
 /**
  * The project of each type: from its source; without one (older catalogs,
- * OpenAPI, docs site) via the package root of the types that have one. If
- * that is not unambiguous, the type has no project — it is merged by ID.
+ * OpenAPI, docs site) via the package root of the types that have one — the
+ * model.json's scan always has a source, so every project scanned there gives
+ * its root. If that is not unambiguous (a root shared by several projects, which
+ * a scan already discards: «what is on top wins»), the type has no project and
+ * is merged by ID as before — a moved package of it would keep both copies.
  */
 function projectsOf(types: DomainType[]): (t: DomainType) => string | null {
   const byRoot = new Map<string, Set<string>>();
@@ -75,8 +78,8 @@ const scanTime = (projects: Array<{ name: string; scannedAt?: string }> | undefi
 
 /**
  * Per project: does the model.json's scan apply (otherwise the catalog's)?
- * Only where the model.json has types of the project — a scan that found
- * nothing (or a project only listed) never wipes the catalog's types. Then
+ * Only a side with types of the project can win — a scan that found nothing
+ * (or a project only listed) never wipes the other side's types. Then
  * the later `scannedAt` wins; a scan without a time counts as older than one
  * with a time. Neither side has a time (scans from before `scannedAt`): the
  * model.json wins — it is scanned locally on demand, the catalog only with
@@ -85,9 +88,12 @@ const scanTime = (projects: Array<{ name: string; scannedAt?: string }> | undefi
 export function projectWinners(user: Model, gen: CatalogFile, projectOf: (t: DomainType) => string | null): (project: string) => boolean {
   const userTime = scanTime(user.projects);
   const genTime = scanTime(gen.projects);
-  const userHas = new Set((user.domainTypes ?? []).map(projectOf).filter((p): p is string => !!p));
+  const has = (types: DomainType[] | undefined) => new Set((types ?? []).map(projectOf).filter((p): p is string => !!p));
+  const userHas = has(user.domainTypes);
+  const genHas = has(gen.domainTypes);
   return project => {
     if (!userHas.has(project)) return false;
+    if (!genHas.has(project)) return true;
     const u = userTime.get(project);
     const g = genTime.get(project);
     if (u != null && g != null) return u >= g;

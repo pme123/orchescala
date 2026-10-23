@@ -109,7 +109,9 @@ export async function findDomain(processId: string, model: Model | null, onProgr
 /**
  * Like `findDomain`, for the sync: if the process has its own remembered
  * project folder and it cannot be read, the sync does not silently use the
- * catalog — it says so, and one chooses the folder (or a ZIP).
+ * catalog — it says so, and one chooses the folder (or a ZIP). An own folder
+ * that is read but does not contain the process (moved to another project,
+ * renamed) is no question of access: the search goes on, the catalog included.
  */
 export function findSyncDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
   return searchDomain(processId, model, onProgress, true);
@@ -123,7 +125,8 @@ async function searchDomain(
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
   const unreadable: string[] = [];
   const fromFolder = async (p: ProjectFolder, own = false): Promise<DomainHit | null> => {
-    const handle = await handleFor(p, roots);
+    // handleFor catches internally — a throw would still be no access, not a hit
+    const handle = await handleFor(p, roots).catch(() => null);
     if (!handle) {
       if (own) unreadable.push(p.name);
       return null;

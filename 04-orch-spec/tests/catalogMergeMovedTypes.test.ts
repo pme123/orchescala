@@ -186,3 +186,28 @@ test('an old catalog without any source: its types still belong to the project o
   const names = (after.types ?? []).map(t => t.name);
   assert.deepEqual(names.filter((n, i) => names.indexOf(n) !== i), [], 'no type twice');
 });
+
+test('the catalog has a newer time but no types of the project: the own scan keeps them', () => {
+  const merged = mergeGeneratedCatalog(
+    { ...model(newScan()), projects: project('2026-10-21T14:00:00Z') } as Model,
+    { domainTypes: [], projects: project('2026-10-23T07:00:00Z') },
+  );
+  assert.ok(acmeIds(merged).includes(NEW));
+});
+
+test('the same scan time on both sides: the own scan wins', () => {
+  const at = '2026-10-22T10:00:00Z';
+  const merged = mergeGeneratedCatalog({ ...model(newScan()), projects: project(at) } as Model, { domainTypes: oldScan(), projects: project(at) });
+  assert.ok(acmeIds(merged).includes(NEW));
+  assert.ok(!acmeIds(merged).includes(OLD));
+});
+
+test('an unreadable scan time counts as none', () => {
+  // the catalog's time is garbage — like no time: the own scan with a time wins
+  const merged = mergeGeneratedCatalog(
+    { ...model(newScan()), projects: project('2026-10-21T14:00:00Z') } as Model,
+    { domainTypes: oldScan(), projects: project('gestern') },
+  );
+  assert.ok(acmeIds(merged).includes(NEW));
+  assert.ok(!acmeIds(merged).includes(OLD));
+});

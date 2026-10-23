@@ -100,6 +100,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     let alive = true;
     setHit(undefined);
     setUnreadable([]);
+    setError('');
     setBusy('Domain wird gesucht …');
     (processId ? findSyncDomain(processId, model, t => alive && setBusy(t)) : Promise.resolve(null))
       .then(h => {
@@ -118,7 +119,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
       const domain = scanDomain(await read());
       if (!domain.some(t => t.processName === processId && t.owner)) {
         setError(`In ${source} gibt es kein Objekt mit \`val processName = "${processId}"\`.`);
-      } else { setError(''); setHit({ domain, source }); }
+      } else { setError(''); setUnreadable([]); setHit({ domain, source }); }
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
     } finally {
