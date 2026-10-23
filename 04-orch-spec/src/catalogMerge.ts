@@ -1,5 +1,5 @@
 // Merging the bundled catalog (`catalog.generated.json`) with the model.json.
-import type { DomainType, Model, ServiceDef, ServiceParam } from './types';
+import type { DomainDefault, DomainType, Model, ServiceDef, ServiceParam } from './types';
 import { feelIfPossible } from './juelFeel';
 import { withOrchescalaTypes } from './orchescalaTypes';
 import type { CatalogFile } from './catalogImport';
@@ -126,7 +126,11 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
     if (s.calledProcess) kennt.add(s.calledProcess);
   }
   const typIds = new Set(genTypes.map(t => t.id));
-  const genDefaults = (gen.domainDefaults ?? []).map(d => ({ ...d, generated: true }));
+  // the example values (`default…`) follow the types: a project's come from the side whose scan
+  // applies — a moved one would otherwise stay twice, and the catalog's (listed first) be chosen
+  const defaultFromUser = (d: DomainDefault) => fromUser({ pkg: d.pkg } as DomainType);
+  const projectOfDefault = (d: DomainDefault) => projectOf({ pkg: d.pkg } as DomainType);
+  const genDefaults = (gen.domainDefaults ?? []).filter(d => !defaultFromUser(d)).map(d => ({ ...d, generated: true }));
   const defaultIds = new Set(genDefaults.map(d => `${d.pkg}.${d.name}`));
   return {
     ...user,
@@ -140,7 +144,8 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
       // the catalog's scan of the project applies: none of the older own types stays
       return p != null ? userWins(p) : !typIds.has(t.id);
     })],
-    domainDefaults: [...genDefaults, ...(user.domainDefaults ?? []).filter(d => !defaultIds.has(`${d.pkg}.${d.name}`))],
+    domainDefaults: [...genDefaults, ...(user.domainDefaults ?? []).filter(d =>
+      (projectOfDefault(d) != null ? defaultFromUser(d) : !defaultIds.has(`${d.pkg}.${d.name}`)))],
     domainSources: gen.domainSources ?? user.domainSources,
     ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),
   };

@@ -211,3 +211,12 @@ test('an unreadable scan time counts as none', () => {
   assert.ok(acmeIds(merged).includes(NEW));
   assert.ok(!acmeIds(merged).includes(OLD));
 });
+
+test('example values (default…) follow the scan that applies to the project', () => {
+  const at = (pkg: string) => ({ name: 'defaultState', pkg, type: 'CProcessState' });
+  const merged = mergeGeneratedCatalog(
+    { ...model(newScan()), domainDefaults: [at('acme.demo.domain.sendEvent.v1.schema')] } as Model,
+    { domainTypes: oldScan(), domainDefaults: [at('acme.demo.domain.sendEvent.v1'), { name: 'defaultName', pkg: 'globex.core.domain', type: 'String' }] },
+  );
+  assert.deepEqual(merged.domainDefaults?.map(d => d.pkg), ['globex.core.domain', 'acme.demo.domain.sendEvent.v1.schema']);
+});
