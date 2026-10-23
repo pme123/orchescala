@@ -223,7 +223,7 @@ function remap(t: TypeDef, mapType: (id: string) => string): TypeDef {
 
 /** What makes up the structure of a field — text and example belong to the specification. */
 const fieldSig = (f: Field) =>
-  JSON.stringify([f.type, !!f.optional, !!f.noneAllowed, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '', f.default ?? '']);
+  JSON.stringify([f.type, !!f.optional, f.noneAlias ?? '', !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '', f.default ?? '']);
 
 /**
  * Fields by name: the domain determines which exist and what they look like

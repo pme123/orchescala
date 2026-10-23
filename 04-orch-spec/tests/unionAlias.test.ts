@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { importBpmn } from '../src/bpmn';
+import { DEFAULT_MERGE_STATUS, importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
 import { mergeDomain } from '../src/domainMerge';
@@ -165,23 +165,28 @@ test('export: exampleMinimal sets a union alias with an Option to None - other a
 
 test('export: a field whose type was changed since the import is no longer set to None', () => {
   const { spec } = imported();
-  const changed = {
-    ...spec,
-    types: (spec.types ?? []).map(t => ({ ...t, fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type: 'String' } : f)) })),
-  };
-  const file = scalaFiles(changed, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
-  assert.doesNotMatch(minimalAfter(file.content, 'object In:'), /receivingSystems/, file.content);
+  // a scalar, or another alias by name (not known as a type id) — the flag was for the old alias
+  for (const type of ['String', 'SendEvent.In.Other']) {
+    const changed = {
+      ...spec,
+      types: (spec.types ?? []).map(t => ({ ...t, fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type } : f)) })),
+    };
+    const file = scalaFiles(changed, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
+    const minimal = minimalAfter(file.content, 'object In:');
+    assert.match(minimal, /tags = None/);
+    assert.doesNotMatch(minimal, /receivingSystems/, file.content);
+  }
 });
 
-test('sync: a spec from before gets noneAllowed from the domain', () => {
+test('sync: a spec from before gets noneAlias from the domain', () => {
   const { spec } = imported();
   const strip = (s: typeof spec) => ({
     ...s,
-    types: (s.types ?? []).map(t => ({ ...t, fields: t.fields?.map(({ noneAllowed: _, ...f }) => f) })),
+    types: (s.types ?? []).map(t => ({ ...t, fields: t.fields?.map(({ noneAlias: _, ...f }) => f) })),
   });
-  const { spec: merged } = mergeDomain(strip(spec), spec, { status: 'implemented' as never });
+  const { spec: merged } = mergeDomain(strip(spec), spec, { status: DEFAULT_MERGE_STATUS });
   const field = (merged.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
-  assert.equal(field.noneAllowed, true);
+  assert.equal(field.noneAlias, 'SendEvent.In.ReceivingSystems');
 });
 
 const noneSource = `package ${PKG}
@@ -223,9 +228,9 @@ end SendEvent
 test('export: exampleMinimal - an alias of an alias, None.type, a refined Option, a Seq of such an alias, an ADT case', () => {
   const domain = scanScala(noneSource, 'SendEvent.scala');
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, domain, null)!;
-  // `type Same = Rs` (no union): the import resolves it to `Rs` itself, with its noneAllowed
+  // `type Same = Rs` (no union): the import resolves it to `Rs` itself, with its noneAlias
   const same = (r.spec.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'same')!;
-  assert.deepEqual([same.type, same.noneAllowed], ['SendEvent.In.Rs', true]);
+  assert.deepEqual([same.type, same.noneAlias], ['SendEvent.In.Rs', 'SendEvent.In.Rs']);
   const file = scalaFiles(r.spec, null).find(f => f.path.endsWith('/SendEvent.scala'))!;
   const inMinimal = minimalAfter(file.content, 'object In:');
   for (const name of ['rs', 'maybe', 'same', 'noneOrInt', 'inner']) assert.match(inMinimal, new RegExp(`\\b${name} = None`), file.content);

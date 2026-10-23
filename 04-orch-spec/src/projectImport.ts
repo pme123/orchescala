@@ -202,7 +202,7 @@ class Converter {
   }
 
   /** Type of a field: base type without Option/Seq → field type of the specification. */
-  fieldType(base: string, pkg: string, depth = 0, scope?: string, imports?: string[]): { type: string; constraint?: string; enumCase?: string; noneAllowed?: boolean } {
+  fieldType(base: string, pkg: string, depth = 0, scope?: string, imports?: string[]): { type: string; constraint?: string; enumCase?: string; noneAlias?: string } {
     if (isScalar(base)) return { type: base };
     if (depth > 8) return { type: base };
     // `MockedServiceResponse[GetX.Out]` — a wrapper from Orchescala (the mock of a
@@ -249,7 +249,7 @@ class Converter {
         if (isCompoundType(own.target)) {
           // without an object the name is not a Scala path that resolves without an import — report
           if (!own.owner) { this.unresolved.add(base); return { type: base }; }
-          return unionAllowsNone(own.target, this.aliasTarget(own)) ? { type: own.name, noneAllowed: true } : { type: own.name };
+          return unionAllowsNone(own.target, this.aliasTarget(own)) ? { type: own.name, noneAlias: own.name } : { type: own.name };
         }
         const shape = typeShape(own.target);
         const inner = this.fieldType(shape.base, own.pkg, depth + 1);
@@ -315,7 +315,7 @@ class Converter {
         if (shape.map) f.map = true;
         if (ft.enumCase) f.enumCase = ft.enumCase;
         // a union alias that can be None — not in a Seq or Map, an Option is optional anyway
-        if (ft.noneAllowed && !shape.optional && !shape.collection && !shape.map) f.noneAllowed = true;
+        if (ft.noneAlias && !shape.optional && !shape.collection && !shape.map) f.noneAlias = ft.noneAlias;
         const constraint = shape.constraint ?? ft.constraint;
         if (constraint) f.constraint = constraint;
         if (p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default)) f.default = p.default;

@@ -65,7 +65,7 @@ export interface TypeIndex {
   /** Object and package of a service or process — from the catalog, otherwise derived (`objectOf`) */
   objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
   /**
-   * The field may be missing: `Option[…]`, or a union alias that can be `None` (`noneAllowed`,
+   * The field may be missing: `Option[…]`, or a union alias that can be `None` (`noneAlias`,
    * `type ReceivingSystems = Option[String] | Seq[X]`) — the alias stays the type, but
    * `exampleMinimal` sets it to `None` too.
    */
@@ -176,10 +176,8 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
     home,
     ownPkg: ownPkg ?? '',
-    // `noneAllowed` only while the field still has the alias of the import as its type (not
-    // changed to an own class or a scalar since)
-    mayBeMissing: (f: Field) => !!f.optional ||
-      (!!f.noneAllowed && !f.collection && !f.map && !isScalar(f.type) && !byId.has(f.type) && !parseDomainRef(f.type)),
+    // `noneAlias` only while the field still has that alias as its type
+    mayBeMissing: (f: Field) => !!f.optional || (!!f.noneAlias && f.noneAlias === f.type && !f.collection && !f.map),
   };
 }
 
