@@ -1,7 +1,7 @@
 // Pages like processes: stable IDs of the building blocks, comments at the page and its blocks.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { copyBlock, convertBlock, flatten, hasIds, keyOfId, newBlock, relocateBlock, withIds } from '../src/pages/designer/model';
+import { copyBlock, convertBlock, flatten, hasIds, keyOfId, logBase, newBlock, relocateBlock, withIds } from '../src/pages/designer/model';
 import type { Component, Page } from '../src/pages/runtime/spec';
 import { addThread, countIndex, setResolved } from '../src/comments';
 import { diffPages, entryOf } from '../src/audit';
@@ -32,6 +32,16 @@ test('withIds - a hand-edited page: a section without a list, a value that is no
   assert.equal((fixed[1] as { body?: unknown }).body, undefined);
   assert.equal(fixed[2], 'nonsense' as unknown as Component);
   assert.deepEqual(withIds(undefined as unknown as Component[]), []);
+});
+
+test('logBase - the first state, and again once the IDs are added (read-only first, then editable)', () => {
+  const bare: Page = { path: 'p', title: 'P', access: 'public', body };
+  const ided: Page = { ...bare, body: withIds(body) };
+  assert.equal(logBase(null, bare), bare);
+  assert.equal(logBase(bare, ided), ided); // the IDs came later: compare from the page with IDs
+  assert.equal(logBase(ided, { ...ided, title: 'Q' }), ided); // a base with IDs stays until the next cut
+  assert.equal(logBase(bare, bare), bare);
+  assert.equal(logBase(bare, null), bare);
 });
 
 test('newBlock, copyBlock, convertBlock - new ones and copies get new IDs, a conversion keeps it', () => {

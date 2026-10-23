@@ -416,6 +416,12 @@ export const hasIds = (body: Component[]) => {
   return ids.every(Boolean) && new Set(ids).size === ids.length;
 };
 
+/** The state the change log compares from: the first one there is - and again once the IDs are added
+  * (opened read-only, then allowed to edit): from a state without IDs every building block would count
+  * as removed and new. */
+export const logBase = (base: Page | null, now: Page | null): Page | null =>
+  !base || (now && !hasIds(base.body) && hasIds(now.body)) ? now : base;
+
 /** A copy of a building block with new IDs - for duplicating. */
 export function copyBlock(b: Component): Component {
   const copy = { ...structuredClone(b), id: blockId() } as Component;

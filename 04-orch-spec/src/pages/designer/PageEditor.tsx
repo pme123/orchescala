@@ -30,7 +30,7 @@ import { IconButton } from './fields';
 import { coalesceKey, emptyHistory, record, travel, type History } from './history';
 import { designerKey, type DesignerKey } from './keys';
 import {
-  actionsOf, blockAt, convertBlock, copyBlock, dataOf, hasIds, keyOfId, withIds, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
+  actionsOf, blockAt, convertBlock, copyBlock, dataOf, hasIds, keyOfId, logBase, withIds, flatten, insertBlock, moveBlock, newBlock, pageFindings, placeBlock, relocateBlock, removeBlock,
   sampleOf, statePaths, targetsOf, unwrapSection, updateBlock, wrapInSection, type BlockKey, type Place, type Targets,
 } from './model';
 
@@ -245,7 +245,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, onO
     const fixed = current && canEdit && !hasIds(current.body) ? { ...current, body: withIds(current.body) } : current;
     if (fixed && fixed !== current) store(fixed);
     // the log compares from here - with the IDs, otherwise every building block would count as new
-    auditBase.current ??= fixed;
+    auditBase.current = logBase(auditBase.current, fixed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, page === null]);
   const step = (dir: 'undo' | 'redo') => {
