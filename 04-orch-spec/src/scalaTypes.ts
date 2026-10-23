@@ -453,8 +453,23 @@ export function unionMembers(text: string): string[] {
  * another alias (`type Maybe = Rs | Long`) counts with that alias's target (`resolve`).
  */
 export function unionAllowsNone(text: string, resolve: (name: string) => string | undefined = () => undefined): boolean {
+  // a function type (`(A | B) => C | Option[D]`) is no union, whatever its result is
+  if (isFunctionType(text)) return false;
   const members = unionMembers(text);
   return members.length > 1 && members.some(m => memberAllowsNone(m, resolve, new Set()));
+}
+
+/** `=>` at the top bracket level (outside strings) — a function type. */
+function isFunctionType(text: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < text.length - 1; i++) {
+    const c = text[i];
+    if (c === '"') { i = skipString(text, i) - 1; continue; }
+    if (OPEN.includes(c)) depth++;
+    else if (CLOSE.includes(c)) depth--;
+    else if (depth === 0 && c === '=' && text[i + 1] === '>') return true;
+  }
+  return false;
 }
 
 function memberAllowsNone(m: string, resolve: (name: string) => string | undefined, seen: Set<string>): boolean {

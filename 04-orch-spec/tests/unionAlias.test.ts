@@ -280,6 +280,9 @@ test('unionAllowsNone: a member naming another alias counts with its target - wi
   assert.ok(!unionAllowsNone('Option[String] :| MinLength[1] | Long'));
   assert.ok(unionAllowsNone('Option[String :| MinLength[1]] | Long'));
   assert.ok(!unionAllowsNone('`a|b` | Long'));
+  // a function type is no union - also when its result could be None
+  assert.ok(!unionAllowsNone('(A | B) => C | Option[D]'));
+  assert.ok(unionAllowsNone('Option[A => B] | Long'));
 });
 
 test('import: a union alias at the top of the file is reported as unresolved - its simple name is no Scala path', () => {
