@@ -77,6 +77,17 @@ export interface DomainHit {
 }
 
 /**
+ * The sync found the process's own project folder remembered but could not read
+ * it (no access at this address of the app, folder moved). It does not fall back
+ * to the catalog — that is only as current as its last build.
+ */
+export interface DomainBlocked {
+  blocked: true;
+  /** the own project folders that could not be read */
+  unreadable: string[];
+}
+
+/**
  * Does the catalog know the details of today's scanner (kind of object,
  * key, cases and shared fields of the enums)? An older catalog
  * only has names and fields — that yields no ADT and no mapping via
@@ -91,15 +102,48 @@ const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || 
  * per folder); otherwise an older catalog with a caveat. `null` = nothing.
  */
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
+  const r = await searchDomain(processId, model, onProgress, false);
+  return r && 'blocked' in r ? null : r;
+}
+
+/**
+ * Like `findDomain`, for the sync: if the process has its own remembered
+ * project folder and it cannot be read, the sync does not silently use the
+ * catalog — it says so, and one chooses the folder (or a ZIP). An own folder
+ * that is read but does not contain the process (moved to another project,
+ * renamed) is no question of access: the search goes on, the catalog included.
+ */
+export function findSyncDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
+  return searchDomain(processId, model, onProgress, true);
+}
+
+async function searchDomain(
+  processId: string, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
+): Promise<DomainHit | DomainBlocked | null> {
   const catalog = model?.domainTypes ?? [];
   const inCatalog = hasProcess(catalog, processId);
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
-  const fromFolder = async (p: ProjectFolder): Promise<DomainHit | null> => {
-    const handle = await handleFor(p, roots);
-    if (!handle) return null;
+  const unreadable: string[] = [];
+  const fromFolder = async (p: ProjectFolder, own = false): Promise<DomainHit | null> => {
+    // handleFor catches internally — a throw would still be no access, not a hit
+    const handle = await handleFor(p, roots).catch(() => null);
+    if (!handle) {
+      if (own) unreadable.push(p.name);
+      return null;
+    }
     onProgress?.(`${p.name} wird gelesen …`);
     const files: ProjectFile[] = [];
-    await readSources(handle, p.name, files, () => {});
+    try {
+      await readSources(handle, p.name, files, () => {});
+    } catch (e) {
+      // access revoked while reading, folder moved: for the own folder like no access —
+      // anything else is no question of access and is shown as it is
+      const access = e instanceof DOMException && ['NotAllowedError', 'NotFoundError', 'SecurityError'].includes(e.name);
+      if (!own || !access) throw e;
+      console.warn(`[orch-spec] ${p.name} nicht lesbar:`, e);
+      unreadable.push(p.name);
+      return null;
+    }
     const domain = scanDomain(files);
     return hasProcess(domain, processId) ? { domain, source: `Ordner ${p.name}` } : null;
   };
@@ -107,11 +151,17 @@ export async function findDomain(processId: string, model: Model | null, onProgr
   // catalog is as old as its last build (Admin → Katalog, prepareDocs),
   // otherwise the sync would only see a change to the domain after that.
   const folders = model?.projects ?? [];
-  const own = folders.filter(p => processId.startsWith(`${p.name}-`));
+  // the project whose name is the longest prefix — `valiant` is not the project of
+  // `valiant-bpmn-…` when `valiant-bpmn` is listed too (folders of the same name all count)
+  const matching = folders.filter(p => processId.startsWith(`${p.name}-`));
+  const longest = Math.max(0, ...matching.map(p => p.name.length));
+  const own = matching.filter(p => p.name.length === longest);
   for (const p of own) {
-    const hit = await fromFolder(p);
+    const hit = await fromFolder(p, true);
     if (hit) return hit;
   }
+  // the sync does not fall back silently: the catalog may be older than the project
+  if (stopIfOwnUnreadable && unreadable.length) return { blocked: true, unreadable };
   if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog' };
   for (const p of folders.filter(p => !own.includes(p))) {
     const hit = await fromFolder(p);

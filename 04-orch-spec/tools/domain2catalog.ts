@@ -111,6 +111,8 @@ for (const dir of dirs) {
     ...(bekannt.get(name) ?? { id: `p-${name}`, name }),
     path: dir,
     types: types.length - vorher,
+    // orch-spec lets the later scan of a project win over the other side's
+    scannedAt: new Date().toISOString(),
   });
 }
 

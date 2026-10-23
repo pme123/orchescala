@@ -292,3 +292,36 @@ test('import: a union alias at the top of the file is reported as unresolved - i
   const r = enrichSpec({ ...importBpmn(bpmn, 'send-event').spec, project: 'acme-demo' }, scanScala(top, 'SendEvent.scala'), null)!;
   assert.ok(r.unresolved.includes('TopUnion'));
 });
+
+test('sync: a specification from before (the alias as a catalog reference `dom:`) is not marked as changed', () => {
+  // the same import, but the field points into the catalog as imports did before
+  const { spec } = imported();
+  const before = {
+    ...spec,
+    types: (spec.types ?? []).map(t => ({
+      ...t,
+      fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type: `dom:${PKG}.SendEvent.In.ReceivingSystems` } : f)),
+    })),
+  };
+  const fresh = imported().spec;
+  const { spec: after, report } = mergeDomain(before, fresh, { status: { added: 'implemented', changed: 'changed' } });
+  assert.deepEqual(report.changed, []);
+  // and from then on the field keeps the alias as today's import writes it
+  const field = (after.types ?? []).flatMap(t => t.fields ?? []).find(f => f.name === 'receivingSystems')!;
+  assert.equal(field.type, 'SendEvent.In.ReceivingSystems');
+});
+
+test('sync: another type with the same tail is still a change', () => {
+  const { spec } = imported();
+  const pointing = (type: string) => ({
+    ...spec,
+    types: (spec.types ?? []).map(t => ({ ...t, fields: t.fields?.map(f => (f.name === 'receivingSystems' ? { ...f, type } : f)) })),
+  });
+  const changed = (type: string) =>
+    mergeDomain(pointing(type), imported().spec, { status: { added: 'implemented', changed: 'changed' } }).report.changed;
+  // `Other.SendEvent.In.ReceivingSystems` lives in another object — not the alias of this process
+  assert.deepEqual(changed(`dom:${PKG}.Other.SendEvent.In.ReceivingSystems`), ['In']);
+  // the same object path in another package — another process's alias
+  assert.deepEqual(changed('dom:globex.core.domain.sendEvent.v1.SendEvent.In.ReceivingSystems'), ['In']);
+  assert.deepEqual(changed(`dom:${PKG}.SendEvent.In.ReceivingSystems`), []);
+});

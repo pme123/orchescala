@@ -845,6 +845,11 @@ export interface ProjectFolder {
   /** number of types from this project at the last build */
   types?: number;
   /**
+   * When the project's domain was last scanned (ISO). Merging with the bundled
+   * catalog, the later scan of a project wins (see `catalogMerge.ts`).
+   */
+  scannedAt?: string;
+  /**
    * Color of the project (`#rrggbb`) — like `ProjectConfig.color` in Orchescala.
    * A worker or subprocess from this project gets it in the diagram.
    */

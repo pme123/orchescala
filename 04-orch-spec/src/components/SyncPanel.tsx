@@ -24,7 +24,7 @@ import { AlertTriangle, Database, FolderOpen, Loader2, MessageSquare, RefreshCw,
 import { allSteps, patternDiff, type MergeReport, type MergeStatus } from '../bpmn';
 import { commentTargets } from '../comments';
 import { mergeDomain, type DomainMergeReport } from '../domainMerge';
-import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type DomainHit } from '../projectImport';
+import { enrichSpec, findSyncDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type DomainHit } from '../projectImport';
 import { STATUSES, STATUS_META, type Model, type ProcessSpec, type Status } from '../types';
 import { cls } from '../ui';
 
@@ -81,6 +81,8 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   const zipRef = useRef<HTMLInputElement>(null);
   // undefined = being searched, null = none found
   const [hit, setHit] = useState<DomainHit | null | undefined>(undefined);
+  // the own project folder is remembered but not readable — no fallback to the catalog
+  const [unreadable, setUnreadable] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>('Domain wird gesucht …');
   const [error, setError] = useState('');
   // Only with the domain: what is newly added is already in the project — implemented
@@ -94,12 +96,22 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     try { return plan(raw, from, st)?.spec.processId ?? current.processId ?? ''; } catch { return current.processId ?? ''; }
     // only per file — the status does not change the process ID
   }, [raw, from]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a folder or ZIP chosen here stays for this process — a change of the data (model)
+  // must not throw it away and block the sync again
+  const picked = useRef<string | null>(null);
   useEffect(() => {
+    if (picked.current === processId) return;
+    picked.current = null;
     let alive = true;
     setHit(undefined);
+    setUnreadable([]);
+    setError('');
     setBusy('Domain wird gesucht …');
-    (processId ? findDomain(processId, model, t => alive && setBusy(t)) : Promise.resolve(null))
-      .then(h => { if (alive) setHit(h); })
+    (processId ? findSyncDomain(processId, model, t => alive && setBusy(t)) : Promise.resolve(null))
+      .then(h => {
+        if (!alive) return;
+        if (h && 'blocked' in h) { setHit(null); setUnreadable(h.unreadable); } else setHit(h);
+      })
       .catch(e => { if (alive) { setHit(null); setError(e instanceof Error ? e.message : String(e)); } })
       .finally(() => { if (alive) setBusy(null); });
     return () => { alive = false; };
@@ -112,7 +124,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
       const domain = scanDomain(await read());
       if (!domain.some(t => t.processName === processId && t.owner)) {
         setError(`In ${source} gibt es kein Objekt mit \`val processName = "${processId}"\`.`);
-      } else { setError(''); setHit({ domain, source }); }
+      } else { setError(''); setUnreadable([]); setHit({ domain, source }); picked.current = processId; }
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -258,8 +270,13 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
               <div className="space-y-1.5">
                 <p className={`text-[10px] ${warn}`}>
                   <AlertTriangle size={10} className="inline mr-1 -mt-0.5" />
-                  Kein Domain-Objekt mit <span className="font-mono">val processName = "{processId}"</span> im Katalog oder in den
-                  gemerkten Projekt-Ordnern — Projekt-Ordner oder ZIP wählen{domainOnly ? '.' : ', oder nur den Ablauf abgleichen.'}
+                  {unreadable.length ? <>
+                    Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich
+                    den Zugriff je Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt
+                  </> : <>
+                    Kein Domain-Objekt mit <span className="font-mono">val processName = "{processId}"</span> im Katalog oder in den
+                    gemerkten Projekt-Ordnern
+                  </>} — Projekt-Ordner oder ZIP wählen{domainOnly ? '.' : ', oder nur den Ablauf abgleichen.'}
                 </p>
                 <div className="flex items-center gap-2">
                   <button onClick={pickDir} disabled={!!busy}
