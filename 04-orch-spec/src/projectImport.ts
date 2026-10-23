@@ -74,6 +74,12 @@ export interface DomainHit {
   source: string;
   /** Caveat about the source, e.g. an older catalog without the cases of the enums */
   note?: string;
+  /**
+   * The process's own project folders that are remembered but could not be read
+   * (no access at this address of the app, folder moved) — the hit then comes
+   * from the catalog, which is only as current as its last build.
+   */
+  unreadable?: string[];
 }
 
 /**
@@ -94,9 +100,13 @@ export async function findDomain(processId: string, model: Model | null, onProgr
   const catalog = model?.domainTypes ?? [];
   const inCatalog = hasProcess(catalog, processId);
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
-  const fromFolder = async (p: ProjectFolder): Promise<DomainHit | null> => {
+  const unreadable: string[] = [];
+  const fromFolder = async (p: ProjectFolder, own = false): Promise<DomainHit | null> => {
     const handle = await handleFor(p, roots);
-    if (!handle) return null;
+    if (!handle) {
+      if (own) unreadable.push(p.name);
+      return null;
+    }
     onProgress?.(`${p.name} wird gelesen …`);
     const files: ProjectFile[] = [];
     await readSources(handle, p.name, files, () => {});
@@ -109,17 +119,19 @@ export async function findDomain(processId: string, model: Model | null, onProgr
   const folders = model?.projects ?? [];
   const own = folders.filter(p => processId.startsWith(`${p.name}-`));
   for (const p of own) {
-    const hit = await fromFolder(p);
+    const hit = await fromFolder(p, true);
     if (hit) return hit;
   }
-  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog' };
+  // silently on the catalog would hide that it may be older than the project
+  const missed = unreadable.length ? { unreadable } : {};
+  if (inCatalog && isDetailed(catalog)) return { domain: catalog, source: 'Katalog', ...missed };
   for (const p of folders.filter(p => !own.includes(p))) {
     const hit = await fromFolder(p);
-    if (hit) return hit;
+    if (hit) return { ...hit, ...missed };
   }
   if (inCatalog) {
     return {
-      domain: catalog, source: 'Katalog',
+      domain: catalog, source: 'Katalog', ...missed,
       note: 'Der Katalog ist von einem älteren Stand: Fälle und gemeinsame Felder der enums sowie die Schlüssel der Objekte fehlen darin. Katalog neu aufbauen (Admin → Katalog) oder den Projekt-Ordner wählen.',
     };
   }

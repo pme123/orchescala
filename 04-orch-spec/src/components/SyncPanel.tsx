@@ -212,6 +212,19 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                   {domainOnly ? 'Domain' : 'mit der Domain abgleichen'}
                   {r?.enriched && <> — <span className="font-mono">{r.enriched.object}</span> aus {hit.source}</>}
                 </label>
+                {!!hit.unreadable?.length && (
+                  <div className="space-y-1">
+                    <p className={`text-[10px] ${warn}`}>
+                      <AlertTriangle size={10} className="inline mr-1 -mt-0.5" />
+                      Der Projekt-Ordner {hit.unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich
+                      den Zugriff je Adresse der App. Abgeglichen wird {hit.source === 'Katalog' ? 'mit dem Katalog — der kann älter sein als das Projekt' : `mit ${hit.source}`}.
+                    </p>
+                    <button onClick={pickDir} disabled={!!busy}
+                      className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
+                      <FolderOpen size={12} /> Projekt-Ordner wählen
+                    </button>
+                  </div>
+                )}
                 {hit.note && <p className={`text-[10px] ${warn}`}><AlertTriangle size={10} className="inline mr-1 -mt-0.5" />{hit.note}</p>}
                 {withDomain && !r?.enriched && <p className={`text-[10px] ${warn}`}>Die Domain kennt <span className="font-mono">{processId}</span> nicht.</p>}
                 {dom && (
