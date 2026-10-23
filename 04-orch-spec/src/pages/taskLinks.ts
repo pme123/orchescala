@@ -6,9 +6,9 @@ import type { ProcessSpec } from '../types';
 import { actionsOf } from './pageActions';
 import type { Page } from './runtime/spec';
 
-/** The user tasks a page completes - [] for a simple page. */
+/** The user tasks a page completes - [] for a simple page (a `completeTask` without a key does not count). */
 export function userTasksOfPage(page: Page): string[] {
-  return [...new Set(actionsOf(page).flatMap(({ action: a }) => (a.do === 'completeTask' && a.taskKey.trim() ? [a.taskKey.trim()] : [])))];
+  return [...new Set(actionsOf(page).flatMap(({ action: a }) => (a.do === 'completeTask' && typeof a.taskKey === 'string' && a.taskKey.trim() ? [a.taskKey.trim()] : [])))];
 }
 
 /** Where a user task is: the process (slug, title) and its step. */

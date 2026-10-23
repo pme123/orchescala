@@ -5,9 +5,15 @@ import type { Action, Component, Page } from './runtime/spec';
 /** The key of a building block: its index path in `body` - `"2"`, `"2.1"` (in a section). */
 export type BlockKey = string;
 
-/** Every building block with its key - depth first, as the outline shows them. */
+/** A hand-edited page may lack a list or hold something else where a list belongs - then it is empty. */
+const listOf = <T>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : []);
+const isObject = (value: unknown): boolean => typeof value === 'object' && value !== null;
+
+/** Every building block with its key - depth first, as the outline shows them. A value that is no
+  * object is skipped (its index stays taken, so the keys of the others do not move). */
 export function flatten(body: Component[], prefix = ''): { key: BlockKey; block: Component; depth: number }[] {
-  return body.flatMap((block, i) => {
+  return listOf(body).flatMap((block, i) => {
+    if (!isObject(block)) return [];
     const key = prefix ? `${prefix}.${i}` : String(i);
     const self = { key, block, depth: prefix ? prefix.split('.').length : 0 };
     return block.type === 'section' ? [self, ...flatten(block.body, key)] : [self];
@@ -17,7 +23,7 @@ export function flatten(body: Component[], prefix = ''): { key: BlockKey; block:
 /** Every action of a page with its location - load, a button, onChange, onError. */
 export function actionsOf(page: Page): { where: string; key?: BlockKey; action: Action }[] {
   const nested = (where: string, actions: Action[] | undefined, key?: BlockKey): { where: string; key?: BlockKey; action: Action }[] =>
-    (actions ?? []).flatMap((action) => [
+    listOf(actions).filter(isObject).flatMap((action) => [
       { where, key, action },
       ...('onError' in action ? nested(`${where} (onError)`, action.onError, key) : []),
     ]);

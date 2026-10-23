@@ -567,6 +567,24 @@ test('userTasksOfPage - a value that only looks like an action (state, input, te
   assert.deepEqual(userTasksOfPage(page), []);
 });
 
+test('userTasksOfPage, flatten - a hand-edited page with gaps does not throw', () => {
+  const page = {
+    title: 'Kaputt', path: 'kaputt',
+    load: [null, { do: 'completeTask', taskId: 'x' }, { do: 'completeTask', taskKey: 42, taskId: 'x' }],
+    body: [
+      { type: 'section', label: 'ohne Inhalt' },
+      null,
+      { type: 'button', label: 'ohne Aktionen' },
+      { type: 'button', label: 'Aktionen kein Array', actions: { do: 'completeTask', taskKey: 'Nope' } },
+      { type: 'choice', bind: 'c', onChange: [{ do: 'completeTask', taskKey: ' Ok ', taskId: 'x' }] },
+    ],
+  } as unknown as Page;
+  assert.deepEqual(userTasksOfPage(page), ['Ok']);
+  // the keys of the blocks after a gap stay where they are
+  assert.deepEqual(flatten(page.body).map((b) => b.key), ['0', '2', '3', '4']);
+  assert.deepEqual(userTasksOfPage({ title: 'Leer', path: 'leer' } as unknown as Page), []);
+});
+
 test('userTaskSteps - from the task to its step in the process; a key in two processes gives both', () => {
   const one = [{ slug: 'shop-confirm', data: taskSpec('shop-confirm', 'Termin bestätigen') }];
   assert.deepEqual(userTaskSteps('ConfirmTask', one), [{ key: 'ConfirmTask', slug: 'shop-confirm', process: 'Termin bestätigen', stepId: 'ConfirmUT', step: 'Termin prüfen' }]);
@@ -584,4 +602,7 @@ test('pagesForTask - the pages that complete a task', () => {
   const pages = [{ slug: 'book', data: simplePage }, { slug: 'confirm', data: taskPage }];
   assert.deepEqual(pagesForTask('ConfirmTask', pages), [{ slug: 'confirm', title: 'Bestätigen' }]);
   assert.deepEqual(pagesForTask('Other', pages), []);
+  // a key on several pages: all of them, in the order of the pages
+  const again = [...pages, { slug: 'confirm-2', data: { ...taskPage, title: '' } }];
+  assert.deepEqual(pagesForTask('ConfirmTask', again), [{ slug: 'confirm', title: 'Bestätigen' }, { slug: 'confirm-2', title: 'confirm-2' }]);
 });
