@@ -19,7 +19,7 @@ import {
   aliasMemberType, catalogEntry, catalogMembers, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction, withOrigin,
 } from '../interactions';
 import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
-import { caseName, casesOf, isSimpleEnum, looksLikeScala, renderInConfig } from '../scala';
+import { caseName, casesOf, isSimpleEnum, looksLikeScala, renameEnumValue, renderInConfig } from '../scala';
 import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
@@ -133,6 +133,17 @@ function usageCount(all: TypeDef[], id: string): number {
 }
 
 const amber = (isDark: boolean) => (isDark ? 'text-amber-400' : 'text-amber-600');
+
+/** Take over the suggested name with one click — next to the message that proposes it. */
+function SuggestButton({ name, isDark, onTake }: { name: string; isDark: boolean; onTake: () => void }) {
+  return (
+    <button onClick={onTake} title={`Namen «${name}» übernehmen`}
+      className={`ml-1.5 inline-flex items-center gap-1 px-1.5 py-px rounded border font-mono ${
+        isDark ? 'border-white/20 text-white/80 hover:bg-white/10' : 'border-black/20 text-black/80 hover:bg-black/5'}`}>
+      → {name} übernehmen
+    </button>
+  );
+}
 
 /** color and symbol of the type chip of a field row. */
 function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>, model: Model | null, isDark: boolean):
@@ -389,7 +400,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                     t && selected === t.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                   {t?.kind === 'enum' ? <ListOrdered size={11} className={c.muted} /> : <Braces size={11} className={c.muted} />}
                   <span className={`flex-1 truncate text-[11px] font-mono font-semibold ${t ? c.text : c.muted}`}>{label}</span>
-                  {t && !!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+                  {t && issuesOf(t.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
                   {t && <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />}
                   {/* Every process has In and Out — if they are missing or empty, that is orange.
                       The InitIn results from the init worker; without it there is none, which is not a defect. */}
@@ -410,7 +421,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 showConfig || (inConfig && selected === inConfig.id) ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
               <Braces size={11} className={c.muted} />
               <span className={`flex-1 truncate text-[11px] font-mono ${inConfig ? `font-semibold ${c.text}` : c.muted2}`}>InConfig</span>
-              {inConfig && !!issuesOf(inConfig.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+              {inConfig && issuesOf(inConfig.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
               {inConfig && <CommentBubble target={typeTarget(inConfig.id)} aggregate quiet inButton />}
               <span className={`text-[9px] ${c.muted}`}>{inConfig && !isEmptyType(inConfig) ? `${contentLabel(inConfig)} + erzeugt` : 'erzeugt'}</span>
             </button>
@@ -611,6 +622,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             isDark={isDark} canEdit={canEdit}
             issues={issuesOf(current.id)} idx={idx} model={model}
             onPatch={patch => patchType(current.id, patch)}
+            onRenameValue={(index, name) => setTypes(renameEnumValue(types, current.id, index, name))}
             onRemove={() => removeType(current.id)}
             onAddType={addType}
             onOpenType={pickType}
@@ -917,7 +929,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
   /** all types — to see who points to one */
   all: TypeDef[];
   selected: string | null; isDark: boolean;
-  onSelect: (id: string) => void; issuesOf: (id: string) => unknown[];
+  onSelect: (id: string) => void; issuesOf: (id: string) => Array<{ warn?: boolean }>;
 }) {
   const c = cls(isDark);
   if (!types.length) return null;
@@ -936,7 +948,7 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
           {/* bold what is used; gray and italic what nothing points to */}
           <span className={`flex-1 truncate text-[11px] font-mono ${used ? `font-semibold ${c.text}` : `italic ${c.muted}`}`}>{t.name}</span>
           {leer && <span className={`flex items-center gap-0.5 text-[9px] ${amber(isDark)}`} title="leer — Felder fehlen"><AlertTriangle size={9} /> leer</span>}
-          {!!issuesOf(t.id).length && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+          {issuesOf(t.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
           <CommentBubble target={typeTarget(t.id)} aggregate quiet inButton />
           <span className={`text-[9px] ${c.muted}`}>
             {leer ? '' : contentLabel(t)}{used ? ` · ${used}×` : ' · ungenutzt'}
@@ -949,12 +961,14 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 }
 
 // ── Type editor ──────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRemove, onAddType, onOpenType }: {
+function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRenameValue, onRemove, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   isDark: boolean; canEdit: boolean; model: Model | null;
-  issues: { field?: string; message: string }[];
+  issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   idx: ReturnType<typeof indexTypes>;
   onPatch: (patch: Partial<TypeDef>) => void;
+  /** rename an enum value — the fields that use it as a fixed case follow */
+  onRenameValue: (index: number, name: string) => void;
   onRemove: () => void;
   onAddType: (kind: 'case' | 'enum') => string;
   /** jump to an own type (click on the type chip) */
@@ -980,8 +994,14 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
     onPatch({ fields: next });
   };
 
-  const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId)?.message;
-  const typeIssues = issues.filter(i => !i.field);
+  // the error first; a warning only if there is none
+  const issueOf = (fieldId: string) => issues.find(i => i.field === fieldId && !i.warn) ?? issues.find(i => i.field === fieldId);
+  // an issue of a value — also of an empty one (`value: ''`) — stands at the value
+  const typeIssues = issues.filter(i => !i.field && i.value === undefined);
+  // the suggested name for the type (an enum value has its own, at the value)
+  const suggest = (i: { suggestion?: string }) => i.suggestion && canEdit && (
+    <SuggestButton name={i.suggestion} isDark={isDark} onTake={() => onPatch({ name: i.suggestion! })} />
+  );
   // via the name in the catalog: a class of another domain is imported, not exported
   const origin = referencedClass(t, model, packageOf(spec, model));
   // the InConfig shows what results overall — own and generated fields
@@ -1049,14 +1069,20 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
         </p>
       )}
 
-      {!!typeIssues.length && (
+      {typeIssues.some(i => !i.warn) && (
         <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
-          {typeIssues.map((i, k) => <div key={k}>{i.message}</div>)}
+          {typeIssues.filter(i => !i.warn).map((i, k) => <div key={k}>{i.message}{suggest(i)}</div>)}
+        </div>
+      )}
+      {/* hints — valid, but worth a second look */}
+      {typeIssues.some(i => i.warn) && (
+        <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+          {typeIssues.filter(i => i.warn).map((i, k) => <div key={k}>{i.message}{suggest(i)}</div>)}
         </div>
       )}
 
       {t.kind === 'enum'
-        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onAddType={onAddType} onOpenType={onOpenType} />
+        ? <EnumEditor type={t} types={types} isDark={isDark} canEdit={canEdit} idx={idx} model={model} issues={issues} onPatch={onPatch} onRenameValue={onRenameValue} onAddType={onAddType} onOpenType={onOpenType} />
         : (
           <div className="space-y-2">
             {fields.map((f, i) => (
@@ -1102,7 +1128,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
 // ── Field ────────────────────────────────────────────────────────────────────
 function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, model, issue, onChange, onRemove, onMove, onAddType, onOpenType }: {
   field: Field; index: number; last: boolean; types: TypeDef[]; selfId: string;
-  isDark: boolean; canEdit: boolean; issue?: string; model: Model | null;
+  isDark: boolean; canEdit: boolean; issue?: { message: string; warn?: boolean; suggestion?: string }; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
   onChange: (patch: Partial<Field>) => void;
   onRemove: () => void;
@@ -1149,7 +1175,9 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
   const box = `text-[11px] leading-[18px] px-2 py-1 rounded border outline-none ${c.input}`;
   return (
     <div data-cframe={f.name ? sub(typeTarget(selfId), `field:${f.id}`) : undefined}
-      className={`group rounded border px-2 py-2 space-y-1.5 ${issue ? (isDark ? 'border-rose-500/40' : 'border-rose-400') : c.border2}`}>
+      className={`group rounded border px-2 py-2 space-y-1.5 ${!issue ? c.border2
+        : issue.warn ? (isDark ? 'border-amber-500/40' : 'border-amber-400')
+          : (isDark ? 'border-rose-500/40' : 'border-rose-400')}`}>
       {/* 1 · the name across the full width; on the right the result as a Scala type, comment and buttons */}
       <div className="flex items-center gap-1.5">
         <input value={f.name} disabled={!canEdit} onChange={e => onChange({ name: e.target.value })}
@@ -1292,7 +1320,12 @@ function FieldRow({ field: f, index, last, types, selfId, isDark, canEdit, idx, 
           className="flex-1 min-w-[10rem]" />
       </div>
 
-      {issue && <div className={`text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{issue}</div>}
+      {issue && (
+        <div className={`text-[10px] ${issue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+          {issue.message}
+          {issue.suggestion && canEdit && <SuggestButton name={issue.suggestion} isDark={isDark} onTake={() => onChange({ name: issue.suggestion })} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -1366,11 +1399,12 @@ function argOf(t: ConstraintTemplate | undefined, value: string): string {
 // `enum In: case Standard(clientKey: Long, …) case VermoegensVerwaltung(…)`:
 // each case its own class, together one type. The fields are edited with
 // the same row as in a class.
-function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onAddType, onOpenType }: {
+function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPatch, onRenameValue, onAddType, onOpenType }: {
   type: TypeDef; types: TypeDef[]; isDark: boolean; canEdit: boolean; model: Model | null;
   idx: ReturnType<typeof indexTypes>;
-  issues: { field?: string; message: string }[];
+  issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   onPatch: (patch: Partial<TypeDef>) => void;
+  onRenameValue: (index: number, name: string) => void;
   onAddType: (kind: 'case' | 'enum') => string;
   onOpenType: (id: string) => void;
 }) {
@@ -1387,7 +1421,7 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
   const fieldRows = (fields: Field[], setAll: (next: Field[]) => void) => fields.map((f, k) => (
     <FieldRow key={f.id} field={f} index={k} last={k === fields.length - 1}
       types={types} selfId={t.id} isDark={isDark} canEdit={canEdit} idx={idx} model={model}
-      issue={issues.find(x => x.field === f.id)?.message}
+      issue={issues.find(x => x.field === f.id && !x.warn) ?? issues.find(x => x.field === f.id)}
       onChange={patch => setAll(fields.map((x, m) => (m === k ? { ...x, ...patch } : x)))}
       onRemove={() => setAll(fields.filter((_, m) => m !== k))}
       onMove={by => {
@@ -1448,6 +1482,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
       )}
       {values.map((v, i) => {
         const fields = v.fields ?? [];
+        // what the check says about this value or case — the error first
+        const valueIssue = issues.find(x => x.value === v.name && !x.warn) ?? issues.find(x => x.value === v.name);
         // each case in its color — like the branches in the flow
         const col = BRANCH_COLORS[i % BRANCH_COLORS.length];
         const tone = isDark ? col.dark : col.light;
@@ -1463,7 +1499,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
             <div className="flex items-center gap-1.5">
               <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
                 placeholder={adt ? 'Fall' : 'wert'}
-                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input}`} />
+                className={`w-40 text-[11px] px-2 py-1 rounded border outline-none font-mono font-semibold ${c.input} ${
+                  !valueIssue ? '' : valueIssue.warn ? (isDark ? '!border-amber-500/60' : '!border-amber-400') : (isDark ? '!border-rose-500/60' : '!border-rose-400')}`} />
               <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value || undefined })}
                 placeholder="Bedeutung"
                 className={`flex-1 text-[10px] px-2 py-1 rounded border outline-none ${c.input}`} />
@@ -1482,6 +1519,12 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
                 </button>
               )}
             </div>
+            {valueIssue && (
+              <div className={`text-[10px] ${valueIssue.warn ? amber(isDark) : isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+                {valueIssue.message}
+                {valueIssue.suggestion && canEdit && <SuggestButton name={valueIssue.suggestion} isDark={isDark} onTake={() => onRenameValue(i, valueIssue.suggestion!)} />}
+              </div>
+            )}
             {!!fields.length && (
               <div className="pl-3 space-y-2">
                 {fieldRows(fields, next => setFields(i, next))}
