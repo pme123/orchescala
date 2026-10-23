@@ -213,6 +213,17 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                   {r?.enriched && <> — <span className="font-mono">{r.enriched.object}</span> aus {hit.source}</>}
                 </label>
                 {hit.note && <p className={`text-[10px] ${warn}`}><AlertTriangle size={10} className="inline mr-1 -mt-0.5" />{hit.note}</p>}
+                {/* the catalog is as old as its last build — the current code is in the project folder
+                    (e.g. when this browser has no access to the remembered folders yet) */}
+                {hit.source === 'Katalog' && (
+                  <p className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
+                    Der Katalog ist so alt wie sein letzter Aufbau — für den aktuellen Stand:
+                    <button onClick={pickDir} disabled={!!busy}
+                      className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 ${c.btn}`}>
+                      <FolderOpen size={10} /> Projekt-Ordner wählen
+                    </button>
+                  </p>
+                )}
                 {withDomain && !r?.enriched && <p className={`text-[10px] ${warn}`}>Die Domain kennt <span className="font-mono">{processId}</span> nicht.</p>}
                 {dom && (
                   <>

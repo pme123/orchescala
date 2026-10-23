@@ -64,6 +64,12 @@ export interface TypeIndex {
   defaultNamed: (name: string) => DomainDefault | null;
   /** Object and package of a service or process — from the catalog, otherwise derived (`objectOf`) */
   objectOf: (ref: string) => { object: string; pkg: string; uncertain: boolean };
+  /**
+   * The field may be missing: `Option[…]`, or a union alias that can be `None` (`noneAlias`,
+   * `type ReceivingSystems = Option[String] | Seq[X]`) — the alias stays the type, but
+   * `exampleMinimal` sets it to `None` too.
+   */
+  mayBeMissing: (f: Field) => boolean;
 }
 
 /** A custom class of the data model (`schema/`) — not the In / Out of the process or of an interaction. */
@@ -170,6 +176,11 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     defaultNamed: (name: string) => ranked.find(d => d.name === name) ?? null,
     home,
     ownPkg: ownPkg ?? '',
+    // `noneAlias` only while the field still has that alias as its type — by its name or as the
+    // catalog reference the app makes of it once the catalog knows it (`healLooseTypes`:
+    // `dom:<pkg>.SendEvent.In.Rs`)
+    mayBeMissing: (f: Field) => !!f.optional || (!!f.noneAlias && !f.collection && !f.map &&
+      f.noneAlias === (parseDomainRef(f.type) ? domainNameOf(f.type) : f.type)),
   };
 }
 
@@ -615,14 +626,22 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
   return `case class ${t.name}(${body})`;
 }
 
+/**
+ * `lazy val exampleMinimal` — the example without everything that may be missing (`mayBeMissing`);
+ * `at` is the indent of the `lazy val` (the closing `)` goes there).
+ */
+function exampleMinimal(fields: Field[], idx: TypeIndex, at: string): string {
+  const missing = fields.filter(f => idx.mayBeMissing(f));
+  return missing.length
+    ? `lazy val exampleMinimal = example.copy(\n${indent(missing.map(f => `${scalaName(f.name)} = None`).join(',\n'), `${at}  `)}\n${at})`
+    : 'lazy val exampleMinimal = example';
+}
+
 function companion(t: TypeDef, idx: TypeIndex): string {
   const fields = exampleFields(finished(t.fields, idx), idx);
   const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
   // exampleMinimal leaves out everything that may be missing
-  const optional = fields.filter(f => f.optional);
-  const minimal = optional.length
-    ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '    ')}\n  )`
-    : 'lazy val exampleMinimal = example';
+  const minimal = exampleMinimal(fields, idx, '  ');
 
   return [
     `object ${t.name}:`,
@@ -694,10 +713,7 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
   const companions = cases.filter(v => fieldsOf(v).length).map(v => {
     const fields = exampleFields(fieldsOf(v), idx);
     const args = fields.map(f => `${scalaName(f.name)} = ${exampleValue(f, idx)}`);
-    const optional = fields.filter(f => f.optional);
-    const minimal = optional.length
-      ? `lazy val exampleMinimal = example.copy(\n${indent(optional.map(f => `${scalaName(f.name)} = None`).join(',\n'), '      ')}\n    )`
-      : 'lazy val exampleMinimal = example';
+    const minimal = exampleMinimal(fields, idx, '    ');
     return [
       `  object ${caseIdent(v.name)}:`,
       args.length
@@ -718,7 +734,9 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     `  given InOutCodec[${t.name}] = deriveInOutCodec`,
     ...(companions.length ? ['', companions.join('\n\n')] : []),
     '',
-    `  lazy val example = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
+    // typed with the enum: the example of a case is typed with the case (for `.copy`) — as the
+    // example of the type it is passed to `process(…)`, which needs the codec of the enum
+    `  lazy val example: ${t.name} = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
     `end ${t.name}`,
   ].join('\n');
 }
@@ -775,6 +793,21 @@ const withCopy = (expr: string, values: Record<string, string> | undefined): str
   return entries.length ? `${expr}.copy(${entries.map(([k, v]) => `${k} = ${v.trim()}`).join(', ')})` : expr;
 };
 
+/**
+ * Whose `example` takes the differing values. An ADT's `example` is typed with the enum, which
+ * has no `.copy` — so the values go to a case example (typed with the case): the first case that
+ * has all of them, else the first case with fields.
+ */
+const copyTarget = (t: TypeDef, name: string, values: Record<string, string> | undefined): string => {
+  const keys = Object.entries(values ?? {}).filter(([k, v]) => k.trim() && v.trim()).map(([k]) => k);
+  if (!keys.length || !isAdt(t)) return name;
+  const common = (t.fields ?? []).map(f => f.name).filter(Boolean);
+  const cases = (t.values ?? []).filter(v => v.name && (common.length || v.fields?.some(f => f.name)));
+  const fits = cases.find(v => keys.every(k => common.includes(k) || (v.fields ?? []).some(f => f.name === k)));
+  const c = fits ?? cases[0];
+  return c ? `${name}.${caseIdent(c.name)}` : name;
+};
+
 export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeIndex): string {
   const meta = INTERACTION_META[ia.kind];
   const types = spec.types ?? [];
@@ -807,7 +840,7 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
     }
     lines.push(indent(renderType({ ...t, name }, idx), '  '));
     lines.push('');
-    return withCopy(`${name}.example`, values);
+    return withCopy(`${copyTarget(t, name, values)}.example`, values);
   };
 
   const inExpr = member(inType, 'In');
