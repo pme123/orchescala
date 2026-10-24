@@ -59,4 +59,43 @@ class DocsJsonTest extends FunSuite:
       pages.foreach: p =>
         assertEquals(os.read(scalaOut / r.company / "pages" / p), os.read(tsOut / r.company / "pages" / p), s"page $p differs")
 
+  // a minimal 00-docs (only the index.md) - always there, no company repo needed
+  private def miniDocs(): os.Path =
+    val docs = os.temp.dir(prefix = "docs-json-mini") / "acme-orchescala" / "00-docs"
+    os.write(docs / "src" / "docs" / "index.md", "# Acme Process Documentation\n", createFolders = true)
+    docs
+
+  test("index.json links the apps - specUrl and opsUrl, and leaves out what is None"):
+    val docs = miniDocs()
+    val out  = os.temp.dir(prefix = "docs-json-apps")
+    DocsJson.write(docs, out)
+    val idx  = parse(os.read(out / "index.json")).toOption.get.hcursor
+    assertEquals(idx.get[String]("specUrl"), Right("spec/"))
+    assertEquals(idx.get[String]("opsUrl"), Right("ops/"))
+    val none = os.temp.dir(prefix = "docs-json-no-apps")
+    DocsJson.write(docs, none, spec = None, ops = None)
+    val idx2 = parse(os.read(none / "index.json")).toOption.get.hcursor
+    assert(idx2.downField("specUrl").failed, "specUrl written although spec = None")
+    assert(idx2.downField("opsUrl").failed, "opsUrl written although ops = None")
+
+  test("index.json: DocsJson and docs2json.ts agree on specUrl/opsUrl"):
+    val node = scala.util.Try(os.proc("node", "--version").call(check = false).exitCode == 0).getOrElse(false)
+    if !node || !os.exists(orchDocPath / "tools" / "docs2json.ts") then
+      println(s"Skipping: 04-orch-doc ($orchDocPath) or Node.js not available")
+    else
+      val docs = miniDocs()
+      def ts(args: String*): Json =
+        val out = os.temp.dir(prefix = "docs-json-ts-apps")
+        os.proc(Seq("node", "tools/docs2json.ts", docs.toString, "--out", out.toString) ++ args)
+          .call(cwd = orchDocPath, stdout = os.Pipe, stderr = os.Inherit)
+        parse(os.read(out / "index.json")).toOption.get
+      def viaScala(spec: Option[String], ops: Option[String]): Json =
+        val out = os.temp.dir(prefix = "docs-json-scala-apps")
+        DocsJson.write(docs, out, spec = spec, ops = ops)
+        parse(os.read(out / "index.json")).toOption.get
+      def urls(j: Json) = (j.hcursor.get[String]("specUrl").toOption, j.hcursor.get[String]("opsUrl").toOption)
+      assertEquals(urls(viaScala(Some("spec/"), Some("ops/"))), urls(ts("--spec", "spec/", "--ops", "ops/")))
+      assertEquals(urls(viaScala(None, None)), urls(ts()))
+      assertEquals(urls(viaScala(None, None)), (None, None))
+
 end DocsJsonTest

@@ -5,7 +5,7 @@
 // biggest count. Search, filters and sorting live in the address — a copied
 // link shows the same selection.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, Download, FilePlus2, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowDownWideNarrow, Download, FilePlus2, RefreshCw, Search, X } from 'lucide-react';
 import { useStore, type ErrorItem } from '../store';
 import { usePermissions } from '../auth';
 import { StatusTag, cls, statusDef } from '../ui';
@@ -44,7 +44,7 @@ export default function ErrorsView({ state, setState, onOpen, onNew }: {
   onOpen: (id: string) => void;
   onNew: () => void;
 }) {
-  const { isDark, errors, model, loading, refreshErrors, lastRefresh } = useStore();
+  const { isDark, errors, model, loading, refreshErrors, lastRefresh, refreshProblems } = useStore();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
   const statuses = model?.statuses ?? [];
@@ -126,6 +126,18 @@ export default function ErrorsView({ state, setState, onOpen, onNew }: {
           )}
         </div>
       </div>
+
+      {/* files the last refresh could not read — they keep their last known state */}
+      {refreshProblems.length > 0 && (
+        <div role="alert" className={`flex items-start gap-2 rounded border px-3 py-2 mb-3 text-[11px] ${isDark ? 'border-amber-500/40 bg-amber-500/5 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+          <AlertTriangle size={13} className="flex-shrink-0 mt-px" />
+          <div className="min-w-0">
+            {refreshProblems.length === 1 && !refreshProblems[0].endsWith('.json')
+              ? refreshProblems[0]
+              : <>Nicht lesbar ({refreshProblems.length}) — gezeigt wird der letzte bekannte Stand: <span className="font-mono break-all">{refreshProblems.join(', ')}</span></>}
+          </div>
+        </div>
+      )}
 
       {/* Search + sorting */}
       <div className="flex items-center gap-2 flex-wrap mb-3">

@@ -6,32 +6,27 @@
 //   errors/<id>.json    one file per error
 //
 // Taken over from orch-spec — the same mechanics (conflict detection via
-// version/ETag, remembered folder). In addition: the counter. It reads the
-// file fresh, increments and writes with If-Match; if someone else counted in
-// the meantime, it re-reads and retries — so no click gets lost.
+// version/ETag, remembered folder). The error logic itself (count with retry,
+// create, save, merging a refresh) lives in errorRepo.ts — this file connects
+// it to React state.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { OCCURRENCE_LIMIT, type ErrorEntry, type Model, type StatusDef } from './types';
+import type { ErrorEntry, Model, StatusDef } from './types';
 import { getHandle, putHandle } from './handles';
 import { DEFAULT_MODEL, DEFAULT_STATUSES } from './defaultModel';
-import { nowIso, slugify } from './util';
+import { nowIso } from './util';
 import { DemoBackend, LocalBackend, type StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, type SharePointFolder } from './graph';
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { parseConfluence } from './confluence';
 import { isAttachmentPath, newAttachmentPath, prepareImage } from './attachments';
+import {
+  DIR, countErrorIn, createErrorIn, mergeRefresh, readAll, saveErrorIn, serialize, toJson,
+  type ErrorDraft, type ErrorItem, type SaveResult,
+} from './errorRepo';
 
-const DIR = 'errors';
+export type { ErrorItem, SaveResult } from './errorRepo';
+
 const REFRESH_MS = 60_000;
-
-export interface ErrorItem {
-  data: ErrorEntry;
-  version: string;
-}
-
-export type SaveResult =
-  | { status: 'saved'; item: ErrorItem }
-  | { status: 'conflict'; current: ErrorItem | null }
-  | { status: 'error'; message: string };
 
 export interface StorageInfo { kind: 'local' | 'sharepoint'; name: string; webUrl?: string }
 
@@ -54,8 +49,10 @@ interface StoreCtx {
   errors: ErrorItem[];
   loading: boolean;
   lastRefresh: number | null;
+  /** what the last refresh could not read (file names) — or that the folder itself failed */
+  refreshProblems: string[];
   refreshErrors: () => Promise<void>;
-  createError: (draft: Omit<ErrorEntry, 'id' | 'createdAt' | 'updatedAt' | 'count'> & { count?: number }) => Promise<{ ok: true; item: ErrorItem } | { ok: false; message: string }>;
+  createError: (draft: ErrorDraft) => Promise<{ ok: true; item: ErrorItem } | { ok: false; message: string }>;
   saveError: (data: ErrorEntry, expectedVersion: string) => Promise<SaveResult>;
   countError: (id: string) => Promise<{ ok: true; item: ErrorItem } | { ok: false; message: string }>;
   importConfluence: (html: string, initialCount?: number) => Promise<{ ok: true; summary: ImportSummary } | { ok: false; message: string }>;
@@ -107,21 +104,7 @@ function normalizeModel(raw: unknown): Model {
   return { ...DEFAULT_MODEL, ...r, statuses };
 }
 
-function normalizeError(raw: unknown, id: string): ErrorEntry {
-  const r = (raw ?? {}) as Partial<ErrorEntry>;
-  const str = (v: unknown) => (typeof v === 'string' ? v : '');
-  return {
-    ...r,
-    id,
-    process: str(r.process), title: str(r.title), details: str(r.details), activity: str(r.activity),
-    reporter: str(r.reporter), ticket: str(r.ticket), workaround: str(r.workaround),
-    status: Array.isArray(r.status) ? r.status.map(String) : [],
-    count: Number.isFinite(r.count) ? Number(r.count) : 1,
-    createdAt: str(r.createdAt), updatedAt: str(r.updatedAt) || str(r.createdAt),
-  };
-}
-
-const toJson = (e: ErrorEntry) => JSON.stringify(e, null, 2);
+const MODEL_CONFLICT = 'model.json wurde inzwischen von jemand anderem geändert — der neue Stand ist geladen. Bitte die Änderung nochmals machen.';
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
@@ -132,12 +115,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [errors, setErrors] = useState<ErrorItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<number | null>(null);
+  const [refreshProblems, setRefreshProblems] = useState<string[]>([]);
   const [savedHandleName, setSavedHandleName] = useState<string | null>(null);
   const [savedSharePoint, setSavedSharePoint] = useState<SharePointFolder | null>(() => loadSharePoint());
   const [localName, setLocalNameState] = useState(() => ls.get(NAME_KEY) ?? '');
   const backendRef = useRef<StorageBackend | null>(null);
   // images: path → object URL (per connected folder)
   const attachmentCache = useRef(new Map<string, Promise<string | null>>());
+  // version of model.json as read — saving checks it (two admins at once)
+  const modelVersionRef = useRef<string | null>(null);
+  // when this tab last wrote an error — a refresh that started before keeps the local state
+  const writtenAt = useRef(new Map<string, number>());
+  // one write per error at a time (counts and saves)
+  const writeChains = useRef(new Map<string, Promise<unknown>>());
   const savedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
   const getTokenRef = useRef(auth.getToken);
   getTokenRef.current = auth.getToken;
@@ -149,21 +139,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   actorRef.current = actor;
   const setLocalName = useCallback((n: string) => { setLocalNameState(n); ls.set(NAME_KEY, n.trim() || null); }, []);
 
+  // a write of this tab into the list (and remembered for mergeRefresh)
   const upsert = useCallback((item: ErrorItem) => {
+    writtenAt.current.set(item.data.id, Date.now());
     setErrors(prev => [...prev.filter(p => p.data.id !== item.data.id), item]);
   }, []);
 
+  // object URLs of the images: give them back when the folder changes
+  const clearAttachments = useCallback(() => {
+    for (const p of attachmentCache.current.values()) void p.then(u => { if (u) URL.revokeObjectURL(u); });
+    attachmentCache.current.clear();
+  }, []);
+
   // ── model.json ────────────────────────────────────────────────────────────
+  // only the backend that is still active may set the model (folder changed meanwhile)
   const loadModel = useCallback(async (be: StorageBackend) => {
+    const current = () => backendRef.current === be;
     try {
       const read = await be.read('model.json');
+      if (!current()) return;
       if (!read) {
         const ids = idsRef.current;
         const fresh: Model = ids
           ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, adminRole: 'OrchOps.Admin', reviewerRole: 'OrchOps.Editor', viewerRole: 'OrchOps.Viewer' } }
           : DEFAULT_MODEL;
         const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
-        if (!w.ok && w.reason !== 'exists') {
+        if (!current()) return;
+        if (w.ok) modelVersionRef.current = w.version;
+        else if (w.reason === 'exists') { await loadModel(be); return; } // someone else just created it
+        if (!w.ok) {
           setModel(null);
           setModelError(w.reason === 'forbidden'
             ? 'model.json fehlt und kann nicht angelegt werden (keine Schreibberechtigung).'
@@ -175,6 +179,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         setModel(normalizeModel(JSON.parse(read.text)));
+        modelVersionRef.current = read.version;
         setModelError(null);
       } catch {
         setModel(null); // do NOT overwrite a broken file
@@ -182,35 +187,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       console.error('[orch-ops] loadModel:', e);
+      if (!current()) return;
       setModel(null);
       setModelError(`model.json konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
   // ── load errors ───────────────────────────────────────────────────────────
-  const readError = useCallback(async (be: StorageBackend, id: string): Promise<ErrorItem | null> => {
-    const read = await be.read(`${DIR}/${id}.json`);
-    if (!read) return null;
-    return { data: normalizeError(JSON.parse(read.text), id), version: read.version };
-  }, []);
-
+  // Merged into the list, not replacing it: what this tab wrote meanwhile and
+  // what could not be read stay (see mergeRefresh); problems are shown.
   const refreshIn = useCallback(async (be: StorageBackend) => {
+    const startedAt = Date.now();
     setLoading(true);
     try {
-      const files = (await be.list(DIR)).filter(f => f.name.endsWith('.json'));
-      const items = await Promise.all(files.map(async f => {
-        try { return await readError(be, f.name.replace(/\.json$/, '')); } catch { return null; }
-      }));
-      if (backendRef.current === be) {
-        setErrors(items.filter((x): x is ErrorItem => !!x));
-        setLastRefresh(Date.now());
-      }
+      const res = await readAll(be);
+      if (backendRef.current !== be) return;
+      setErrors(prev => mergeRefresh(prev, res, startedAt, writtenAt.current));
+      setRefreshProblems(res.failed.map(id => `${DIR}/${id}.json`));
+      setLastRefresh(Date.now());
     } catch (e) {
       console.error('[orch-ops] refreshErrors:', e);
+      if (backendRef.current === be) setRefreshProblems([`Ordner ${DIR}/ konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`]);
     } finally {
       setLoading(false);
     }
-  }, [readError]);
+  }, []);
 
   const refreshErrors = useCallback(async () => {
     if (backendRef.current) await refreshIn(backendRef.current);
@@ -218,15 +219,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const activate = useCallback(async (be: StorageBackend, info: StorageInfo) => {
     backendRef.current = be;
-    attachmentCache.current.clear();
+    clearAttachments();
+    modelVersionRef.current = null;
+    writtenAt.current.clear();
+    writeChains.current.clear();
     setStorage(info);
     setSavedHandleName(null);
     savedHandleRef.current = null;
     setErrors([]);
+    setRefreshProblems([]);
     await loadModel(be);
     try { await be.ensureDir(DIR); } catch { /* read only? list stays empty */ }
     await refreshIn(be);
-  }, [loadModel, refreshIn]);
+  }, [loadModel, refreshIn, clearAttachments]);
 
   // What others count or change should become visible without reloading:
   // re-read periodically and when returning to the window.
@@ -288,9 +293,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const disconnect = useCallback(() => {
     backendRef.current = null;
-    attachmentCache.current.clear();
-    setStorage(null); setModel(null); setErrors([]);
-  }, []);
+    clearAttachments();
+    setStorage(null); setModel(null); setErrors([]); setRefreshProblems([]);
+  }, [clearAttachments]);
 
   // restore the remembered folder on start
   const autoRef = useRef(false);
@@ -339,72 +344,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const createError: StoreCtx['createError'] = useCallback(async draft => {
     const be = backendRef.current;
     if (!be) return { ok: false, message: 'Kein Ordner gewählt.' };
-    const now = nowIso();
-    const who = actorRef.current || undefined;
-    const base = (`${slugify(draft.process) || 'fehler'}--${slugify(draft.title).slice(0, 60)}`).replace(/-+$/, '') || 'fehler';
-    try { await be.ensureDir(DIR); } catch { /* write reports it */ }
-    for (let n = 1; n < 50; n++) {
-      const id = n === 1 ? base : `${base}-${n}`;
-      const data: ErrorEntry = {
-        ...draft, id, count: draft.count ?? 1,
-        // the first occurrence — unless it was created with count 0
-        occurrences: (draft.count ?? 1) > 0 ? [{ at: now, ...(who ? { by: who } : {}) }] : [],
-        createdAt: now, updatedAt: now, lastAction: 'created',
-        ...(who ? { createdBy: who, updatedBy: who } : {}),
-      };
-      const w = await be.write(`${DIR}/${id}.json`, toJson(data), { createOnly: true });
-      if (w.ok) {
-        const item = { data, version: w.version };
-        upsert(item);
-        return { ok: true, item };
-      }
-      if (w.reason !== 'exists') return { ok: false, message: w.message };
-    }
-    return { ok: false, message: 'Keine freie ID gefunden.' };
+    const r = await createErrorIn(be, draft, actorRef.current, nowIso());
+    if (r.ok && backendRef.current === be) upsert(r.item);
+    return r;
   }, [upsert]);
 
-  const saveError = useCallback(async (data: ErrorEntry, expectedVersion: string): Promise<SaveResult> => {
+  const saveError = useCallback((data: ErrorEntry, expectedVersion: string): Promise<SaveResult> => {
     const be = backendRef.current;
-    if (!be) return { status: 'error', message: 'Kein Ordner gewählt.' };
-    const who = actorRef.current;
-    const next: ErrorEntry = { ...data, updatedAt: nowIso(), lastAction: 'edited', ...(who ? { updatedBy: who } : {}) };
-    const w = await be.write(`${DIR}/${data.id}.json`, toJson(next), { ifMatch: expectedVersion });
-    if (!w.ok) {
-      if (w.reason === 'conflict') {
-        const current = await readError(be, data.id).catch(() => null);
-        if (current) upsert(current);
-        return { status: 'conflict', current };
+    if (!be) return Promise.resolve({ status: 'error', message: 'Kein Ordner gewählt.' });
+    return serialize(writeChains.current, data.id, async () => {
+      const r = await saveErrorIn(be, data, expectedVersion, actorRef.current, nowIso());
+      if (backendRef.current === be) {
+        if (r.status === 'saved') upsert(r.item);
+        else if (r.status === 'conflict' && r.current) setErrors(prev => [...prev.filter(p => p.data.id !== data.id), r.current!]);
       }
-      return { status: 'error', message: w.reason === 'forbidden' ? w.message : 'Schreiben fehlgeschlagen — die Änderung wurde NICHT gespeichert.' };
-    }
-    const item = { data: next, version: w.version };
-    upsert(item);
-    return { status: 'saved', item };
-  }, [readError, upsert]);
+      return r;
+    });
+  }, [upsert]);
 
-  const countError = useCallback(async (id: string) => {
+  const countError = useCallback((id: string) => {
     const be = backendRef.current;
-    if (!be) return { ok: false as const, message: 'Kein Ordner gewählt.' };
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const cur = await readError(be, id).catch(() => null);
-      if (!cur) return { ok: false as const, message: 'Fehler-Datei nicht gefunden.' };
-      const now = nowIso();
-      const who = actorRef.current;
-      const occ = [{ at: now, ...(who ? { by: who } : {}) }, ...(cur.data.occurrences ?? [])].slice(0, OCCURRENCE_LIMIT);
-      const next: ErrorEntry = {
-        ...cur.data, count: cur.data.count + 1, occurrences: occ,
-        updatedAt: now, lastAction: 'counted', ...(who ? { updatedBy: who } : {}),
-      };
-      const w = await be.write(`${DIR}/${id}.json`, toJson(next), { ifMatch: cur.version });
-      if (w.ok) {
-        const item = { data: next, version: w.version };
-        upsert(item);
-        return { ok: true as const, item };
-      }
-      if (w.reason !== 'conflict') return { ok: false as const, message: w.message };
-    }
-    return { ok: false as const, message: 'Zu viele gleichzeitige Änderungen — bitte nochmals versuchen.' };
-  }, [readError, upsert]);
+    if (!be) return Promise.resolve({ ok: false as const, message: 'Kein Ordner gewählt.' });
+    return serialize(writeChains.current, id, async () => {
+      const r = await countErrorIn(be, id, actorRef.current, nowIso);
+      if (r.ok && backendRef.current === be) upsert(r.item);
+      return r;
+    });
+  }, [upsert]);
 
   // ── images ────────────────────────────────────────────────────────────────
 
@@ -436,14 +402,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── write model.json ──────────────────────────────────────────────────────
+  // With the version read: if another admin saved meanwhile, nothing is
+  // overwritten — the newer state is loaded and the change has to be made again.
   const saveModel = useCallback(async (m: Model): Promise<{ ok: true } | { ok: false; message: string }> => {
     const be = backendRef.current;
     if (!be) return { ok: false, message: 'Kein Ordner gewählt.' };
-    const w = await be.write('model.json', JSON.stringify(m, null, 2));
-    if (!w.ok) return { ok: false, message: `model.json konnte nicht geschrieben werden: ${w.message}` };
+    const ifMatch = modelVersionRef.current ?? undefined;
+    const w = await be.write('model.json', JSON.stringify(m, null, 2), ifMatch ? { ifMatch } : {});
+    if (!w.ok) {
+      if (w.reason === 'conflict') { await loadModel(be); return { ok: false, message: MODEL_CONFLICT }; }
+      return { ok: false, message: `model.json konnte nicht geschrieben werden: ${w.message}` };
+    }
+    if (backendRef.current !== be) return { ok: true };
+    modelVersionRef.current = w.version;
     setModel(m);
     return { ok: true };
-  }, []);
+  }, [loadModel]);
 
   // ── Confluence import ─────────────────────────────────────────────────────
   // Existing errors (same ID) stay untouched — so the import can be repeated
@@ -491,7 +465,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       pickDirectory, savedHandleName, reconnectDirectory,
       connectSharePoint, savedSharePoint, forgetSharePoint, disconnect,
       model, modelError, saveModel,
-      errors, loading, lastRefresh, refreshErrors, createError, saveError, countError, importConfluence,
+      errors, loading, lastRefresh, refreshProblems, refreshErrors, createError, saveError, countError, importConfluence,
       saveAttachment, resolveAttachment,
       actor, setLocalName,
     }}>

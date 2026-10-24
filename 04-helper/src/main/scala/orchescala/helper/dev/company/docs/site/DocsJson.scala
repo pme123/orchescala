@@ -23,8 +23,10 @@ object DocsJson:
 
   case class Result(company: String, docsJson: os.Path, projects: Int, pages: Int)
 
-  /** @param spec where orch-spec is deployed, relative to the site root - e.g. `spec/`
-    * @param ops  where orch-ops is deployed, relative to the site root - e.g. `ops/`
+  /** @param spec       where orch-spec is deployed, relative to the site root - e.g. `spec/`
+    * @param companyOpt the company id, if not derived from the repo name / index.md
+    * @param ops        where orch-ops is deployed, relative to the site root - e.g. `ops/`
+    *                   (last, so existing positional callers stay as they are)
     */
   def write(
       docsDir: os.Path,
