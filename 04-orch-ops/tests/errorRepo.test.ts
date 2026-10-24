@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MemoryBackend } from '../src/backend';
 import {
-  DIR, countErrorIn, createErrorIn, mergeRefresh, normalizeError, readAll, readError, saveErrorIn, serialize,
+  DIR, countErrorIn, createErrorIn, mapLimit, mergeRefresh, normalizeError, readAll, readError, saveErrorIn, serialize,
   type ErrorItem,
 } from '../src/errorRepo';
 import type { ErrorEntry } from '../src/types';
@@ -65,7 +65,7 @@ test('count: gives up after the attempts when it always conflicts — nothing wr
   };
   const r = await countErrorIn(be, 'a', '', now, { attempts: 3, pause: noPause });
   assert.equal(r.ok, false);
-  assert.match((r as { message: string }).message, /Zu viele/);
+  assert.match((r as { message: string }).message, /Nicht gezählt/);
   be.beforeWrite = undefined;
   assert.equal((await readError(be, 'a'))!.data.count, 2);
 });
@@ -173,4 +173,37 @@ test('normalizeError: missing or wrong fields become valid defaults', () => {
   assert.deepEqual(e.status, []);
   assert.equal(e.count, 1);
   assert.deepEqual(e.occurrences, [{ at: 'x' }]);
+});
+
+test('readAll: at most READ_CONCURRENCY reads at once — many errors, no flood of requests', async () => {
+  class Slow extends MemoryBackend {
+    running = 0; max = 0;
+    async read(path: string) {
+      this.running++; this.max = Math.max(this.max, this.running);
+      await new Promise(r => setTimeout(r, 2));
+      try { return await super.read(path); } finally { this.running--; }
+    }
+  }
+  const be = new Slow();
+  for (let i = 0; i < 40; i++) be.seed(`${DIR}/e${i}.json`, JSON.stringify(entry(`e${i}`)));
+  const r = await readAll(be, 5);
+  assert.equal(r.items.length, 40);
+  assert.ok(be.max <= 5, `at most 5 at once, was ${be.max}`);
+  assert.ok(be.max > 1, 'still in parallel');
+});
+
+test('mapLimit keeps the order of the input', async () => {
+  const out = await mapLimit([30, 10, 20, 0], 2, async ms => { await new Promise(r => setTimeout(r, ms)); return ms; });
+  assert.deepEqual(out, [30, 10, 20, 0]);
+  assert.deepEqual(await mapLimit([], 3, async x => x), []);
+});
+
+test('create: without a title the id still has two parts', async () => {
+  const be = new MemoryBackend();
+  const draft = { process: 'acme-p', title: '', details: 'x', activity: '', reporter: '', status: [], ticket: '', workaround: '' };
+  const a = await createErrorIn(be, draft, '', now());
+  const b = await createErrorIn(be, draft, '', now());
+  assert.ok(a.ok && b.ok);
+  assert.equal(a.item.data.id, 'acme-p--fehler');
+  assert.equal(b.item.data.id, 'acme-p--fehler-2');
 });

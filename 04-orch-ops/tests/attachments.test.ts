@@ -10,6 +10,9 @@ test('isAttachmentPath: own attachments only', () => {
   assert.ok(!isAttachmentPath('attachments/../model.json'));
   assert.ok(!isAttachmentPath('https://evil.example.com/attachments/x.png'));
   assert.ok(!isAttachmentPath('errors/x.json'));
+  assert.ok(!isAttachmentPath('/attachments/2026-10/x.png'), 'absolute path');
+  assert.ok(!isAttachmentPath('attachments\\..\\model.json'), 'backslashes');
+  assert.ok(!isAttachmentPath('attachments/%2e%2e/model.json'), 'encoded dots');
   assert.ok(!isAttachmentPath('attachments/2026-10/x y.png'));
 });
 

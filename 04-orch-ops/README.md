@@ -95,10 +95,21 @@ Eine Datei je Fehler. Gespeichert wird mit Versionsprüfung (SharePoint:
 ETag/If-Match, lokal: Änderungszeit):
 
 - **Zählen** liest frisch, zählt hoch und schreibt; hat inzwischen jemand
-  anders gezählt, wird automatisch neu gelesen und nochmals versucht — kein
-  Klick geht verloren.
+  anders gezählt, wird automatisch neu gelesen und nochmals versucht. Klicks
+  auf denselben Fehler laufen im Browser nacheinander. Gelingt es nach
+  mehreren Versuchen nicht, steht «nicht gezählt» am Knopf.
 - **Bearbeiten**: hat jemand anders inzwischen geändert, bleibt die eigene
   Änderung im Formular und die App fragt: neuen Stand laden oder überschreiben.
+- **`model.json`** (Admin, How-to) genauso: wer zu spät speichert, bekommt den
+  neuen Stand geladen statt den des anderen zu überschreiben.
+
+**Wo das hält:** In **SharePoint** prüft der Server (ETag) — dort geht bei
+mehreren Personen kein Zähler und keine Änderung verloren. Im **lokalen
+Ordner** schützt die App mehrere Tabs desselben Browsers (Sperre pro Datei,
+Version = Änderungszeit + Prüfsumme). Bei einem **Sync-Ordner** (OneDrive,
+Drive), in den mehrere Rechner schreiben, sieht sie die Änderung eines
+anderen erst, wenn der Sync sie geliefert hat — zählen zwei fast gleichzeitig,
+kann einer verloren gehen. Für ein Team deshalb SharePoint nehmen.
 
 ## Datenordner
 

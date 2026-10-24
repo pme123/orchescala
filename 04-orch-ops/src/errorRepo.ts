@@ -60,11 +60,23 @@ export async function readError(be: StorageBackend, id: string): Promise<ErrorIt
   return { data: normalizeError(JSON.parse(read.text), id), version: read.version };
 }
 
+/** at most this many reads at once — a few hundred errors must not trigger SharePoint's throttling */
+export const READ_CONCURRENCY = 6;
+
+/** `fn` over all items, at most `limit` running at the same time; results in input order */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]); } };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+  return out;
+}
+
 /** All errors of the folder. `failed`: files that could not be read (broken JSON, network). */
-export async function readAll(be: StorageBackend): Promise<{ items: ErrorItem[]; failed: string[] }> {
+export async function readAll(be: StorageBackend, concurrency = READ_CONCURRENCY): Promise<{ items: ErrorItem[]; failed: string[] }> {
   const files = (await be.list(DIR)).filter(f => f.name.endsWith('.json'));
   const failed: string[] = [];
-  const items = await Promise.all(files.map(async f => {
+  const items = await mapLimit(files, concurrency, async f => {
     const id = f.name.replace(/\.json$/, '');
     try {
       const item = await readError(be, id);
@@ -74,7 +86,7 @@ export async function readAll(be: StorageBackend): Promise<{ items: ErrorItem[];
       failed.push(id);
       return null;
     }
-  }));
+  });
   return { items: items.filter((x): x is ErrorItem => !!x), failed: failed.sort() };
 }
 
@@ -118,8 +130,10 @@ export function serialize<T>(chains: Map<string, Promise<unknown>>, key: string,
 
 export async function createErrorIn(be: StorageBackend, draft: ErrorDraft, who: string, now: string):
   Promise<{ ok: true; item: ErrorItem } | { ok: false; message: string }> {
-  const base = (`${slugify(draft.process) || 'fehler'}--${slugify(draft.title).slice(0, 60)}`).replace(/-+$/, '') || 'fehler';
-  const count = Number.isFinite(draft.count) && draft.count! >= 0 ? Math.floor(draft.count!) : 1;
+  // without a title the id still has a second part — collisions get -2, -3 … anyway
+  const base = `${slugify(draft.process) || 'fehler'}--${slugify(draft.title).slice(0, 60).replace(/-+$/, '') || 'fehler'}`;
+  const wanted = draft.count ?? 1;
+  const count = Number.isFinite(wanted) && wanted >= 0 ? Math.floor(wanted) : 1;
   try { await be.ensureDir(DIR); } catch { /* write reports it */ }
   for (let n = 1; n < 50; n++) {
     const id = n === 1 ? base : `${base}-${n}`;
@@ -171,5 +185,5 @@ export async function countErrorIn(
     if (w.reason !== 'conflict') return { ok: false, message: w.message };
     if (attempt < attempts - 1) await pause(attempt);
   }
-  return { ok: false, message: 'Zu viele gleichzeitige Änderungen — bitte nochmals versuchen.' };
+  return { ok: false, message: 'Nicht gezählt: zu viele gleichzeitige Änderungen an diesem Fehler — bitte nochmals klicken.' };
 }

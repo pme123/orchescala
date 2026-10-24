@@ -37,9 +37,22 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 // ── Local folder ─────────────────────────────────────────────────────────────
-// Writes are atomic per file for this browser (lock above). Another machine
-// writing into a synced folder (OneDrive) is only caught by the version check —
-// SharePoint (ETag on the server) is the safe choice for several people.
+// The version is «modification time + checksum of the content»: a write in the
+// same millisecond still gives a new version (unless the content is identical,
+// which is harmless). Check and write run under a lock per file for this
+// browser (all tabs). Another machine writing into a synced folder (OneDrive,
+// Drive) is caught only if its change has arrived before our check — for
+// several people at once SharePoint (ETag on the server) is the safe choice.
+
+/** FNV-1a over the text — enough to tell two contents apart, no security purpose */
+function checksum(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
+const localVersion = (lastModified: number, text: string) => `${lastModified}-${checksum(text)}`;
+
 export class LocalBackend implements StorageBackend {
   kind = 'local' as const;
   constructor(private root: FileSystemDirectoryHandle) {}
@@ -53,56 +66,57 @@ export class LocalBackend implements StorageBackend {
     return { dir, file };
   }
 
-  async read(path: string): Promise<ReadResult | null> {
+  /** the file handle, or null if it (or its folder) is not there — never creates anything */
+  private async existing(path: string): Promise<FileSystemFileHandle | null> {
     try {
       const { dir, file } = await this.dirOf(path, false);
-      const fh = await dir.getFileHandle(file);
+      return await dir.getFileHandle(file);
+    } catch {
+      return null;
+    }
+  }
+
+  async read(path: string): Promise<ReadResult | null> {
+    const fh = await this.existing(path);
+    if (!fh) return null;
+    try {
       const f = await fh.getFile();
-      return { text: await f.text(), version: String(f.lastModified) };
+      const text = await f.text();
+      return { text, version: localVersion(f.lastModified, text) };
     } catch {
       return null;
     }
   }
 
   async readBlob(path: string): Promise<Blob | null> {
-    try {
-      const { dir, file } = await this.dirOf(path, false);
-      return await (await dir.getFileHandle(file)).getFile();
-    } catch {
-      return null;
-    }
+    const fh = await this.existing(path);
+    try { return fh ? await fh.getFile() : null; } catch { return null; }
   }
 
-  write(path: string, text: string | Blob, opts: { ifMatch?: string; createOnly?: boolean } = {}): Promise<WriteResult> {
+  write(path: string, body: string | Blob, opts: { ifMatch?: string; createOnly?: boolean } = {}): Promise<WriteResult> {
     return withLock(`orch-ops:${this.name}/${path}`, async (): Promise<WriteResult> => {
       try {
-        const { dir, file } = await this.dirOf(path, true);
-        if (opts.createOnly) {
-          let exists = true;
-          try { await dir.getFileHandle(file); } catch { exists = false; }
-          if (exists) return { ok: false, reason: 'exists', message: 'Datei existiert bereits.' };
-        }
-        const fh = await dir.getFileHandle(file, { create: true });
+        let fh = await this.existing(path);
+        if (opts.createOnly && fh) return { ok: false, reason: 'exists', message: 'Datei existiert bereits.' };
         if (opts.ifMatch != null) {
-          // any other version is a conflict — also an older one or the same millisecond rewritten
+          // an update of a file that is gone: a conflict — and nothing (no empty file) is created
+          if (!fh) return { ok: false, reason: 'conflict', message: 'Datei gibt es nicht mehr.' };
+          // any other version is a conflict — an older one as well as a newer one
           const cur = await fh.getFile();
-          if (String(cur.lastModified) !== opts.ifMatch) {
-            return { ok: false, reason: 'conflict', message: 'Datei wurde inzwischen geändert.', currentVersion: String(cur.lastModified) };
+          const curVersion = localVersion(cur.lastModified, await cur.text());
+          if (curVersion !== opts.ifMatch) {
+            return { ok: false, reason: 'conflict', message: 'Datei wurde inzwischen geändert.', currentVersion: curVersion };
           }
         }
-        const w = await fh.createWritable();
-        await w.write(text);
-        await w.close();
-        let f = await fh.getFile();
-        // same millisecond as the version we replaced: wait a tick, the next check must see a change
-        if (opts.ifMatch != null && String(f.lastModified) === opts.ifMatch) {
-          await new Promise(r => setTimeout(r, 2));
-          const w2 = await fh.createWritable();
-          await w2.write(text);
-          await w2.close();
-          f = await fh.getFile();
+        if (!fh) {
+          const { dir, file } = await this.dirOf(path, true);
+          fh = await dir.getFileHandle(file, { create: true });
         }
-        return { ok: true, version: String(f.lastModified) };
+        const w = await fh.createWritable();
+        await w.write(body);
+        await w.close();
+        const f = await fh.getFile();
+        return { ok: true, version: localVersion(f.lastModified, typeof body === 'string' ? body : '') };
       } catch (e) {
         console.error('[orch-ops] LocalBackend.write:', e);
         return { ok: false, reason: 'error', message: 'Schreiben fehlgeschlagen.' };

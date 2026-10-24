@@ -6,6 +6,9 @@ import { test } from 'node:test';
 import { LocalBackend } from '../src/backend';
 
 let clock = 1_000;
+// a frozen clock: every write lands in the same millisecond
+let frozen = false;
+const nextTime = () => (frozen ? clock : clock++);
 
 class FakeFile {
   constructor(public body: Blob, public lastModified: number) {}
@@ -14,7 +17,7 @@ class FakeFile {
 class FakeFileHandle {
   kind = 'file' as const;
   file: FakeFile;
-  constructor(public name: string) { this.file = new FakeFile(new Blob(['']), clock++); }
+  constructor(public name: string) { this.file = new FakeFile(new Blob(['']), nextTime()); }
   async getFile() {
     const f = this.file;
     return Object.assign(f.body, { lastModified: f.lastModified, name: this.name }) as unknown as File;
@@ -23,7 +26,7 @@ class FakeFileHandle {
     let next: Blob = new Blob(['']);
     return {
       write: async (b: string | Blob) => { next = typeof b === 'string' ? new Blob([b]) : b; },
-      close: async () => { this.file = new FakeFile(next, clock++); },
+      close: async () => { this.file = new FakeFile(next, nextTime()); },
     };
   }
 }
@@ -86,4 +89,29 @@ test('missing files read as null, binary round trip', async () => {
   await be.write('attachments/2026-10/x.png', new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }));
   const b = await be.readBlob('attachments/2026-10/x.png');
   assert.deepEqual([...new Uint8Array(await b!.arrayBuffer())], [1, 2, 3]);
+});
+
+test('ifMatch on a file that is gone: a conflict — and no empty file is created', async () => {
+  const be = backend();
+  const w = await be.write('errors/gone.json', '{"count":2}', { ifMatch: '123-abc' });
+  assert.equal(w.ok, false);
+  assert.equal((w as { reason: string }).reason, 'conflict');
+  assert.equal(await be.read('errors/gone.json'), null, 'nothing created');
+  assert.deepEqual(await be.list('errors'), [], 'not even the folder has a file');
+});
+
+test('same millisecond, other content: still a new version — the old one is a conflict', async () => {
+  const be = backend();
+  frozen = true;
+  try {
+    const w1 = await be.write('m.json', '{"count":2}') as { version: string };
+    const w2 = await be.write('m.json', '{"count":3}', { ifMatch: w1.version }) as { ok: boolean; version: string };
+    assert.ok(w2.ok);
+    assert.notEqual(w2.version, w1.version, 'checksum tells them apart although the time is the same');
+    const stale = await be.write('m.json', '{"count":3}', { ifMatch: w1.version });
+    assert.equal(stale.ok, false);
+    assert.equal((await be.read('m.json'))!.version, w2.version);
+  } finally {
+    frozen = false;
+  }
 });

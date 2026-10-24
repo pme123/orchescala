@@ -24,11 +24,29 @@ function shareId(link: string): string {
   return `u!${b64}`;
 }
 
+// Graph throttles (429) or is briefly unavailable (503): wait as long as it says
+// (Retry-After, in seconds — capped) or back off, then try again. Bodies are
+// strings or Blobs, so a request can be sent again as it is.
+const RETRY_STATUS = new Set([429, 503]);
+const MAX_TRIES = 4;
+const MAX_WAIT_MS = 30_000;
+
+export function retryAfterMs(res: Response, attempt: number): number {
+  // a missing header must not read as «0 seconds» (Number(null) === 0)
+  const h = res.headers.get('Retry-After')?.trim();
+  const s = h ? Number(h) : NaN;
+  return Math.min(MAX_WAIT_MS, Number.isFinite(s) && s >= 0 ? s * 1000 : 1000 * 2 ** attempt);
+}
+
 async function graphFetch(getToken: TokenProvider, base: string, path: string, init: RequestInit = {}): Promise<Response> {
-  const token = await getToken();
-  const headers = new Headers(init.headers);
-  headers.set('Authorization', `Bearer ${token}`);
-  return fetch(`${base}${path}`, { cache: 'no-store', ...init, headers });
+  for (let attempt = 0; ; attempt++) {
+    const token = await getToken();
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(`${base}${path}`, { cache: 'no-store', ...init, headers });
+    if (!RETRY_STATUS.has(res.status) || attempt >= MAX_TRIES - 1) return res;
+    await new Promise(r => setTimeout(r, retryAfterMs(res, attempt)));
+  }
 }
 
 // resolve a folder from a SharePoint/OneDrive link

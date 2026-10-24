@@ -81,6 +81,8 @@ class DocsJsonTest extends FunSuite:
   test("index.json: DocsJson and docs2json.ts agree on specUrl/opsUrl"):
     val node = scala.util.Try(os.proc("node", "--version").call(check = false).exitCode == 0).getOrElse(false)
     if !node || !os.exists(orchDocPath / "tools" / "docs2json.ts") then
+      // locally a skip is fine - on CI (Node is set up there) it would hide a drift between the two
+      if sys.env.contains("CI") then fail(s"04-orch-doc ($orchDocPath) or Node.js missing on CI - the cross-check must run there")
       println(s"Skipping: 04-orch-doc ($orchDocPath) or Node.js not available")
     else
       val docs = miniDocs()
