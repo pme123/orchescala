@@ -40,7 +40,7 @@ jobs:
         # build is easy to spot.
         run: sbt dmnTesterClient/bundleClient
       - name: Build the documentation apps
-        # vite builds orch-doc (site app + single-file API page) and orch-spec to
+        # vite builds orch-doc (site app + single-file API page), orch-spec and orch-ops to
         # 04-orch-doc/bundle - packaged into orchescala-orch-doc, which helper and gateway
         # ship. Same reason for an own step as above.
         run: sbt orchDocClient/bundleDocClient

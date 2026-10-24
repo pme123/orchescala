@@ -1,4 +1,4 @@
-import { AlertTriangle, BookOpen, ChevronDown, ClipboardList, FileText, GitFork, Home, Menu, Moon, PenTool, Sun, X } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronDown, ClipboardList, FileText, GitFork, Home, Menu, Moon, PenTool, Siren, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import ApiDoc from './components/ApiDoc';
 import Catalog from './components/Catalog';
@@ -31,6 +31,7 @@ export default function App() {
   const companyRef = siteData?.companies.find(x => x.id === company) ?? (company ? { id: company, name: company } : undefined);
   const companyName = companyRef?.name ?? company;
   const specUrl = siteData?.specUrl;
+  const opsUrl = siteData?.opsUrl;
   const orchescalaUrl = siteData?.orchescalaUrl ?? 'https://pme123.github.io/orchescala/';
   useEffect(() => {
     document.title = company ? `${companyName} · Process Documentation` : (siteData?.title ?? 'Process Documentation');
@@ -64,6 +65,15 @@ export default function App() {
               <a href={specUrl} title="Process specifications (Orch Spec) — experimental"
                 className={`relative flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 mr-1.5 rounded border ${c.btn}`}>
                 <PenTool size={12} /><span className="hidden sm:inline">Spec</span>
+                <span className="absolute -top-2 -right-3 rotate-6 text-[7px] leading-none px-1 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-400 text-black shadow">
+                  experimental
+                </span>
+              </a>
+            )}
+            {opsUrl && (
+              <a href={opsUrl} title="Operations — recurring errors and their workarounds (Orch Ops) — experimental"
+                className={`relative flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 mr-1.5 rounded border ${c.btn}`}>
+                <Siren size={12} /><span className="hidden sm:inline">Ops</span>
                 <span className="absolute -top-2 -right-3 rotate-6 text-[7px] leading-none px-1 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-400 text-black shadow">
                   experimental
                 </span>
@@ -165,6 +175,11 @@ function HomeView({ site, isDark }: { site: ReturnType<typeof useSiteIndex>; isD
       {s.specUrl && (
         <p className={`text-[11px] mt-10 ${c.muted}`}>
           New processes are specified in <a href={s.specUrl} className={c.link}>Orch Spec</a> — the specification app.
+        </p>
+      )}
+      {s.opsUrl && (
+        <p className={`text-[11px] ${s.specUrl ? 'mt-2' : 'mt-10'} ${c.muted}`}>
+          Recurring errors in operation and their workarounds are in <a href={s.opsUrl} className={c.link}>Orch Ops</a>.
         </p>
       )}
     </div>

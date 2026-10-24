@@ -5,8 +5,8 @@ import io.circe.parser.parse
 /** Assembles the complete documentation site of one or more companies into `out` - the layout the
   * WebDAV server (`/site`) and the company gateway serve:
   *
-  *   - `index.html` + `assets/`, `spec/`         the documentation app and orch-spec - from the
-  *                                                orchescala-orch-doc jar (`orch-doc-site/`)
+  *   - `index.html` + `assets/`, `spec/`, `ops/` the documentation app, orch-spec and orch-ops -
+  *                                                from the orchescala-orch-doc jar (`orch-doc-site/`)
   *   - `index.json`, `<company>/docs.json`, `<company>/pages/`   DocsJson, per company
   *   - `<company>/<project>/OpenApi.html|yml` (+ `PostmanOpenApi.*`) + `diagrams/`
   *                                                the referenced APIs, taken from the project
@@ -209,7 +209,7 @@ object SiteAssembler:
       println(s"  ! git show $refFile in $repo failed: $why")
       None
 
-  /** The documentation app incl. orch-spec (`orch-doc-site/` in the orchescala-orch-doc jar) into
+  /** The documentation app incl. orch-spec and orch-ops (`orch-doc-site/` in the orchescala-orch-doc jar) into
     * `out` - by the index `files.txt` the build writes, since a jar cannot be listed.
     */
   def copySiteApp(out: os.Path): Unit =
@@ -223,7 +223,7 @@ object SiteAssembler:
     println(s"  ✓ documentation app (${files.size} files) from the orchescala-orch-doc jar")
   end copySiteApp
 
-  /** The `assets/` folders the apps bring (`assets/`, `spec/assets/`) emptied before the copy - their
+  /** The `assets/` folders the apps bring (`assets/`, `spec/assets/`, `ops/assets/`) emptied before the copy - their
     * files carry a hash in the name, so each release adds new ones and the old ones would pile up.
     * Only folders of the jar's index are touched; the classic sites (`<company>/<tag>/assets`) stay.
     */

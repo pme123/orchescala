@@ -10,6 +10,7 @@
 //   --out <dir>          target folder (default: dist-site)
 //   --old-releases       also copy the classic static sites of older releases (<00-docs>/site/<company>/<tag>)
 //   --no-spec            skip building orch-spec into <out>/spec
+//   --no-ops             skip building orch-ops into <out>/ops
 //   --no-build           skip the vite builds (reuse what is already in <out>)
 //   --serve [port]       serve <out> locally (default 3004) and keep running
 //
@@ -20,6 +21,7 @@
 //        taken from git-temp at the version defined in VERSIONS.conf
 //        (`git show v<version>:…` — the working trees stay untouched)
 //   spec/                         orch-spec
+//   ops/                          orch-ops
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
@@ -39,6 +41,7 @@ const opt = (name: string, dflt?: string) => {
 const prepare = flag('--prepare');
 const oldReleases = flag('--old-releases');
 const noSpec = flag('--no-spec');
+const noOps = flag('--no-ops');
 const noBuild = flag('--no-build');
 const serveIdx = args.indexOf('--serve');
 const servePort = serveIdx >= 0 ? Number(opt('--serve', '3004')) : undefined;
@@ -46,7 +49,7 @@ const out = resolve(opt('--out', join(rootDir, 'dist-site'))!);
 const gitTempOpt = opt('--git-temp');
 const docsDirs = args.filter(a => !a.startsWith('--')).map(d => resolve(d));
 if (!docsDirs.length || !docsDirs.every(d => existsSync(join(d, 'src/docs')))) {
-  console.error('Usage: node tools/assemble.ts <path/to/00-docs> [more …] [--prepare] [--git-temp <dir>] [--out <dir>] [--old-releases] [--no-spec] [--no-build] [--serve [port]]');
+  console.error('Usage: node tools/assemble.ts <path/to/00-docs> [more …] [--prepare] [--git-temp <dir>] [--out <dir>] [--old-releases] [--no-spec] [--no-ops] [--no-build] [--serve [port]]');
   process.exit(1);
 }
 const gitTemp = resolve(gitTempOpt ?? join(docsDirs[0], '../../../git-temp'));
@@ -71,7 +74,8 @@ if (prepare) for (const d of docsDirs) {
 // ── 2. markdown sources → site data ──────────────────────────────────────────────
 mkdirSync(out, { recursive: true });
 for (const d of docsDirs)
-  run('node', [join(rootDir, 'tools/docs2json.ts'), d, '--out', out, ...(noSpec ? [] : ['--spec', 'spec/'])], rootDir);
+  run('node', [join(rootDir, 'tools/docs2json.ts'), d, '--out', out,
+    ...(noSpec ? [] : ['--spec', 'spec/']), ...(noOps ? [] : ['--ops', 'ops/'])], rootDir);
 
 const siteIndex: SiteIndex = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'));
 
@@ -192,6 +196,11 @@ if (!noBuild) {
   if (!noSpec && existsSync(specDir))
     run('npx', ['vite', 'build', '--base=./', '--outDir', join(out, 'spec'), '--emptyOutDir'], specDir);
   else if (!noSpec) console.warn(`  ! orch-spec not found at ${specDir} — Spec skipped`);
+  // orch-ops: the sibling module in orchescala (04-orch-ops) - or a plain sibling checkout
+  const opsDir = ['../04-orch-ops', '../orch-ops'].map(d => resolve(rootDir, d)).find(existsSync) ?? resolve(rootDir, '../04-orch-ops');
+  if (!noOps && existsSync(opsDir))
+    run('npx', ['vite', 'build', '--base=./', '--outDir', join(out, 'ops'), '--emptyOutDir'], opsDir);
+  else if (!noOps) console.warn(`  ! orch-ops not found at ${opsDir} — Ops skipped`);
 }
 
 console.log(`\nSite assembled in ${out}`);

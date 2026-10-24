@@ -70,7 +70,7 @@ trait DocCreator extends DependencyCreator, Helpers:
   end previewLocally
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released
-    * versions, orch-spec) into `00-docs/site` - what the company gateway serves - and uploads it
+    * versions, orch-spec, orch-ops) into `00-docs/site` - what the company gateway serves - and uploads it
     * to `/site` (see SiteWebDAV). Needs Java and git only; Node.js for the spec catalog.
     */
   def publishDocs(): Unit =

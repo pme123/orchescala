@@ -23,8 +23,18 @@ object DocsJson:
 
   case class Result(company: String, docsJson: os.Path, projects: Int, pages: Int)
 
-  /** @param spec where orch-spec is deployed, relative to the site root - e.g. `spec/` */
-  def write(docsDir: os.Path, out: os.Path, spec: Option[String] = Some("spec/"), companyOpt: Option[String] = None): Result =
+  /** @param spec       where orch-spec is deployed, relative to the site root - e.g. `spec/`
+    * @param companyOpt the company id, if not derived from the repo name / index.md
+    * @param ops        where orch-ops is deployed, relative to the site root - e.g. `ops/`
+    *                   (last, so existing positional callers stay as they are)
+    */
+  def write(
+      docsDir: os.Path,
+      out: os.Path,
+      spec: Option[String] = Some("spec/"),
+      companyOpt: Option[String] = None,
+      ops: Option[String] = Some("ops/")
+  ): Result =
     val src = docsDir / "src" / "docs"
     require(os.exists(src), s"no src/docs in $docsDir")
     def read(f: String): String =
@@ -280,7 +290,8 @@ object DocsJson:
     val merged = (companies.filterNot(c => prev.contains(c)) :+ ref)
       .sortBy(_.hcursor.get[String]("id").getOrElse(""))
     val withSpec  = spec.fold(siteIndex)(s => siteIndex.add("specUrl", s.asJson))
-    os.write.over(indexPath, print(Json.fromJsonObject(withSpec.add("companies", merged.asJson))))
+    val withOps   = ops.fold(withSpec)(o => withSpec.add("opsUrl", o.asJson))
+    os.write.over(indexPath, print(Json.fromJsonObject(withOps.add("companies", merged.asJson))))
 
     Result(company, docsJson, projects.size, pages.size)
   end write

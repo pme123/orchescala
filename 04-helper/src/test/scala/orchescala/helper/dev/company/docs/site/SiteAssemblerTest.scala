@@ -17,11 +17,13 @@ class SiteAssemblerTest extends FunSuite:
     .map(os.Path(_))
     .getOrElse(os.home / "git-temp")
 
-  test("the orch-doc jar ships the site app, the API page and the spec tools"):
+  test("the orch-doc jar ships the site app, the API page, orch-spec, orch-ops and the spec tools"):
     val files = os.read.lines(os.resource / "orch-doc-site" / "files.txt")
     assert(files.contains("index.html"), "site app index.html missing")
     assert(files.exists(_.startsWith("assets/")), "site app assets missing")
     assert(files.contains("spec/index.html"), "orch-spec missing")
+    assert(files.contains("ops/index.html"), "orch-ops missing")
+    assert(files.exists(_.startsWith("ops/assets/")), "orch-ops assets missing")
     val page = os.read(os.resource / "OrchDocApi.html")
     assert(page.length > 500 * 1024, s"API page suspiciously small: ${page.length}")
     assert(!page.contains("""src="./assets/"""), "API page still references an assets/ folder")
@@ -32,11 +34,14 @@ class SiteAssemblerTest extends FunSuite:
     val out = os.temp.dir(prefix = "site-assets")
     os.write(out / "assets" / "index-OLD.js", "old", createFolders = true)
     os.write(out / "spec" / "assets" / "index-OLD.js", "old", createFolders = true)
+    os.write(out / "ops" / "assets" / "index-OLD.js", "old", createFolders = true)
     os.write(out / "spec" / "catalog.generated.json", "{}")
     os.write(out / "valiant" / "1.0" / "assets" / "classic.js", "keep", createFolders = true)
-    SiteAssembler.clearAppAssets(out, Seq("index.html", "assets/index-NEW.js", "spec/index.html", "spec/assets/index-NEW.js"))
+    SiteAssembler.clearAppAssets(out, Seq("index.html", "assets/index-NEW.js", "spec/index.html", "spec/assets/index-NEW.js",
+      "ops/index.html", "ops/assets/index-NEW.js"))
     assert(!os.exists(out / "assets"), "old assets/ still there")
     assert(!os.exists(out / "spec" / "assets"), "old spec/assets/ still there")
+    assert(!os.exists(out / "ops" / "assets"), "old ops/assets/ still there")
     assert(os.exists(out / "spec" / "catalog.generated.json"), "catalog removed")
     assert(os.exists(out / "valiant" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
 

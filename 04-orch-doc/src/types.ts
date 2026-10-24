@@ -12,6 +12,8 @@ export interface SiteIndex {
   companies: CompanyRef[];
   /** Link to the Spec app (orch-spec), relative to the site root — e.g. `spec/` */
   specUrl?: string;
+  /** Link to the Ops app (orch-ops: recurring errors in operation), relative to the site root — e.g. `ops/` */
+  opsUrl?: string;
   /** Link to the Orchescala documentation */
   orchescalaUrl?: string;
 }
