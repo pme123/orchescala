@@ -700,6 +700,183 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(mergeObject.differences(merged), Seq.empty)
     assertEquals(mergeObject.merge(merged), merged)
 
+  test("merge - InConfig fields without default get the default of Orch Spec - and it needs no example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      @description("Time to wait")
+        |      timerInformKube: String = "P1D",
+        |      timerEscalationInform: Option[String] = Some("P5D"),
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  // see InConfig.example
+        |  lazy val minimalConfig = Proc.InConfig.exampleMinimal
+        |  lazy val otherConfig   = Other.InConfig.example
+        |
+        |  case class InConfig(
+        |      // Process Configuration
+        |      @description(
+        |        "Time to wait"
+        |      )
+        |      timerInformKube: String,
+        |      timerEscalationInform: Option[String],
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      timerInformKube = "P1D",
+        |      timerEscalationInform = Some("P5D")
+        |    )
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains(
+      """  case class InConfig(
+        |      // Process Configuration
+        |      @description(
+        |        "Time to wait"
+        |      )
+        |      timerInformKube: String = "P1D",
+        |      timerEscalationInform: Option[String] = Some("P5D"),
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    ), m)
+    // all values are defaults now - no example, the In takes `InConfig()`
+    assert(!m.contains("lazy val example = InConfig("), m)
+    assert(!m.contains("= InConfig.example"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig()\n"), m)
+    // only references to this InConfig - not another object's, not in a comment
+    assert(m.contains("  lazy val minimalConfig = InConfig()\n"), m)
+    assert(m.contains("  lazy val otherConfig   = Other.InConfig.example\n"), m)
+    assert(m.contains("  // see InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - InConfig: a default over several lines or a commented line stays as it is - and so the example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      mocks: Seq[String] = Seq(
+        |        "a"
+        |      ),
+        |      timer: String = "P1D",
+        |      handler: String => Int = _.length
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  case class InConfig(
+        |      mocks: Seq[String],
+        |      timer: String, // the "timer"
+        |      handler: String => Int
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      mocks = Seq("a"),
+        |      timer = "P1D",
+        |      handler = _.length
+        |    )
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the multi-line default and the commented line are not touched - `=>` in a type is no default
+    assert(m.contains("      mocks: Seq[String],\n      timer: String, // the \"timer\"\n      handler: String => Int = _.length\n  )"), m)
+    // not all values are defaults: the example and `InConfig.example` stay
+    assert(m.contains("    lazy val example = InConfig(\n"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - InConfig: an example with other values than the defaults stays - and so InConfig.example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      timer: String = "P1D",
+        |      retries: Int = 3
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  case class InConfig(
+        |      timer: String = "P1D",
+        |      retries: Int = 3
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      timer = "PT1M"
+        |    )
+        |    lazy val exampleMinimal = example.copy(retries = 0)
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the example differs from the defaults: `InConfig()` would change the configuration
+    assert(m.contains("    lazy val example = InConfig(\n      timer = \"PT1M\"\n    )\n"), m)
+    assert(m.contains("    lazy val exampleMinimal = example.copy(retries = 0)\n"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
   test("merge - a field without default in InitIn also goes into its example"):
     val block    =
       """// in object Proc einfügen

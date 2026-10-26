@@ -725,6 +725,10 @@ case class OrchSpecProcessObject(
     withImports(withLabels(merged), missingImports(merged)).mkString("\n") + "\n"
   end merge
 
+  // `InConfig.example` / `Proc.InConfig.exampleMinimal` of this object - not `Other.InConfig.example`
+  private lazy val ownInConfigExample =
+    s"""(?<![\\w.])(?:${java.util.regex.Pattern.quote(objectName)}\\.)?InConfig\\.example(?:Minimal)?\\b"""
+
   // `override def`, `override val` or `override lazy val` - each is the object's own processLabels
   private def missingLabels(lines: Seq[String]): Boolean =
     processLabels.isDefined && !lines.exists(_.trim.matches("""override\s+(?:def|val|lazy\s+val)\s+processLabels\b.*"""))
@@ -762,8 +766,18 @@ case class OrchSpecProcessObject(
       case Some(e) if Seq("InConfig", "InitIn").contains(g.name) =>
         val own    = e.lines(lines)
         // a field without default must also be in the `example` - otherwise it does not compile
-        val merged = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
-        lines.patch(e.from, merged, e.until - e.from)
+        val added  = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
+        // the InConfig is the configuration: an own field without default gets the one of Orch Spec
+        // (the values were in `InConfig.example` - `defaultConfig = InConfig.example`)
+        val merged = if g.name == "InConfig" then CaseClassParams.addDefaults(added, replacement) else added
+        // with all values as defaults the InConfig needs no example: `InConfig.example` -> `InConfig()` -
+        // only when its examples are those defaults, otherwise the configuration would change
+        if g.name == "InConfig" && CaseClassParams.allHaveDefaults(merged) &&
+          CaseClassParams.examplesAreDefaults(merged, g.name)
+        then
+          lines.patch(e.from, TypeImplementation.withoutExamples(merged, g.name), e.until - e.from)
+            .map(l => if l.trim.startsWith("//") then l else l.replaceAll(ownInConfigExample, "InConfig()"))
+        else lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
       case Some(e) =>
         // the parameters and examples from Orch Spec - the implementation of the class stays
@@ -1038,6 +1052,62 @@ object CaseClassParams:
       end if
   end addMissing
 
+  /** The own parameters without default get the default `generated` has for them (on the line of
+    * the parameter: `timer: String,` -> `timer: String = "P1D",`). The rest stays as it is.
+    */
+  def addDefaults(section: Seq[String], generated: Seq[String]): Seq[String] =
+    val start    = section.indexWhere(_.matches("""\s*(?:final\s+)?case class \w+\(.*"""))
+    val close    = closing(section, start)
+    // only a default on one line - the line of the parameter, complete, without comment
+    val defaults = params(generated).filter(hasDefault).flatMap: p =>
+      val code = p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode)
+      code match
+        case Seq(withDefault(_, d)) if balance(d) == 0 && !d.contains("//") => Some(p.name -> d)
+        case _                                                            => None
+    if start < 0 || close < 0 then section
+    else
+      params(section).filterNot(hasDefault).foldLeft(section): (lines, p) =>
+        // the own parameter on one line too - its type complete, no comment to put the default into
+        val at = (start + 1 until close).find(j => lines(j).matches(s"""\\s*${p.name}\\s*:.*"""))
+          .filter(j => balance(lines(j)) == 0 && !lines(j).contains("//"))
+        (at, defaults.find(_._1 == p.name)) match
+          case (Some(j), Some((_, d))) =>
+            val line  = lines(j).replaceAll("""\s+$""", "")
+            val comma = line.endsWith(",")
+            lines.updated(j, s"${line.stripSuffix(",")} = $d${if comma then "," else ""}")
+          case _                       => lines
+  end addDefaults
+
+  // `name: Type = value` on one line - the value without the comma; `=>` in the type is no `=`
+  private val withDefault = """\s*(\w+)\s*:(?:[^=]|=>)*?\s=(?!>)\s*(.+?),?\s*""".r
+
+  /** Every parameter has a default - `X()` is a valid value. */
+  def allHaveDefaults(section: Seq[String]): Boolean =
+    val ps = params(section)
+    ps.nonEmpty && ps.forall(hasDefault)
+
+  /** `example` sets no value other than the defaults (`X()`, or each argument its default) and
+    * `exampleMinimal` is none, `example`, `example.copy()` or `X()` - then `X()` is the same.
+    */
+  def examplesAreDefaults(section: Seq[String], name: String): Boolean =
+    val compact  = (s: String) => s.replaceAll("\\s+", "").stripSuffix(",")
+    val defaults = params(section).flatMap: p =>
+      p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode).mkString(" ") match
+        case defaultValue(d) => Some(p.name -> compact(d))
+        case _               => None
+    .toMap
+    val args     = exampleArgs(section, name).map: a =>
+      a.name -> compact(a.lines.filter(isCode).mkString(" ").replaceFirst("""^\s*\w+\s*=""", ""))
+    val example  = exampleStart(section, name) < 0 ||
+      section(exampleStart(section, name)).trim.endsWith(s"$name()") ||
+      (args.nonEmpty && args.forall((n, v) => defaults.get(n).contains(v)))
+    val minimal  = section.find(_.matches("""\s*lazy val exampleMinimal\s*=.*""")).forall: l =>
+      Seq("example", "example.copy()", s"$name()").contains(compact(l.replaceFirst(""".*?=""", "")))
+    example && minimal
+
+  // the default of a parameter (its code on one line): `name: Type = value`
+  private val defaultValue = """(?s)\s*\w+\s*:(?:[^=]|=>)*?\s=(?!>)\s*(.+?),?\s*""".r
+
   /** The fields that `generated` adds to `own` and that have no default - with their argument in
     * the `lazy val example = X(…)` of `generated` added to the example of `section` (a field with
     * a default is fine without). Without an example in `section` or `generated` nothing changes.
@@ -1086,7 +1156,7 @@ object CaseClassParams:
   // from the line with the name on - the annotations before it (`@description("a = b")`) do not count
   private def hasDefault(p: Param): Boolean =
     p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode).mkString(" ")
-      .matches("""(?s)\s*\w+\s*:[^=]*=.*""")
+      .matches("""(?s)\s*\w+\s*:(?:[^=]|=>)*=(?!>).*""")
 
   case class Param(name: String, lines: Seq[String])
 
@@ -1106,7 +1176,9 @@ object CaseClassParams:
     lines.foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
       case ((done, current, depth), line) =>
         val d = depth + balance(line)
-        if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
+        // `timer: String, // the timer` - the comma before a comment at the end counts too
+        val code = line.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "\"\"").replaceFirst("""\s*//.*$""", "")
+        if d == 0 && isCode(line) && code.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
         else (done, current :+ line, d)
     match
       case (done, rest, _) => done ++ Option.when(rest.exists(isCode))(rest)
@@ -1161,6 +1233,19 @@ object TypeImplementation:
           else g.companion
         head ++ body ++ companion
       case _                  => generated
+
+  /** The section without `example` / `exampleMinimal` in its companion - and without the blank
+    * lines they leave behind.
+    */
+  def withoutExamples(section: Seq[String], name: String): Seq[String] =
+    parts(section, name) match
+      case Some(p) if p.companion.nonEmpty =>
+        val companion = examples.foldLeft(p.companion): (ls, ex) =>
+          block(ls, ex).fold(ls)((from, to) => ls.patch(from, Nil, to - from))
+        val tidy      = companion.zipWithIndex.filterNot: (l, i) =>
+          l.isBlank && (i + 1 >= companion.size || companion(i + 1).isBlank || companion(i + 1).trim == s"end $name")
+        p.head ++ p.body ++ tidy.map(_._1)
+      case _                               => section
 
   /** The class up to the end of its parameters, its body, its companion `object X`. */
   private def parts(section: Seq[String], name: String): Option[Parts] =

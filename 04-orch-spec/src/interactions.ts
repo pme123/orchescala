@@ -494,7 +494,10 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     const en = split ? resolveType(split.base, model, pkg) : null;
     if (split && enumHasCase(en, split.enumCase)) { ref = en; enumCase = split.enumCase; }
   }
-  const example = exampleOf(p);
+  // In/Out of an interaction use no default: one from the constructor (a class without
+  // `example`) is the example value
+  const dflt = p.default && p.default !== 'None' && !isFixedCaseDefault(enumCase, p.default) ? p.default : undefined;
+  const example = exampleOf(p) ?? (dflt ? exampleOf({ type: p.type, example: dflt }) : undefined);
   return {
     id: uid('f'),
     name: p.name,
@@ -504,7 +507,6 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     ...(shape.map ? { map: true } : {}),
     ...(enumCase ? { enumCase } : {}),
     ...(shape.constraint ? { constraint: shape.constraint } : {}),
-    ...(p.default && !isFixedCaseDefault(enumCase, p.default) ? { default: p.default } : {}),
     ...(p.description ? { description: p.description } : {}),
     ...(p.descriptionExpr ? { descriptionExpr: p.descriptionExpr } : {}),
     ...(example ? { example } : {}),
