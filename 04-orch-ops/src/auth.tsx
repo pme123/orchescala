@@ -295,6 +295,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const accountRef = useRef<AccountInfo | null>(null);
   const configRef = useRef<AuthConfig | null>(null);
   const runningKeyRef = useRef<string>(''); // IDs MSAL is running with
+  const msalReadyRef = useRef(false); // account for these IDs resolved (return from the sign-in handled)
 
   const effectiveIds = (cfg: AuthConfig | null) =>
     isValidIds(cfg) ? { tenantId: cfg.tenantId, clientId: cfg.clientId } : null;
@@ -302,8 +303,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // start MSAL: handle the return from sign-in, otherwise use an existing account
   const startMsal = useCallback(async (ids: { tenantId: string; clientId: string }) => {
     const key = `${ids.tenantId}|${ids.clientId}`;
-    if (runningKeyRef.current === key && pcaRef.current) return pcaRef.current;
+    if (runningKeyRef.current === key && pcaRef.current) {
+      // MSAL already runs with these IDs. Meanwhile the sign-in may have been
+      // off (a folder without it, status 'disabled') — then the status comes
+      // back from the known account, otherwise a folder that requires the
+      // sign-in would stay open.
+      if (msalReadyRef.current) setStatus(accountRef.current ? 'signedIn' : 'signedOut');
+      return pcaRef.current;
+    }
     runningKeyRef.current = key;
+    msalReadyRef.current = false;
     setStatus('loading');
     setError(null);
     try {
@@ -334,6 +343,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setStatus('signedOut');
       }
+      msalReadyRef.current = true;
       return pca;
     } catch (e) {
       console.error('[orch-ops] auth:', e);
