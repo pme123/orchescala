@@ -108,7 +108,8 @@ test('an existing correlation key stays as it is - not a second one', () => {
     '<bpmn:message id="Msg1" name="acme-demo"><bpmn:extensionElements><zeebe:subscription correlationKey="=clientKey" /></bpmn:extensionElements></bpmn:message>',
     messageStart);
   const r = applyPattern(xml, def, 'c8', null);
-  assert.equal(r.issues.length, 1); // the hint on the other key (next test)
+  assert.equal(r.issues.length, 1);
+  assert.match(r.issues[0], /zeebe:subscription bleibt wie im Diagramm \(correlationKey="=clientKey"\)/);
   assert.deepEqual(roots(r.xml)[0].ext, ['subscription =clientKey']);
 });
 
@@ -203,4 +204,12 @@ test('applied again without the zeebe namespace in the diagram: the key comes wi
   const d = parse(r.xml);
   assert.equal(d.documentElement.getAttribute('xmlns:zeebe'), ZEEBE);
   assert.deepEqual(roots(r.xml)[0].ext, ['subscription =businessKey']);
+});
+
+test('a message with documentation keeps the schema order: documentation before the extensions', () => {
+  const xml = processWith('<bpmn:message id="Msg1" name="acme-demo"><bpmn:documentation>Start of the demo</bpmn:documentation></bpmn:message>', messageStart);
+  const r = applyPattern(xml, def, 'c8', null);
+  assert.deepEqual(r.issues, []);
+  const msg = all(parse(r.xml)).find(e => ln(e) === 'message')!;
+  assert.deepEqual(Array.from(msg.children).map(ln), ['documentation', 'extensionElements']);
 });
