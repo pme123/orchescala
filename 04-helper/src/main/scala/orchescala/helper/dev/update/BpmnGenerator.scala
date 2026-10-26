@@ -231,10 +231,7 @@ case class BpmnGenerator()(using config: DevConfig):
 
   private def extraInVars(isProcess: Boolean) =
     if isProcess then
-      """    @description(
-        |        "A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**"
-        |      )
-        |      inConfig: Option[InConfig] = None
+      """      inConfig: Option[InConfig] = None
         |  ) extends WithConfig[InConfig]:
         |    lazy val defaultConfig = InConfig()
         |  end In""".stripMargin

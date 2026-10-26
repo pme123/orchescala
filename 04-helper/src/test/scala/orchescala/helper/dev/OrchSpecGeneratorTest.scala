@@ -133,7 +133,6 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("process object - In gets the inConfig"):
     assert(processObject.content.contains(
       """      shabNumber: Option[String],
-        |      @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
         |      inConfig: Option[InConfig] = None
         |  ) extends WithConfig[InConfig]:
         |    lazy val defaultConfig = InConfig()
@@ -189,11 +188,9 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |    case Standard(
         |        clientKey: Long,
         |        amount: Int,
-        |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
         |        inConfig: Option[InConfig] = None
         |    )
         |    case Empty(
-        |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
         |        inConfig: Option[InConfig] = None
         |    )
         |  end In""".stripMargin
