@@ -1458,11 +1458,20 @@ interface ListProps {
 }
 
 /**
+ * Deeper than this the tree stops — a guard: a block that contains itself must not fill the
+ * memory (with fan-out the cost grows per level). Real specifications reach about 7 levels.
+ */
+const MAX_TREE_DEPTH = 20;
+
+/**
  * What a pattern brings into the diagram — timer, link, shared block —
  * is wiring, not business logic. In the tree it is therefore shown as one
  * row in the pattern colour; the steps below only on click.
+ *
+ * `head`: the step the block starts with (its head, or the first step of the error path) —
+ * the list of its content must not open the same block again, otherwise it contains itself.
  */
-function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
+function PatternFold({ pattern, what, steps, head, p }: { pattern: string; what: string; steps: Step[]; head: string; p: ListProps }) {
   const c = cls(p.isDark);
   // opens and closes like every level (collapsed) — «Alles ausklappen» reaches it too
   const key = foldKey(steps);
@@ -1486,7 +1495,7 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
           {n} Schritt{n === 1 ? '' : 'e'}
         </span>
       </button>
-      {open && <StepList {...p} steps={steps} depth={p.depth + 1} />}
+      {open && <StepList {...p} steps={steps} depth={p.depth + 1} foldOf={head} />}
     </div>
   );
 }
@@ -1495,10 +1504,16 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
  * The steps of a level — own blocks (second start, link target) in
  * a bracket: the block begins at the step with `orphan` and extends
  * to the next one. An event subprocess already has its own bracket.
+ * `foldOf`: the head of the pattern block this list is the content of — it does not open the
+ * block again. Not part of ListProps, so it applies to this one list only and never travels on
+ * with the props to the lists below (children, branches, paths).
  */
-function StepList(p: ListProps) {
+function StepList({ foldOf, ...p }: ListProps & { foldOf?: string }) {
   const c = cls(p.isDark);
-  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)));
+  if (p.depth > MAX_TREE_DEPTH) {
+    return <p className={`text-[10px] ${c.muted}`}>… zu tief verschachtelt — weitere Ebenen ausgeblendet</p>;
+  }
+  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)), foldOf);
   return (
     <div className="flex flex-col">
       {groups.map(g => {
@@ -1507,7 +1522,7 @@ function StepList(p: ListProps) {
         if (g.head.pattern) {
           return (
             <div key={g.head.id} className="mt-2 -ml-6">
-              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} p={p} />
+              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} head={g.head.id} p={p} />
             </div>
           );
         }
@@ -1640,7 +1655,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
 
           {/* Error and side paths */}
           {step.errors?.filter(e => e.steps?.length && e.pattern && shows(e.steps)).map(e => (
-            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} p={p} />
+            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} head={e.steps![0].id} p={p} />
           ))}
           {step.errors?.filter(e => e.steps?.length && !e.pattern && shows(e.steps)).map(e => (
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${
