@@ -1464,7 +1464,11 @@ interface ListProps {
  * is wiring, not business logic. In the tree it is therefore shown as one
  * row in the pattern colour; the steps below only on click.
  */
-function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
+/**
+ * `head`: the step the block starts with (its head, or the first step of the error path) —
+ * the list of its content must not open the same block again, otherwise it contains itself.
+ */
+function PatternFold({ pattern, what, steps, head, p }: { pattern: string; what: string; steps: Step[]; head: string; p: ListProps }) {
   const c = cls(p.isDark);
   // opens and closes like every level (collapsed) — «Alles ausklappen» reaches it too
   const key = foldKey(steps);
@@ -1488,7 +1492,7 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
           {n} Schritt{n === 1 ? '' : 'e'}
         </span>
       </button>
-      {open && <StepList {...p} steps={steps} depth={p.depth + 1} foldOf={steps[0]?.id} />}
+      {open && <StepList {...p} steps={steps} depth={p.depth + 1} foldOf={head} />}
     </div>
   );
 }
@@ -1501,15 +1505,17 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
 function StepList(p: ListProps) {
   const c = cls(p.isDark);
   const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)), p.foldOf);
+  // `foldOf` applies to this list only — not to the lists below its rows (children, branches, paths)
+  const { foldOf: _, ...rowProps } = p;
   return (
     <div className="flex flex-col">
       {groups.map(g => {
-        if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...p} />);
+        if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...rowProps} />);
         const start = blockStart(g.head);
         if (g.head.pattern) {
           return (
             <div key={g.head.id} className="mt-2 -ml-6">
-              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} p={p} />
+              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} head={g.head.id} p={rowProps} />
             </div>
           );
         }
@@ -1523,7 +1529,7 @@ function StepList(p: ListProps) {
               <span className={c.muted}>· {start}</span>
               <span className={`ml-auto ${c.muted}`}>{n} Schritt{n === 1 ? '' : 'e'}</span>
             </div>
-            {g.steps.map(s => <StepRow key={s.id} step={s} {...p} />)}
+            {g.steps.map(s => <StepRow key={s.id} step={s} {...rowProps} />)}
           </div>
         );
       })}
@@ -1642,7 +1648,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
 
           {/* Error and side paths */}
           {step.errors?.filter(e => e.steps?.length && e.pattern && shows(e.steps)).map(e => (
-            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} p={p} />
+            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} head={e.steps![0].id} p={p} />
           ))}
           {step.errors?.filter(e => e.steps?.length && !e.pattern && shows(e.steps)).map(e => (
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${

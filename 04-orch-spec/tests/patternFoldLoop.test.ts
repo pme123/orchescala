@@ -4,6 +4,8 @@
 // to Camunda 7). Inside its block the head does not open it again.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { blockGroups } from '../src/bpmn';
 import type { Step } from '../src/types';
 
@@ -44,4 +46,26 @@ test('a second block in the same list still opens its own bracket', () => {
   const two = [...steps.slice(3), step('Other', { kind: 'event', orphan: true }), step('OtherEnd', { kind: 'end' })];
   const inner = blockGroups(two, 'SendEvent');
   assert.deepEqual(inner.map(g => g.head?.id ?? null), [null, 'Other']);
+});
+
+test('an error path starting with a pattern block head does not open it again inside its own fold', () => {
+  // the PatternFold of an error path lists e.steps with its first step as `inside`
+  const path = [step('Retry', { kind: 'event', orphan: true, pattern: 'init-process' }), step('RetryEnd', { kind: 'end', pattern: 'init-process' })];
+  assert.deepEqual(blockGroups(path).map(g => g.head?.id ?? null), ['Retry']); // without it: the same block again
+  assert.deepEqual(blockGroups(path, 'Retry').map(g => g.head?.id ?? null), [null]);
+});
+
+// The wiring in the tree itself (StepList ↔ PatternFold) - rendering ProcessView would pull in the
+// modeler, so the guard reads the source: drop one of these and the tree contains itself again.
+test('the tree passes the head of a pattern block to the list of its content', () => {
+  const src = readFileSync(fileURLToPath(new URL('../src/components/ProcessView.tsx', import.meta.url)), 'utf8');
+  // the content list of a fold does not open the fold again
+  assert.match(src, /<StepList \{\.\.\.p\} steps=\{steps\} depth=\{p\.depth \+ 1\} foldOf=\{head\} \/>/);
+  // StepList groups with it …
+  assert.match(src, /blockGroups\(.*, p\.foldOf\);/);
+  // … every fold names its head: the block's head, the first step of an error path
+  assert.match(src, /<PatternFold [^>]*head=\{g\.head\.id\}/);
+  assert.match(src, /<PatternFold [^>]*head=\{e\.steps!\[0\]\.id\}/);
+  // and it applies to that one list only - the rows below get the props without it
+  assert.doesNotMatch(src, /<StepRow [^>]*\{\.\.\.p\} \/>/);
 });
