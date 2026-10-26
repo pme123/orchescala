@@ -19,7 +19,7 @@ export type OpenModelResult =
   /** another folder became active before anything was written: nothing to show */
   | { kind: 'stale'; pendingRoles: 'keep' };
 
-/** read, (create,) read again — and twice more after a pause */
+/** the first read, then up to three more, each after a pause */
 const OPEN_ATTEMPTS = 4;
 
 export function normalizeModel(raw: unknown): Model {
@@ -47,7 +47,8 @@ export async function openModel(be: StorageBackend, opts: {
     // If someone else creates the model.json right now, read theirs. Right
     // after it was created the read may still find nothing: try a few times.
     for (let attempt = 0; attempt < OPEN_ATTEMPTS; attempt++) {
-      if (attempt > 1 && delay > 0) await new Promise(r => setTimeout(r, delay));
+      // every read after «exists» waits a moment — SharePoint may not list the new file yet
+      if (attempt > 0 && delay > 0) await new Promise(r => setTimeout(r, delay));
       const read = await be.read('model.json');
       if (!active()) return { kind: 'stale', pendingRoles: 'keep' };
       if (read) {

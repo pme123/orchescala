@@ -127,3 +127,15 @@ test('created by someone else but never readable: message, nothing overwritten, 
   assert.deepEqual(res, { kind: 'error', pendingRoles: 'keep', message: 'model.json gibt es schon, sie lässt sich aber (noch) nicht lesen — bitte neu laden.' });
   assert.equal(await (await be.readBlob('model.json'))!.text(), EXISTING); // theirs stays as it is
 });
+
+test('after «exists» every further read waits first', async () => {
+  const waits: number[] = [];
+  const orig = globalThis.setTimeout;
+  globalThis.setTimeout = ((fn: () => void, ms?: number) => { waits.push(ms ?? 0); return orig(fn, 0); }) as typeof setTimeout;
+  try {
+    await openModel(new LaggingBackend(99), { origin: 'connected', ids: IDS, pendingRoles: null, retryDelayMs: 500 });
+  } finally {
+    globalThis.setTimeout = orig;
+  }
+  assert.deepEqual(waits, [500, 500, 500]); // 4 reads: the first right away, then three after a pause
+});
