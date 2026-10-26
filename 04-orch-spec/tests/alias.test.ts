@@ -143,3 +143,67 @@ test('a catalog type as alias brings its fields as a copy', () => {
   assert.equal(t.interactionId, 'ia-1');
   assert.deepEqual(t.fields?.map(f => f.name), ['comment']);
 });
+
+// `type Out = In` in the same object, and an alias via a renamed import
+const bpmnSelf = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="${PID}" name="${PID}" isExecutable="true">
+    <bpmn:startEvent id="StartEvent"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="KubeReviseTask" name="Prüfen"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:userTask id="RenamedTask" name="Umbenannt"><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="EndEvent"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="StartEvent" targetRef="KubeReviseTask"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="KubeReviseTask" targetRef="RenamedTask"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="RenamedTask" targetRef="EndEvent"/>
+  </bpmn:process>
+</bpmn:definitions>`;
+
+const selfDomain = [
+  ...scanScala(sources['OrderCard.scala'], 'OrderCard.scala'),
+  ...scanScala(sources['PostProcessOrderUT.scala'], 'PostProcessOrderUT.scala'),
+  ...scanScala(`package ${PKG}
+
+object KubeReviseUT extends CompanyBpmnUserTaskDsl:
+  val name = "KubeReviseTask"
+  val descr: String = ""
+  case class In(clientKey: Long, ok: Boolean)
+  object In:
+    lazy val example = In(clientKey = 1L, ok = true)
+  type Out = In
+  lazy val example = userTask(In.example, In.example)
+end KubeReviseUT
+`, 'KubeReviseUT.scala'),
+  ...scanScala(`package ${PKG}
+
+import acme.demo.domain.other.v1.PostProcessOrderUT as OtherUT
+
+object RenamedUT extends CompanyBpmnUserTaskDsl:
+  val name = "RenamedTask"
+  val descr: String = ""
+  type In = OtherUT.In
+  type Out = OtherUT.Out
+  lazy val example = userTask(OtherUT.In(1L), OtherUT.Out.example)
+end RenamedUT
+`, 'RenamedUT.scala'),
+];
+
+test('import: `type Out = In` is the own In - no warning, export writes it again', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  assert.deepEqual(r.warnings.filter(w => w.includes('Ziel nicht gefunden')), []);
+  const kube = r.spec.interactions!.find(i => i.name === 'KubeReviseUT')!;
+  assert.equal(kube.outAlias, `${kube.id}.In`);
+  assert.equal(kube.outTypeId, kube.inTypeId);
+  // no leftover copy of the In under the name of the Out
+  assert.ok(!r.spec.types!.some(t => t.name === 'KubeReviseUT.Out'));
+  const file = scalaFiles(r.spec, { domainTypes: selfDomain } as never).find(f => f.path.endsWith('/KubeReviseUT.scala'))!;
+  assert.match(file.content, /case class In\(/);
+  assert.match(file.content, /type Out = In\n/);
+});
+
+test('import: an alias via a renamed import (`… as OtherUT`) finds its target', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  assert.deepEqual(r.warnings.filter(w => w.includes('Ziel nicht gefunden')), []);
+  const renamed = r.spec.interactions!.find(i => i.name === 'RenamedUT')!;
+  assert.equal(renamed.inAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.In');
+  assert.equal(renamed.outAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.Out');
+});

@@ -309,7 +309,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const setAlias = (ia: Interaction, member: 'In' | 'Out', ref: string | null) => {
     const aliasKey = member === 'In' ? 'inAlias' : 'outAlias';
     const typeKey = member === 'In' ? 'inTypeId' : 'outTypeId';
-    const own = ia[typeKey] ? types.find(t => t.id === ia[typeKey] && t.interactionId === ia.id) : undefined;
+    // not the other member when this one points to it (`type Out = In`) — that stays
+    const otherTypeId = member === 'In' ? ia.outTypeId : ia.inTypeId;
+    const own = ia[typeKey] && ia[typeKey] !== otherTypeId ? types.find(t => t.id === ia[typeKey] && t.interactionId === ia.id) : undefined;
     const rest = own ? types.filter(t => t.id !== own.id) : types;
     // a type of the catalog: its fields as a copy (for mappings and checks)
     const dom = ref?.startsWith('dom:') ? (model?.domainTypes ?? []).find(d => `dom:${d.id}` === ref) : undefined;
@@ -823,10 +825,14 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
     const other = interactions.find(i => i.id === ref.slice(0, dot));
     return other ? `${other.name}.${ref.slice(dot + 1)}` : '(nicht mehr da)';
   };
-  // the same member of the other interactions of the process — an In only an In, an Out only an Out
-  const options = interactions.filter(i => i.id !== ia.id && i.name?.trim()).flatMap(i => (member === 'In'
-    ? (i.inTypeId && !i.inAlias ? [`${i.id}.In`] : [])
-    : (i.outTypeId && !i.outAlias && INTERACTION_META[i.kind].hasOut ? [`${i.id}.Out`] : [])));
+  // the same member of the other interactions of the process — an In only an In, an Out only an Out;
+  // an Out also the own In (`type Out = In`)
+  const options = [
+    ...(member === 'Out' && ia.inTypeId && !ia.inAlias ? [`${ia.id}.In`] : []),
+    ...interactions.filter(i => i.id !== ia.id && i.name?.trim()).flatMap(i => (member === 'In'
+      ? (i.inTypeId && !i.inAlias ? [`${i.id}.In`] : [])
+      : (i.outTypeId && !i.outAlias && INTERACTION_META[i.kind].hasOut ? [`${i.id}.Out`] : []))),
+  ];
   const fieldNames = [...(t?.fields ?? []), ...(t?.values ?? []).flatMap(v => v.fields ?? [])].map(f => f.name).filter(Boolean);
   const setValue = (name: string, value: string | null, rename?: string) => {
     const next = { ...values };

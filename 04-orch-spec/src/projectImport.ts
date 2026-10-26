@@ -231,7 +231,7 @@ class Converter {
    * explicit ones, then those with `*`; a relative import (`schema.*`) also
    * from the package.
    */
-  private viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
+  viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
     if (!imports?.length) return null;
     const head = base.split('.')[0];
     const rest = base.slice(head.length);
@@ -652,8 +652,13 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     if (!t) return undefined;
     if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${o.owner}.${name}`);
     if (t.kind === 'alias' && t.target && t.target !== 'NoInput' && t.target !== 'NoOutput') {
-      // `type In = AdjustOrderUT.In` — the same fields under its own name
-      const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
+      // `type In = AdjustOrderUT.In` — the same fields under its own name. The target as
+      // Scala sees it: in the same object (`type Out = In`), via the imports of the file
+      // (also a rename), in the package, then by name
+      const target = domain.find(x => x.id === `${o.pkg}.${o.owner}.${t.target}`)
+        ?? conv.viaImports(t.target, o.pkg, t.imports)
+        ?? domain.find(x => x.id === `${o.pkg}.${t.target}` || x.id === `${pkg}.${t.target}`)
+        ?? domain.find(x => x.name === t.target);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
         const copyId = conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
         aliases.push({ iaId, member: name, target, copyId });
@@ -732,7 +737,9 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     const aliasKey = a.member === 'In' ? 'inAlias' : 'outAlias';
     const typeKey = a.member === 'In' ? 'inTypeId' : 'outTypeId';
     const targetMember = a.target.name.endsWith('.Out') ? 'Out' : 'In';
-    const other = a.target.owner ? interactions.find(i => i.id !== ia.id && i.name === a.target.owner) : undefined;
+    // `type Out = In` in the same object: the own In (only the other member - `type In = In` is none)
+    const other = a.target.owner
+      ? interactions.find(i => i.name === a.target.owner && (i.id !== ia.id || targetMember !== a.member)) : undefined;
     const sharedId = other ? (targetMember === 'In' ? other.inTypeId : other.outTypeId) : undefined;
     if (other && sharedId) {
       ia[aliasKey] = `${other.id}.${targetMember}`;

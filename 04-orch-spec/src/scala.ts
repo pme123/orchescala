@@ -827,7 +827,9 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   const member = (t: TypeDef | null, name: 'In' | 'Out') => {
     const values = name === 'In' ? ia.inExample : ia.outExample;
     // another type: `type In = OrderCardUT.In` — its example, with the differing values
-    const alias = aliasName(name === 'In' ? ia.inAlias : ia.outAlias, spec, idx);
+    const ref = name === 'In' ? ia.inAlias : ia.outAlias;
+    // the other member of the same object (`type Out = In`) is visible without its object
+    const alias = ref?.startsWith(`${ia.id}.`) ? ref.slice(ia.id.length + 1) : aliasName(ref, spec, idx);
     if (alias) {
       lines.push(`  type ${name} = ${alias}`);
       lines.push('');
