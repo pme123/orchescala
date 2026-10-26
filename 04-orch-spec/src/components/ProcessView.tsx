@@ -1457,8 +1457,11 @@ interface ListProps {
   patternName: (id: string) => string;
 }
 
-/** Deeper than this the tree stops — a guard: a block that contains itself must not fill the memory */
-const MAX_TREE_DEPTH = 40;
+/**
+ * Deeper than this the tree stops — a guard: a block that contains itself must not fill the
+ * memory (with fan-out the cost grows per level). Real specifications reach about 7 levels.
+ */
+const MAX_TREE_DEPTH = 20;
 
 /**
  * What a pattern brings into the diagram — timer, link, shared block —
