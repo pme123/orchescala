@@ -1463,8 +1463,7 @@ interface ListProps {
  * What a pattern brings into the diagram — timer, link, shared block —
  * is wiring, not business logic. In the tree it is therefore shown as one
  * row in the pattern colour; the steps below only on click.
- */
-/**
+ *
  * `head`: the step the block starts with (its head, or the first step of the error path) —
  * the list of its content must not open the same block again, otherwise it contains itself.
  */
