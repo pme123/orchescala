@@ -785,6 +785,44 @@ function reachOwned(g: Graph, start: Element): Element[] {
   return [...nodes, ...flows];
 }
 
+/** Tasks that do the work of a block — what they call identifies the block */
+const WORK_TAGS = new Set(['serviceTask', 'sendTask', 'callActivity', 'businessRuleTask', 'scriptTask', 'userTask', 'receiveTask']);
+/** What a task calls: Camunda 7 on the element, Camunda 8 in its extensions */
+function callsOf(n: Element): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const k of ['camunda:topic', 'calledElement', 'camunda:decisionRef', 'camunda:modelerTemplate', 'zeebe:modelerTemplate']) {
+    const v = attrOf(n, k);
+    if (v != null) out.push([k, v]);
+  }
+  const ext = firstNamed(n, 'extensionElements');
+  for (const [tag, attr] of [['taskDefinition', 'type'], ['calledElement', 'processId'], ['calledDecision', 'decisionId']] as const) {
+    const v = ext ? firstNamed(ext, tag)?.getAttribute(attr) : null;
+    if (v != null) out.push([`${tag}.${attr}`, v]);
+  }
+  return out;
+}
+
+/**
+ * Does the block behind the pattern's link fit — the same tasks calling the same things?
+ * The path on the element (timer → link) has free parameters and fits every timer → link;
+ * only the block tells e.g. a mail from a process event. Mappings do not count (a block with
+ * one field more or less still fits). A block missing in the diagram does not speak against it.
+ */
+function blocksFit(fr: Fragment, tg: Graph, b: Binding): boolean {
+  return fr.blocks.every(block => {
+    const entry = block.entry;
+    if (local(entry) === 'subProcess') return true; // an event subprocess is defined by its start
+    const entries = tg.nodes.filter(tn => local(tn) === local(entry) && matchEl(entry, tn, b));
+    if (!entries.length) return true;
+    const work = block.nodes.filter(n => WORK_TAGS.has(local(n)));
+    return entries.some(tn => {
+      const reached = reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e)));
+      return work.every(fn => reached.some(rn => local(rn) === local(fn)
+        && callsOf(fn).every(([k, v]) => { const tv = callsOf(rn).find(([rk]) => rk === k)?.[1]; return tv != null && !!matchText(v, tv, b); })));
+    });
+  });
+}
+
 /**
  * Find the pattern's shared blocks in the scope. What matters is the
  * **entry**: a link target with the same name, an event subprocess
@@ -896,7 +934,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       const m = matchAnchor(fr, proc, null, claimed, builtins(null, proc));
       if (!m) continue;
       const blocks = matchBlocks(fr, graph(proc), claimed, m.b);
-      if (blocks.some(x => !x)) continue;
+      if (blocks.some(x => !x) || !blocksFit(fr, graph(proc), m.b)) continue;
       let b = m.b;
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
@@ -911,9 +949,17 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       const tg = graph(t.parentElement);
       // the same pattern can hang on the element several times (two mail timers) —
       // whatever is already assigned is no longer available to the next one
+      /** paths of this element whose block belongs to something else — not offered again */
+      const rejected = new Set<Element>();
       for (let i = 0; i < 10; i++) {
-        const m = matchAnchor(fr, t, tg, claimed, builtins(t, proc));
+        const m = matchAnchor(fr, t, tg, rejected.size ? new Set([...claimed, ...rejected]) : claimed, builtins(t, proc));
         if (!m) break;
+        if (fr.blocks.length && !blocksFit(fr, tg, m.b)) {
+          // the path fits, its block does not (a timer → link of another pattern): try the next path
+          if (!m.attached.size) break;
+          for (const e of m.attached.values()) rejected.add(e);
+          continue;
+        }
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
         res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
