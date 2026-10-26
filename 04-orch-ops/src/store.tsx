@@ -41,8 +41,14 @@ interface StoreCtx {
   reconnectDirectory: () => Promise<void>;
   connectSharePoint: (link: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   savedSharePoint: SharePointFolder | null;
+  /** open the remembered SharePoint folder again (signed in) */
+  reconnectSharePoint: () => Promise<void>;
   forgetSharePoint: () => void;
+  /** «anderen Ordner wählen»: closes the folder, keeps it in reserve for «Zurück zu …» */
   disconnect: () => void;
+  /** the folder that was open before «anderen Ordner wählen» — until another one is opened */
+  previousStorage: StorageInfo | null;
+  resumePrevious: () => Promise<void>;
   model: Model | null;
   modelError: string | null;
   saveModel: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
@@ -187,8 +193,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (backendRef.current) await refreshIn(backendRef.current);
   }, [refreshIn]);
 
+  const storageRef = useRef<StorageInfo | null>(null);
+  storageRef.current = storage;
+  const previousRef = useRef<{ be: StorageBackend; info: StorageInfo } | null>(null);
+  const [previousStorage, setPreviousStorage] = useState<StorageInfo | null>(null);
   const activate = useCallback(async (be: StorageBackend, info: StorageInfo, origin: FolderOrigin) => {
     backendRef.current = be;
+    previousRef.current = null;
+    setPreviousStorage(null);
+    // a local folder needs no SharePoint sign-in: whether to sign in is then up
+    // to its model.json alone (auth.enabled) — not a leftover SharePoint mode
+    if (info.kind === 'local') ls.set(MODE_KEY, null);
     clearAttachments();
     modelVersionRef.current = null;
     writtenAt.current.clear();
@@ -257,18 +272,37 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activateSharePoint, tokenProvider]);
 
+  // remembered folder already (re)connected — the start effect below then does not do it again
+  const autoRef = useRef(false);
+  const reconnectSharePoint = useCallback(async () => {
+    const sp = loadSharePoint();
+    if (!sp) return;
+    autoRef.current = true;
+    await activateSharePoint(sp, 'restored').catch(e => console.error('[orch-ops] SharePoint reconnect:', e));
+  }, [activateSharePoint]);
+
   const forgetSharePoint = useCallback(() => {
     storeSharePoint(null); setSavedSharePoint(null);
   }, []);
 
+  // «Anderen Ordner wählen» only closes the folder — it is kept in reserve
+  // until another one is opened, so the start card leads back without a new
+  // permission (local) or sign-in (SharePoint).
   const disconnect = useCallback(() => {
+    if (backendRef.current && storageRef.current) {
+      previousRef.current = { be: backendRef.current, info: storageRef.current };
+      setPreviousStorage(storageRef.current);
+    }
     backendRef.current = null;
     clearAttachments();
     setStorage(null); setModel(null); setErrors([]); setRefreshProblems([]);
   }, [clearAttachments]);
+  const resumePrevious = useCallback(async () => {
+    const prev = previousRef.current;
+    if (prev) await activate(prev.be, prev.info, 'restored');
+  }, [activate]);
 
   // restore the remembered folder on start
-  const autoRef = useRef(false);
   useEffect(() => {
     const pending = ls.get(PENDING_FOLDER_KEY);
     if (pending && !loadSharePoint()) {
@@ -434,7 +468,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{
       isDark, toggleTheme, storage,
       pickDirectory, savedHandleName, reconnectDirectory,
-      connectSharePoint, savedSharePoint, forgetSharePoint, disconnect,
+      connectSharePoint, savedSharePoint, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
       model, modelError, saveModel,
       errors, loading, lastRefresh, refreshProblems, refreshErrors, createError, saveError, countError, importConfluence,
       saveAttachment, resolveAttachment,
