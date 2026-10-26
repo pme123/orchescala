@@ -1106,9 +1106,7 @@ const domainStem = (pkg: string): string | null => {
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   const lines: string[] = [];
   const fields = allFields(t).filter(f => isFinished(f, idx));
-  if (fields.some(f => f.constraint?.trim())) {
-    lines.push('import io.github.iltotore.iron.*', 'import io.github.iltotore.iron.constraint.all.*');
-  }
+  // Iron (`:|`, the constraints) needs no import: the project's `-Yimports` brings it along
   const external = new Map<string, string>(); // importPath → note
   for (const f of fields) {
     // the example value from another project needs its import — derived
