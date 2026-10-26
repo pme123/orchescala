@@ -417,8 +417,8 @@ export default function App() {
             <div className="pt-4">
               <RoleFields roles={setupRoles} onChange={setSetupRoles} isDark={isDark} />
               <p className={`text-[10px] leading-relaxed mt-1 ${textMuted}`}>
-                Gehen in die Einstellungen eines neuen Ordners. Hat der Ordner schon Einstellungen, gelten
-                dessen Rollen (änderbar unter Admin → Anmeldung).
+                Gehen in die Einstellungen des nächsten neuen Ordners, den du verbindest (innert 24 Stunden).
+                Hat der Ordner schon Einstellungen, gelten dessen Rollen (änderbar unter Admin → Anmeldung).
               </p>
             </div>
             {setupError && <p className={`text-[11px] mt-2 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{setupError}</p>}

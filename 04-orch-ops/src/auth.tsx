@@ -59,9 +59,10 @@ export function sameRoles(a: Roles, b: Roles): boolean {
 }
 
 /** settings with these roles instead of their own (cleaned) */
-export function withRoles<T extends Roles>(cfg: T, roles: Roles): Omit<T, RoleKey> & Roles {
-  const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = cfg;
-  return { ...rest, ...cleanRoles(roles) };
+export function withRoles(cfg: AuthSettings, roles: Roles): AuthSettings {
+  const out: AuthSettings = { ...cfg };
+  for (const k of ROLE_KEYS) delete out[k];
+  return { ...out, ...cleanRoles(roles) };
 }
 
 /** roles from stored JSON; anything unusable → null */
@@ -77,8 +78,9 @@ export function parseRoles(v: unknown): Roles | null {
 // settings (which carry the roles of the last folder) and survive the
 // sign-in redirect. Only a folder the user connects (picked, link, setup
 // link) uses them — a folder restored on start never does. A new one gets
-// them in its model.json; an existing one keeps its own. If the model.json
-// cannot be created they stay for another try, but expire after a day.
+// them in its model.json; an existing one keeps its own (modelRepo.ts). If
+// they could not be written (create failed, no IDs) they stay for another
+// try, but expire after a day.
 export const PENDING_ROLES_TTL_MS = 24 * 60 * 60 * 1000;
 const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
 
@@ -94,7 +96,8 @@ export function parsePendingRoles(raw: string | null, now: number): Roles | null
   }
 }
 
-export type FolderLoad = 'existing' | 'created' | 'failed';
+/** what loading a folder came to (failures always keep the pending roles) */
+export type FolderLoad = 'existing' | 'created' | 'createdWithoutAuth';
 
 /** roles for the model.json of a new folder: those chosen at setup when the
  *  user connected it (none chosen = none, everyone signed in is admin),
@@ -105,7 +108,7 @@ export function newFolderRoles(pending: Roles | null, connected: boolean): Roles
 
 /** after loading a folder: are the pending roles used up? */
 export function pendingRolesAfterLoad(connected: boolean, outcome: FolderLoad): 'clear' | 'keep' {
-  return connected && outcome !== 'failed' ? 'clear' : 'keep';
+  return connected && outcome !== 'createdWithoutAuth' ? 'clear' : 'keep';
 }
 
 /** remember the roles chosen at setup; false = browser storage not available */

@@ -10,15 +10,13 @@
 // create, save, merging a refresh) lives in errorRepo.ts — this file connects
 // it to React state.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import type { ErrorEntry, Model, StatusDef } from './types';
+import type { ErrorEntry, Model } from './types';
 import { getHandle, putHandle } from './handles';
-import { DEFAULT_MODEL, DEFAULT_STATUSES } from './defaultModel';
 import { nowIso } from './util';
 import { DemoBackend, LocalBackend, type StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, type SharePointFolder } from './graph';
-import {
-  PENDING_FOLDER_KEY, clearPendingRoles, newFolderRoles, peekPendingRoles, pendingRolesAfterLoad, useAuth, type FolderLoad,
-} from './auth';
+import { PENDING_FOLDER_KEY, clearPendingRoles, peekPendingRoles, useAuth } from './auth';
+import { openModel, type FolderOrigin } from './modelRepo';
 import { parseConfluence } from './confluence';
 import { isAttachmentPath, newAttachmentPath, prepareImage } from './attachments';
 import {
@@ -98,13 +96,6 @@ function storeSharePoint(f: SharePointFolder | null) {
 const graphBase = (): string | undefined =>
   import.meta.env.DEV ? (new URLSearchParams(location.search).get('graph') ?? undefined) : undefined;
 
-function normalizeModel(raw: unknown): Model {
-  const r = (raw ?? {}) as Partial<Model>;
-  const statuses = Array.isArray(r.statuses) && r.statuses.length
-    ? (r.statuses as StatusDef[]).filter(s => s && typeof s.label === 'string')
-    : DEFAULT_STATUSES;
-  return { ...DEFAULT_MODEL, ...r, statuses };
-}
 
 const MODEL_CONFLICT = 'model.json wurde inzwischen von jemand anderem geändert — der neue Stand ist geladen. Bitte die Änderung nochmals machen.';
 
@@ -154,53 +145,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── model.json ────────────────────────────────────────────────────────────
-  // only the backend that is still active may set the model (folder changed meanwhile).
-  // connected = the user connected this folder (picked, link, setup link), not
-  // restored on start: only then the roles chosen at setup apply (auth.tsx)
-  const loadModel = useCallback(async (be: StorageBackend, connected = false) => {
-    const current = () => backendRef.current === be;
-    const done = (outcome: FolderLoad) => {
-      if (pendingRolesAfterLoad(connected, outcome) === 'clear') clearPendingRoles();
-    };
-    try {
-      const read = await be.read('model.json');
-      if (!current()) return;
-      if (!read) {
-        const ids = idsRef.current;
-        const fresh: Model = ids
-          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...newFolderRoles(peekPendingRoles(), connected) } }
-          : DEFAULT_MODEL;
-        const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
-        if (!current()) return;
-        if (w.ok) modelVersionRef.current = w.version;
-        else if (w.reason === 'exists') { await loadModel(be, connected); return; } // someone else just created it
-        if (!w.ok) {
-          setModel(null);
-          setModelError(w.reason === 'forbidden'
-            ? 'model.json fehlt und kann nicht angelegt werden (keine Schreibberechtigung).'
-            : 'model.json fehlt und konnte nicht angelegt werden.');
-          done('failed');
-          return;
-        }
-        setModel(fresh); setModelError(null);
-        done('created');
-        return;
-      }
-      try {
-        setModel(normalizeModel(JSON.parse(read.text)));
-        modelVersionRef.current = read.version;
-        setModelError(null);
-        done('existing'); // keeps its own roles
-      } catch {
-        setModel(null); // do NOT overwrite a broken file
-        setModelError('model.json ist unlesbar (kein gültiges JSON).');
-        done('failed');
-      }
-    } catch (e) {
-      console.error('[orch-ops] loadModel:', e);
-      if (!current()) return;
-      setModel(null);
-      setModelError(`model.json konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`);
+  // The logic is in modelRepo.ts. Only the backend that is still active may set
+  // the model (folder changed meanwhile). origin decides whether the roles
+  // chosen at setup apply (only for a folder the user connected).
+  const loadModel = useCallback(async (be: StorageBackend, origin: FolderOrigin) => {
+    const res = await openModel(be, {
+      origin, ids: idsRef.current, pendingRoles: peekPendingRoles(), active: () => backendRef.current === be,
+    });
+    // belongs to the folder, not to what is shown: also when another folder is active by now
+    if (res.pendingRoles === 'clear') clearPendingRoles();
+    if (backendRef.current !== be || res.kind === 'stale') return;
+    if (res.kind === 'ok') {
+      setModel(res.model); modelVersionRef.current = res.version; setModelError(null);
+    } else {
+      setModel(null); setModelError(res.message);
     }
   }, []);
 
@@ -228,7 +186,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (backendRef.current) await refreshIn(backendRef.current);
   }, [refreshIn]);
 
-  const activate = useCallback(async (be: StorageBackend, info: StorageInfo, connected = false) => {
+  const activate = useCallback(async (be: StorageBackend, info: StorageInfo, origin: FolderOrigin) => {
     backendRef.current = be;
     clearAttachments();
     modelVersionRef.current = null;
@@ -239,7 +197,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     savedHandleRef.current = null;
     setErrors([]);
     setRefreshProblems([]);
-    await loadModel(be, connected);
+    await loadModel(be, origin);
     try { await be.ensureDir(DIR); } catch { /* read only? list stays empty */ }
     await refreshIn(be);
   }, [loadModel, refreshIn, clearAttachments]);
@@ -262,7 +220,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : await window.showDirectoryPicker({ mode: 'readwrite' });
       await persistHandle(dir);
       storeSharePoint(null); setSavedSharePoint(null);
-      await activate(new LocalBackend(dir), { kind: 'local', name: dir.name || 'Ordner' }, true);
+      await activate(new LocalBackend(dir), { kind: 'local', name: dir.name || 'Ordner' }, 'connected');
     } catch (e: unknown) {
       if (e instanceof Error && e.name !== 'AbortError') console.error('[orch-ops] pickDirectory:', e);
     }
@@ -273,7 +231,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!handle) return;
     try {
       const perm = await handle.requestPermission({ mode: 'readwrite' });
-      if (perm === 'granted') await activate(new LocalBackend(handle), { kind: 'local', name: handle.name || 'Ordner' });
+      if (perm === 'granted') await activate(new LocalBackend(handle), { kind: 'local', name: handle.name || 'Ordner' }, 'restored');
     } catch (e) {
       console.error('[orch-ops] reconnectDirectory:', e);
     }
@@ -282,15 +240,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ── SharePoint folder ─────────────────────────────────────────────────────
   const tokenProvider = useCallback(() => getTokenRef.current(GRAPH_SCOPES), []);
 
-  const activateSharePoint = useCallback(async (folder: SharePointFolder, connected = false) => {
-    await activate(new GraphBackend(folder, tokenProvider, graphBase()), { kind: 'sharepoint', name: folder.name, webUrl: folder.webUrl }, connected);
+  const activateSharePoint = useCallback(async (folder: SharePointFolder, origin: FolderOrigin) => {
+    await activate(new GraphBackend(folder, tokenProvider, graphBase()), { kind: 'sharepoint', name: folder.name, webUrl: folder.webUrl }, origin);
   }, [activate, tokenProvider]);
 
   const connectSharePoint = useCallback(async (link: string) => {
     try {
       const folder = await resolveFolderLink(tokenProvider, link, graphBase());
       storeSharePoint(folder); setSavedSharePoint(folder);
-      await activateSharePoint(folder, true);
+      await activateSharePoint(folder, 'connected');
       return { ok: true as const };
     } catch (e) {
       console.error('[orch-ops] connectSharePoint:', e);
@@ -324,14 +282,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('demo')) {
       autoRef.current = true;
       const be = new DemoBackend();
-      void activate(be, { kind: 'local', name: be.name });
+      void activate(be, { kind: 'local', name: be.name }, 'restored');
       return;
     }
     const sp = loadSharePoint();
     if (sp) {
       if (auth.status === 'signedIn' || (auth.status === 'disabled' && graphBase())) {
         autoRef.current = true;
-        activateSharePoint(sp).catch(e => console.error('[orch-ops] SharePoint reconnect:', e));
+        activateSharePoint(sp, 'restored').catch(e => console.error('[orch-ops] SharePoint reconnect:', e));
       }
       return;
     }
@@ -342,7 +300,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!handle) return;
         const perm = await handle.queryPermission({ mode: 'readwrite' });
         if (perm === 'granted') {
-          await activate(new LocalBackend(handle), { kind: 'local', name: handle.name || 'Ordner' });
+          await activate(new LocalBackend(handle), { kind: 'local', name: handle.name || 'Ordner' }, 'restored');
         } else {
           savedHandleRef.current = handle;
           setSavedHandleName(handle.name || 'gemerkter Ordner');
@@ -421,7 +379,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const ifMatch = modelVersionRef.current ?? undefined;
     const w = await be.write('model.json', JSON.stringify(m, null, 2), ifMatch ? { ifMatch } : {});
     if (!w.ok) {
-      if (w.reason === 'conflict') { await loadModel(be); return { ok: false, message: MODEL_CONFLICT }; }
+      if (w.reason === 'conflict') { await loadModel(be, 'restored'); return { ok: false, message: MODEL_CONFLICT }; }
       return { ok: false, message: `model.json konnte nicht geschrieben werden: ${w.message}` };
     }
     if (backendRef.current !== be) return { ok: true };

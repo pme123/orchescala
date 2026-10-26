@@ -69,13 +69,13 @@ test('newFolderRoles: setup roles only for a folder the user connected, otherwis
   assert.deepEqual(newFolderRoles({}, false), DEFAULT_ROLES);
 });
 
-test('pendingRolesAfterLoad: used up only by a connected folder that loaded', () => {
+test('pendingRolesAfterLoad: used up only by a connected folder whose roles are settled', () => {
   assert.equal(pendingRolesAfterLoad(true, 'created'), 'clear');
   assert.equal(pendingRolesAfterLoad(true, 'existing'), 'clear');
-  assert.equal(pendingRolesAfterLoad(true, 'failed'), 'keep'); // another try
+  assert.equal(pendingRolesAfterLoad(true, 'createdWithoutAuth'), 'keep'); // roles not written
   assert.equal(pendingRolesAfterLoad(false, 'created'), 'keep');
   assert.equal(pendingRolesAfterLoad(false, 'existing'), 'keep');
-  assert.equal(pendingRolesAfterLoad(false, 'failed'), 'keep');
+  assert.equal(pendingRolesAfterLoad(false, 'createdWithoutAuth'), 'keep');
 });
 
 test('parsePendingRoles: stored with a time, expired or unusable → null', () => {
