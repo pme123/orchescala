@@ -381,6 +381,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const ifMatch = modelVersionRef.current ?? undefined;
     const w = await be.write('model.json', JSON.stringify(m, null, 2), ifMatch ? { ifMatch } : {});
     if (!w.ok) {
+// re-read only: 'restored', so the roles chosen at setup are not used up here
       if (w.reason === 'conflict') { await loadModel(be, 'restored'); return { ok: false, message: MODEL_CONFLICT }; }
       return { ok: false, message: `model.json konnte nicht geschrieben werden: ${w.message}` };
     }
