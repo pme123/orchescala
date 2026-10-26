@@ -727,7 +727,7 @@ case class OrchSpecProcessObject(
 
   // `InConfig.example` / `Proc.InConfig.exampleMinimal` of this object - not `Other.InConfig.example`
   private lazy val ownInConfigExample =
-    s"""(?<![\\w.])(?:$objectName\\.)?InConfig\\.example(?:Minimal)?\\b"""
+    s"""(?<![\\w.])(?:${java.util.regex.Pattern.quote(objectName)}\\.)?InConfig\\.example(?:Minimal)?\\b"""
 
   // `override def`, `override val` or `override lazy val` - each is the object's own processLabels
   private def missingLabels(lines: Seq[String]): Boolean =
@@ -770,8 +770,11 @@ case class OrchSpecProcessObject(
         // the InConfig is the configuration: an own field without default gets the one of Orch Spec
         // (the values were in `InConfig.example` - `defaultConfig = InConfig.example`)
         val merged = if g.name == "InConfig" then CaseClassParams.addDefaults(added, replacement) else added
-        // with all values as defaults the InConfig needs no example: `InConfig.example` -> `InConfig()`
-        if g.name == "InConfig" && CaseClassParams.allHaveDefaults(merged) then
+        // with all values as defaults the InConfig needs no example: `InConfig.example` -> `InConfig()` -
+        // only when its examples are those defaults, otherwise the configuration would change
+        if g.name == "InConfig" && CaseClassParams.allHaveDefaults(merged) &&
+          CaseClassParams.examplesAreDefaults(merged, g.name)
+        then
           lines.patch(e.from, TypeImplementation.withoutExamples(merged, g.name), e.until - e.from)
             .map(l => if l.trim.startsWith("//") then l else l.replaceAll(ownInConfigExample, "InConfig()"))
         else lines.patch(e.from, merged, e.until - e.from)
@@ -1082,6 +1085,28 @@ object CaseClassParams:
   def allHaveDefaults(section: Seq[String]): Boolean =
     val ps = params(section)
     ps.nonEmpty && ps.forall(hasDefault)
+
+  /** `example` sets no value other than the defaults (`X()`, or each argument its default) and
+    * `exampleMinimal` is none, `example`, `example.copy()` or `X()` - then `X()` is the same.
+    */
+  def examplesAreDefaults(section: Seq[String], name: String): Boolean =
+    val compact  = (s: String) => s.replaceAll("\\s+", "").stripSuffix(",")
+    val defaults = params(section).flatMap: p =>
+      p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode).mkString(" ") match
+        case defaultValue(d) => Some(p.name -> compact(d))
+        case _               => None
+    .toMap
+    val args     = exampleArgs(section, name).map: a =>
+      a.name -> compact(a.lines.filter(isCode).mkString(" ").replaceFirst("""^\s*\w+\s*=""", ""))
+    val example  = exampleStart(section, name) < 0 ||
+      section(exampleStart(section, name)).trim.endsWith(s"$name()") ||
+      (args.nonEmpty && args.forall((n, v) => defaults.get(n).contains(v)))
+    val minimal  = section.find(_.matches("""\s*lazy val exampleMinimal\s*=.*""")).forall: l =>
+      Seq("example", "example.copy()", s"$name()").contains(compact(l.replaceFirst(""".*?=""", "")))
+    example && minimal
+
+  // the default of a parameter (its code on one line): `name: Type = value`
+  private val defaultValue = """(?s)\s*\w+\s*:(?:[^=]|=>)*?\s=(?!>)\s*(.+?),?\s*""".r
 
   /** The fields that `generated` adds to `own` and that have no default - with their argument in
     * the `lazy val example = X(…)` of `generated` added to the example of `section` (a field with

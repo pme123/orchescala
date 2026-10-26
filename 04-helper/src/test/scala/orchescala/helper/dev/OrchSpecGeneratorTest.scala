@@ -830,6 +830,53 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
     assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
 
+  test("merge - InConfig: an example with other values than the defaults stays - and so InConfig.example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      timer: String = "P1D",
+        |      retries: Int = 3
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  case class InConfig(
+        |      timer: String = "P1D",
+        |      retries: Int = 3
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      timer = "PT1M"
+        |    )
+        |    lazy val exampleMinimal = example.copy(retries = 0)
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the example differs from the defaults: `InConfig()` would change the configuration
+    assert(m.contains("    lazy val example = InConfig(\n      timer = \"PT1M\"\n    )\n"), m)
+    assert(m.contains("    lazy val exampleMinimal = example.copy(retries = 0)\n"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
   test("merge - a field without default in InitIn also goes into its example"):
     val block    =
       """// in object Proc einfügen
