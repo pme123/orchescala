@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen, UserRound } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
-import { DEFAULT_ROLES, GUID_RE, LEVEL_LABELS, ROLE_KEYS, peekPendingRoles, setPendingRoles, useAuth, usePermissions, type Roles } from './auth';
+import {
+  DEFAULT_ROLES, GUID_RE, LEVEL_LABELS, ROLE_KEYS, confirmNoRoles, peekPendingRoles, setPendingRoles, useAuth, usePermissions, type Roles,
+} from './auth';
 import { joinOr } from './util';
 import RoleFields from './components/RoleFields';
 import ErrorsView, { type ListState } from './components/ErrorsView';
@@ -66,6 +68,7 @@ export default function App() {
   const saveSetup = async () => {
     const t = setupTenant.trim(), c = setupClient.trim();
     if (!GUID_RE.test(t) || !GUID_RE.test(c)) { setSetupError('Beide IDs müssen gültige GUIDs sein (Format 8-4-4-4-12).'); return; }
+    if (!confirmNoRoles(setupRoles)) return;
     // for the model.json of a new folder; without browser storage the IDs could not be kept either
     if (!setPendingRoles(setupRoles)) { setSetupError('Der Browser-Speicher ist nicht verfügbar (z. B. privates Fenster mit gesperrtem Speicher) — die Einrichtung lässt sich nicht merken.'); return; }
     auth.setLocalIds(t, c);

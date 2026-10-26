@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DEFAULT_ROLES, ORCH_SPEC_ROLES, PENDING_ROLES_TTL_MS, appUrl, cleanRoles, clearPendingRoles, levelOf, newFolderRoles,
-  parsePendingRoles, parseRoles, pendingRolesAfterLoad, readPendingRoles, sameRoles, setPendingRoles, setupLink, withRoles,
+  hasNoRoles, parsePendingRoles, parseRoles, pendingRolesAfterLoad, readPendingRoles, sameRoles, setPendingRoles, setupLink, withRoles,
 } from '../src/auth';
 import { joinOr } from '../src/util';
 
@@ -126,11 +126,12 @@ test('levelOf: an empty role field counts as not set', () => {
   assert.equal(levelOf([], { ...base, adminRole: '', reviewerRole: '', viewerRole: '' }), 'admin');
 });
 
-test('pending roles: clearing only removes the choice that was read', () => {
+test('pending roles: clearing only removes the choice that was read', (t) => {
   const store = new Map<string, string>();
   (globalThis as unknown as { localStorage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> }).localStorage = {
     getItem: k => store.get(k) ?? null, setItem: (k, v) => { store.set(k, String(v)); }, removeItem: k => { store.delete(k); },
   };
+  t.after(() => { delete (globalThis as { localStorage?: unknown }).localStorage; });
   assert.equal(setPendingRoles(ORCH_SPEC_ROLES), true);
   const first = readPendingRoles();
   assert.deepEqual(first?.roles, ORCH_SPEC_ROLES);
@@ -144,5 +145,11 @@ test('pending roles: clearing only removes the choice that was read', () => {
   store.set('orch-ops.pendingRoles', JSON.stringify({ roles: ORCH_SPEC_ROLES, at: Date.now() - PENDING_ROLES_TTL_MS - 1 }));
   assert.equal(readPendingRoles(), null);
   assert.equal(store.has('orch-ops.pendingRoles'), false);
-  delete (globalThis as { localStorage?: unknown }).localStorage;
+});
+
+test('hasNoRoles: only when every field is empty or blank', () => {
+  assert.equal(hasNoRoles({}), true);
+  assert.equal(hasNoRoles({ adminRole: ' ', reviewerRole: '', viewerRole: '' }), true);
+  assert.equal(hasNoRoles({ viewerRole: 'V' }), false);
+  assert.equal(hasNoRoles(DEFAULT_ROLES), false);
 });

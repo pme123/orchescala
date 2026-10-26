@@ -139,3 +139,12 @@ test('after «exists» every further read waits first', async () => {
   }
   assert.deepEqual(waits, [500, 500, 500]); // 4 reads: the first right away, then three after a pause
 });
+
+test('folder switched while the model.json was written: stale, but the roles are used up', async () => {
+  const be = new MemoryBackend();
+  let switched = false;
+  be.beforeWrite = () => { switched = true; };
+  const res = await openModel(be, { origin: 'connected', ids: IDS, pendingRoles: ORCH_SPEC_ROLES, active: () => !switched });
+  assert.deepEqual(res, { kind: 'stale', pendingRoles: 'clear' });
+  assert.deepEqual((await stored(be)).auth, { enabled: false, ...IDS, ...ORCH_SPEC_ROLES });
+});

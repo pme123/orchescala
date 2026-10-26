@@ -1,7 +1,7 @@
 // The three Entra app roles as a list: level, what it may do, role value.
 // Used in the setup dialog and under Admin → Anmeldung.
 import { AlertTriangle, Copy, RotateCcw } from 'lucide-react';
-import { DEFAULT_ROLES, ORCH_SPEC_ROLES, ROLE_KEYS, cleanRoles, sameRoles, type RoleKey, type Roles } from '../auth';
+import { DEFAULT_ROLES, ORCH_SPEC_ROLES, ROLE_KEYS, hasNoRoles, sameRoles, type RoleKey, type Roles } from '../auth';
 import { cls } from '../ui';
 
 const ROLE_INFO: Record<RoleKey, { label: string; can: string }> = {
@@ -15,7 +15,7 @@ export default function RoleFields({ roles, onChange, isDark }: {
 }) {
   const c = cls(isDark);
   const same = (r: Roles) => sameRoles(roles, r);
-  const none = Object.keys(cleanRoles(roles)).length === 0;
+  const none = hasNoRoles(roles);
   const link = `flex items-center gap-1 text-[10px] ${c.muted} hover:underline`;
   return (
     <div className="space-y-1.5">

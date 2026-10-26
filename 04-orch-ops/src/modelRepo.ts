@@ -16,8 +16,9 @@ export type FolderOrigin = 'connected' | 'restored';
 export type OpenModelResult =
   | { kind: 'ok'; model: Model; version: string; created: boolean; pendingRoles: 'clear' | 'keep' }
   | { kind: 'error'; message: string; pendingRoles: 'keep' }
-  /** another folder became active before anything was written: nothing to show */
-  | { kind: 'stale'; pendingRoles: 'keep' };
+  /** another folder became active meanwhile: nothing to show. If the
+   *  model.json was already written, its roles are used up all the same. */
+  | { kind: 'stale'; pendingRoles: 'clear' | 'keep' };
 
 /** the first read, then up to three more, each after a pause */
 const OPEN_ATTEMPTS = 4;
@@ -69,10 +70,9 @@ export async function openModel(be: StorageBackend, opts: {
       const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
       if (w.ok) {
         // the roles are only used up if they were written (needs the IDs)
-        return {
-          kind: 'ok', model: fresh, version: w.version, created: true,
-          pendingRoles: pendingRolesAfterLoad(connected, ids ? 'created' : 'createdWithoutAuth'),
-        };
+        const pendingRoles = pendingRolesAfterLoad(connected, ids ? 'created' : 'createdWithoutAuth');
+        if (!active()) return { kind: 'stale', pendingRoles };
+        return { kind: 'ok', model: fresh, version: w.version, created: true, pendingRoles };
       }
       if (w.reason === 'exists') continue; // someone else just created it
       return {

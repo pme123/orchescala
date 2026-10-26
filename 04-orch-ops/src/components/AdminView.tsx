@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronLeft, FileUp, KeyRound, Plus, Trash2 } from 'lucide-react';
 import { useStore, type ImportSummary, type StorageInfo } from '../store';
-import { DEFAULT_ROLES, GUID_RE, setupLink, useAuth, withRoles } from '../auth';
+import { DEFAULT_ROLES, GUID_RE, confirmNoRoles, setupLink, useAuth, withRoles } from '../auth';
 import RoleFields from './RoleFields';
 import BrandingForm from './BrandingForm';
 import { IMPORT_COUNT } from '../confluence';
@@ -200,6 +200,7 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
   const valid = GUID_RE.test(draft.tenantId.trim()) && GUID_RE.test(draft.clientId.trim());
 
   const save = async () => {
+    if (!confirmNoRoles(draft)) return;
     const res = await onSave({
       ...model,
       auth: withRoles({ ...draft, tenantId: draft.tenantId.trim(), clientId: draft.clientId.trim() }, draft),

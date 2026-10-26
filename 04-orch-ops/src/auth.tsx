@@ -52,6 +52,14 @@ export function cleanRoles(r: Roles): Roles {
   return out;
 }
 
+/** no role set: everyone signed in is admin */
+export const hasNoRoles = (r: Roles): boolean => ROLE_KEYS.every(k => !(r[k] ?? '').trim());
+
+/** ask before saving settings without roles; true = go ahead */
+export function confirmNoRoles(r: Roles): boolean {
+  return !hasNoRoles(r) || confirm('Keine Rollen gesetzt: jede angemeldete Person ist Admin und darf alles, auch die Einstellungen ändern.\n\nTrotzdem so speichern?');
+}
+
 /** same roles once cleaned (spaces and empty fields do not count) */
 export function sameRoles(a: Roles, b: Roles): boolean {
   const x = cleanRoles(a), y = cleanRoles(b);
@@ -84,7 +92,9 @@ export function parseRoles(v: unknown): Roles | null {
 export const PENDING_ROLES_TTL_MS = 24 * 60 * 60 * 1000;
 const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
 
-/** stored pending roles; expired or unusable → null */
+/** stored pending roles; expired or unusable → null. `{ roles: {} }` is a
+ *  valid choice (deliberately no roles) — the time stamp tells it apart
+ *  from nothing stored or a broken entry. */
 export function parsePendingRoles(raw: string | null, now: number): Roles | null {
   if (!raw) return null;
   try {
