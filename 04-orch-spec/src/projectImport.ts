@@ -381,6 +381,10 @@ class Converter {
         const dflt = p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default) ? p.default : undefined;
         const asExample = dflt && !defaultIsUsed(t, f) ? dflt : undefined;
         if (dflt && !asExample) f.default = dflt;
+        // the InConfig is the configuration: its values are defaults - also when the class keeps
+        // them in its `example` (`defaultConfig = InConfig.example`)
+        const configValue = p.example?.trim();
+        if (!dflt && t.inConfig && configValue && configValue !== 'None') f.default = configValue;
         if (p.description) f.description = p.description;
         if (p.descriptionExpr) {
           f.descriptionExpr = p.descriptionExpr;

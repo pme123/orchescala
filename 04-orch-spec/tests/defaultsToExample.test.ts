@@ -88,3 +88,56 @@ test('import: no «Vorgabe wird nicht verwendet» - export writes the value into
   assert.match(all, /tags = Seq\.empty/);
   assert.match(all, /name = "Bern"/);
 });
+
+// The InConfig the other way round: no defaults, the values in `InConfig.example`
+// (`defaultConfig = InConfig.example`) - for the configuration they are the defaults.
+const configSource = `package ${PKG}
+
+object Address extends CompanyBpmnProcessDsl:
+  val processName = "${PID}"
+  val descr: String = ""
+
+  case class In(
+      street: String,
+      inConfig: Option[InConfig] = None
+  ) extends WithConfig[InConfig]:
+    lazy val defaultConfig = InConfig.example
+  end In
+
+  case class InConfig(
+      // Process Configuration
+      @description("Time to wait")
+      timerInformKube: String,
+      timerEscalationInform: Option[String],
+      timerSendProcessEvent: Iso8601Duration,
+      qmsRole: String = "6300--QMS"
+  )
+  object InConfig:
+    given ApiSchema[InConfig]  = deriveApiSchema
+    given InOutCodec[InConfig] = deriveInOutCodec
+    lazy val example = InConfig(
+      timerInformKube = "P1D",
+      timerEscalationInform = Some("P5D"),
+      timerSendProcessEvent = "PT5S"
+    )
+  end InConfig
+
+  lazy val example = process(In(street = "x"), NoOutput())
+end Address
+`;
+
+test('import: the values of `InConfig.example` are the defaults of the configuration', () => {
+  const domain = scanScala(configSource, 'Address.scala');
+  const r = enrichSpec({ ...importBpmn(bpmn, 'address').spec, project: 'acme-demo' }, domain, null)!;
+  const cfg = r.spec.types!.find(t => t.inConfig)!;
+  const field = (name: string) => cfg.fields!.find(f => f.name === name)!;
+  assert.equal(field('timerInformKube').default, '"P1D"');
+  assert.equal(field('timerEscalationInform').default, 'Some("P5D")');
+  assert.equal(field('timerSendProcessEvent').default, '"PT5S"');
+  assert.equal(field('qmsRole').default, '"6300--QMS"');
+  const all = scalaFiles(r.spec, { domainTypes: domain, services: [] } as never).map(f => f.content).join('\n');
+  assert.match(all, /timerInformKube: String = "P1D"/);
+  assert.match(all, /timerEscalationInform: Option\[String\] = Some\("P5D"\)/);
+  assert.match(all, /timerSendProcessEvent: Iso8601Duration = "PT5S"/);
+  assert.match(all, /qmsRole: String = "6300--QMS"/);
+});
