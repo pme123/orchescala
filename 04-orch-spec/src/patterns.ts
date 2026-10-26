@@ -795,7 +795,7 @@ function callsOf(n: Element): Map<string, string> {
   const out = new Map<string, string>();
   const ext = firstNamed(n, 'extensionElements');
   const zeebe = (tag: string, attr: string) => (ext ? firstNamed(ext, tag)?.getAttribute(attr) ?? null : null);
-  const put = (key: string, v: string | null | undefined) => { if (v != null && !out.has(key)) out.set(key, v); };
+  const put = (key: string, v: string | null | undefined) => { if (v != null) out.set(key, v); };
   put('task', attrOf(n, 'camunda:topic') ?? zeebe('taskDefinition', 'type'));
   put('process', attrOf(n, 'calledElement') ?? zeebe('calledElement', 'processId'));
   put('decision', attrOf(n, 'camunda:decisionRef') ?? zeebe('calledDecision', 'decisionId'));
@@ -803,27 +803,35 @@ function callsOf(n: Element): Map<string, string> {
   return out;
 }
 
-/** Lay the pattern's tasks onto the diagram's: same kind, same calls — the binding grows along */
-function fitWork(work: Element[], reached: Element[], b: Binding): Binding | null {
+/** Does the diagram's task `rn` do what the pattern's task `fn` does — same kind, same calls? */
+function fitTask(fn: Element, rn: Element, b: Binding): Binding | null {
+  if (local(rn) !== local(fn)) return null;
+  const calls = callsOf(rn);
   let cur: Binding | null = b;
-  const used = new Set<Element>();
-  for (const fn of work) {
-    let hit: Binding | null = null;
-    for (const rn of reached) {
-      if (used.has(rn) || local(rn) !== local(fn)) continue;
-      const calls = callsOf(rn);
-      hit = cur;
-      for (const [k, v] of callsOf(fn)) {
-        const tv = calls.get(k);
-        hit = tv == null || !hit ? null : matchText(v, tv, hit);
-        if (!hit) break;
-      }
-      if (hit) { used.add(rn); break; }
-    }
-    if (!hit) return null;
-    cur = hit;
+  for (const [k, v] of callsOf(fn)) {
+    const tv = calls.get(k);
+    cur = tv == null ? null : matchText(v, tv, cur);
+    if (!cur) return null;
   }
   return cur;
+}
+
+/**
+ * Lay the pattern's tasks onto the diagram's, each on its own — the binding grows along. If a
+ * choice binds a placeholder so that a later task no longer fits, the next candidate is tried
+ * (the blocks are small, a few tasks).
+ */
+function fitWork(work: Element[], reached: Element[], b: Binding, used: Set<Element> = new Set()): Binding | null {
+  if (!work.length) return b;
+  const [fn, ...rest] = work;
+  for (const rn of reached) {
+    if (used.has(rn)) continue;
+    const hit = fitTask(fn, rn, b);
+    if (!hit) continue;
+    const all = fitWork(rest, reached, hit, new Set(used).add(rn));
+    if (all) return all;
+  }
+  return null;
 }
 
 /**
@@ -840,12 +848,13 @@ function blocksFit(fr: Fragment, tg: Graph, b: Binding): boolean {
   for (const block of fr.blocks) {
     const entry = block.entry;
     if (local(entry) === 'subProcess') continue;
-    const entries = tg.nodes.filter(tn => local(tn) === local(entry) && matchEl(entry, tn, cur));
+    const entries = tg.nodes.filter(tn => local(tn) === local(entry))
+      .map(tn => ({ tn, b: matchEl(entry, tn, cur) })).filter((x): x is { tn: Element; b: Binding } => !!x.b);
     if (!entries.length) continue;
     const work = block.nodes.filter(n => WORK_TAGS.has(local(n)));
     let fit: Binding | null = null;
-    for (const tn of entries) {
-      fit = fitWork(work, reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e))), matchEl(entry, tn, cur)!);
+    for (const { tn, b: eb } of entries) {
+      fit = fitWork(work, reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e))), eb);
       if (fit) break;
     }
     if (!fit) return false;

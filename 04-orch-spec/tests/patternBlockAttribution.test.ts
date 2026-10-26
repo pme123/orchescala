@@ -181,3 +181,23 @@ test('a placeholder first bound in the block must keep its value in the next tas
   assert.deepEqual(detect(doc(path + twoTasks('A', 'two-link', 'acme', 'acme')), [p]).hits, ['two@Task']);
   assert.deepEqual(detect(doc(path + twoTasks('A', 'two-link', 'acme', 'other')), [p]).hits, []);
 });
+
+test('two tasks of the same kind: a first choice that binds wrongly is undone', () => {
+  // the pattern: service task {{a}}, then service task "acme-fixed" with template {{a}};
+  // the diagram lists the tasks the other way round - the first pick for {{a}} must be revised
+  const block = (prefix: string, link: string, t1: string, t2: string) => `
+<bpmn:intermediateCatchEvent id="${prefix}Catch"><bpmn:linkEventDefinition id="${prefix}CatchDef" name="${link}" /></bpmn:intermediateCatchEvent>
+${t1}${t2}
+<bpmn:endEvent id="${prefix}End" />
+<bpmn:sequenceFlow id="${prefix}F1" sourceRef="${prefix}Catch" targetRef="${prefix}S1" />
+<bpmn:sequenceFlow id="${prefix}F2" sourceRef="${prefix}S1" targetRef="${prefix}S2" />
+<bpmn:sequenceFlow id="${prefix}F3" sourceRef="${prefix}S2" targetRef="${prefix}End" />`;
+  const svc = (id: string, topic: string, template?: string) => `<bpmn:serviceTask id="${id}" camunda:topic="${topic}"${template ? ` camunda:modelerTemplate="${template}"` : ''} />`;
+  const p = { id: 'pair', name: 'pair', appliesTo: ['userTask'],
+    bpmn: { c7: doc(userTask('PatternTarget') + timerPath('T', 'PatternTarget', '${timerPair}', 'pair-link')
+      + block('B', 'pair-link', svc('BS1', '{{a}}'), svc('BS2', 'acme-fixed', '{{a}}')), 'PatternProcess') } } as unknown as PatternDef;
+  // diagram: first the fixed one (template acme-x), then acme-x - a greedy pick binds a = acme-fixed
+  const xml = doc(userTask('Task') + timerPath('A', 'Task', '${timerPair}', 'pair-link')
+    + block('A', 'pair-link', svc('AS1', 'acme-fixed', 'acme-x'), svc('AS2', 'acme-x')));
+  assert.deepEqual(detect(xml, [p]).hits, ['pair@Task']);
+});
