@@ -10,8 +10,8 @@
     "lint": "tsc --noEmit",
     "site": "node tools/assemble.ts ${ORCH_DOCS:-../../00-docs} --old-releases --serve",
     "sample": "node tools/assemble.ts ${ORCH_DOCS:-../../00-docs} --out sample-data/site --no-build",
-    "build:spec": "cd ../04-orch-spec && npx vite build --base=./ --outDir ../04-orch-doc/dist/spec --emptyOutDir",
-    "build:ops": "cd ../04-orch-ops && npx vite build --base=./ --outDir ../04-orch-doc/dist/ops --emptyOutDir",
+    "build:spec": "cd ../04-orch-spec && (test -x node_modules/.bin/vite || npm ci) && npx --no-install vite build --base=./ --outDir ../04-orch-doc/dist/spec --emptyOutDir",
+    "build:ops": "cd ../04-orch-ops && (test -x node_modules/.bin/vite || npm ci) && npx --no-install vite build --base=./ --outDir ../04-orch-doc/dist/ops --emptyOutDir",
     "build:all": "npm run build && npm run build:spec && npm run build:ops",
     "build:single": "tsc --noEmit && vite build -c vite.single.config.ts",
     "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --loader:.css=empty --loader:.png=empty --log-level=warning && node --test \"dist-tests/*.test.mjs\""
