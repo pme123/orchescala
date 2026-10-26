@@ -725,6 +725,10 @@ case class OrchSpecProcessObject(
     withImports(withLabels(merged), missingImports(merged)).mkString("\n") + "\n"
   end merge
 
+  // `InConfig.example` / `Proc.InConfig.exampleMinimal` of this object - not `Other.InConfig.example`
+  private lazy val ownInConfigExample =
+    s"""(?<![\\w.])(?:$objectName\\.)?InConfig\\.example(?:Minimal)?\\b"""
+
   // `override def`, `override val` or `override lazy val` - each is the object's own processLabels
   private def missingLabels(lines: Seq[String]): Boolean =
     processLabels.isDefined && !lines.exists(_.trim.matches("""override\s+(?:def|val|lazy\s+val)\s+processLabels\b.*"""))
@@ -769,7 +773,7 @@ case class OrchSpecProcessObject(
         // with all values as defaults the InConfig needs no example: `InConfig.example` -> `InConfig()`
         if g.name == "InConfig" && CaseClassParams.allHaveDefaults(merged) then
           lines.patch(e.from, TypeImplementation.withoutExamples(merged, g.name), e.until - e.from)
-            .map(_.replaceAll("""\bInConfig\.example(?:Minimal)?\b""", "InConfig()"))
+            .map(l => if l.trim.startsWith("//") then l else l.replaceAll(ownInConfigExample, "InConfig()"))
         else lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
       case Some(e) =>
@@ -1051,12 +1055,18 @@ object CaseClassParams:
   def addDefaults(section: Seq[String], generated: Seq[String]): Seq[String] =
     val start    = section.indexWhere(_.matches("""\s*(?:final\s+)?case class \w+\(.*"""))
     val close    = closing(section, start)
+    // only a default on one line - the line of the parameter, complete, without comment
     val defaults = params(generated).filter(hasDefault).flatMap: p =>
-      p.lines.collectFirst { case withDefault(_, d) => p.name -> d }
+      val code = p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode)
+      code match
+        case Seq(withDefault(_, d)) if balance(d) == 0 && !d.contains("//") => Some(p.name -> d)
+        case _                                                            => None
     if start < 0 || close < 0 then section
     else
       params(section).filterNot(hasDefault).foldLeft(section): (lines, p) =>
+        // the own parameter on one line too - its type complete, no comment to put the default into
         val at = (start + 1 until close).find(j => lines(j).matches(s"""\\s*${p.name}\\s*:.*"""))
+          .filter(j => balance(lines(j)) == 0 && !lines(j).contains("//"))
         (at, defaults.find(_._1 == p.name)) match
           case (Some(j), Some((_, d))) =>
             val line  = lines(j).replaceAll("""\s+$""", "")
@@ -1065,8 +1075,8 @@ object CaseClassParams:
           case _                       => lines
   end addDefaults
 
-  // `name: Type = value` on one line - the value without the comma
-  private val withDefault = """\s*(\w+)\s*:[^=]*?=\s*(.+?),?\s*""".r
+  // `name: Type = value` on one line - the value without the comma; `=>` in the type is no `=`
+  private val withDefault = """\s*(\w+)\s*:(?:[^=]|=>)*?\s=(?!>)\s*(.+?),?\s*""".r
 
   /** Every parameter has a default - `X()` is a valid value. */
   def allHaveDefaults(section: Seq[String]): Boolean =
@@ -1121,7 +1131,7 @@ object CaseClassParams:
   // from the line with the name on - the annotations before it (`@description("a = b")`) do not count
   private def hasDefault(p: Param): Boolean =
     p.lines.dropWhile(l => !l.matches("""\s*\w+\s*:.*""")).filter(isCode).mkString(" ")
-      .matches("""(?s)\s*\w+\s*:[^=]*=.*""")
+      .matches("""(?s)\s*\w+\s*:(?:[^=]|=>)*=(?!>).*""")
 
   case class Param(name: String, lines: Seq[String])
 
@@ -1141,7 +1151,9 @@ object CaseClassParams:
     lines.foldLeft((Vector.empty[Seq[String]], Vector.empty[String], 0)):
       case ((done, current, depth), line) =>
         val d = depth + balance(line)
-        if d == 0 && isCode(line) && line.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
+        // `timer: String, // the timer` - the comma before a comment at the end counts too
+        val code = line.replaceFirst("""\s*//[^"]*$""", "")
+        if d == 0 && isCode(line) && code.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
         else (done, current :+ line, d)
     match
       case (done, rest, _) => done ++ Option.when(rest.exists(isCode))(rest)
