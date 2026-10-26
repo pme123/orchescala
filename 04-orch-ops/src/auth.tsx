@@ -13,7 +13,10 @@
 //   manually — the admin generates both in the app. None of it lives in the
 //   repo/deployment.
 // - Roles (admin/reviewer/viewer) and enabled (sign-in required for the
-//   local folder): `auth` in the model.json.
+//   local folder): `auth` in the model.json. Defaults are the OrchOps roles
+//   (DEFAULT_ROLES); the setup dialog lets them be overridden (e.g. with the
+//   orch-spec ones). Those are kept apart as pending roles and only go into
+//   the model.json of the next new folder.
 // The locally remembered IDs are kept even if a model.json without IDs is
 // loaded. MSAL is only loaded when a sign-in is due.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -25,6 +28,130 @@ export type AuthConfig = AuthSettings;
 export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AccessLevel = 'admin' | 'reviewer' | 'viewer' | 'none';
+
+// Roles: the own OrchOps roles by default. Whoever wants the same as orch-spec
+// (one role assignment in Entra for both apps) puts in ORCH_SPEC_ROLES.
+export const ROLE_KEYS = ['adminRole', 'reviewerRole', 'viewerRole'] as const;
+export type RoleKey = typeof ROLE_KEYS[number];
+export type Roles = Pick<AuthSettings, RoleKey>;
+export const DEFAULT_ROLES: Required<Roles> = {
+  adminRole: 'OrchOps.Admin',
+  reviewerRole: 'OrchOps.Editor',
+  viewerRole: 'OrchOps.Viewer',
+};
+export const ORCH_SPEC_ROLES: Required<Roles> = {
+  adminRole: 'OrchSpec.Admin',
+  reviewerRole: 'OrchSpec.Editor',
+  viewerRole: 'OrchSpec.Viewer',
+};
+
+/** clean up roles: trimmed, empty ones left out */
+export function cleanRoles(r: Roles): Roles {
+  const out: Roles = {};
+  for (const k of ROLE_KEYS) { const v = (r[k] ?? '').trim(); if (v) out[k] = v; }
+  return out;
+}
+
+/** no role set: everyone signed in is admin */
+export const hasNoRoles = (r: Roles): boolean => ROLE_KEYS.every(k => !(r[k] ?? '').trim());
+
+/** ask before saving settings without roles; true = go ahead */
+export function confirmNoRoles(r: Roles): boolean {
+  return !hasNoRoles(r) || confirm('Keine Rollen gesetzt: jede angemeldete Person ist Admin und darf alles, auch die Einstellungen ändern.\n\nTrotzdem so speichern?');
+}
+
+/** same roles once cleaned (spaces and empty fields do not count) */
+export function sameRoles(a: Roles, b: Roles): boolean {
+  const x = cleanRoles(a), y = cleanRoles(b);
+  return ROLE_KEYS.every(k => x[k] === y[k]);
+}
+
+/** settings with these roles instead of their own (cleaned) */
+export function withRoles(cfg: AuthSettings, roles: Roles): AuthSettings {
+  const out: AuthSettings = { ...cfg };
+  for (const k of ROLE_KEYS) delete out[k];
+  return { ...out, ...cleanRoles(roles) };
+}
+
+/** roles from stored JSON; anything unusable → null */
+export function parseRoles(v: unknown): Roles | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  const out: Roles = {};
+  for (const k of ROLE_KEYS) if (typeof r[k] === 'string') out[k] = r[k] as string;
+  return cleanRoles(out);
+}
+
+// Roles chosen in the setup dialog («pending»): kept apart from the cached
+// settings (which carry the roles of the last folder) and survive the
+// sign-in redirect. Only a folder the user connects (picked, link, setup
+// link) uses them — a folder restored on start never does. A new one gets
+// them in its model.json; an existing one keeps its own (modelRepo.ts). If
+// they could not be written (create failed, no IDs) they stay for another
+// try, but expire after a day.
+export const PENDING_ROLES_TTL_MS = 24 * 60 * 60 * 1000;
+/** a clock set back a little (time sync) must not drop the choice */
+const CLOCK_SKEW_MS = 10 * 60 * 1000;
+const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
+
+/** stored pending roles; expired or unusable → null. `{ roles: {} }` is a
+ *  valid choice (deliberately no roles) — the time stamp tells it apart
+ *  from nothing stored or a broken entry. */
+export function parsePendingRoles(raw: string | null, now: number): Roles | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { roles?: unknown; at?: unknown } | null;
+    if (!v || typeof v.at !== 'number' || now - v.at > PENDING_ROLES_TTL_MS || v.at - now > CLOCK_SKEW_MS) return null;
+    return parseRoles(v.roles);
+  } catch {
+    return null;
+  }
+}
+
+/** what loading a folder came to (failures always keep the pending roles) */
+export type FolderLoad = 'existing' | 'created' | 'createdWithoutAuth';
+
+/** roles for the model.json of a new folder: those chosen at setup when the
+ *  user connected it (none chosen = none, everyone signed in is admin),
+ *  otherwise the defaults */
+export function newFolderRoles(pending: Roles | null, connected: boolean): Roles {
+  return connected && pending ? cleanRoles(pending) : { ...DEFAULT_ROLES };
+}
+
+/** after loading a folder: are the pending roles used up? */
+export function pendingRolesAfterLoad(connected: boolean, outcome: FolderLoad): 'clear' | 'keep' {
+  return connected && outcome !== 'createdWithoutAuth' ? 'clear' : 'keep';
+}
+
+/** remember the roles chosen at setup; false = browser storage not available */
+export function setPendingRoles(roles: Roles): boolean {
+  try {
+    localStorage.setItem(PENDING_ROLES_KEY, JSON.stringify({ roles: cleanRoles(roles), at: Date.now() }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+export function peekPendingRoles(): Roles | null {
+  return readPendingRoles()?.roles ?? null;
+}
+/** the pending roles with their stored text, so that clearPendingRoles(raw)
+ *  clears only this very choice — not a newer one saved while a folder loaded */
+export function readPendingRoles(): { roles: Roles; raw: string } | null {
+  try {
+    const raw = localStorage.getItem(PENDING_ROLES_KEY);
+    const roles = parsePendingRoles(raw, Date.now());
+    if (raw && !roles) localStorage.removeItem(PENDING_ROLES_KEY); // expired or unusable
+    return raw && roles ? { roles, raw } : null;
+  } catch {
+    return null;
+  }
+}
+export function clearPendingRoles(raw: string) {
+  try {
+    if (localStorage.getItem(PENDING_ROLES_KEY) === raw) localStorage.removeItem(PENDING_ROLES_KEY);
+  } catch { /* nothing stored then either */ }
+}
 
 export interface AuthUser {
   name: string;

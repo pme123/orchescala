@@ -1,8 +1,9 @@
 // Admin: branding, status values, Confluence import and sign-in.
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronLeft, FileUp, KeyRound, Plus, Trash2 } from 'lucide-react';
-import { useStore, type ImportSummary } from '../store';
-import { GUID_RE, setupLink } from '../auth';
+import { useStore, type ImportSummary, type StorageInfo } from '../store';
+import { DEFAULT_ROLES, GUID_RE, confirmNoRoles, setupLink, useAuth, withRoles } from '../auth';
+import RoleFields from './RoleFields';
 import BrandingForm from './BrandingForm';
 import { IMPORT_COUNT } from '../confluence';
 import type { Model, StatusDef } from '../types';
@@ -40,7 +41,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <section className="space-y-3">
         <h2 className={`text-sm font-semibold uppercase tracking-widest ${c.muted2}`}>Anmeldung (Microsoft Entra ID)</h2>
-        <AuthSettingsForm model={model} isDark={isDark} onSave={saveModel} folderUrl={storage?.webUrl} />
+        <AuthSettingsForm key={folderKey(storage)} model={model} isDark={isDark} onSave={saveModel} folderUrl={storage?.webUrl} />
       </section>
     </div>
   );
@@ -166,18 +167,45 @@ function ConfluenceImport({ isDark }: { isDark: boolean }) {
 }
 
 // ── Sign-in ─────────────────────────────────────────────────────────────────
+// A key per connected folder (StorageInfo is a new object each time): the
+// sign-in form starts afresh for another folder, unsaved edits stay behind.
+const folderKeys = new WeakMap<StorageInfo, number>();
+let lastFolderKey = 0;
+function folderKey(folder: StorageInfo | null): number {
+  if (!folder) return 0;
+  let k = folderKeys.get(folder);
+  if (k == null) folderKeys.set(folder, k = ++lastFolderKey);
+  return k;
+}
+
 function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
   model: Model; isDark: boolean; folderUrl?: string;
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
   const c = cls(isDark);
-  const a = model.auth ?? { enabled: false, tenantId: '', clientId: '' };
-  const [draft, setDraft] = useState(a);
+  const auth = useAuth();
+  // what the form shows when untouched: the saved settings, or — not set up
+  // yet — this browser's IDs (may only be known after mount) and the default roles
+  const tenantId = auth.ids?.tenantId ?? '', clientId = auth.ids?.clientId ?? '';
+  const base = useMemo(
+    () => model.auth ?? { enabled: false, tenantId, clientId, ...DEFAULT_ROLES },
+    [model.auth, tenantId, clientId],
+  );
+  const [draft, setDraftState] = useState(base);
+  const [dirty, setDirty] = useState(false);
+  // follow changes from outside (reload, another admin, IDs known later) as long as nothing is being edited
+  useEffect(() => { if (!dirty) setDraftState(base); }, [base, dirty]);
+  const setDraft = (d: typeof draft) => { setDraftState(d); setDirty(true); };
   const [msg, setMsg] = useState('');
   const valid = GUID_RE.test(draft.tenantId.trim()) && GUID_RE.test(draft.clientId.trim());
 
   const save = async () => {
-    const res = await onSave({ ...model, auth: draft });
+    if (!confirmNoRoles(draft)) return;
+    const res = await onSave({
+      ...model,
+      auth: withRoles({ ...draft, tenantId: draft.tenantId.trim(), clientId: draft.clientId.trim() }, draft),
+    });
+    if (res.ok) setDirty(false);
     setMsg(res.ok ? 'Gespeichert.' : res.message);
   };
 
@@ -186,7 +214,6 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Tenant- und Client-ID der App-Registrierung (öffentliche Werte, keine Geheimnisse).
         Mit «aktiv» braucht auch der lokale Ordner eine Anmeldung; für SharePoint ist sie immer nötig.
-        Rollen: Admin (alles), Bearbeiten (erfassen, ändern, zählen), Lesen.
       </p>
       <label className={`flex items-center gap-2 text-[11px] ${c.muted2}`}>
         <input type="checkbox" checked={draft.enabled} onChange={e => setDraft({ ...draft, enabled: e.target.checked })} />
@@ -202,18 +229,7 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
             className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
         </div>
       ))}
-      <div className="grid grid-cols-3 gap-2">
-        {(['adminRole', 'reviewerRole', 'viewerRole'] as const).map(k => (
-          <div key={k}>
-            <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.muted}`}>
-              {k === 'adminRole' ? 'Admin' : k === 'reviewerRole' ? 'Bearbeiten' : 'Lesen'}
-            </label>
-            <input value={draft[k] ?? ''} onChange={e => setDraft({ ...draft, [k]: e.target.value })}
-              placeholder={k === 'adminRole' ? 'OrchOps.Admin' : k === 'reviewerRole' ? 'OrchOps.Editor' : 'OrchOps.Viewer'}
-              className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
-          </div>
-        ))}
-      </div>
+      <RoleFields roles={draft} isDark={isDark} onChange={r => setDraft({ ...draft, ...r })} />
       <div className="flex items-center gap-2">
         <button onClick={save} className={`text-[11px] px-3 py-1.5 rounded font-semibold ${c.btnPrimary}`}>Speichern</button>
         {valid && (

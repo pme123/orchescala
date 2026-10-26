@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen, UserRound } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
-import { GUID_RE, LEVEL_LABELS, useAuth, usePermissions } from './auth';
+import {
+  DEFAULT_ROLES, GUID_RE, LEVEL_LABELS, ROLE_KEYS, confirmNoRoles, peekPendingRoles, setPendingRoles, useAuth, usePermissions, type Roles,
+} from './auth';
+import { joinOr } from './util';
+import RoleFields from './components/RoleFields';
 import ErrorsView, { type ListState } from './components/ErrorsView';
 import ErrorPanel from './components/ErrorPanel';
 import HowtoView from './components/HowtoView';
@@ -50,12 +54,13 @@ export default function App() {
   const [setupTenant, setSetupTenant] = useState('');
   const [setupClient, setSetupClient] = useState('');
   const [setupError, setSetupError] = useState('');
+  const [setupRoles, setSetupRoles] = useState<Roles>({ ...DEFAULT_ROLES });
   const startSharePoint = async () => {
     setSpPreparing(true);
     try {
       const r = await auth.loginForSharePoint();
       if (r === 'ready') setSpOpen(true);
-      else if (r === 'setup') { setSetupError(''); setSetupOpen(true); }
+      else if (r === 'setup') { setSetupError(''); setSetupRoles(peekPendingRoles() ?? { ...DEFAULT_ROLES }); setSetupOpen(true); }
     } finally {
       setSpPreparing(false);
     }
@@ -63,6 +68,9 @@ export default function App() {
   const saveSetup = async () => {
     const t = setupTenant.trim(), c = setupClient.trim();
     if (!GUID_RE.test(t) || !GUID_RE.test(c)) { setSetupError('Beide IDs müssen gültige GUIDs sein (Format 8-4-4-4-12).'); return; }
+    if (!confirmNoRoles(setupRoles)) return;
+    // for the model.json of a new folder; without browser storage the IDs could not be kept either
+    if (!setPendingRoles(setupRoles)) { setSetupError('Der Browser-Speicher ist nicht verfügbar (z. B. privates Fenster mit gesperrtem Speicher) — die Einrichtung lässt sich nicht merken.'); return; }
     auth.setLocalIds(t, c);
     setSetupOpen(false);
     // go straight on to the sign-in
@@ -262,7 +270,8 @@ export default function App() {
                 Keine Berechtigung für diese App.
               </p>
               <p className={`text-[11px] leading-relaxed mb-6 ${textMuted}`}>
-                {auth.user?.email} ist angemeldet, hat aber keine der Rollen Admin, Reviewer oder Viewer.
+                {auth.user?.email} ist angemeldet, hat aber keine der Rollen{' '}
+                <span className="font-mono">{joinOr(ROLE_KEYS.map(k => auth.config?.[k]))}</span>.
                 Die Zuweisung erfolgt in Entra unter «Unternehmensanwendungen → Benutzer und Gruppen».
               </p>
               <button onClick={auth.logout}
@@ -407,6 +416,13 @@ export default function App() {
               <label className={`block text-[10px] uppercase tracking-wider ${textMuted}`}>Anwendungs-ID (Client)</label>
               <input value={setupClient} onChange={e => setSetupClient(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000"
                 className={`w-full text-xs px-3 py-2 rounded border outline-none font-mono transition-colors ${isDark ? 'bg-white/5 border-white/10 text-white placeholder-white/20 focus:border-white/30' : 'bg-black/5 border-black/10 text-black placeholder-black/20 focus:border-black/30'}`} />
+            </div>
+            <div className="pt-4">
+              <RoleFields roles={setupRoles} onChange={setSetupRoles} isDark={isDark} />
+              <p className={`text-[10px] leading-relaxed mt-1 ${textMuted}`}>
+                Gehen in die Einstellungen des nächsten neuen Ordners, den du verbindest (innert 24 Stunden).
+                Hat der Ordner schon Einstellungen, gelten dessen Rollen (änderbar unter Admin → Anmeldung).
+              </p>
             </div>
             {setupError && <p className={`text-[11px] mt-2 ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{setupError}</p>}
             <div className="flex gap-2 pt-4">
