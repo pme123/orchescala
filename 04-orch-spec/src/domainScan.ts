@@ -165,7 +165,8 @@ export function importsOfFile(lines: string[]): string[] {
     if (!m) continue;
     const names = m[2].startsWith('{') ? m[2].slice(1, -1).split(',').map(n => n.trim()) : [m[2]];
     for (const n of names) {
-      if (!n) continue;
+      // `given` / `given Codec[X]` brings instances, no name
+      if (!n || n === 'given' || n.startsWith('given ')) continue;
       const rename = /^(\w+)\s*(?:=>|\bas\b)\s*(\w+)$/.exec(n);
       if (rename) {
         if (rename[2] !== '_') out.push(`${m[1]}.${rename[1]} as ${rename[2]}`);

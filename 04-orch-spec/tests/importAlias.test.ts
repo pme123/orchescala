@@ -93,3 +93,8 @@ for (const [label, imports] of [
     assert.match(field('other').type, new RegExp(`${FOREIGN.replace(/\./g, '\\.')}\\.OtherCode$`));
   });
 }
+
+test('importsOfFile: a rename next to `given` in braces - `given` itself is no name', () => {
+  assert.deepEqual(importsOfFile([`import ${FOREIGN}.{given, AdmissionTypeCode as Adm}`, `import ${FOREIGN}.{given Codec[X], OtherCode => Other}`]),
+    [`${FOREIGN}.AdmissionTypeCode as Adm`, `${FOREIGN}.OtherCode as Other`]);
+});
