@@ -1455,6 +1455,8 @@ interface ListProps {
   onStatus?: (id: string, s: Status) => void;
   /** Display name of a pattern (from the admin) */
   patternName: (id: string) => string;
+  /** the head of the pattern block this list is the content of — it does not open the block again */
+  foldOf?: string;
 }
 
 /**
@@ -1486,7 +1488,7 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
           {n} Schritt{n === 1 ? '' : 'e'}
         </span>
       </button>
-      {open && <StepList {...p} steps={steps} depth={p.depth + 1} />}
+      {open && <StepList {...p} steps={steps} depth={p.depth + 1} foldOf={steps[0]?.id} />}
     </div>
   );
 }
@@ -1498,7 +1500,7 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
  */
 function StepList(p: ListProps) {
   const c = cls(p.isDark);
-  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)));
+  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)), p.foldOf);
   return (
     <div className="flex flex-col">
       {groups.map(g => {

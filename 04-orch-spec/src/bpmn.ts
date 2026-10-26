@@ -1447,11 +1447,14 @@ export function blockStart(first: Step): string {
  * The steps of a level in groups: a step with `orphan` starts
  * a new one; `head` is set if the group needs a bracket (an
  * event subprocess has its own container and stays on its own).
+ * `inside`: the head of the block these steps are already shown in — it does not open
+ * the same block again (a pattern block lists its own steps; otherwise it would contain
+ * itself without end).
  */
-export function blockGroups(steps: Step[]): Array<{ head: Step | null; steps: Step[] }> {
+export function blockGroups(steps: Step[], inside?: string): Array<{ head: Step | null; steps: Step[] }> {
   const groups: Array<{ head: Step | null; steps: Step[] }> = [];
   for (const s of steps) {
-    const opens = !!s.orphan && !s.eventSubprocess;
+    const opens = !!s.orphan && !s.eventSubprocess && s.id !== inside;
     const last = groups[groups.length - 1];
     if (s.orphan || !last) groups.push({ head: opens ? s : null, steps: [s] });
     else last.steps.push(s);
