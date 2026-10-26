@@ -787,40 +787,71 @@ function reachOwned(g: Graph, start: Element): Element[] {
 
 /** Tasks that do the work of a block — what they call identifies the block */
 const WORK_TAGS = new Set(['serviceTask', 'sendTask', 'callActivity', 'businessRuleTask', 'scriptTask', 'userTask', 'receiveTask']);
-/** What a task calls: Camunda 7 on the element, Camunda 8 in its extensions */
-function callsOf(n: Element): Array<[string, string]> {
-  const out: Array<[string, string]> = [];
-  for (const k of ['camunda:topic', 'calledElement', 'camunda:decisionRef', 'camunda:modelerTemplate', 'zeebe:modelerTemplate']) {
-    const v = attrOf(n, k);
-    if (v != null) out.push([k, v]);
-  }
+/**
+ * What a task calls, under engine-neutral keys — Camunda 7 on the element, Camunda 8 in its
+ * extensions: `task` (topic / job type), `process` (called process), `decision`, `template`.
+ */
+function callsOf(n: Element): Map<string, string> {
+  const out = new Map<string, string>();
   const ext = firstNamed(n, 'extensionElements');
-  for (const [tag, attr] of [['taskDefinition', 'type'], ['calledElement', 'processId'], ['calledDecision', 'decisionId']] as const) {
-    const v = ext ? firstNamed(ext, tag)?.getAttribute(attr) : null;
-    if (v != null) out.push([`${tag}.${attr}`, v]);
-  }
+  const zeebe = (tag: string, attr: string) => (ext ? firstNamed(ext, tag)?.getAttribute(attr) ?? null : null);
+  const put = (key: string, v: string | null | undefined) => { if (v != null && !out.has(key)) out.set(key, v); };
+  put('task', attrOf(n, 'camunda:topic') ?? zeebe('taskDefinition', 'type'));
+  put('process', attrOf(n, 'calledElement') ?? zeebe('calledElement', 'processId'));
+  put('decision', attrOf(n, 'camunda:decisionRef') ?? zeebe('calledDecision', 'decisionId'));
+  put('template', attrOf(n, 'camunda:modelerTemplate') ?? attrOf(n, 'zeebe:modelerTemplate'));
   return out;
+}
+
+/** Lay the pattern's tasks onto the diagram's: same kind, same calls — the binding grows along */
+function fitWork(work: Element[], reached: Element[], b: Binding): Binding | null {
+  let cur: Binding | null = b;
+  const used = new Set<Element>();
+  for (const fn of work) {
+    let hit: Binding | null = null;
+    for (const rn of reached) {
+      if (used.has(rn) || local(rn) !== local(fn)) continue;
+      const calls = callsOf(rn);
+      hit = cur;
+      for (const [k, v] of callsOf(fn)) {
+        const tv = calls.get(k);
+        hit = tv == null || !hit ? null : matchText(v, tv, hit);
+        if (!hit) break;
+      }
+      if (hit) { used.add(rn); break; }
+    }
+    if (!hit) return null;
+    cur = hit;
+  }
+  return cur;
 }
 
 /**
  * Does the block behind the pattern's link fit — the same tasks calling the same things?
  * The path on the element (timer → link) has free parameters and fits every timer → link;
- * only the block tells e.g. a mail from a process event. Mappings do not count (a block with
- * one field more or less still fits). A block missing in the diagram does not speak against it.
+ * only the block tells e.g. a mail from a process event. What a task calls is compared
+ * engine-neutrally, a placeholder must have the same value as on the path; mappings do not
+ * count (a block with one field more or less still fits). A task of the pattern that calls
+ * nothing fits every task of its kind — there is nothing to tell them apart. A block missing in
+ * the diagram does not speak against it; an event subprocess is defined by its start alone.
  */
 function blocksFit(fr: Fragment, tg: Graph, b: Binding): boolean {
-  return fr.blocks.every(block => {
+  let cur: Binding = b;
+  for (const block of fr.blocks) {
     const entry = block.entry;
-    if (local(entry) === 'subProcess') return true; // an event subprocess is defined by its start
-    const entries = tg.nodes.filter(tn => local(tn) === local(entry) && matchEl(entry, tn, b));
-    if (!entries.length) return true;
+    if (local(entry) === 'subProcess') continue;
+    const entries = tg.nodes.filter(tn => local(tn) === local(entry) && matchEl(entry, tn, cur));
+    if (!entries.length) continue;
     const work = block.nodes.filter(n => WORK_TAGS.has(local(n)));
-    return entries.some(tn => {
-      const reached = reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e)));
-      return work.every(fn => reached.some(rn => local(rn) === local(fn)
-        && callsOf(fn).every(([k, v]) => { const tv = callsOf(rn).find(([rk]) => rk === k)?.[1]; return tv != null && !!matchText(v, tv, b); })));
-    });
-  });
+    let fit: Binding | null = null;
+    for (const tn of entries) {
+      fit = fitWork(work, reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e))), matchEl(entry, tn, cur)!);
+      if (fit) break;
+    }
+    if (!fit) return false;
+    cur = fit;
+  }
+  return true;
 }
 
 /**
@@ -955,9 +986,11 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
         const m = matchAnchor(fr, t, tg, rejected.size ? new Set([...claimed, ...rejected]) : claimed, builtins(t, proc));
         if (!m) break;
         if (fr.blocks.length && !blocksFit(fr, tg, m.b)) {
-          // the path fits, its block does not (a timer → link of another pattern): try the next path
-          if (!m.attached.size) break;
+          // the path fits, its block does not (a timer → link of another pattern): try the next
+          // path — but only if this one is new; otherwise the same match would come back
+          const before = rejected.size;
           for (const e of m.attached.values()) rejected.add(e);
+          if (rejected.size === before) break;
           continue;
         }
         m.items.forEach(e => claimed.add(e));
