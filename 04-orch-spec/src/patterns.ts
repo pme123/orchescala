@@ -789,6 +789,84 @@ function reachOwned(g: Graph, start: Element): Element[] {
   return [...nodes, ...flows];
 }
 
+/** Tasks that do the work of a block — what they call identifies the block */
+const WORK_TAGS = new Set(['serviceTask', 'sendTask', 'callActivity', 'businessRuleTask', 'scriptTask', 'userTask', 'receiveTask']);
+/**
+ * What a task calls, under engine-neutral keys — Camunda 7 on the element, Camunda 8 in its
+ * extensions: `task` (topic / job type), `process` (called process), `decision`, `template`.
+ */
+function callsOf(n: Element): Map<string, string> {
+  const out = new Map<string, string>();
+  const ext = firstNamed(n, 'extensionElements');
+  const zeebe = (tag: string, attr: string) => (ext ? firstNamed(ext, tag)?.getAttribute(attr) ?? null : null);
+  const put = (key: string, v: string | null | undefined) => { if (v != null) out.set(key, v); };
+  put('task', attrOf(n, 'camunda:topic') ?? zeebe('taskDefinition', 'type'));
+  put('process', attrOf(n, 'calledElement') ?? zeebe('calledElement', 'processId'));
+  put('decision', attrOf(n, 'camunda:decisionRef') ?? zeebe('calledDecision', 'decisionId'));
+  put('template', attrOf(n, 'camunda:modelerTemplate') ?? attrOf(n, 'zeebe:modelerTemplate'));
+  return out;
+}
+
+/** Does the diagram's task `rn` do what the pattern's task `fn` does — same kind, same calls? */
+function fitTask(fn: Element, rn: Element, b: Binding): Binding | null {
+  if (local(rn) !== local(fn)) return null;
+  const calls = callsOf(rn);
+  let cur: Binding | null = b;
+  for (const [k, v] of callsOf(fn)) {
+    const tv = calls.get(k);
+    cur = tv == null ? null : matchText(v, tv, cur);
+    if (!cur) return null;
+  }
+  return cur;
+}
+
+/**
+ * Lay the pattern's tasks onto the diagram's, each on its own — the binding grows along. If a
+ * choice binds a placeholder so that a later task no longer fits, the next candidate is tried
+ * (the blocks are small, a few tasks).
+ */
+function fitWork(work: Element[], reached: Element[], b: Binding, used: Set<Element> = new Set()): Binding | null {
+  if (!work.length) return b;
+  const [fn, ...rest] = work;
+  for (const rn of reached) {
+    if (used.has(rn)) continue;
+    const hit = fitTask(fn, rn, b);
+    if (!hit) continue;
+    const all = fitWork(rest, reached, hit, new Set(used).add(rn));
+    if (all) return all;
+  }
+  return null;
+}
+
+/**
+ * Does the block behind the pattern's link fit — the same tasks calling the same things?
+ * The path on the element (timer → link) has free parameters and fits every timer → link;
+ * only the block tells e.g. a mail from a process event. What a task calls is compared
+ * engine-neutrally, a placeholder must have the same value as on the path; mappings do not
+ * count (a block with one field more or less still fits). A task of the pattern that calls
+ * nothing fits every task of its kind — there is nothing to tell them apart. A block missing in
+ * the diagram does not speak against it; an event subprocess is defined by its start alone.
+ */
+function blocksFit(fr: Fragment, tg: Graph, b: Binding): boolean {
+  let cur: Binding = b;
+  for (const block of fr.blocks) {
+    const entry = block.entry;
+    if (local(entry) === 'subProcess') continue;
+    const entries = tg.nodes.filter(tn => local(tn) === local(entry))
+      .map(tn => ({ tn, b: matchEl(entry, tn, cur) })).filter((x): x is { tn: Element; b: Binding } => !!x.b);
+    if (!entries.length) continue;
+    const work = block.nodes.filter(n => WORK_TAGS.has(local(n)));
+    let fit: Binding | null = null;
+    for (const { tn, b: eb } of entries) {
+      fit = fitWork(work, reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e))), eb);
+      if (fit) break;
+    }
+    if (!fit) return false;
+    cur = fit;
+  }
+  return true;
+}
+
 /**
  * Find the pattern's shared blocks in the scope. What matters is the
  * **entry**: a link target with the same name, an event subprocess
@@ -900,7 +978,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       const m = matchAnchor(fr, proc, null, claimed, builtins(null, proc));
       if (!m) continue;
       const blocks = matchBlocks(fr, graph(proc), claimed, m.b);
-      if (blocks.some(x => !x)) continue;
+      if (blocks.some(x => !x) || !blocksFit(fr, graph(proc), m.b)) continue;
       let b = m.b;
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
@@ -915,9 +993,19 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       const tg = graph(t.parentElement);
       // the same pattern can hang on the element several times (two mail timers) —
       // whatever is already assigned is no longer available to the next one
+      /** paths of this element whose block belongs to something else — not offered again */
+      const rejected = new Set<Element>();
       for (let i = 0; i < 10; i++) {
-        const m = matchAnchor(fr, t, tg, claimed, builtins(t, proc));
+        const m = matchAnchor(fr, t, tg, rejected.size ? new Set([...claimed, ...rejected]) : claimed, builtins(t, proc));
         if (!m) break;
+        if (fr.blocks.length && !blocksFit(fr, tg, m.b)) {
+          // the path fits, its block does not (a timer → link of another pattern): try the next
+          // path — but only if this one is new; otherwise the same match would come back
+          const before = rejected.size;
+          for (const e of m.attached.values()) rejected.add(e);
+          if (rejected.size === before) break;
+          continue;
+        }
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
         res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
