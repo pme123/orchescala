@@ -9,6 +9,7 @@ import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
 import { scalaFiles, checkTypes } from '../src/scala';
+import { fieldFromScala } from '../src/interactions';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -142,4 +143,17 @@ test('import: the values of `InConfig.example` are the defaults of the configura
   assert.match(all, /timerEscalationInform: Option\[String\] = Some\("P5D"\)/);
   assert.match(all, /timerSendProcessEvent: Iso8601Duration = "PT5S"/);
   assert.match(all, /qmsRole: String = "6300--QMS"/);
+});
+
+test('catalog In/Out (fieldFromScala): a constructor default is the example - an Option stays optional', () => {
+  const opt = fieldFromScala({ name: 'country', type: 'Option[String]', default: 'Some("CH")' }, null);
+  assert.equal(opt.default, undefined);
+  assert.equal(opt.optional, true);
+  assert.equal(opt.example, '"CH"');
+  const plain = fieldFromScala({ name: 'zip', type: 'Int', default: '3000' }, null);
+  assert.equal(plain.default, undefined);
+  assert.equal(plain.example, '3000');
+  // an own example wins over the default
+  const both = fieldFromScala({ name: 'zip', type: 'Int', default: '3000', example: '4000' }, null);
+  assert.equal(both.example, '4000');
 });
