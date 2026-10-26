@@ -762,7 +762,10 @@ case class OrchSpecProcessObject(
       case Some(e) if Seq("InConfig", "InitIn").contains(g.name) =>
         val own    = e.lines(lines)
         // a field without default must also be in the `example` - otherwise it does not compile
-        val merged = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
+        val added  = CaseClassParams.addMissingToExample(CaseClassParams.addMissing(own, replacement), own, replacement, g.name)
+        // the InConfig is the configuration: an own field without default gets the one of Orch Spec
+        // (the values were in `InConfig.example` - `defaultConfig = InConfig.example`)
+        val merged = if g.name == "InConfig" then CaseClassParams.addDefaults(added, replacement) else added
         lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
       case Some(e) =>
@@ -1037,6 +1040,29 @@ object CaseClassParams:
         withEnd.patch(close, withCommas(missing.map(_.lines)), 0)
       end if
   end addMissing
+
+  /** The own parameters without default get the default `generated` has for them (on the line of
+    * the parameter: `timer: String,` -> `timer: String = "P1D",`). The rest stays as it is.
+    */
+  def addDefaults(section: Seq[String], generated: Seq[String]): Seq[String] =
+    val start    = section.indexWhere(_.matches("""\s*(?:final\s+)?case class \w+\(.*"""))
+    val close    = closing(section, start)
+    val defaults = params(generated).filter(hasDefault).flatMap: p =>
+      p.lines.collectFirst { case withDefault(_, d) => p.name -> d }
+    if start < 0 || close < 0 then section
+    else
+      params(section).filterNot(hasDefault).foldLeft(section): (lines, p) =>
+        val at = (start + 1 until close).find(j => lines(j).matches(s"""\\s*${p.name}\\s*:.*"""))
+        (at, defaults.find(_._1 == p.name)) match
+          case (Some(j), Some((_, d))) =>
+            val line  = lines(j).replaceAll("""\s+$""", "")
+            val comma = line.endsWith(",")
+            lines.updated(j, s"${line.stripSuffix(",")} = $d${if comma then "," else ""}")
+          case _                       => lines
+  end addDefaults
+
+  // `name: Type = value` on one line - the value without the comma
+  private val withDefault = """\s*(\w+)\s*:[^=]*?=\s*(.+?),?\s*""".r
 
   /** The fields that `generated` adds to `own` and that have no default - with their argument in
     * the `lazy val example = X(…)` of `generated` added to the example of `section` (a field with

@@ -700,6 +700,61 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(mergeObject.differences(merged), Seq.empty)
     assertEquals(mergeObject.merge(merged), merged)
 
+  test("merge - InConfig fields without default get the default of Orch Spec"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      @description("Time to wait")
+        |      timerInformKube: String = "P1D",
+        |      timerEscalationInform: Option[String] = Some("P5D"),
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class InConfig(
+        |      // Process Configuration
+        |      @description(
+        |        "Time to wait"
+        |      )
+        |      timerInformKube: String,
+        |      timerEscalationInform: Option[String],
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      timerInformKube = "P1D",
+        |      timerEscalationInform = Some("P5D")
+        |    )
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains(
+      """  case class InConfig(
+        |      // Process Configuration
+        |      @description(
+        |        "Time to wait"
+        |      )
+        |      timerInformKube: String = "P1D",
+        |      timerEscalationInform: Option[String] = Some("P5D"),
+        |      qmsRole: String = "6300--QMS"
+        |  )""".stripMargin
+    ), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
   test("merge - a field without default in InitIn also goes into its example"):
     val block    =
       """// in object Proc einfügen
