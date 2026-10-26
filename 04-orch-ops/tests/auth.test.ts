@@ -2,7 +2,8 @@
 // document URL — also with the relative base (`./`) of the docs site.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_ROLES, ORCH_SPEC_ROLES, appUrl, cleanRoles, levelOf, setupLink, setupRoles } from '../src/auth';
+import { DEFAULT_ROLES, ORCH_SPEC_ROLES, appUrl, cleanRoles, levelOf, newFolderRoles, parseRoles, setupLink, withRoles } from '../src/auth';
+import { joinOr } from '../src/util';
 
 // bundled into one module: the test's import.meta is the one src/auth.tsx reads
 const meta = import.meta as unknown as { env?: { BASE_URL: string } };
@@ -54,9 +55,35 @@ test('cleanRoles trims and drops empty roles', () => {
   assert.deepEqual(cleanRoles({ adminRole: ' A ', reviewerRole: '', viewerRole: '  ' }), { adminRole: 'A' });
 });
 
-test('setupRoles: the roles chosen at setup, otherwise the defaults', () => {
-  assert.deepEqual(setupRoles(null), DEFAULT_ROLES);
-  assert.deepEqual(setupRoles({}), DEFAULT_ROLES);
-  assert.deepEqual(setupRoles({ adminRole: '', reviewerRole: ' ' }), DEFAULT_ROLES);
-  assert.deepEqual(setupRoles({ ...ORCH_SPEC_ROLES, viewerRole: '' }), { adminRole: 'OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor' });
+test('newFolderRoles: the roles chosen at setup, otherwise the defaults', () => {
+  assert.deepEqual(newFolderRoles(null), DEFAULT_ROLES);
+  assert.deepEqual(newFolderRoles({ ...ORCH_SPEC_ROLES, viewerRole: ' ' }), { adminRole: 'OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor' });
+  // deliberately all empty stays empty (everyone signed in is admin), as in Admin → Anmeldung
+  assert.deepEqual(newFolderRoles({}), {});
+  assert.deepEqual(newFolderRoles({ adminRole: '', reviewerRole: '' }), {});
+});
+
+test('parseRoles: stored pending roles, unusable → null', () => {
+  assert.deepEqual(parseRoles(JSON.stringify(ORCH_SPEC_ROLES)), ORCH_SPEC_ROLES);
+  assert.deepEqual(parseRoles('{}'), {});
+  assert.deepEqual(parseRoles('{"adminRole":" A ","viewerRole":3,"other":"x"}'), { adminRole: 'A' });
+  assert.equal(parseRoles(null), null);
+  assert.equal(parseRoles('not json'), null);
+  assert.equal(parseRoles('[]'), null);
+  assert.equal(parseRoles('null'), null);
+});
+
+test('withRoles replaces the roles: trimmed, empty ones dropped, rest kept', () => {
+  const cfg = { enabled: true, tenantId: TENANT, clientId: CLIENT, ...DEFAULT_ROLES };
+  assert.deepEqual(withRoles(cfg, { adminRole: ' X.Admin ', reviewerRole: '' }),
+    { enabled: true, tenantId: TENANT, clientId: CLIENT, adminRole: 'X.Admin' });
+  assert.deepEqual(withRoles(cfg, {}), { enabled: true, tenantId: TENANT, clientId: CLIENT });
+});
+
+test('joinOr lists the role names', () => {
+  assert.equal(joinOr([]), '');
+  assert.equal(joinOr(['A', undefined, '']), 'A');
+  assert.equal(joinOr(['A', 'B']), 'A oder B');
+  assert.equal(joinOr(['A', 'B', 'C']), 'A, B oder C');
+  assert.equal(joinOr(['A', 'A', 'B']), 'A oder B');
 });

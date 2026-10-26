@@ -10,10 +10,8 @@ const ROLE_INFO: Record<RoleKey, { label: string; can: string }> = {
   viewerRole: { label: 'Lesen', can: 'nur lesen' },
 };
 
-export default function RoleFields({ roles, onChange, isDark, emptyHint = true }: {
+export default function RoleFields({ roles, onChange, isDark }: {
   roles: Roles; onChange: (r: Roles) => void; isDark: boolean;
-  /** hint about empty fields (not in the setup dialog: there the defaults apply instead) */
-  emptyHint?: boolean;
 }) {
   const c = cls(isDark);
   const same = (r: Required<Roles>) => ROLE_KEYS.every(k => (roles[k] ?? '') === r[k]);
@@ -48,7 +46,7 @@ export default function RoleFields({ roles, onChange, isDark, emptyHint = true }
       ))}
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Der Wert muss genau dem «Wert» der App-Rolle in der App-Registrierung entsprechen.
-        {emptyHint && ' Ein leeres Feld = Stufe nicht verwendet; alle leer = jede angemeldete Person ist Admin.'}
+        Ein leeres Feld = Stufe nicht verwendet; alle leer = jede angemeldete Person ist Admin.
       </p>
     </div>
   );

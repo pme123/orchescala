@@ -1,8 +1,8 @@
 // Admin: branding, status values, Confluence import and sign-in.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronLeft, FileUp, KeyRound, Plus, Trash2 } from 'lucide-react';
 import { useStore, type ImportSummary } from '../store';
-import { DEFAULT_ROLES, GUID_RE, cleanRoles, setupLink, useAuth } from '../auth';
+import { DEFAULT_ROLES, GUID_RE, setupLink, useAuth, withRoles } from '../auth';
 import RoleFields from './RoleFields';
 import BrandingForm from './BrandingForm';
 import { IMPORT_COUNT } from '../confluence';
@@ -180,10 +180,18 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
   const [draft, setDraft] = useState(a);
   const [msg, setMsg] = useState('');
   const valid = GUID_RE.test(draft.tenantId.trim()) && GUID_RE.test(draft.clientId.trim());
+  // the IDs of this browser may only be known after mount: fill in empty fields
+  const ids = model.auth ? null : auth.ids;
+  useEffect(() => {
+    if (!ids) return;
+    setDraft(d => ({ ...d, tenantId: d.tenantId || ids.tenantId, clientId: d.clientId || ids.clientId }));
+  }, [ids?.tenantId, ids?.clientId]);
 
   const save = async () => {
-    const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = draft;
-    const res = await onSave({ ...model, auth: { ...rest, tenantId: rest.tenantId.trim(), clientId: rest.clientId.trim(), ...cleanRoles(draft) } });
+    const res = await onSave({
+      ...model,
+      auth: withRoles({ ...draft, tenantId: draft.tenantId.trim(), clientId: draft.clientId.trim() }, draft),
+    });
     setMsg(res.ok ? 'Gespeichert.' : res.message);
   };
 

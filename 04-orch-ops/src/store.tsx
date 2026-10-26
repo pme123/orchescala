@@ -16,7 +16,7 @@ import { DEFAULT_MODEL, DEFAULT_STATUSES } from './defaultModel';
 import { nowIso } from './util';
 import { DemoBackend, LocalBackend, type StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, type SharePointFolder } from './graph';
-import { PENDING_FOLDER_KEY, setupRoles, useAuth } from './auth';
+import { PENDING_FOLDER_KEY, clearPendingRoles, newFolderRoles, peekPendingRoles, useAuth } from './auth';
 import { parseConfluence } from './confluence';
 import { isAttachmentPath, newAttachmentPath, prepareImage } from './attachments';
 import {
@@ -133,8 +133,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   getTokenRef.current = auth.getToken;
   const idsRef = useRef(auth.ids);
   idsRef.current = auth.ids;
-  const authCfgRef = useRef(auth.config);
-  authCfgRef.current = auth.config;
 
   const actor = (auth.status === 'signedIn' && auth.user?.name?.trim()) || localName.trim();
   const actorRef = useRef(actor);
@@ -163,7 +161,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!read) {
         const ids = idsRef.current;
         const fresh: Model = ids
-          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...setupRoles(authCfgRef.current) } }
+          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...newFolderRoles(peekPendingRoles()) } }
           : DEFAULT_MODEL;
         const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
         if (!current()) return;
@@ -177,12 +175,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         setModel(fresh); setModelError(null);
+        clearPendingRoles(); // used up by this new folder
         return;
       }
       try {
         setModel(normalizeModel(JSON.parse(read.text)));
         modelVersionRef.current = read.version;
         setModelError(null);
+        clearPendingRoles(); // an existing folder keeps its own roles
       } catch {
         setModel(null); // do NOT overwrite a broken file
         setModelError('model.json ist unlesbar (kein gültiges JSON).');

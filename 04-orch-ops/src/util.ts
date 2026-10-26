@@ -54,3 +54,9 @@ export function uid(prefix = 'id'): string {
     : Math.random().toString(36).slice(2, 12);
   return `${prefix}-${rnd}`;
 }
+
+/** «a», «a oder b», «a, b oder c» — duplicates and empty ones left out */
+export function joinOr(items: (string | undefined | null)[]): string {
+  const list = [...new Set(items.filter((x): x is string => !!x && !!x.trim()))];
+  return list.length <= 1 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} oder ${list[list.length - 1]}`;
+}

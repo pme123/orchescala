@@ -15,7 +15,8 @@
 // - Roles (admin/reviewer/viewer) and enabled (sign-in required for the
 //   local folder): `auth` in the model.json. Defaults are the OrchOps roles
 //   (DEFAULT_ROLES); the setup dialog lets them be overridden (e.g. with the
-//   orch-spec ones) and they go into the model.json of a new folder.
+//   orch-spec ones). Those are kept apart as pending roles and only go into
+//   the model.json of the next new folder.
 // The locally remembered IDs are kept even if a model.json without IDs is
 // loaded. MSAL is only loaded when a sign-in is due.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -51,10 +52,44 @@ export function cleanRoles(r: Roles): Roles {
   return out;
 }
 
-/** roles for a new model.json: those chosen at setup, otherwise the defaults */
-export function setupRoles(cfg: Roles | null | undefined): Roles {
-  const chosen = cfg ? cleanRoles(cfg) : {};
-  return ROLE_KEYS.some(k => chosen[k]) ? chosen : { ...DEFAULT_ROLES };
+/** settings with these roles instead of their own (cleaned) */
+export function withRoles<T extends Roles>(cfg: T, roles: Roles): Omit<T, RoleKey> & Roles {
+  const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = cfg;
+  return { ...rest, ...cleanRoles(roles) };
+}
+
+/** read stored roles; anything unusable → null */
+export function parseRoles(raw: string | null): Roles | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+    const out: Roles = {};
+    for (const k of ROLE_KEYS) if (typeof v[k] === 'string') out[k] = v[k] as string;
+    return cleanRoles(out);
+  } catch {
+    return null;
+  }
+}
+
+/** roles for the model.json of a new folder: those chosen at setup (none
+ *  chosen = none, everyone signed in is admin), otherwise the defaults */
+export function newFolderRoles(pending: Roles | null): Roles {
+  return pending ? cleanRoles(pending) : { ...DEFAULT_ROLES };
+}
+
+// Roles chosen in the setup dialog: kept apart from the cached settings (which
+// carry the roles of the last folder) and survive the sign-in redirect.
+// Used up by the next folder that is loaded — a new one gets them.
+const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
+export function setPendingRoles(roles: Roles) {
+  try { localStorage.setItem(PENDING_ROLES_KEY, JSON.stringify(cleanRoles(roles))); } catch { /* ignore */ }
+}
+export function peekPendingRoles(): Roles | null {
+  try { return parseRoles(localStorage.getItem(PENDING_ROLES_KEY)); } catch { return null; }
+}
+export function clearPendingRoles() {
+  try { localStorage.removeItem(PENDING_ROLES_KEY); } catch { /* ignore */ }
 }
 
 export interface AuthUser {
@@ -80,8 +115,8 @@ interface AuthContextValue {
   loginAvailable: boolean;
   /** effective IDs */
   ids: { tenantId: string; clientId: string } | null;
-  /** store IDs (and the roles for a new folder) for this browser (setup) */
-  setLocalIds: (tenantId: string, clientId: string, roles?: Roles) => void;
+  /** store IDs for this browser (setup) */
+  setLocalIds: (tenantId: string, clientId: string) => void;
   login: () => Promise<void>;
   /** Sign-in for SharePoint mode (with Graph permission), even without enabled.
    *  'ready' = signed in with Graph token; 'redirect' = sign-in in progress; 'setup' = IDs missing */
@@ -278,13 +313,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [startMsal]);
 
   // store IDs for this browser (setup dialog / link / file)
-  const setLocalIds = useCallback((tenantId: string, clientId: string, roles?: Roles) => {
+  const setLocalIds = useCallback((tenantId: string, clientId: string) => {
     const prev = readCache();
-    let cfg: AuthConfig = { ...(prev ?? { enabled: false, tenantId: '', clientId: '' }), tenantId: tenantId.trim(), clientId: clientId.trim() };
-    if (roles) {
-      const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = cfg;
-      cfg = { ...rest, ...cleanRoles(roles) };
-    }
+    const cfg: AuthConfig = { ...(prev ?? { enabled: false, tenantId: '', clientId: '' }), tenantId: tenantId.trim(), clientId: clientId.trim() };
     applyConfig(cfg);
   }, [applyConfig]);
 
