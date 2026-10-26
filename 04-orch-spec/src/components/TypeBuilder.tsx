@@ -16,7 +16,7 @@ import { isAdt,
   type Status, type TypeDef,
 } from '../types';
 import {
-  aliasMemberType, catalogEntry, catalogMembers, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction, withOrigin,
+  catalogEntry, catalogMembers, createMemberType, interactionStep, missingInteractions, syncInitIn, toInteraction, withMemberAlias, withOrigin,
 } from '../interactions';
 import { allSteps, blockIndex, blockStart, type BlockRef } from '../bpmn';
 import { caseName, casesOf, isSimpleEnum, looksLikeScala, renameEnumValue, renderInConfig } from '../scala';
@@ -301,32 +301,9 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     });
     pickType(id);
   };
-  /**
-   * Set In or Out to another type (`type In = OrderCardUT.In`) —
-   * or back to an own class (`null`). The fields come from the target;
-   * this interaction's own class is dropped.
-   */
-  const setAlias = (ia: Interaction, member: 'In' | 'Out', ref: string | null) => {
-    const aliasKey = member === 'In' ? 'inAlias' : 'outAlias';
-    const typeKey = member === 'In' ? 'inTypeId' : 'outTypeId';
-    // not the other member when this one points to it (`type Out = In`) — that stays
-    const otherTypeId = member === 'In' ? ia.outTypeId : ia.inTypeId;
-    const own = ia[typeKey] && ia[typeKey] !== otherTypeId ? types.find(t => t.id === ia[typeKey] && t.interactionId === ia.id) : undefined;
-    const rest = own ? types.filter(t => t.id !== own.id) : types;
-    // a type of the catalog: its fields as a copy (for mappings and checks)
-    const dom = ref?.startsWith('dom:') ? (model?.domainTypes ?? []).find(d => `dom:${d.id}` === ref) : undefined;
-    const copy = dom ? aliasMemberType(ia, member, dom, model) : undefined;
-    const dot = ref && !dom ? ref.lastIndexOf('.') : -1;
-    const other = dot > 0 ? interactions.find(i => i.id === ref!.slice(0, dot)) : undefined;
-    const targetId = copy ? copy.id : other ? (ref!.slice(dot + 1) === 'In' ? other.inTypeId : other.outTypeId) : undefined;
-    onChange({
-      ...spec,
-      types: copy ? [...rest, copy] : rest,
-      interactions: interactions.map(i => (i.id === ia.id
-        ? { ...i, [aliasKey]: ref ?? undefined, [typeKey]: ref ? targetId : undefined }
-        : i)),
-    });
-  };
+  /** Set In or Out to another type (`type In = OrderCardUT.In`) — or back to an own class (`null`). */
+  const setAlias = (ia: Interaction, member: 'In' | 'Out', ref: string | null) =>
+    onChange(withMemberAlias(spec, ia, member, ref, model));
   const patchType = (id: string, patch: Partial<TypeDef>) => {
     // In and Out of an interaction form a unit with it: a new status applies to all three
     const iaId = patch.status ? types.find(t => t.id === id)?.interactionId : undefined;

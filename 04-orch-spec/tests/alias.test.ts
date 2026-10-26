@@ -7,7 +7,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
-import { aliasMemberType, catalogMembers } from '../src/interactions';
+import { aliasMemberType, catalogMembers, withMemberAlias } from '../src/interactions';
 import { scalaFiles, scalaKey } from '../src/scala';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -206,4 +206,34 @@ test('import: an alias via a renamed import (`… as OtherUT`) finds its target'
   const renamed = r.spec.interactions!.find(i => i.name === 'RenamedUT')!;
   assert.equal(renamed.inAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.In');
   assert.equal(renamed.outAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.Out');
+});
+
+test('type builder: `Out = In` follows the In when the In changes', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  const kube = () => (spec.interactions ?? []).find(i => i.name === 'KubeReviseUT')!;
+  const order = r.spec.interactions!.find(i => i.name === 'RenamedUT')!;
+  let spec = r.spec;
+  const ownIn = kube().inTypeId!;
+  // In → another type: the Out follows it, the old class of the In is gone
+  spec = withMemberAlias(spec, kube(), 'In', `${order.id}.In`, null);
+  assert.equal(kube().inTypeId, order.inTypeId);
+  assert.equal(kube().outAlias, `${kube().id}.In`);
+  assert.equal(kube().outTypeId, order.inTypeId);
+  assert.ok(!spec.types!.some(t => t.id === ownIn));
+  // In back to an own class: the Out has nothing to follow any more - its alias goes too
+  spec = withMemberAlias(spec, kube(), 'In', null, null);
+  assert.equal(kube().inTypeId, undefined);
+  assert.equal(kube().outAlias, undefined);
+  assert.equal(kube().outTypeId, undefined);
+});
+
+test('type builder: the Out of `Out = In` back to its own class keeps the In', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  const kube = r.spec.interactions!.find(i => i.name === 'KubeReviseUT')!;
+  const spec = withMemberAlias(r.spec, kube, 'Out', null, null);
+  const after = spec.interactions!.find(i => i.id === kube.id)!;
+  assert.equal(after.inTypeId, kube.inTypeId);
+  assert.ok(spec.types!.some(t => t.id === kube.inTypeId));
+  assert.equal(after.outAlias, undefined);
+  assert.equal(after.outTypeId, undefined);
 });

@@ -379,6 +379,41 @@ export function createMemberType(
 }
 
 /**
+ * Set In or Out of an interaction to another type (`type In = OrderCardUT.In`) — or back to an
+ * own class (`null`). The fields come from the target; this member's own class is dropped.
+ * `type Out = In` in the same object: the member that points to the other keeps that one's class;
+ * the member the other points to takes it along — the other follows its new type, or loses its
+ * alias when this one has no type any more.
+ */
+export function withMemberAlias(spec: ProcessSpec, ia: Interaction, member: 'In' | 'Out', ref: string | null, model: Model | null): ProcessSpec {
+  const types = spec.types ?? [];
+  const interactions = spec.interactions ?? [];
+  const keys = (m: 'In' | 'Out') => (m === 'In' ? { alias: 'inAlias', type: 'inTypeId' } as const : { alias: 'outAlias', type: 'outTypeId' } as const);
+  const otherMember = member === 'In' ? 'Out' : 'In';
+  const me = keys(member);
+  const other = keys(otherMember);
+  const pointsToOther = ia[me.alias] === `${ia.id}.${otherMember}`;
+  const otherFollows = ia[other.alias] === `${ia.id}.${member}`;
+  const own = ia[me.type] && !pointsToOther ? types.find(t => t.id === ia[me.type] && t.interactionId === ia.id) : undefined;
+  const rest = own ? types.filter(t => t.id !== own.id) : types;
+  // a type of the catalog: its fields as a copy (for mappings and checks)
+  const dom = ref?.startsWith('dom:') ? (model?.domainTypes ?? []).find(d => `dom:${d.id}` === ref) : undefined;
+  const copy = dom ? aliasMemberType(ia, member, dom, model) : undefined;
+  const dot = ref && !dom ? ref.lastIndexOf('.') : -1;
+  const target = dot > 0 ? interactions.find(i => i.id === ref!.slice(0, dot)) : undefined;
+  const targetId = copy ? copy.id : target ? (ref!.slice(dot + 1) === 'In' ? target.inTypeId : target.outTypeId) : undefined;
+  const typeId = ref ? targetId : undefined;
+  const follower = otherFollows
+    ? (typeId ? { [other.type]: typeId } : { [other.alias]: undefined, [other.type]: undefined })
+    : {};
+  return {
+    ...spec,
+    types: copy ? [...rest, copy] : rest,
+    interactions: interactions.map(i => (i.id === ia.id ? { ...i, [me.alias]: ref ?? undefined, [me.type]: typeId, ...follower } : i)),
+  };
+}
+
+/**
  * In or Out as a type from the catalog (`type In = PostProcessOrderUT.Out`, see
  * Interaction.inAlias): its fields as a copy — for mappings and checks;
  * only the alias is exported.

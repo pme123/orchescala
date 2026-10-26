@@ -829,7 +829,8 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
     // another type: `type In = OrderCardUT.In` — its example, with the differing values
     const ref = name === 'In' ? ia.inAlias : ia.outAlias;
     // the other member of the same object (`type Out = In`) is visible without its object
-    const alias = ref?.startsWith(`${ia.id}.`) ? ref.slice(ia.id.length + 1) : aliasName(ref, spec, idx);
+    const other = name === 'In' ? 'Out' : 'In';
+    const alias = ref === `${ia.id}.${other}` ? other : aliasName(ref, spec, idx);
     if (alias) {
       lines.push(`  type ${name} = ${alias}`);
       lines.push('');
