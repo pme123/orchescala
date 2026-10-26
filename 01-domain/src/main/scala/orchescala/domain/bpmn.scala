@@ -96,6 +96,9 @@ object GenericExternalTask:
 end GenericExternalTask
 
 trait WithConfig[InConfig <: Product: InOutCodec]:
+  @description(
+    "A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**"
+  )
   def inConfig: Option[InConfig]
   def defaultConfig: InConfig
   lazy val defaultConfigAsJson: Json = defaultConfig.asJson

@@ -7,7 +7,7 @@ import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
 import { enrichSpec } from '../src/projectImport';
-import { aliasMemberType, catalogMembers } from '../src/interactions';
+import { aliasMemberType, catalogMembers, withMemberAlias } from '../src/interactions';
 import { scalaFiles, scalaKey } from '../src/scala';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -142,4 +142,139 @@ test('a catalog type as alias brings its fields as a copy', () => {
   assert.equal(t.name, 'PostProcessCardUT.Out');
   assert.equal(t.interactionId, 'ia-1');
   assert.deepEqual(t.fields?.map(f => f.name), ['comment']);
+});
+
+// `type Out = In` in the same object, and an alias via a renamed import
+const bpmnSelf = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="${PID}" name="${PID}" isExecutable="true">
+    <bpmn:startEvent id="StartEvent"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="KubeReviseTask" name="Prüfen"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:userTask id="RenamedTask" name="Umbenannt"><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="EndEvent"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="StartEvent" targetRef="KubeReviseTask"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="KubeReviseTask" targetRef="RenamedTask"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="RenamedTask" targetRef="EndEvent"/>
+  </bpmn:process>
+</bpmn:definitions>`;
+
+const selfDomain = [
+  ...scanScala(sources['OrderCard.scala'], 'OrderCard.scala'),
+  ...scanScala(sources['PostProcessOrderUT.scala'], 'PostProcessOrderUT.scala'),
+  ...scanScala(`package ${PKG}
+
+object KubeReviseUT extends CompanyBpmnUserTaskDsl:
+  val name = "KubeReviseTask"
+  val descr: String = ""
+  case class In(clientKey: Long, ok: Boolean)
+  object In:
+    lazy val example = In(clientKey = 1L, ok = true)
+  type Out = In
+  lazy val example = userTask(In.example, In.example)
+end KubeReviseUT
+`, 'KubeReviseUT.scala'),
+  ...scanScala(`package ${PKG}
+
+import acme.demo.domain.other.v1.PostProcessOrderUT as OtherUT
+
+object RenamedUT extends CompanyBpmnUserTaskDsl:
+  val name = "RenamedTask"
+  val descr: String = ""
+  type In = OtherUT.In
+  type Out = OtherUT.Out
+  lazy val example = userTask(OtherUT.In(1L), OtherUT.Out.example)
+end RenamedUT
+`, 'RenamedUT.scala'),
+];
+
+test('import: `type Out = In` is the own In - no warning, export writes it again', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  assert.deepEqual(r.warnings.filter(w => w.includes('Ziel nicht gefunden')), []);
+  const kube = r.spec.interactions!.find(i => i.name === 'KubeReviseUT')!;
+  assert.equal(kube.outAlias, `${kube.id}.In`);
+  assert.equal(kube.outTypeId, kube.inTypeId);
+  // no leftover copy of the In under the name of the Out
+  assert.ok(!r.spec.types!.some(t => t.name === 'KubeReviseUT.Out'));
+  const file = scalaFiles(r.spec, { domainTypes: selfDomain } as never).find(f => f.path.endsWith('/KubeReviseUT.scala'))!;
+  assert.match(file.content, /case class In\(/);
+  assert.match(file.content, /type Out = In\n/);
+});
+
+test('import: an alias via a renamed import (`… as OtherUT`) finds its target', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  assert.deepEqual(r.warnings.filter(w => w.includes('Ziel nicht gefunden')), []);
+  const renamed = r.spec.interactions!.find(i => i.name === 'RenamedUT')!;
+  assert.equal(renamed.inAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.In');
+  assert.equal(renamed.outAlias, 'dom:acme.demo.domain.other.v1.PostProcessOrderUT.Out');
+});
+
+test('type builder: `Out = In` follows the In when the In changes', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  const kube = () => (spec.interactions ?? []).find(i => i.name === 'KubeReviseUT')!;
+  const order = r.spec.interactions!.find(i => i.name === 'RenamedUT')!;
+  let spec = r.spec;
+  const ownIn = kube().inTypeId!;
+  // In → another type: the Out follows it, the old class of the In is gone
+  spec = withMemberAlias(spec, kube(), 'In', `${order.id}.In`, null);
+  assert.equal(kube().inTypeId, order.inTypeId);
+  assert.equal(kube().outAlias, `${kube().id}.In`);
+  assert.equal(kube().outTypeId, order.inTypeId);
+  assert.ok(!spec.types!.some(t => t.id === ownIn));
+  // In back to an own class: the Out has nothing to follow any more - its alias goes too
+  spec = withMemberAlias(spec, kube(), 'In', null, null);
+  assert.equal(kube().inTypeId, undefined);
+  assert.equal(kube().outAlias, undefined);
+  assert.equal(kube().outTypeId, undefined);
+});
+
+test('type builder: the Out of `Out = In` back to its own class keeps the In', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  const kube = r.spec.interactions!.find(i => i.name === 'KubeReviseUT')!;
+  const spec = withMemberAlias(r.spec, kube, 'Out', null, null);
+  const after = spec.interactions!.find(i => i.id === kube.id)!;
+  assert.equal(after.inTypeId, kube.inTypeId);
+  assert.ok(spec.types!.some(t => t.id === kube.inTypeId));
+  assert.equal(after.outAlias, undefined);
+  assert.equal(after.outTypeId, undefined);
+});
+
+test('type builder: `In = Out` while `Out = In` is refused - no cycle', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  const kube = r.spec.interactions!.find(i => i.name === 'KubeReviseUT')!;
+  assert.equal(kube.outAlias, `${kube.id}.In`);
+  assert.equal(withMemberAlias(r.spec, kube, 'In', `${kube.id}.Out`, null), r.spec);
+});
+
+test('import: `type In = Same.In` with the same object in two packages - the import decides', () => {
+  const twin = (pkg: string, field: string) => scanScala(`package ${pkg}
+
+object SameUT extends CompanyBpmnUserTaskDsl:
+  val name = "SameTask"
+  val descr: String = ""
+  case class In(${field}: Long)
+  case class Out(done: Boolean)
+  lazy val example = userTask(In(1L), Out(true))
+end SameUT
+`, `${pkg}/SameUT.scala`);
+  const domain = [
+    ...scanScala(sources['OrderCard.scala'], 'OrderCard.scala'),
+    ...twin('acme.first.domain.same.v1', 'firstKey'),
+    ...twin('acme.second.domain.same.v1', 'secondKey'),
+    ...scanScala(`package ${PKG}
+
+import acme.second.domain.same.v1.SameUT
+
+object PostProcessCardUT extends CompanyBpmnUserTaskDsl:
+  val name = "PostprocessKUBETask"
+  val descr: String = ""
+  type In = SameUT.In
+  type Out = SameUT.Out
+  lazy val example = userTask(SameUT.In(1L), SameUT.Out(true))
+end PostProcessCardUT
+`, 'PostProcessCardUT.scala'),
+  ];
+  const r = enrichSpec({ ...importBpmn(bpmn, 'order-card').spec, project: 'acme-demo' }, domain, null)!;
+  const post = r.spec.interactions!.find(i => i.name === 'PostProcessCardUT')!;
+  assert.equal(post.inAlias, 'dom:acme.second.domain.same.v1.SameUT.In');
+  assert.equal(post.outAlias, 'dom:acme.second.domain.same.v1.SameUT.Out');
 });

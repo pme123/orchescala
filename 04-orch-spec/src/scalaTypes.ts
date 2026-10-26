@@ -519,6 +519,17 @@ export function enumHasCase(en: DomainType | null | undefined, c: string): boole
   return (en.cases ?? []).some(x => x.name === c || x.name === bare) || (en.values ?? []).includes(bare);
 }
 
+/** The name an import makes visible: `a.b.C` → `C`, `a.b.C as E` → `E`. */
+export function importName(imp: string): string {
+  const alias = / as (\w+)$/.exec(imp);
+  return alias ? alias[1] : imp.slice(imp.lastIndexOf('.') + 1);
+}
+
+/** The path of an import without a rename: `a.b.C as E` → `a.b.C`. */
+export function importedPath(imp: string): string {
+  return imp.replace(/ as \w+$/, '');
+}
+
 /**
  * The imports of a file that an expression in `@description(…)` needs: the
  * explicit ones whose name occurs in it (`SendProcessEvent.processName`),
@@ -528,7 +539,7 @@ export function enumHasCase(en: DomainType | null | undefined, c: string): boole
 export function importsForExpression(expr: string, imports: string[] | undefined): string[] {
   if (!imports?.length) return [];
   const names = new Set(expr.match(/[A-Za-z_]\w*/g) ?? []);
-  const explicit = imports.filter(i => !i.endsWith('.*') && names.has(i.slice(i.lastIndexOf('.') + 1)));
+  const explicit = imports.filter(i => !i.endsWith('.*') && names.has(importName(i)));
   // a free-standing name (lowercase, not after a dot) — not a field of an object
   const bare = /(^|[^\w.$])[a-z]\w*(?![\w(.])/.test(expr.replace(/"(?:[^"\\]|\\.)*"/g, m => m.replace(/[^${}.\w]/g, ' ')));
   const objectWildcards = bare ? imports.filter(i => /\.[A-Z]\w*\.\*$/.test(i)) : [];

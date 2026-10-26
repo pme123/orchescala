@@ -20,7 +20,7 @@ import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
-import { isFixedCaseDefault } from './scalaTypes.ts';
+import { importName, isFixedCaseDefault } from './scalaTypes.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -827,7 +827,10 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   const member = (t: TypeDef | null, name: 'In' | 'Out') => {
     const values = name === 'In' ? ia.inExample : ia.outExample;
     // another type: `type In = OrderCardUT.In` — its example, with the differing values
-    const alias = aliasName(name === 'In' ? ia.inAlias : ia.outAlias, spec, idx);
+    const ref = name === 'In' ? ia.inAlias : ia.outAlias;
+    // the other member of the same object (`type Out = In`) is visible without its object
+    const other = name === 'In' ? 'Out' : 'In';
+    const alias = ref === `${ia.id}.${other}` ? other : aliasName(ref, spec, idx);
     if (alias) {
       lines.push(`  type ${name} = ${alias}`);
       lines.push('');
@@ -1104,9 +1107,7 @@ const domainStem = (pkg: string): string | null => {
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   const lines: string[] = [];
   const fields = allFields(t).filter(f => isFinished(f, idx));
-  if (fields.some(f => f.constraint?.trim())) {
-    lines.push('import io.github.iltotore.iron.*', 'import io.github.iltotore.iron.constraint.all.*');
-  }
+  // Iron (`:|`, the constraints) needs no import: the project's `-Yimports` brings it along
   const external = new Map<string, string>(); // importPath → note
   for (const f of fields) {
     // the example value from another project needs its import — derived
@@ -1118,7 +1119,7 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     for (const name of f.example?.match(/\bdefault[A-Z]\w*/g) ?? []) {
       // from the domain: the import of its file — or none if the value was visible there without one
       if (f.exampleImports) {
-        const own = f.exampleImports.filter(i => i.endsWith(`.${name}`));
+        const own = f.exampleImports.filter(i => importName(i) === name);
         for (const i of own) external.set(i, '');
         // … except via nested packages (`package valiant.product` / `package domain`):
         // the export only splits the package line at `domain` (see packageClause) — a value

@@ -880,10 +880,10 @@ case class OrchSpecProcessObject(
   private def minimal(name: String) =
     if isEnum(name) then s"$name.example" else s"$name.exampleMinimal"
 
-  // the exception to "no defaults in the domain objects": the inConfig is always initialised with None
+  // the exception to "no defaults in the domain objects": the inConfig is always initialised with None;
+  // its description comes with `WithConfig`
   private def inConfigField(indent: String) =
-    s"""$indent@description("A way to override process configuration.\\n\\n**SHOULD NOT BE USED on Production!**")
-       |${indent}inConfig: Option[InConfig] = None""".stripMargin
+    s"${indent}inConfig: Option[InConfig] = None"
 
   private val withConfigEnd =
     """  ) extends WithConfig[InConfig]:

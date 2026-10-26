@@ -24,7 +24,7 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types.ts';
 import { isDomainSource, isSkippedDir, scanFiles } from './domainScan.ts';
 import { allSteps } from './bpmn.ts';
-import { exampleOf, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
+import { exampleOf, importedPath, importName, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
 import { packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
@@ -227,18 +227,18 @@ class Converter {
 
   /**
    * A type via the imports of its file: `LoadPoas.Out` with
-   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` — first the
+   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` (or a rename `… as X`) — first the
    * explicit ones, then those with `*`; a relative import (`schema.*`) also
    * from the package.
    */
-  private viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
+  viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
     if (!imports?.length) return null;
     const head = base.split('.')[0];
     const rest = base.slice(head.length);
     const index = catalogIndex(this.model?.domainTypes);
     const lookup = (id: string) => this.domain.find(t => t.id === id) ?? index.byId.get(id) ?? null;
     const at = (path: string) => lookup(path) ?? lookup(`${pkg}.${path}`);
-    for (const imp of imports) if (imp.endsWith(`.${head}`) || imp === head) { const t = at(`${imp}${rest}`); if (t) return t; }
+    for (const imp of imports) if (importName(imp) === head) { const t = at(`${importedPath(imp)}${rest}`); if (t) return t; }
     for (const imp of imports) if (imp.endsWith('.*')) { const t = at(`${imp.slice(0, -2)}.${base}`); if (t) return t; }
     return null;
   }
@@ -389,7 +389,7 @@ class Converter {
         // the example values (`defaultValidUntil`) with the imports of their file — which one
         // applies is decided by the file, not the catalog
         const named = example?.match(/\bdefault[A-Z]\w*/g) ?? [];
-        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => i.endsWith(`.${n}`)));
+        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => n === importName(i)));
         return f;
       });
     if (dom.kind === 'enum') {
@@ -652,8 +652,13 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     if (!t) return undefined;
     if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${o.owner}.${name}`);
     if (t.kind === 'alias' && t.target && t.target !== 'NoInput' && t.target !== 'NoOutput') {
-      // `type In = AdjustOrderUT.In` — the same fields under its own name
-      const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
+      // `type In = AdjustOrderUT.In` — the same fields under its own name. The target as
+      // Scala sees it: in the same object (`type Out = In`), via the imports of the file
+      // (also a rename), in the package, then by name
+      const target = domain.find(x => x.id === `${o.pkg}.${o.owner}.${t.target}`)
+        ?? conv.viaImports(t.target, o.pkg, t.imports)
+        ?? domain.find(x => x.id === `${o.pkg}.${t.target}` || x.id === `${pkg}.${t.target}`)
+        ?? domain.find(x => x.name === t.target);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
         const copyId = conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
         aliases.push({ iaId, member: name, target, copyId });
@@ -732,7 +737,9 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     const aliasKey = a.member === 'In' ? 'inAlias' : 'outAlias';
     const typeKey = a.member === 'In' ? 'inTypeId' : 'outTypeId';
     const targetMember = a.target.name.endsWith('.Out') ? 'Out' : 'In';
-    const other = a.target.owner ? interactions.find(i => i.id !== ia.id && i.name === a.target.owner) : undefined;
+    // `type Out = In` in the same object: the own In (only the other member - `type In = In` is none)
+    const other = a.target.owner
+      ? interactions.find(i => i.name === a.target.owner && (i.id !== ia.id || targetMember !== a.member)) : undefined;
     const sharedId = other ? (targetMember === 'In' ? other.inTypeId : other.outTypeId) : undefined;
     if (other && sharedId) {
       ia[aliasKey] = `${other.id}.${targetMember}`;
