@@ -1044,7 +1044,10 @@ class Writer {
     if (!src) return fragId;
     const tag = local(src), name = refName(frag, fragId);
     const have = kids(this.defs).find(e => local(e) === tag && refName(this.doc, e.getAttribute('id') ?? '') === name);
-    if (have) return have.getAttribute('id')!;
+    if (have) {
+      this.addRootExtensions(have, src);
+      return have.getAttribute('id')!;
+    }
     const el = this.doc.importNode(src, true) as Element;
     el.setAttribute('id', this.newId(fragId));
     const before = kids(this.defs).find(e => local(e) === 'process' || local(e) === 'collaboration' || local(e) === 'BPMNDiagram');
@@ -1053,6 +1056,26 @@ class Writer {
       this.defs.insertBefore(this.doc.createTextNode('\n  '), before);
     } else appendEl(this.defs, el);
     return el.getAttribute('id')!;
+  }
+  /**
+   * The extensions the pattern needs on an existing root element — e.g. the correlation key
+   * (`zeebe:subscription`) of the start message, which an event subprocess catching it needs in
+   * Camunda 8. Only what is missing; an existing extension of the same kind stays as it is.
+   */
+  addRootExtensions(have: Element, src: Element) {
+    const want = firstNamed(src, 'extensionElements');
+    if (!want) return;
+    const same = (a: Element, b: Element) => local(a) === local(b) && a.namespaceURI === b.namespaceURI;
+    let ext = firstNamed(have, 'extensionElements');
+    for (const item of kids(want)) {
+      if (ext && kids(ext).some(k => same(k, item))) continue;
+      if (!ext) {
+        const pre = have.tagName.includes(':') ? have.tagName.slice(0, have.tagName.indexOf(':') + 1) : '';
+        ext = this.doc.createElementNS(BPMN_NS, `${pre}extensionElements`);
+        prependEl(have, ext);
+      }
+      appendEl(ext, this.doc.importNode(item, true) as Element);
+    }
   }
   /** Take over the DI of the pattern BPMN: shifted, moved to the new IDs */
   adoptDi(fragDi: Map<string, Element>, fragId: string, idMap: Map<string, string>, plane: Element, dx: number, dy: number): Element | null {
