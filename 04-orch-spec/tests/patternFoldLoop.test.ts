@@ -60,12 +60,14 @@ test('an error path starting with a pattern block head does not open it again in
 test('the tree passes the head of a pattern block to the list of its content', () => {
   const src = readFileSync(fileURLToPath(new URL('../src/components/ProcessView.tsx', import.meta.url)), 'utf8');
   // the content list of a fold does not open the fold again
-  assert.match(src, /<StepList \{\.\.\.p\} steps=\{steps\} depth=\{p\.depth \+ 1\} foldOf=\{head\} \/>/);
-  // StepList groups with it …
-  assert.match(src, /blockGroups\(.*, p\.foldOf\);/);
-  // … every fold names its head: the block's head, the first step of an error path
+  assert.match(src, /<StepList [^>]*foldOf=\{head\}/);
+  // StepList takes it as its own parameter (not via ListProps, so `{...p}` cannot carry it on) and groups with it
+  assert.match(src, /function StepList\(\{ foldOf, \.\.\.p \}: ListProps & \{ foldOf\?: string \}\)/);
+  assert.match(src, /blockGroups\(.*, foldOf\);/);
+  assert.doesNotMatch(src.slice(src.indexOf('interface ListProps'), src.indexOf('function PatternFold')), /foldOf/);
+  // every fold names its head: the block's head, the first step of an error path
   assert.match(src, /<PatternFold [^>]*head=\{g\.head\.id\}/);
   assert.match(src, /<PatternFold [^>]*head=\{e\.steps!\[0\]\.id\}/);
-  // and it applies to that one list only - the rows below get the props without it
-  assert.doesNotMatch(src, /<StepRow [^>]*\{\.\.\.p\} \/>/);
+  // and a depth cap as the last guard against a tree without end
+  assert.match(src, /if \(p\.depth > MAX_TREE_DEPTH\)/);
 });

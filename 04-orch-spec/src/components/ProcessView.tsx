@@ -1455,9 +1455,10 @@ interface ListProps {
   onStatus?: (id: string, s: Status) => void;
   /** Display name of a pattern (from the admin) */
   patternName: (id: string) => string;
-  /** the head of the pattern block this list is the content of — it does not open the block again */
-  foldOf?: string;
 }
+
+/** Deeper than this the tree stops — a guard: a block that contains itself must not fill the memory */
+const MAX_TREE_DEPTH = 40;
 
 /**
  * What a pattern brings into the diagram — timer, link, shared block —
@@ -1500,21 +1501,25 @@ function PatternFold({ pattern, what, steps, head, p }: { pattern: string; what:
  * The steps of a level — own blocks (second start, link target) in
  * a bracket: the block begins at the step with `orphan` and extends
  * to the next one. An event subprocess already has its own bracket.
+ * `foldOf`: the head of the pattern block this list is the content of — it does not open the
+ * block again. Not part of ListProps, so it applies to this one list only and never travels on
+ * with the props to the lists below (children, branches, paths).
  */
-function StepList(p: ListProps) {
+function StepList({ foldOf, ...p }: ListProps & { foldOf?: string }) {
   const c = cls(p.isDark);
-  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)), p.foldOf);
-  // `foldOf` applies to this list only — not to the lists below its rows (children, branches, paths)
-  const { foldOf: _, ...rowProps } = p;
+  if (p.depth > MAX_TREE_DEPTH) {
+    return <p className={`text-[10px] ${c.muted}`}>… zu tief verschachtelt — weitere Ebenen ausgeblendet</p>;
+  }
+  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)), foldOf);
   return (
     <div className="flex flex-col">
       {groups.map(g => {
-        if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...rowProps} />);
+        if (!g.head) return g.steps.map(s => <StepRow key={s.id} step={s} {...p} />);
         const start = blockStart(g.head);
         if (g.head.pattern) {
           return (
             <div key={g.head.id} className="mt-2 -ml-6">
-              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} head={g.head.id} p={rowProps} />
+              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} head={g.head.id} p={p} />
             </div>
           );
         }
@@ -1528,7 +1533,7 @@ function StepList(p: ListProps) {
               <span className={c.muted}>· {start}</span>
               <span className={`ml-auto ${c.muted}`}>{n} Schritt{n === 1 ? '' : 'e'}</span>
             </div>
-            {g.steps.map(s => <StepRow key={s.id} step={s} {...rowProps} />)}
+            {g.steps.map(s => <StepRow key={s.id} step={s} {...p} />)}
           </div>
         );
       })}
