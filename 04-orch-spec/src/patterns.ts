@@ -162,6 +162,10 @@ const STRUCTURAL = new Set(['incoming', 'outgoing', 'documentation']);
 const CONTAINERS = new Set(['inputOutput', 'properties', 'ioMapping', 'taskHeaders']);
 /** Attributes that point to a root element — its name is compared */
 const REF_ATTRS = new Set(['signalRef', 'messageRef', 'errorRef', 'escalationRef']);
+/** Root elements a flow node refers to (by REF_ATTRS) */
+const ROOT_TAGS = new Set(['signal', 'message', 'error', 'escalation']);
+/** The prefix of an element's tag with the colon (`bpmn:`) — from the tag, not every DOM sets `prefix` */
+const prefixOf = (el: Element): string => (el.tagName.includes(':') ? el.tagName.slice(0, el.tagName.indexOf(':') + 1) : '');
 /** Attributes that never count */
 const SKIP_ATTRS = new Set(['id', 'attachedToRef', 'sourceRef', 'targetRef', 'default', 'isExecutable']);
 
@@ -1058,24 +1062,41 @@ class Writer {
     return el.getAttribute('id')!;
   }
   /**
-   * The extensions the pattern needs on an existing root element — e.g. the correlation key
-   * (`zeebe:subscription`) of the start message, which an event subprocess catching it needs in
-   * Camunda 8. Only what is missing; an existing extension of the same kind stays as it is.
+   * The extensions the pattern needs on an existing root element (message, signal, error,
+   * escalation) — e.g. the correlation key (`zeebe:subscription`) of the start message, which an
+   * event subprocess catching it needs in Camunda 8. Only what is missing, by kind: an existing
+   * extension of the same kind stays as it is, also with other values or children (it was set on
+   * purpose — the pattern does not overwrite or merge it). The root element is shared with the
+   * rest of the diagram, so removing the pattern leaves the extension there. The namespace comes
+   * along with `declareFrom`. Returns whether something was added.
    */
-  addRootExtensions(have: Element, src: Element) {
+  addRootExtensions(have: Element, src: Element): boolean {
     const want = firstNamed(src, 'extensionElements');
-    if (!want) return;
+    if (!want) return false;
     const same = (a: Element, b: Element) => local(a) === local(b) && a.namespaceURI === b.namespaceURI;
     let ext = firstNamed(have, 'extensionElements');
+    let added = false;
     for (const item of kids(want)) {
       if (ext && kids(ext).some(k => same(k, item))) continue;
       if (!ext) {
-        const pre = have.tagName.includes(':') ? have.tagName.slice(0, have.tagName.indexOf(':') + 1) : '';
-        ext = this.doc.createElementNS(BPMN_NS, `${pre}extensionElements`);
+        ext = this.doc.createElementNS(BPMN_NS, `${prefixOf(have)}extensionElements`);
         prependEl(have, ext);
       }
       appendEl(ext, this.doc.importNode(item, true) as Element);
+      added = true;
     }
+    return added;
+  }
+  /** The root elements of the pattern the diagram already has: their extensions, where missing */
+  addAllRootExtensions(frag: Document): boolean {
+    let added = false;
+    for (const src of kids(frag.documentElement)) {
+      if (!ROOT_TAGS.has(local(src))) continue;
+      const name = refName(frag, src.getAttribute('id') ?? '');
+      const have = kids(this.defs).find(e => local(e) === local(src) && refName(this.doc, e.getAttribute('id') ?? '') === name);
+      if (have && this.addRootExtensions(have, src)) added = true;
+    }
+    return added;
   }
   /** Take over the DI of the pattern BPMN: shifted, moved to the new IDs */
   adoptDi(fragDi: Map<string, Element>, fragId: string, idMap: Map<string, string>, plane: Element, dx: number, dy: number): Element | null {
@@ -1117,8 +1138,7 @@ function ensureMessageStart(w: Writer, proc: Element): string | null {
   }
   const start = plain.find(s => s.getAttribute('id') === 'StartStartEvent') ?? plain[0];
   const name = proc.getAttribute('id') ?? '';
-  // prefix from the tag (`bpmn:startEvent`) — not every DOM sets `prefix`
-  const pre = start.tagName.includes(':') ? start.tagName.slice(0, start.tagName.indexOf(':') + 1) : '';
+  const pre = prefixOf(start);
   let msg = kids(w.defs).find(e => local(e) === 'message' && e.getAttribute('name') === name) ?? null;
   if (!msg) {
     msg = w.doc.createElementNS(BPMN_NS, `${pre}message`);
@@ -1474,6 +1494,9 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     }
     changed = true;
   }
+  // the root elements the diagram already had (start message …) — also when everything else is
+  // already there: the pattern may be complete except for the correlation key of its message
+  if (w.addAllRootExtensions(fr.doc)) changed = true;
   if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`]);
   // an unnamed element is named like the anchor («Init Process») — otherwise it would have no label
   const anchorName = fr.anchor?.getAttribute('name')?.trim();
