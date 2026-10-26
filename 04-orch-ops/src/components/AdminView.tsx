@@ -1,5 +1,5 @@
 // Admin: branding, status values, Confluence import and sign-in.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronLeft, FileUp, KeyRound, Plus, Trash2 } from 'lucide-react';
 import { useStore, type ImportSummary } from '../store';
 import { DEFAULT_ROLES, GUID_RE, setupLink, useAuth, withRoles } from '../auth';
@@ -173,25 +173,27 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
 }) {
   const c = cls(isDark);
   const auth = useAuth();
-  // not set up yet: suggest this browser's IDs and the default roles
-  const a = model.auth ?? {
-    enabled: false, tenantId: auth.ids?.tenantId ?? '', clientId: auth.ids?.clientId ?? '', ...DEFAULT_ROLES,
-  };
-  const [draft, setDraft] = useState(a);
+  // what the form shows when untouched: the saved settings, or — not set up
+  // yet — this browser's IDs (may only be known after mount) and the default roles
+  const tenantId = auth.ids?.tenantId ?? '', clientId = auth.ids?.clientId ?? '';
+  const base = useMemo(
+    () => model.auth ?? { enabled: false, tenantId, clientId, ...DEFAULT_ROLES },
+    [model.auth, tenantId, clientId],
+  );
+  const [draft, setDraftState] = useState(base);
+  const [dirty, setDirty] = useState(false);
+  // follow changes from outside (reload, another admin) as long as nothing is being edited
+  useEffect(() => { if (!dirty) setDraftState(base); }, [base, dirty]);
+  const setDraft = (d: typeof draft) => { setDraftState(d); setDirty(true); };
   const [msg, setMsg] = useState('');
   const valid = GUID_RE.test(draft.tenantId.trim()) && GUID_RE.test(draft.clientId.trim());
-  // the IDs of this browser may only be known after mount: fill in empty fields
-  const ids = model.auth ? null : auth.ids;
-  useEffect(() => {
-    if (!ids) return;
-    setDraft(d => ({ ...d, tenantId: d.tenantId || ids.tenantId, clientId: d.clientId || ids.clientId }));
-  }, [ids?.tenantId, ids?.clientId]);
 
   const save = async () => {
     const res = await onSave({
       ...model,
       auth: withRoles({ ...draft, tenantId: draft.tenantId.trim(), clientId: draft.clientId.trim() }, draft),
     });
+    if (res.ok) setDirty(false);
     setMsg(res.ok ? 'Gespeichert.' : res.message);
   };
 

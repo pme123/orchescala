@@ -1,7 +1,7 @@
 // The three Entra app roles as a list: level, what it may do, role value.
 // Used in the setup dialog and under Admin → Anmeldung.
-import { Copy, RotateCcw } from 'lucide-react';
-import { DEFAULT_ROLES, ORCH_SPEC_ROLES, ROLE_KEYS, type RoleKey, type Roles } from '../auth';
+import { AlertTriangle, Copy, RotateCcw } from 'lucide-react';
+import { DEFAULT_ROLES, ORCH_SPEC_ROLES, ROLE_KEYS, cleanRoles, sameRoles, type RoleKey, type Roles } from '../auth';
 import { cls } from '../ui';
 
 const ROLE_INFO: Record<RoleKey, { label: string; can: string }> = {
@@ -14,7 +14,8 @@ export default function RoleFields({ roles, onChange, isDark }: {
   roles: Roles; onChange: (r: Roles) => void; isDark: boolean;
 }) {
   const c = cls(isDark);
-  const same = (r: Required<Roles>) => ROLE_KEYS.every(k => (roles[k] ?? '') === r[k]);
+  const same = (r: Roles) => sameRoles(roles, r);
+  const none = Object.keys(cleanRoles(roles)).length === 0;
   const link = `flex items-center gap-1 text-[10px] ${c.muted} hover:underline`;
   return (
     <div className="space-y-1.5">
@@ -44,10 +45,17 @@ export default function RoleFields({ roles, onChange, isDark }: {
             className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
         </div>
       ))}
-      <p className={`text-[10px] leading-relaxed ${c.muted}`}>
-        Der Wert muss genau dem «Wert» der App-Rolle in der App-Registrierung entsprechen.
-        Ein leeres Feld = Stufe nicht verwendet; alle leer = jede angemeldete Person ist Admin.
-      </p>
+      {none ? (
+        <p className={`flex items-start gap-1.5 text-[11px] leading-relaxed rounded border px-2 py-1.5 ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+          <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+          Keine Rollen: jede angemeldete Person ist Admin (darf alles, auch die Einstellungen ändern).
+        </p>
+      ) : (
+        <p className={`text-[10px] leading-relaxed ${c.muted}`}>
+          Der Wert muss genau dem «Wert» der App-Rolle in der App-Registrierung entsprechen.
+          Ein leeres Feld = Stufe nicht verwendet; alle leer = jede angemeldete Person ist Admin.
+        </p>
+      )}
     </div>
   );
 }

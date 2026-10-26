@@ -2,7 +2,10 @@
 // document URL — also with the relative base (`./`) of the docs site.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_ROLES, ORCH_SPEC_ROLES, appUrl, cleanRoles, levelOf, newFolderRoles, parseRoles, setupLink, withRoles } from '../src/auth';
+import {
+  DEFAULT_ROLES, ORCH_SPEC_ROLES, PENDING_ROLES_TTL_MS, appUrl, cleanRoles, levelOf, newFolderRoles, parsePendingRoles,
+  parseRoles, pendingRolesAfterLoad, sameRoles, setupLink, withRoles,
+} from '../src/auth';
 import { joinOr } from '../src/util';
 
 // bundled into one module: the test's import.meta is the one src/auth.tsx reads
@@ -55,22 +58,48 @@ test('cleanRoles trims and drops empty roles', () => {
   assert.deepEqual(cleanRoles({ adminRole: ' A ', reviewerRole: '', viewerRole: '  ' }), { adminRole: 'A' });
 });
 
-test('newFolderRoles: the roles chosen at setup, otherwise the defaults', () => {
-  assert.deepEqual(newFolderRoles(null), DEFAULT_ROLES);
-  assert.deepEqual(newFolderRoles({ ...ORCH_SPEC_ROLES, viewerRole: ' ' }), { adminRole: 'OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor' });
+test('newFolderRoles: setup roles only for a folder the user connected, otherwise the defaults', () => {
+  assert.deepEqual(newFolderRoles(null, true), DEFAULT_ROLES);
+  assert.deepEqual(newFolderRoles({ ...ORCH_SPEC_ROLES, viewerRole: ' ' }, true), { adminRole: 'OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor' });
   // deliberately all empty stays empty (everyone signed in is admin), as in Admin → Anmeldung
-  assert.deepEqual(newFolderRoles({}), {});
-  assert.deepEqual(newFolderRoles({ adminRole: '', reviewerRole: '' }), {});
+  assert.deepEqual(newFolderRoles({}, true), {});
+  assert.deepEqual(newFolderRoles({ adminRole: '', reviewerRole: '' }, true), {});
+  // a folder restored on start never takes the roles chosen for another one
+  assert.deepEqual(newFolderRoles(ORCH_SPEC_ROLES, false), DEFAULT_ROLES);
+  assert.deepEqual(newFolderRoles({}, false), DEFAULT_ROLES);
 });
 
-test('parseRoles: stored pending roles, unusable → null', () => {
-  assert.deepEqual(parseRoles(JSON.stringify(ORCH_SPEC_ROLES)), ORCH_SPEC_ROLES);
-  assert.deepEqual(parseRoles('{}'), {});
-  assert.deepEqual(parseRoles('{"adminRole":" A ","viewerRole":3,"other":"x"}'), { adminRole: 'A' });
-  assert.equal(parseRoles(null), null);
-  assert.equal(parseRoles('not json'), null);
-  assert.equal(parseRoles('[]'), null);
-  assert.equal(parseRoles('null'), null);
+test('pendingRolesAfterLoad: used up only by a connected folder that loaded', () => {
+  assert.equal(pendingRolesAfterLoad(true, 'created'), 'clear');
+  assert.equal(pendingRolesAfterLoad(true, 'existing'), 'clear');
+  assert.equal(pendingRolesAfterLoad(true, 'failed'), 'keep'); // another try
+  assert.equal(pendingRolesAfterLoad(false, 'created'), 'keep');
+  assert.equal(pendingRolesAfterLoad(false, 'existing'), 'keep');
+  assert.equal(pendingRolesAfterLoad(false, 'failed'), 'keep');
+});
+
+test('parsePendingRoles: stored with a time, expired or unusable → null', () => {
+  const now = 1_800_000_000_000;
+  const raw = (roles: unknown, at: unknown = now - 1000) => JSON.stringify({ roles, at });
+  assert.deepEqual(parsePendingRoles(raw(ORCH_SPEC_ROLES), now), ORCH_SPEC_ROLES);
+  assert.deepEqual(parsePendingRoles(raw({}), now), {}); // none chosen ≠ nothing stored
+  assert.deepEqual(parsePendingRoles(raw({ adminRole: ' A ', viewerRole: 3, other: 'x' }), now), { adminRole: 'A' });
+  assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, now - PENDING_ROLES_TTL_MS - 1), now), null);
+  assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, now + 60_000), now), null);
+  assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, 'yesterday'), now), null);
+  assert.equal(parsePendingRoles(raw([]), now), null);
+  assert.equal(parsePendingRoles(JSON.stringify(ORCH_SPEC_ROLES), now), null); // old format without time
+  assert.equal(parsePendingRoles(null, now), null);
+  assert.equal(parsePendingRoles('not json', now), null);
+  assert.equal(parsePendingRoles('null', now), null);
+  assert.equal(parseRoles('x'), null);
+});
+
+test('sameRoles compares the cleaned values', () => {
+  assert.equal(sameRoles({ adminRole: ' OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor ', viewerRole: 'OrchSpec.Viewer' }, ORCH_SPEC_ROLES), true);
+  assert.equal(sameRoles({ adminRole: '', viewerRole: ' ' }, {}), true);
+  assert.equal(sameRoles(DEFAULT_ROLES, ORCH_SPEC_ROLES), false);
+  assert.equal(sameRoles({ ...DEFAULT_ROLES, viewerRole: '' }, DEFAULT_ROLES), false);
 });
 
 test('withRoles replaces the roles: trimmed, empty ones dropped, rest kept', () => {

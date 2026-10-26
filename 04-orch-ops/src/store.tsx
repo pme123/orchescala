@@ -16,7 +16,9 @@ import { DEFAULT_MODEL, DEFAULT_STATUSES } from './defaultModel';
 import { nowIso } from './util';
 import { DemoBackend, LocalBackend, type StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, type SharePointFolder } from './graph';
-import { PENDING_FOLDER_KEY, clearPendingRoles, newFolderRoles, peekPendingRoles, useAuth } from './auth';
+import {
+  PENDING_FOLDER_KEY, clearPendingRoles, newFolderRoles, peekPendingRoles, pendingRolesAfterLoad, useAuth, type FolderLoad,
+} from './auth';
 import { parseConfluence } from './confluence';
 import { isAttachmentPath, newAttachmentPath, prepareImage } from './attachments';
 import {
@@ -152,40 +154,47 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── model.json ────────────────────────────────────────────────────────────
-  // only the backend that is still active may set the model (folder changed meanwhile)
-  const loadModel = useCallback(async (be: StorageBackend) => {
+  // only the backend that is still active may set the model (folder changed meanwhile).
+  // connected = the user connected this folder (picked, link, setup link), not
+  // restored on start: only then the roles chosen at setup apply (auth.tsx)
+  const loadModel = useCallback(async (be: StorageBackend, connected = false) => {
     const current = () => backendRef.current === be;
+    const done = (outcome: FolderLoad) => {
+      if (pendingRolesAfterLoad(connected, outcome) === 'clear') clearPendingRoles();
+    };
     try {
       const read = await be.read('model.json');
       if (!current()) return;
       if (!read) {
         const ids = idsRef.current;
         const fresh: Model = ids
-          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...newFolderRoles(peekPendingRoles()) } }
+          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...newFolderRoles(peekPendingRoles(), connected) } }
           : DEFAULT_MODEL;
         const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
         if (!current()) return;
         if (w.ok) modelVersionRef.current = w.version;
-        else if (w.reason === 'exists') { await loadModel(be); return; } // someone else just created it
+        else if (w.reason === 'exists') { await loadModel(be, connected); return; } // someone else just created it
         if (!w.ok) {
           setModel(null);
           setModelError(w.reason === 'forbidden'
             ? 'model.json fehlt und kann nicht angelegt werden (keine Schreibberechtigung).'
             : 'model.json fehlt und konnte nicht angelegt werden.');
+          done('failed');
           return;
         }
         setModel(fresh); setModelError(null);
-        clearPendingRoles(); // used up by this new folder
+        done('created');
         return;
       }
       try {
         setModel(normalizeModel(JSON.parse(read.text)));
         modelVersionRef.current = read.version;
         setModelError(null);
-        clearPendingRoles(); // an existing folder keeps its own roles
+        done('existing'); // keeps its own roles
       } catch {
         setModel(null); // do NOT overwrite a broken file
         setModelError('model.json ist unlesbar (kein gültiges JSON).');
+        done('failed');
       }
     } catch (e) {
       console.error('[orch-ops] loadModel:', e);
@@ -219,7 +228,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (backendRef.current) await refreshIn(backendRef.current);
   }, [refreshIn]);
 
-  const activate = useCallback(async (be: StorageBackend, info: StorageInfo) => {
+  const activate = useCallback(async (be: StorageBackend, info: StorageInfo, connected = false) => {
     backendRef.current = be;
     clearAttachments();
     modelVersionRef.current = null;
@@ -230,7 +239,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     savedHandleRef.current = null;
     setErrors([]);
     setRefreshProblems([]);
-    await loadModel(be);
+    await loadModel(be, connected);
     try { await be.ensureDir(DIR); } catch { /* read only? list stays empty */ }
     await refreshIn(be);
   }, [loadModel, refreshIn, clearAttachments]);
@@ -253,7 +262,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : await window.showDirectoryPicker({ mode: 'readwrite' });
       await persistHandle(dir);
       storeSharePoint(null); setSavedSharePoint(null);
-      await activate(new LocalBackend(dir), { kind: 'local', name: dir.name || 'Ordner' });
+      await activate(new LocalBackend(dir), { kind: 'local', name: dir.name || 'Ordner' }, true);
     } catch (e: unknown) {
       if (e instanceof Error && e.name !== 'AbortError') console.error('[orch-ops] pickDirectory:', e);
     }
@@ -273,15 +282,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // ── SharePoint folder ─────────────────────────────────────────────────────
   const tokenProvider = useCallback(() => getTokenRef.current(GRAPH_SCOPES), []);
 
-  const activateSharePoint = useCallback(async (folder: SharePointFolder) => {
-    await activate(new GraphBackend(folder, tokenProvider, graphBase()), { kind: 'sharepoint', name: folder.name, webUrl: folder.webUrl });
+  const activateSharePoint = useCallback(async (folder: SharePointFolder, connected = false) => {
+    await activate(new GraphBackend(folder, tokenProvider, graphBase()), { kind: 'sharepoint', name: folder.name, webUrl: folder.webUrl }, connected);
   }, [activate, tokenProvider]);
 
   const connectSharePoint = useCallback(async (link: string) => {
     try {
       const folder = await resolveFolderLink(tokenProvider, link, graphBase());
       storeSharePoint(folder); setSavedSharePoint(folder);
-      await activateSharePoint(folder);
+      await activateSharePoint(folder, true);
       return { ok: true as const };
     } catch (e) {
       console.error('[orch-ops] connectSharePoint:', e);

@@ -52,44 +52,76 @@ export function cleanRoles(r: Roles): Roles {
   return out;
 }
 
+/** same roles once cleaned (spaces and empty fields do not count) */
+export function sameRoles(a: Roles, b: Roles): boolean {
+  const x = cleanRoles(a), y = cleanRoles(b);
+  return ROLE_KEYS.every(k => x[k] === y[k]);
+}
+
 /** settings with these roles instead of their own (cleaned) */
 export function withRoles<T extends Roles>(cfg: T, roles: Roles): Omit<T, RoleKey> & Roles {
   const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = cfg;
   return { ...rest, ...cleanRoles(roles) };
 }
 
-/** read stored roles; anything unusable → null */
-export function parseRoles(raw: string | null): Roles | null {
+/** roles from stored JSON; anything unusable → null */
+export function parseRoles(v: unknown): Roles | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  const out: Roles = {};
+  for (const k of ROLE_KEYS) if (typeof r[k] === 'string') out[k] = r[k] as string;
+  return cleanRoles(out);
+}
+
+// Roles chosen in the setup dialog («pending»): kept apart from the cached
+// settings (which carry the roles of the last folder) and survive the
+// sign-in redirect. Only a folder the user connects (picked, link, setup
+// link) uses them — a folder restored on start never does. A new one gets
+// them in its model.json; an existing one keeps its own. If the model.json
+// cannot be created they stay for another try, but expire after a day.
+export const PENDING_ROLES_TTL_MS = 24 * 60 * 60 * 1000;
+const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
+
+/** stored pending roles; expired or unusable → null */
+export function parsePendingRoles(raw: string | null, now: number): Roles | null {
   if (!raw) return null;
   try {
-    const v = JSON.parse(raw) as Record<string, unknown> | null;
-    if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
-    const out: Roles = {};
-    for (const k of ROLE_KEYS) if (typeof v[k] === 'string') out[k] = v[k] as string;
-    return cleanRoles(out);
+    const v = JSON.parse(raw) as { roles?: unknown; at?: unknown } | null;
+    if (!v || typeof v.at !== 'number' || now - v.at > PENDING_ROLES_TTL_MS || v.at > now) return null;
+    return parseRoles(v.roles);
   } catch {
     return null;
   }
 }
 
-/** roles for the model.json of a new folder: those chosen at setup (none
- *  chosen = none, everyone signed in is admin), otherwise the defaults */
-export function newFolderRoles(pending: Roles | null): Roles {
-  return pending ? cleanRoles(pending) : { ...DEFAULT_ROLES };
+export type FolderLoad = 'existing' | 'created' | 'failed';
+
+/** roles for the model.json of a new folder: those chosen at setup when the
+ *  user connected it (none chosen = none, everyone signed in is admin),
+ *  otherwise the defaults */
+export function newFolderRoles(pending: Roles | null, connected: boolean): Roles {
+  return connected && pending ? cleanRoles(pending) : { ...DEFAULT_ROLES };
 }
 
-// Roles chosen in the setup dialog: kept apart from the cached settings (which
-// carry the roles of the last folder) and survive the sign-in redirect.
-// Used up by the next folder that is loaded — a new one gets them.
-const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
-export function setPendingRoles(roles: Roles) {
-  try { localStorage.setItem(PENDING_ROLES_KEY, JSON.stringify(cleanRoles(roles))); } catch { /* ignore */ }
+/** after loading a folder: are the pending roles used up? */
+export function pendingRolesAfterLoad(connected: boolean, outcome: FolderLoad): 'clear' | 'keep' {
+  return connected && outcome !== 'failed' ? 'clear' : 'keep';
+}
+
+/** remember the roles chosen at setup; false = browser storage not available */
+export function setPendingRoles(roles: Roles): boolean {
+  try {
+    localStorage.setItem(PENDING_ROLES_KEY, JSON.stringify({ roles: cleanRoles(roles), at: Date.now() }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 export function peekPendingRoles(): Roles | null {
-  try { return parseRoles(localStorage.getItem(PENDING_ROLES_KEY)); } catch { return null; }
+  try { return parsePendingRoles(localStorage.getItem(PENDING_ROLES_KEY), Date.now()); } catch { return null; }
 }
 export function clearPendingRoles() {
-  try { localStorage.removeItem(PENDING_ROLES_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(PENDING_ROLES_KEY); } catch { /* nothing stored then either */ }
 }
 
 export interface AuthUser {

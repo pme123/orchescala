@@ -66,7 +66,8 @@ export default function App() {
   const saveSetup = async () => {
     const t = setupTenant.trim(), c = setupClient.trim();
     if (!GUID_RE.test(t) || !GUID_RE.test(c)) { setSetupError('Beide IDs müssen gültige GUIDs sein (Format 8-4-4-4-12).'); return; }
-    setPendingRoles(setupRoles); // for the model.json of a new folder
+    // for the model.json of a new folder; without browser storage the IDs could not be kept either
+    if (!setPendingRoles(setupRoles)) { setSetupError('Der Browser-Speicher ist nicht verfügbar (z. B. privates Fenster mit gesperrtem Speicher) — die Einrichtung lässt sich nicht merken.'); return; }
     auth.setLocalIds(t, c);
     setSetupOpen(false);
     // go straight on to the sign-in
