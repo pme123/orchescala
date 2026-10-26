@@ -237,3 +237,10 @@ test('type builder: the Out of `Out = In` back to its own class keeps the In', (
   assert.equal(after.outAlias, undefined);
   assert.equal(after.outTypeId, undefined);
 });
+
+test('type builder: `In = Out` while `Out = In` is refused - no cycle', () => {
+  const r = enrichSpec({ ...importBpmn(bpmnSelf, 'order-card').spec, project: 'acme-demo' }, selfDomain, null)!;
+  const kube = r.spec.interactions!.find(i => i.name === 'KubeReviseUT')!;
+  assert.equal(kube.outAlias, `${kube.id}.In`);
+  assert.equal(withMemberAlias(r.spec, kube, 'In', `${kube.id}.Out`, null), r.spec);
+});

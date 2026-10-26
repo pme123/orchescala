@@ -394,6 +394,8 @@ export function withMemberAlias(spec: ProcessSpec, ia: Interaction, member: 'In'
   const other = keys(otherMember);
   const pointsToOther = ia[me.alias] === `${ia.id}.${otherMember}`;
   const otherFollows = ia[other.alias] === `${ia.id}.${member}`;
+  // `In = Out` while `Out = In` would be a cycle - nothing to change
+  if (otherFollows && ref === `${ia.id}.${otherMember}`) return spec;
   const own = ia[me.type] && !pointsToOther ? types.find(t => t.id === ia[me.type] && t.interactionId === ia.id) : undefined;
   const rest = own ? types.filter(t => t.id !== own.id) : types;
   // a type of the catalog: its fields as a copy (for mappings and checks)
