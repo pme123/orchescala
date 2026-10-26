@@ -26,7 +26,7 @@ import { isDomainSource, isSkippedDir, scanFiles } from './domainScan.ts';
 import { allSteps } from './bpmn.ts';
 import { exampleOf, importedPath, importName, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
-import { packageOf, referencedClass } from './scala.ts';
+import { defaultIsUsed, packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
 import { domainRef } from './serviceTypes.ts';
 import { enumHasCase, splitEnumCase } from './feel.ts';
@@ -376,7 +376,11 @@ class Converter {
         if (ft.noneAlias && !shape.optional && !shape.collection && !shape.map) f.noneAlias = ft.noneAlias;
         const constraint = shape.constraint ?? ft.constraint;
         if (constraint) f.constraint = constraint;
-        if (p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default)) f.default = p.default;
+        // a default only where one is used (InConfig, InitIn, an optional field of the process
+        // input) - elsewhere it is the example value the class lacks (no `example` yet)
+        const dflt = p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default) ? p.default : undefined;
+        const asExample = dflt && !defaultIsUsed(t, f) ? dflt : undefined;
+        if (dflt && !asExample) f.default = dflt;
         if (p.description) f.description = p.description;
         if (p.descriptionExpr) {
           f.descriptionExpr = p.descriptionExpr;
@@ -384,7 +388,7 @@ class Converter {
           const imports = importsForExpression(p.descriptionExpr, dom.imports);
           if (imports.length) f.descriptionImports = imports;
         }
-        const example = exampleOf(p);
+        const example = exampleOf(p) ?? (asExample ? exampleOf({ type: p.type, example: asExample }) : undefined);
         if (example) f.example = example;
         // the example values (`defaultValidUntil`) with the imports of their file — which one
         // applies is decided by the file, not the catalog
