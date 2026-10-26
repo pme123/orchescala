@@ -244,3 +244,37 @@ test('type builder: `In = Out` while `Out = In` is refused - no cycle', () => {
   assert.equal(kube.outAlias, `${kube.id}.In`);
   assert.equal(withMemberAlias(r.spec, kube, 'In', `${kube.id}.Out`, null), r.spec);
 });
+
+test('import: `type In = Same.In` with the same object in two packages - the import decides', () => {
+  const twin = (pkg: string, field: string) => scanScala(`package ${pkg}
+
+object SameUT extends CompanyBpmnUserTaskDsl:
+  val name = "SameTask"
+  val descr: String = ""
+  case class In(${field}: Long)
+  case class Out(done: Boolean)
+  lazy val example = userTask(In(1L), Out(true))
+end SameUT
+`, `${pkg}/SameUT.scala`);
+  const domain = [
+    ...scanScala(sources['OrderCard.scala'], 'OrderCard.scala'),
+    ...twin('acme.first.domain.same.v1', 'firstKey'),
+    ...twin('acme.second.domain.same.v1', 'secondKey'),
+    ...scanScala(`package ${PKG}
+
+import acme.second.domain.same.v1.SameUT
+
+object PostProcessCardUT extends CompanyBpmnUserTaskDsl:
+  val name = "PostprocessKUBETask"
+  val descr: String = ""
+  type In = SameUT.In
+  type Out = SameUT.Out
+  lazy val example = userTask(SameUT.In(1L), SameUT.Out(true))
+end PostProcessCardUT
+`, 'PostProcessCardUT.scala'),
+  ];
+  const r = enrichSpec({ ...importBpmn(bpmn, 'order-card').spec, project: 'acme-demo' }, domain, null)!;
+  const post = r.spec.interactions!.find(i => i.name === 'PostProcessCardUT')!;
+  assert.equal(post.inAlias, 'dom:acme.second.domain.same.v1.SameUT.In');
+  assert.equal(post.outAlias, 'dom:acme.second.domain.same.v1.SameUT.Out');
+});
