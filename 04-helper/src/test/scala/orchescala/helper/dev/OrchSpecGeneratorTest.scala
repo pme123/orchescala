@@ -700,7 +700,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(mergeObject.differences(merged), Seq.empty)
     assertEquals(mergeObject.merge(merged), merged)
 
-  test("merge - InConfig fields without default get the default of Orch Spec"):
+  test("merge - InConfig fields without default get the default of Orch Spec - and it needs no example"):
     val block    =
       """// in object Proc einfügen
         |
@@ -721,6 +721,12 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |
         |object Proc extends CompanyBpmnProcessDsl:
         |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
         |
         |  case class InConfig(
         |      // Process Configuration
@@ -751,8 +757,15 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |      timerInformKube: String = "P1D",
         |      timerEscalationInform: Option[String] = Some("P5D"),
         |      qmsRole: String = "6300--QMS"
-        |  )""".stripMargin
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
     ), m)
+    // all values are defaults now - no example, the In takes `InConfig()`
+    assert(!m.contains("InConfig.example"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig()\n"), m)
     assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
 
   test("merge - a field without default in InitIn also goes into its example"):

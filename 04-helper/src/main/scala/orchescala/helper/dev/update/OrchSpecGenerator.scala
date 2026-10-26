@@ -766,7 +766,11 @@ case class OrchSpecProcessObject(
         // the InConfig is the configuration: an own field without default gets the one of Orch Spec
         // (the values were in `InConfig.example` - `defaultConfig = InConfig.example`)
         val merged = if g.name == "InConfig" then CaseClassParams.addDefaults(added, replacement) else added
-        lines.patch(e.from, merged, e.until - e.from)
+        // with all values as defaults the InConfig needs no example: `InConfig.example` -> `InConfig()`
+        if g.name == "InConfig" && CaseClassParams.allHaveDefaults(merged) then
+          lines.patch(e.from, TypeImplementation.withoutExamples(merged, g.name), e.until - e.from)
+            .map(_.replaceAll("""\bInConfig\.example(?:Minimal)?\b""", "InConfig()"))
+        else lines.patch(e.from, merged, e.until - e.from)
       case Some(e) if compact(e.lines(lines)) == compact(replacement) => lines
       case Some(e) =>
         // the parameters and examples from Orch Spec - the implementation of the class stays
@@ -1064,6 +1068,11 @@ object CaseClassParams:
   // `name: Type = value` on one line - the value without the comma
   private val withDefault = """\s*(\w+)\s*:[^=]*?=\s*(.+?),?\s*""".r
 
+  /** Every parameter has a default - `X()` is a valid value. */
+  def allHaveDefaults(section: Seq[String]): Boolean =
+    val ps = params(section)
+    ps.nonEmpty && ps.forall(hasDefault)
+
   /** The fields that `generated` adds to `own` and that have no default - with their argument in
     * the `lazy val example = X(…)` of `generated` added to the example of `section` (a field with
     * a default is fine without). Without an example in `section` or `generated` nothing changes.
@@ -1187,6 +1196,19 @@ object TypeImplementation:
           else g.companion
         head ++ body ++ companion
       case _                  => generated
+
+  /** The section without `example` / `exampleMinimal` in its companion - and without the blank
+    * lines they leave behind.
+    */
+  def withoutExamples(section: Seq[String], name: String): Seq[String] =
+    parts(section, name) match
+      case Some(p) if p.companion.nonEmpty =>
+        val companion = examples.foldLeft(p.companion): (ls, ex) =>
+          block(ls, ex).fold(ls)((from, to) => ls.patch(from, Nil, to - from))
+        val tidy      = companion.zipWithIndex.filterNot: (l, i) =>
+          l.isBlank && (i + 1 >= companion.size || companion(i + 1).isBlank || companion(i + 1).trim == s"end $name")
+        p.head ++ p.body ++ tidy.map(_._1)
+      case _                               => section
 
   /** The class up to the end of its parameters, its body, its companion `object X`. */
   private def parts(section: Seq[String], name: String): Option[Parts] =
