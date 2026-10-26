@@ -15,7 +15,7 @@ import { getHandle, putHandle } from './handles';
 import { nowIso } from './util';
 import { DemoBackend, LocalBackend, type StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, type SharePointFolder } from './graph';
-import { PENDING_FOLDER_KEY, clearPendingRoles, peekPendingRoles, useAuth } from './auth';
+import { PENDING_FOLDER_KEY, clearPendingRoles, readPendingRoles, useAuth } from './auth';
 import { openModel, type FolderOrigin } from './modelRepo';
 import { parseConfluence } from './confluence';
 import { isAttachmentPath, newAttachmentPath, prepareImage } from './attachments';
@@ -149,11 +149,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // the model (folder changed meanwhile). origin decides whether the roles
   // chosen at setup apply (only for a folder the user connected).
   const loadModel = useCallback(async (be: StorageBackend, origin: FolderOrigin) => {
+    const pending = readPendingRoles();
     const res = await openModel(be, {
-      origin, ids: idsRef.current, pendingRoles: peekPendingRoles(), active: () => backendRef.current === be,
+      origin, ids: idsRef.current, pendingRoles: pending?.roles ?? null, active: () => backendRef.current === be,
     });
-    // belongs to the folder, not to what is shown: also when another folder is active by now
-    if (res.pendingRoles === 'clear') clearPendingRoles();
+    // belongs to the folder, not to what is shown: also when another folder is active by now.
+    // Only the choice used here — a newer one saved meanwhile stays.
+    if (res.pendingRoles === 'clear' && pending) clearPendingRoles(pending.raw);
     if (backendRef.current !== be || res.kind === 'stale') return;
     if (res.kind === 'ok') {
       setModel(res.model); modelVersionRef.current = res.version; setModelError(null);

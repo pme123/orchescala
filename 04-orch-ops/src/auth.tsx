@@ -121,10 +121,23 @@ export function setPendingRoles(roles: Roles): boolean {
   }
 }
 export function peekPendingRoles(): Roles | null {
-  try { return parsePendingRoles(localStorage.getItem(PENDING_ROLES_KEY), Date.now()); } catch { return null; }
+  return readPendingRoles()?.roles ?? null;
 }
-export function clearPendingRoles() {
-  try { localStorage.removeItem(PENDING_ROLES_KEY); } catch { /* nothing stored then either */ }
+/** the pending roles with their stored text, so that clearPendingRoles(raw)
+ *  clears only this very choice — not a newer one saved while a folder loaded */
+export function readPendingRoles(): { roles: Roles; raw: string } | null {
+  try {
+    const raw = localStorage.getItem(PENDING_ROLES_KEY);
+    const roles = parsePendingRoles(raw, Date.now());
+    return raw && roles ? { roles, raw } : null;
+  } catch {
+    return null;
+  }
+}
+export function clearPendingRoles(raw: string) {
+  try {
+    if (localStorage.getItem(PENDING_ROLES_KEY) === raw) localStorage.removeItem(PENDING_ROLES_KEY);
+  } catch { /* nothing stored then either */ }
 }
 
 export interface AuthUser {

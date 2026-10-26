@@ -41,7 +41,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <section className="space-y-3">
         <h2 className={`text-sm font-semibold uppercase tracking-widest ${c.muted2}`}>Anmeldung (Microsoft Entra ID)</h2>
-        <AuthSettingsForm model={model} isDark={isDark} onSave={saveModel} folder={storage} />
+        <AuthSettingsForm key={folderKey(storage)} model={model} isDark={isDark} onSave={saveModel} folderUrl={storage?.webUrl} />
       </section>
     </div>
   );
@@ -167,10 +167,19 @@ function ConfluenceImport({ isDark }: { isDark: boolean }) {
 }
 
 // ── Sign-in ─────────────────────────────────────────────────────────────────
-function AuthSettingsForm({ model, isDark, onSave, folder }: {
-  model: Model; isDark: boolean;
-  /** the active folder — a new object for every folder connected */
-  folder: StorageInfo | null;
+// A key per connected folder (StorageInfo is a new object each time): the
+// sign-in form starts afresh for another folder, unsaved edits stay behind.
+const folderKeys = new WeakMap<StorageInfo, number>();
+let lastFolderKey = 0;
+function folderKey(folder: StorageInfo | null): number {
+  if (!folder) return 0;
+  let k = folderKeys.get(folder);
+  if (k == null) folderKeys.set(folder, k = ++lastFolderKey);
+  return k;
+}
+
+function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
+  model: Model; isDark: boolean; folderUrl?: string;
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
   const c = cls(isDark);
@@ -184,13 +193,10 @@ function AuthSettingsForm({ model, isDark, onSave, folder }: {
   );
   const [draft, setDraftState] = useState(base);
   const [dirty, setDirty] = useState(false);
-  // follow changes from outside (reload, another admin) as long as nothing is being edited
+  // follow changes from outside (reload, another admin, IDs known later) as long as nothing is being edited
   useEffect(() => { if (!dirty) setDraftState(base); }, [base, dirty]);
-  const folderUrl = folder?.webUrl;
   const setDraft = (d: typeof draft) => { setDraftState(d); setDirty(true); };
   const [msg, setMsg] = useState('');
-  // another folder: drop unsaved edits — they belong to the previous one
-  useEffect(() => { setDirty(false); setMsg(''); }, [folder]);
   const valid = GUID_RE.test(draft.tenantId.trim()) && GUID_RE.test(draft.clientId.trim());
 
   const save = async () => {

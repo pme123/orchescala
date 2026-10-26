@@ -105,3 +105,25 @@ test('another folder became active meanwhile: nothing written', async () => {
   assert.deepEqual(res, { kind: 'stale', pendingRoles: 'keep' });
   assert.equal(await be.read('model.json'), null);
 });
+
+// someone else created it, but reads find nothing for a while (SharePoint lag)
+class LaggingBackend extends MemoryBackend {
+  constructor(private emptyReads: number) { super(); this.seed('model.json', EXISTING); }
+  async read(path: string) {
+    if (this.emptyReads > 0) { this.emptyReads--; return null; }
+    return super.read(path);
+  }
+}
+
+test('created by someone else, readable only after a moment: read again after a pause', async () => {
+  const res = await openModel(new LaggingBackend(3), { origin: 'connected', ids: IDS, pendingRoles: ORCH_SPEC_ROLES, retryDelayMs: 0 });
+  assert.equal(res.kind === 'ok' && res.model.auth?.adminRole, 'Own.Admin');
+  assert.equal(res.pendingRoles, 'clear');
+});
+
+test('created by someone else but never readable: message, nothing overwritten, pending roles kept', async () => {
+  const be = new LaggingBackend(99);
+  const res = await openModel(be, { origin: 'connected', ids: IDS, pendingRoles: ORCH_SPEC_ROLES, retryDelayMs: 0 });
+  assert.deepEqual(res, { kind: 'error', pendingRoles: 'keep', message: 'model.json gibt es schon, sie lässt sich aber (noch) nicht lesen — bitte neu laden.' });
+  assert.equal(await (await be.readBlob('model.json'))!.text(), EXISTING); // theirs stays as it is
+});

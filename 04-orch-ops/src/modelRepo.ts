@@ -19,6 +19,9 @@ export type OpenModelResult =
   /** another folder became active meanwhile: nothing written, nothing to show */
   | { kind: 'stale'; pendingRoles: 'keep' };
 
+/** read, (create,) read again — and twice more after a pause */
+const OPEN_ATTEMPTS = 4;
+
 export function normalizeModel(raw: unknown): Model {
   const r = (raw ?? {}) as Partial<Model>;
   const statuses = Array.isArray(r.statuses) && r.statuses.length
@@ -34,12 +37,17 @@ export async function openModel(be: StorageBackend, opts: {
   pendingRoles: Roles | null;
   /** false = the user switched to another folder meanwhile */
   active?: () => boolean;
+  /** pause before reading again after «exists» (SharePoint may not list a new file right away) */
+  retryDelayMs?: number;
 }): Promise<OpenModelResult> {
   const connected = opts.origin === 'connected';
   const active = opts.active ?? (() => true);
+  const delay = opts.retryDelayMs ?? 500;
   try {
-    // twice at most: if someone else creates the model.json right now, read theirs
-    for (let attempt = 0; attempt < 2; attempt++) {
+    // If someone else creates the model.json right now, read theirs. Right
+    // after it was created the read may still find nothing: try a few times.
+    for (let attempt = 0; attempt < OPEN_ATTEMPTS; attempt++) {
+      if (attempt > 1 && delay > 0) await new Promise(r => setTimeout(r, delay));
       const read = await be.read('model.json');
       if (!active()) return { kind: 'stale', pendingRoles: 'keep' };
       if (read) {
@@ -73,7 +81,7 @@ export async function openModel(be: StorageBackend, opts: {
           : 'model.json fehlt und konnte nicht angelegt werden.',
       };
     }
-    return { kind: 'error', message: 'model.json konnte nicht gelesen werden.', pendingRoles: 'keep' };
+    return { kind: 'error', message: 'model.json gibt es schon, sie lässt sich aber (noch) nicht lesen — bitte neu laden.', pendingRoles: 'keep' };
   } catch (e) {
     console.error('[orch-ops] loadModel:', e);
     return { kind: 'error', message: `model.json konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`, pendingRoles: 'keep' };

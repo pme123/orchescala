@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  DEFAULT_ROLES, ORCH_SPEC_ROLES, PENDING_ROLES_TTL_MS, appUrl, cleanRoles, levelOf, newFolderRoles, parsePendingRoles,
-  parseRoles, pendingRolesAfterLoad, sameRoles, setupLink, withRoles,
+  DEFAULT_ROLES, ORCH_SPEC_ROLES, PENDING_ROLES_TTL_MS, appUrl, cleanRoles, clearPendingRoles, levelOf, newFolderRoles,
+  parsePendingRoles, parseRoles, pendingRolesAfterLoad, readPendingRoles, sameRoles, setPendingRoles, setupLink, withRoles,
 } from '../src/auth';
 import { joinOr } from '../src/util';
 
@@ -115,4 +115,30 @@ test('joinOr lists the role names', () => {
   assert.equal(joinOr(['A', 'B']), 'A oder B');
   assert.equal(joinOr(['A', 'B', 'C']), 'A, B oder C');
   assert.equal(joinOr(['A', 'A', 'B']), 'A oder B');
+});
+
+test('levelOf: an empty role field counts as not set', () => {
+  const base = { enabled: true, tenantId: TENANT, clientId: CLIENT };
+  const withEmpty = { ...base, adminRole: 'A', reviewerRole: '', viewerRole: 'V' };
+  const without = { ...base, adminRole: 'A', viewerRole: 'V' };
+  for (const roles of [['A'], ['V'], ['other'], []]) assert.equal(levelOf(roles, withEmpty), levelOf(roles, without));
+  assert.equal(levelOf(['other'], withEmpty), 'reviewer'); // no reviewer role configured → signed in = reviewer
+  assert.equal(levelOf([], { ...base, adminRole: '', reviewerRole: '', viewerRole: '' }), 'admin');
+});
+
+test('pending roles: clearing only removes the choice that was read', () => {
+  const store = new Map<string, string>();
+  (globalThis as unknown as { localStorage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> }).localStorage = {
+    getItem: k => store.get(k) ?? null, setItem: (k, v) => { store.set(k, String(v)); }, removeItem: k => { store.delete(k); },
+  };
+  assert.equal(setPendingRoles(ORCH_SPEC_ROLES), true);
+  const first = readPendingRoles();
+  assert.deepEqual(first?.roles, ORCH_SPEC_ROLES);
+  // a newer choice saved while a folder was loading
+  setPendingRoles({ adminRole: 'New.Admin' });
+  clearPendingRoles(first!.raw);
+  assert.deepEqual(readPendingRoles()?.roles, { adminRole: 'New.Admin' });
+  clearPendingRoles(readPendingRoles()!.raw);
+  assert.equal(readPendingRoles(), null);
+  delete (globalThis as { localStorage?: unknown }).localStorage;
 });

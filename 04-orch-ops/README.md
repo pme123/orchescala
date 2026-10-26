@@ -208,6 +208,13 @@ orch-spec mit zusätzlicher Redirect-URI von Orch Ops, oder eine eigene mit
 denselben Rollenwerten). Leeres Feld = Stufe nicht verwendet, alle leer =
 jede angemeldete Person ist Admin.
 
+Die im Dialog gewählten Rollen gelten nur für den nächsten **neuen** Ordner,
+den man in diesem Browser verbindet (innert 24 Stunden); ein bestehender
+Ordner behält seine Rollen. Der Einrichtungs-Link trägt keine Rollen: legt
+erst ein Benutzer über den Link den Ordner an, bekommt er die
+Standard-Rollen — dann unter Admin → Anmeldung anpassen. Am einfachsten legt
+der Admin den Ordner selbst an, bevor er den Link weitergibt.
+
 ## Entwicklung
 
 ```bash
