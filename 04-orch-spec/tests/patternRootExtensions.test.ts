@@ -108,7 +108,7 @@ test('an existing correlation key stays as it is - not a second one', () => {
     '<bpmn:message id="Msg1" name="acme-demo"><bpmn:extensionElements><zeebe:subscription correlationKey="=clientKey" /></bpmn:extensionElements></bpmn:message>',
     messageStart);
   const r = applyPattern(xml, def, 'c8', null);
-  assert.deepEqual(r.issues, []);
+  assert.equal(r.issues.length, 1); // the hint on the other key (next test)
   assert.deepEqual(roots(r.xml)[0].ext, ['subscription =clientKey']);
 });
 
@@ -168,4 +168,39 @@ test('any root kind, by kind only: a different kind is added, the same kind is n
   assert.deepEqual(r.issues, []);
   // the own properties stay untouched (not merged), the missing kind is added
   assert.deepEqual(roots(r.xml, 'signal'), [{ id: 'Sig1', name: 'acme-cancel', ext: ['properties [own]', 'subscription =x'] }]);
+});
+
+test('a kept correlation key with another value is reported - also when nothing else is to do', () => {
+  const xml = processWith(
+    '<bpmn:message id="Msg1" name="acme-demo"><bpmn:extensionElements><zeebe:subscription correlationKey="=clientKey" /></bpmn:extensionElements></bpmn:message>',
+    messageStart + espOf('Msg1'));
+  const r = applyPattern(xml, def, 'c8', null);
+  assert.equal(r.changed, false);
+  assert.equal(r.issues.length, 2, JSON.stringify(r.issues));
+  assert.match(r.issues[0], /schon vorhanden/);
+  assert.match(r.issues[1], /Nachricht «acme-demo»: zeebe:subscription bleibt wie im Diagramm \(correlationKey="=clientKey"\) — das Pattern sieht correlationKey="=businessKey" vor/);
+  // the same key: nothing to say
+  const same = applyPattern(processWith(
+    '<bpmn:message id="Msg1" name="acme-demo"><bpmn:extensionElements><zeebe:subscription correlationKey="=businessKey" /></bpmn:extensionElements></bpmn:message>',
+    messageStart + espOf('Msg1')), def, 'c8', null);
+  assert.deepEqual(same.issues, ['«Einmalige Ausführung» ist hier schon vorhanden.']);
+});
+
+test('a root of the pattern that none of its nodes refers to is left alone', () => {
+  // the fragment also carries a message «acme-demo-other» nobody in the pattern uses
+  const extra = fragment.replace('<bpmndi:BPMNDiagram', `<bpmn:message id="Unused" name="acme-other"><bpmn:extensionElements><zeebe:subscription correlationKey="=x" /></bpmn:extensionElements></bpmn:message>
+  <bpmndi:BPMNDiagram`);
+  const extraDef = { ...def, bpmn: { c8: extra } } as unknown as PatternDef;
+  const xml = processWith('<bpmn:message id="Msg1" name="acme-demo" /><bpmn:message id="Msg2" name="acme-other" />', messageStart);
+  const r = applyPattern(xml, extraDef, 'c8', null);
+  assert.deepEqual(r.issues, []);
+  assert.deepEqual(roots(r.xml).map(m => [m.id, m.ext]), [['Msg1', ['subscription =businessKey']], ['Msg2', []]]);
+});
+
+test('applied again without the zeebe namespace in the diagram: the key comes with its declaration', () => {
+  const r = applyPattern(processWith('<bpmn:message id="Msg1" name="acme-demo" />', messageStart + espOf('Msg1'), BASE_NS), def, 'c8', null);
+  assert.ok(r.changed);
+  const d = parse(r.xml);
+  assert.equal(d.documentElement.getAttribute('xmlns:zeebe'), ZEEBE);
+  assert.deepEqual(roots(r.xml)[0].ext, ['subscription =businessKey']);
 });

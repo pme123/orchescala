@@ -1068,16 +1068,26 @@ class Writer {
    * extension of the same kind stays as it is, also with other values or children (it was set on
    * purpose — the pattern does not overwrite or merge it). The root element is shared with the
    * rest of the diagram, so removing the pattern leaves the extension there. The namespace comes
-   * along with `declareFrom`. Returns whether something was added.
+   * along with `declareFrom`. Returns whether something was added. If the kept one differs from
+   * the pattern's (another correlation key), that is said in `issues` — the pattern may rely on it.
    */
   addRootExtensions(have: Element, src: Element): boolean {
     const want = firstNamed(src, 'extensionElements');
     if (!want) return false;
     const same = (a: Element, b: Element) => local(a) === local(b) && a.namespaceURI === b.namespaceURI;
+    const attrs = (e: Element) => Array.from(e.attributes).map(a => `${a.name}="${a.value}"`).sort().join(' ');
     let ext = firstNamed(have, 'extensionElements');
     let added = false;
     for (const item of kids(want)) {
-      if (ext && kids(ext).some(k => same(k, item))) continue;
+      const kept = ext ? kids(ext).find(k => same(k, item)) : undefined;
+      if (kept) {
+        if (attrs(kept) !== attrs(item)) {
+          const what = `${local(have) === 'message' ? 'Nachricht' : local(have) === 'signal' ? 'Signal' : local(have) === 'error' ? 'Fehler' : 'Eskalation'} «${have.getAttribute('name') ?? have.getAttribute('id')}»`;
+          const msg = `${what}: ${item.tagName} bleibt wie im Diagramm (${attrs(kept) || 'ohne Angaben'}) — das Pattern sieht ${attrs(item) || 'nichts'} vor; prüfen.`;
+          if (!this.issues.includes(msg)) this.issues.push(msg);
+        }
+        continue;
+      }
       if (!ext) {
         ext = this.doc.createElementNS(BPMN_NS, `${prefixOf(have)}extensionElements`);
         prependEl(have, ext);
@@ -1087,11 +1097,16 @@ class Writer {
     }
     return added;
   }
-  /** The root elements of the pattern the diagram already has: their extensions, where missing */
+  /**
+   * The root elements the pattern refers to that the diagram already has: their extensions,
+   * where missing. Only roots a node of the pattern refers to (REF_ATTRS).
+   */
   addAllRootExtensions(frag: Document): boolean {
+    const used = new Set<string>();
+    for (const e of descendants(frag.documentElement)) for (const k of REF_ATTRS) { const v = e.getAttribute(k); if (v) used.add(v); }
     let added = false;
     for (const src of kids(frag.documentElement)) {
-      if (!ROOT_TAGS.has(local(src))) continue;
+      if (!ROOT_TAGS.has(local(src)) || !used.has(src.getAttribute('id') ?? '')) continue;
       const name = refName(frag, src.getAttribute('id') ?? '');
       const have = kids(this.defs).find(e => local(e) === local(src) && refName(this.doc, e.getAttribute('id') ?? '') === name);
       if (have && this.addRootExtensions(have, src)) added = true;
@@ -1497,7 +1512,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   // the root elements the diagram already had (start message …) — also when everything else is
   // already there: the pattern may be complete except for the correlation key of its message
   if (w.addAllRootExtensions(fr.doc)) changed = true;
-  if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`]);
+  if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`, ...w.issues]);
   // an unnamed element is named like the anchor («Init Process») — otherwise it would have no label
   const anchorName = fr.anchor?.getAttribute('name')?.trim();
   if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
