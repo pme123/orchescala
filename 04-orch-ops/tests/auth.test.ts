@@ -85,7 +85,8 @@ test('parsePendingRoles: stored with a time, expired or unusable → null', () =
   assert.deepEqual(parsePendingRoles(raw({}), now), {}); // none chosen ≠ nothing stored
   assert.deepEqual(parsePendingRoles(raw({ adminRole: ' A ', viewerRole: 3, other: 'x' }), now), { adminRole: 'A' });
   assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, now - PENDING_ROLES_TTL_MS - 1), now), null);
-  assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, now + 60_000), now), null);
+  assert.deepEqual(parsePendingRoles(raw(ORCH_SPEC_ROLES, now + 60_000), now), ORCH_SPEC_ROLES); // clock set back a minute
+  assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, now + 60 * 60_000), now), null); // an hour in the future: not plausible
   assert.equal(parsePendingRoles(raw(ORCH_SPEC_ROLES, 'yesterday'), now), null);
   assert.equal(parsePendingRoles(raw([]), now), null);
   assert.equal(parsePendingRoles(JSON.stringify(ORCH_SPEC_ROLES), now), null); // old format without time

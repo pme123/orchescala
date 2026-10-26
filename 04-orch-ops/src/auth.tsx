@@ -90,6 +90,8 @@ export function parseRoles(v: unknown): Roles | null {
 // they could not be written (create failed, no IDs) they stay for another
 // try, but expire after a day.
 export const PENDING_ROLES_TTL_MS = 24 * 60 * 60 * 1000;
+/** a clock set back a little (time sync) must not drop the choice */
+const CLOCK_SKEW_MS = 10 * 60 * 1000;
 const PENDING_ROLES_KEY = 'orch-ops.pendingRoles';
 
 /** stored pending roles; expired or unusable → null. `{ roles: {} }` is a
@@ -99,7 +101,7 @@ export function parsePendingRoles(raw: string | null, now: number): Roles | null
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as { roles?: unknown; at?: unknown } | null;
-    if (!v || typeof v.at !== 'number' || now - v.at > PENDING_ROLES_TTL_MS || v.at > now) return null;
+    if (!v || typeof v.at !== 'number' || now - v.at > PENDING_ROLES_TTL_MS || v.at - now > CLOCK_SKEW_MS) return null;
     return parseRoles(v.roles);
   } catch {
     return null;
