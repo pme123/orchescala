@@ -1165,11 +1165,27 @@ object TypeImplementation:
   /** The class up to the end of its parameters, its body, its companion `object X`. */
   private def parts(section: Seq[String], name: String): Option[Parts] =
     val start = section.indexWhere(_.matches(s"""\\s*(?:final\\s+)?case class $name\\b.*"""))
-    if start < 0 then None
+    if start < 0 then enumParts(section, name)
     else
       val close   = closing(section, start)
       val headEnd = (if close < 0 then start else close) + 1
       val obj     = section.indexWhere(_.matches(s"""\\s*object $name\\b.*"""), headEnd)
+      val until   = if obj < 0 then section.size else obj
+      Some(Parts(section.take(headEnd), section.slice(headEnd, until), if obj < 0 then Seq.empty else section.drop(obj)))
+
+  /** An `enum X` (ADT): the head up to its `end X` - its cases come from Orch Spec - and its
+    * companion `object X`, which keeps the own codecs and decoders like the one of a class.
+    */
+  private def enumParts(section: Seq[String], name: String): Option[Parts] =
+    val start = section.indexWhere(_.matches(s"""\\s*enum $name\\b.*"""))
+    if start < 0 then None
+    else
+      val end     = section.indexWhere(l => l.trim == s"end $name" && indentOf(l) == indentOf(section(start)), start + 1)
+      val obj     = section.indexWhere(_.matches(s"""\\s*object $name\\b.*"""), start + 1)
+      val headEnd =
+        if end >= 0 && (obj < 0 || end < obj) then end + 1
+        else if obj >= 0 then obj
+        else section.size
       val until   = if obj < 0 then section.size else obj
       Some(Parts(section.take(headEnd), section.slice(headEnd, until), if obj < 0 then Seq.empty else section.drop(obj)))
 

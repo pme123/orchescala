@@ -956,6 +956,83 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(m.contains("    lazy val exampleMinimal = example.copy(\n      receivingSystems = None\n    )\n  end In\nend Proc"), m)
     assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
 
+  test("merge - an enum In: the cases from Orch Spec, the companion keeps its own codec and decoders"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |  val descr: String = ""
+        |
+        |  enum In extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |
+        |    case PersonalVisit(
+        |        admissionTypeCode: AdmissionTypeCode,
+        |        inConfig: Option[InConfig] = None
+        |    )
+        |    case CheckedUnder(
+        |        admissionTypeCode: AdmissionTypeCode,
+        |        inConfig: Option[InConfig] = None
+        |    )
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]   = deriveApiSchema
+        |    given InOutCodec[In] = CirceCodec.from(decoder, deriveInOutEncoder)
+        |    given InOutDecoder[In.PersonalVisit] = deriveInOutDecoder
+        |    given InOutDecoder[In.CheckedUnder]  = deriveInOutDecoder
+        |
+        |    private lazy val decoder = new InOutDecoder[In]:
+        |      final def apply(c: HCursor): Decoder.Result[In] =
+        |        c.downField("admissionTypeCode").as[AdmissionTypeCode]
+        |          .flatMap:
+        |            case AdmissionTypeCode.PERSONAL_VISIT =>
+        |              customDecodeAccumulating[In.PersonalVisit](c)
+        |            case AdmissionTypeCode.CHECKED_UNDER  =>
+        |              customDecodeAccumulating[In.CheckedUnder](c)
+        |
+        |    lazy val example = In.PersonalVisit(AdmissionTypeCode.PERSONAL_VISIT)
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  enum In:
+        |    case PersonalVisit(
+        |        @description("the type")
+        |        admissionTypeCode: AdmissionTypeCode,
+        |        visitor: String
+        |    )
+        |    case CheckedUnder(
+        |        admissionTypeCode: AdmissionTypeCode
+        |    )
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In.PersonalVisit(
+        |      admissionTypeCode = AdmissionTypeCode.PERSONAL_VISIT,
+        |      visitor = "Max"
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the cases from Orch Spec
+    assert(m.contains("        admissionTypeCode: AdmissionTypeCode,\n        visitor: String,\n"), m)
+    // the companion stays - the own codec, the decoders of the cases, the decoder
+    assert(m.contains("    given InOutCodec[In] = CirceCodec.from(decoder, deriveInOutEncoder)\n"), m)
+    assert(m.contains("    given InOutDecoder[In.PersonalVisit] = deriveInOutDecoder\n"), m)
+    assert(m.contains("    private lazy val decoder = new InOutDecoder[In]:\n"), m)
+    assert(m.contains("              customDecodeAccumulating[In.CheckedUnder](c)\n"), m)
+    assert(!m.contains("deriveInOutCodec"), m)
+    // the example from Orch Spec
+    assert(m.contains("      visitor = \"Max\"\n    )\n  end In\nend Proc"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
   test("merge - a class without body gets the generated one, a companion without givens gets them"):
     val existing =
       """package a.b.domain.proc.v1
