@@ -392,7 +392,8 @@ class Converter {
           const imports = importsForExpression(p.descriptionExpr, dom.imports);
           if (imports.length) f.descriptionImports = imports;
         }
-        const example = exampleOf(p) ?? (asExample ? exampleOf({ type: p.type, example: asExample }) : undefined);
+        // the InConfig has no example - its values are the defaults (see above)
+        const example = t.inConfig ? undefined : exampleOf(p) ?? (asExample ? exampleOf({ type: p.type, example: asExample }) : undefined);
         if (example) f.example = example;
         // the example values (`defaultValidUntil`) with the imports of their file — which one
         // applies is decided by the file, not the catalog

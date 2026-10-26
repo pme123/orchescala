@@ -135,6 +135,8 @@ test('import: the values of `InConfig.example` are the defaults of the configura
   assert.equal(field('timerEscalationInform').default, 'Some("P5D")');
   assert.equal(field('timerSendProcessEvent').default, '"PT5S"');
   assert.equal(field('qmsRole').default, '"6300--QMS"');
+  // no example values - the InConfig has none
+  assert.ok(cfg.fields!.every(f => !f.example), JSON.stringify(cfg.fields));
   const all = scalaFiles(r.spec, { domainTypes: domain, services: [] } as never).map(f => f.content).join('\n');
   assert.match(all, /timerInformKube: String = "P1D"/);
   assert.match(all, /timerEscalationInform: Option\[String\] = Some\("P5D"\)/);
