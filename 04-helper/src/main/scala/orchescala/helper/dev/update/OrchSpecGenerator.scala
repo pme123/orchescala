@@ -1177,7 +1177,7 @@ object CaseClassParams:
       case ((done, current, depth), line) =>
         val d = depth + balance(line)
         // `timer: String, // the timer` - the comma before a comment at the end counts too
-        val code = line.replaceFirst("""\s*//[^"]*$""", "")
+        val code = line.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "\"\"").replaceFirst("""\s*//.*$""", "")
         if d == 0 && isCode(line) && code.trim.endsWith(",") then (done :+ (current :+ line), Vector.empty, d)
         else (done, current :+ line, d)
     match

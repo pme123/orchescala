@@ -808,7 +808,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |
         |  case class InConfig(
         |      mocks: Seq[String],
-        |      timer: String, // the timer
+        |      timer: String, // the "timer"
         |      handler: String => Int
         |  )
         |  object InConfig:
@@ -824,7 +824,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |""".stripMargin
     val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
     // the multi-line default and the commented line are not touched - `=>` in a type is no default
-    assert(m.contains("      mocks: Seq[String],\n      timer: String, // the timer\n      handler: String => Int = _.length\n  )"), m)
+    assert(m.contains("      mocks: Seq[String],\n      timer: String, // the \"timer\"\n      handler: String => Int = _.length\n  )"), m)
     // not all values are defaults: the example and `InConfig.example` stay
     assert(m.contains("    lazy val example = InConfig(\n"), m)
     assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
