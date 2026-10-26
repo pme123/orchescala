@@ -13,7 +13,9 @@
 //   manually — the admin generates both in the app. None of it lives in the
 //   repo/deployment.
 // - Roles (admin/reviewer/viewer) and enabled (sign-in required for the
-//   local folder): `auth` in the model.json.
+//   local folder): `auth` in the model.json. Defaults are the OrchOps roles
+//   (DEFAULT_ROLES); the setup dialog lets them be overridden (e.g. with the
+//   orch-spec ones) and they go into the model.json of a new folder.
 // The locally remembered IDs are kept even if a model.json without IDs is
 // loaded. MSAL is only loaded when a sign-in is due.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -25,6 +27,35 @@ export type AuthConfig = AuthSettings;
 export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AccessLevel = 'admin' | 'reviewer' | 'viewer' | 'none';
+
+// Roles: the own OrchOps roles by default. Whoever wants the same as orch-spec
+// (one role assignment in Entra for both apps) puts in ORCH_SPEC_ROLES.
+export const ROLE_KEYS = ['adminRole', 'reviewerRole', 'viewerRole'] as const;
+export type RoleKey = typeof ROLE_KEYS[number];
+export type Roles = Pick<AuthSettings, RoleKey>;
+export const DEFAULT_ROLES: Required<Roles> = {
+  adminRole: 'OrchOps.Admin',
+  reviewerRole: 'OrchOps.Editor',
+  viewerRole: 'OrchOps.Viewer',
+};
+export const ORCH_SPEC_ROLES: Required<Roles> = {
+  adminRole: 'OrchSpec.Admin',
+  reviewerRole: 'OrchSpec.Editor',
+  viewerRole: 'OrchSpec.Viewer',
+};
+
+/** clean up roles: trimmed, empty ones left out */
+export function cleanRoles(r: Roles): Roles {
+  const out: Roles = {};
+  for (const k of ROLE_KEYS) { const v = (r[k] ?? '').trim(); if (v) out[k] = v; }
+  return out;
+}
+
+/** roles for a new model.json: those chosen at setup, otherwise the defaults */
+export function setupRoles(cfg: Roles | null | undefined): Roles {
+  const chosen = cfg ? cleanRoles(cfg) : {};
+  return ROLE_KEYS.some(k => chosen[k]) ? chosen : { ...DEFAULT_ROLES };
+}
 
 export interface AuthUser {
   name: string;
@@ -49,8 +80,8 @@ interface AuthContextValue {
   loginAvailable: boolean;
   /** effective IDs */
   ids: { tenantId: string; clientId: string } | null;
-  /** store IDs for this browser (setup) */
-  setLocalIds: (tenantId: string, clientId: string) => void;
+  /** store IDs (and the roles for a new folder) for this browser (setup) */
+  setLocalIds: (tenantId: string, clientId: string, roles?: Roles) => void;
   login: () => Promise<void>;
   /** Sign-in for SharePoint mode (with Graph permission), even without enabled.
    *  'ready' = signed in with Graph token; 'redirect' = sign-in in progress; 'setup' = IDs missing */
@@ -247,9 +278,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [startMsal]);
 
   // store IDs for this browser (setup dialog / link / file)
-  const setLocalIds = useCallback((tenantId: string, clientId: string) => {
+  const setLocalIds = useCallback((tenantId: string, clientId: string, roles?: Roles) => {
     const prev = readCache();
-    const cfg: AuthConfig = { ...(prev ?? { enabled: false, tenantId: '', clientId: '' }), tenantId: tenantId.trim(), clientId: clientId.trim() };
+    let cfg: AuthConfig = { ...(prev ?? { enabled: false, tenantId: '', clientId: '' }), tenantId: tenantId.trim(), clientId: clientId.trim() };
+    if (roles) {
+      const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = cfg;
+      cfg = { ...rest, ...cleanRoles(roles) };
+    }
     applyConfig(cfg);
   }, [applyConfig]);
 

@@ -195,8 +195,18 @@ Wie in orch-spec: App-Registrierung in Entra (SPA, delegierte Berechtigung
 `https://<host>/site/ops/`, im Dev-Server `http://localhost:3005/orch-ops/`.
 Tenant-/Client-ID im Admin eintragen und den **Einrichtungs-Link** an die
 Benutzer geben — er richtet Anmeldung und SharePoint-Ordner in einem Schritt
-ein. Rollen (optional, App-Rollen im ID-Token): `OrchOps.Admin`,
+ein.
+
+**Rollen** (App-Rollen im ID-Token) — Standard: `OrchOps.Admin` (alles),
 `OrchOps.Editor` (erfassen, bearbeiten, zählen), `OrchOps.Viewer` (lesen).
+Sie stehen beim Einrichten der Microsoft-Anmeldung als Liste und lassen sich
+dort überschreiben (sie gehen in die `model.json` eines neuen Ordners);
+später unter **Admin → Anmeldung**. Der Knopf **«wie orch-spec»** setzt
+`OrchSpec.Admin`, `OrchSpec.Editor`, `OrchSpec.Viewer` ein — dann genügt eine
+Rollenzuweisung in Entra für beide Apps (dieselbe App-Registrierung wie
+orch-spec mit zusätzlicher Redirect-URI von Orch Ops, oder eine eigene mit
+denselben Rollenwerten). Leeres Feld = Stufe nicht verwendet, alle leer =
+jede angemeldete Person ist Admin.
 
 ## Entwicklung
 

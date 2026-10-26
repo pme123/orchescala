@@ -2,7 +2,7 @@
 // document URL — also with the relative base (`./`) of the docs site.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appUrl, levelOf, setupLink } from '../src/auth';
+import { DEFAULT_ROLES, ORCH_SPEC_ROLES, appUrl, cleanRoles, levelOf, setupLink, setupRoles } from '../src/auth';
 
 // bundled into one module: the test's import.meta is the one src/auth.tsx reads
 const meta = import.meta as unknown as { env?: { BASE_URL: string } };
@@ -40,4 +40,23 @@ test('levelOf: roles from the ID token', () => {
   assert.equal(levelOf(['OrchOps.Viewer'], cfg), 'viewer');
   assert.equal(levelOf([], cfg), 'none');
   assert.equal(levelOf([], { ...cfg, reviewerRole: undefined }), 'reviewer', 'without reviewer role: signed in = reviewer');
+});
+
+test('roles: OrchOps by default, orch-spec roles as an alternative', () => {
+  assert.deepEqual(DEFAULT_ROLES, { adminRole: 'OrchOps.Admin', reviewerRole: 'OrchOps.Editor', viewerRole: 'OrchOps.Viewer' });
+  assert.equal(ORCH_SPEC_ROLES.adminRole, 'OrchSpec.Admin');
+  const cfg = { enabled: true, tenantId: TENANT, clientId: CLIENT, ...ORCH_SPEC_ROLES };
+  assert.equal(levelOf(['OrchSpec.Editor'], cfg), 'reviewer');
+  assert.equal(levelOf(['OrchOps.Editor'], cfg), 'none');
+});
+
+test('cleanRoles trims and drops empty roles', () => {
+  assert.deepEqual(cleanRoles({ adminRole: ' A ', reviewerRole: '', viewerRole: '  ' }), { adminRole: 'A' });
+});
+
+test('setupRoles: the roles chosen at setup, otherwise the defaults', () => {
+  assert.deepEqual(setupRoles(null), DEFAULT_ROLES);
+  assert.deepEqual(setupRoles({}), DEFAULT_ROLES);
+  assert.deepEqual(setupRoles({ adminRole: '', reviewerRole: ' ' }), DEFAULT_ROLES);
+  assert.deepEqual(setupRoles({ ...ORCH_SPEC_ROLES, viewerRole: '' }), { adminRole: 'OrchSpec.Admin', reviewerRole: 'OrchSpec.Editor' });
 });

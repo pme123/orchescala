@@ -16,7 +16,7 @@ import { DEFAULT_MODEL, DEFAULT_STATUSES } from './defaultModel';
 import { nowIso } from './util';
 import { DemoBackend, LocalBackend, type StorageBackend } from './backend';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, type SharePointFolder } from './graph';
-import { PENDING_FOLDER_KEY, useAuth } from './auth';
+import { PENDING_FOLDER_KEY, setupRoles, useAuth } from './auth';
 import { parseConfluence } from './confluence';
 import { isAttachmentPath, newAttachmentPath, prepareImage } from './attachments';
 import {
@@ -133,6 +133,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   getTokenRef.current = auth.getToken;
   const idsRef = useRef(auth.ids);
   idsRef.current = auth.ids;
+  const authCfgRef = useRef(auth.config);
+  authCfgRef.current = auth.config;
 
   const actor = (auth.status === 'signedIn' && auth.user?.name?.trim()) || localName.trim();
   const actorRef = useRef(actor);
@@ -161,7 +163,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (!read) {
         const ids = idsRef.current;
         const fresh: Model = ids
-          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, adminRole: 'OrchOps.Admin', reviewerRole: 'OrchOps.Editor', viewerRole: 'OrchOps.Viewer' } }
+          ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...setupRoles(authCfgRef.current) } }
           : DEFAULT_MODEL;
         const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
         if (!current()) return;

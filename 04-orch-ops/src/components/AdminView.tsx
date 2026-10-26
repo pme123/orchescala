@@ -2,7 +2,8 @@
 import { useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronLeft, FileUp, KeyRound, Plus, Trash2 } from 'lucide-react';
 import { useStore, type ImportSummary } from '../store';
-import { GUID_RE, setupLink } from '../auth';
+import { DEFAULT_ROLES, GUID_RE, cleanRoles, setupLink, useAuth } from '../auth';
+import RoleFields from './RoleFields';
 import BrandingForm from './BrandingForm';
 import { IMPORT_COUNT } from '../confluence';
 import type { Model, StatusDef } from '../types';
@@ -171,13 +172,18 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
   const c = cls(isDark);
-  const a = model.auth ?? { enabled: false, tenantId: '', clientId: '' };
+  const auth = useAuth();
+  // not set up yet: suggest this browser's IDs and the default roles
+  const a = model.auth ?? {
+    enabled: false, tenantId: auth.ids?.tenantId ?? '', clientId: auth.ids?.clientId ?? '', ...DEFAULT_ROLES,
+  };
   const [draft, setDraft] = useState(a);
   const [msg, setMsg] = useState('');
   const valid = GUID_RE.test(draft.tenantId.trim()) && GUID_RE.test(draft.clientId.trim());
 
   const save = async () => {
-    const res = await onSave({ ...model, auth: draft });
+    const { adminRole: _a, reviewerRole: _r, viewerRole: _v, ...rest } = draft;
+    const res = await onSave({ ...model, auth: { ...rest, tenantId: rest.tenantId.trim(), clientId: rest.clientId.trim(), ...cleanRoles(draft) } });
     setMsg(res.ok ? 'Gespeichert.' : res.message);
   };
 
@@ -186,7 +192,6 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Tenant- und Client-ID der App-Registrierung (öffentliche Werte, keine Geheimnisse).
         Mit «aktiv» braucht auch der lokale Ordner eine Anmeldung; für SharePoint ist sie immer nötig.
-        Rollen: Admin (alles), Bearbeiten (erfassen, ändern, zählen), Lesen.
       </p>
       <label className={`flex items-center gap-2 text-[11px] ${c.muted2}`}>
         <input type="checkbox" checked={draft.enabled} onChange={e => setDraft({ ...draft, enabled: e.target.checked })} />
@@ -202,18 +207,7 @@ function AuthSettingsForm({ model, isDark, onSave, folderUrl }: {
             className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
         </div>
       ))}
-      <div className="grid grid-cols-3 gap-2">
-        {(['adminRole', 'reviewerRole', 'viewerRole'] as const).map(k => (
-          <div key={k}>
-            <label className={`block text-[10px] uppercase tracking-wider mb-1 ${c.muted}`}>
-              {k === 'adminRole' ? 'Admin' : k === 'reviewerRole' ? 'Bearbeiten' : 'Lesen'}
-            </label>
-            <input value={draft[k] ?? ''} onChange={e => setDraft({ ...draft, [k]: e.target.value })}
-              placeholder={k === 'adminRole' ? 'OrchOps.Admin' : k === 'reviewerRole' ? 'OrchOps.Editor' : 'OrchOps.Viewer'}
-              className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
-          </div>
-        ))}
-      </div>
+      <RoleFields roles={draft} isDark={isDark} onChange={r => setDraft({ ...draft, ...r })} />
       <div className="flex items-center gap-2">
         <button onClick={save} className={`text-[11px] px-3 py-1.5 rounded font-semibold ${c.btnPrimary}`}>Speichern</button>
         {valid && (
