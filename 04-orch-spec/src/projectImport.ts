@@ -24,7 +24,7 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types.ts';
 import { isDomainSource, isSkippedDir, scanFiles } from './domainScan.ts';
 import { allSteps } from './bpmn.ts';
-import { exampleOf, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
+import { exampleOf, importedPath, importName, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
 import { packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
@@ -227,7 +227,7 @@ class Converter {
 
   /**
    * A type via the imports of its file: `LoadPoas.Out` with
-   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` — first the
+   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` (or a rename `… as X`) — first the
    * explicit ones, then those with `*`; a relative import (`schema.*`) also
    * from the package.
    */
@@ -238,7 +238,7 @@ class Converter {
     const index = catalogIndex(this.model?.domainTypes);
     const lookup = (id: string) => this.domain.find(t => t.id === id) ?? index.byId.get(id) ?? null;
     const at = (path: string) => lookup(path) ?? lookup(`${pkg}.${path}`);
-    for (const imp of imports) if (imp.endsWith(`.${head}`) || imp === head) { const t = at(`${imp}${rest}`); if (t) return t; }
+    for (const imp of imports) if (importName(imp) === head) { const t = at(`${importedPath(imp)}${rest}`); if (t) return t; }
     for (const imp of imports) if (imp.endsWith('.*')) { const t = at(`${imp.slice(0, -2)}.${base}`); if (t) return t; }
     return null;
   }
@@ -389,7 +389,7 @@ class Converter {
         // the example values (`defaultValidUntil`) with the imports of their file — which one
         // applies is decided by the file, not the catalog
         const named = example?.match(/\bdefault[A-Z]\w*/g) ?? [];
-        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => i.endsWith(`.${n}`)));
+        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => n === importName(i)));
         return f;
       });
     if (dom.kind === 'enum') {

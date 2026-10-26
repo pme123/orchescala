@@ -155,16 +155,23 @@ export function packageOfFile(lines: string[]): string {
 /**
  * The imports of a file, one entry per imported name:
  * `import a.b.{C, D}` → `a.b.C`, `a.b.D`; `import a.b.*` → `a.b.*`.
- * Renames (`C => E`) and exclusions (`C => _`) are left out.
+ * Renames (`a.b.C as E`, `a.b.{C => E}`) become `a.b.C as E` — valid Scala 3 as an
+ * import line; `importName` / `importedPath` split it. Exclusions (`C => _`, `C as _`) are left out.
  */
 export function importsOfFile(lines: string[]): string[] {
   const out: string[] = [];
   for (const line of lines) {
-    const m = /^\s*import\s+([\w.]+?)\.(\{[^}]*\}|\*|_|[\w]+)\s*(?:\/\/.*)?$/.exec(line);
+    const m = /^\s*import\s+([\w.]+?)\.(\{[^}]*\}|\*|_|\w+(?:\s+as\s+\w+)?)\s*(?:\/\/.*)?$/.exec(line);
     if (!m) continue;
     const names = m[2].startsWith('{') ? m[2].slice(1, -1).split(',').map(n => n.trim()) : [m[2]];
     for (const n of names) {
-      if (!n || n.includes('=>')) continue;
+      if (!n) continue;
+      const rename = /^(\w+)\s*(?:=>|\bas\b)\s*(\w+)$/.exec(n);
+      if (rename) {
+        if (rename[2] !== '_') out.push(`${m[1]}.${rename[1]} as ${rename[2]}`);
+        continue;
+      }
+      if (n.includes('=>')) continue;
       out.push(`${m[1]}.${n === '_' ? '*' : n}`);
     }
   }

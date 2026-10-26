@@ -20,7 +20,7 @@ import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
-import { isFixedCaseDefault } from './scalaTypes.ts';
+import { importName, isFixedCaseDefault } from './scalaTypes.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -1118,7 +1118,7 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     for (const name of f.example?.match(/\bdefault[A-Z]\w*/g) ?? []) {
       // from the domain: the import of its file — or none if the value was visible there without one
       if (f.exampleImports) {
-        const own = f.exampleImports.filter(i => i.endsWith(`.${name}`));
+        const own = f.exampleImports.filter(i => importName(i) === name);
         for (const i of own) external.set(i, '');
         // … except via nested packages (`package valiant.product` / `package domain`):
         // the export only splits the package line at `domain` (see packageClause) — a value
