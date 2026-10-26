@@ -16,7 +16,7 @@ export type FolderOrigin = 'connected' | 'restored';
 export type OpenModelResult =
   | { kind: 'ok'; model: Model; version: string; created: boolean; pendingRoles: 'clear' | 'keep' }
   | { kind: 'error'; message: string; pendingRoles: 'keep' }
-  /** another folder became active meanwhile: nothing written, nothing to show */
+  /** another folder became active before anything was written: nothing to show */
   | { kind: 'stale'; pendingRoles: 'keep' };
 
 /** read, (create,) read again — and twice more after a pause */
@@ -64,7 +64,7 @@ export async function openModel(be: StorageBackend, opts: {
       const ids = opts.ids;
       const fresh: Model = ids
         ? { ...DEFAULT_MODEL, auth: { enabled: false, tenantId: ids.tenantId, clientId: ids.clientId, ...newFolderRoles(opts.pendingRoles, connected) } }
-        : DEFAULT_MODEL;
+        : { ...DEFAULT_MODEL };
       const w = await be.write('model.json', JSON.stringify(fresh, null, 2), { createOnly: true });
       if (w.ok) {
         // the roles are only used up if they were written (needs the IDs)

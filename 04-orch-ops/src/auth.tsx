@@ -129,6 +129,7 @@ export function readPendingRoles(): { roles: Roles; raw: string } | null {
   try {
     const raw = localStorage.getItem(PENDING_ROLES_KEY);
     const roles = parsePendingRoles(raw, Date.now());
+    if (raw && !roles) localStorage.removeItem(PENDING_ROLES_KEY); // expired or unusable
     return raw && roles ? { roles, raw } : null;
   } catch {
     return null;

@@ -140,5 +140,9 @@ test('pending roles: clearing only removes the choice that was read', () => {
   assert.deepEqual(readPendingRoles()?.roles, { adminRole: 'New.Admin' });
   clearPendingRoles(readPendingRoles()!.raw);
   assert.equal(readPendingRoles(), null);
+  // an expired entry is removed when read
+  store.set('orch-ops.pendingRoles', JSON.stringify({ roles: ORCH_SPEC_ROLES, at: Date.now() - PENDING_ROLES_TTL_MS - 1 }));
+  assert.equal(readPendingRoles(), null);
+  assert.equal(store.has('orch-ops.pendingRoles'), false);
   delete (globalThis as { localStorage?: unknown }).localStorage;
 });
