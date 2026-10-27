@@ -2,7 +2,7 @@
 // `folder.json` next to index.html - by convention `00-docs/ops` of the company project.
 // A browser cannot be handed a folder, so it is only shown as a hint on the start screen:
 // the path to paste into the folder dialog. Without the preview there is no such file.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
 /** The path from `folder.json` - or null for anything else (e.g. the dev server's index.html). */
@@ -26,12 +26,18 @@ export function useCompanyFolder(): string | null {
 
 /** The company folder with a copy button - for the folder dialog (macOS: ⌘⇧G, then paste). */
 export function CompanyFolderHint({ path, muted }: { path: string; muted: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const show = (s: 'copied' | 'failed') => {
+    setState(s);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState('idle'), 1500);
+  };
   const copy = () => {
-    void navigator.clipboard?.writeText(path).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    // no clipboard (insecure context) or permission denied: say so instead of nothing
+    (navigator.clipboard?.writeText(path) ?? Promise.reject(new Error('no clipboard')))
+      .then(() => show('copied'), () => show('failed'));
   };
   return (
     <span className="block mt-2">
@@ -39,7 +45,8 @@ export function CompanyFolderHint({ path, muted }: { path: string; muted: string
       <span className="font-mono break-all">{path}</span>{' '}
       <button type="button" onClick={copy} title="Pfad kopieren — im Ordner-Dialog mit ⌘⇧G einfügen"
         className={`inline-flex items-center gap-1 align-middle hover:underline ${muted}`}>
-        {copied ? <Check size={10} /> : <Copy size={10} />} {copied ? 'kopiert' : 'kopieren'}
+        {state === 'copied' ? <Check size={10} /> : <Copy size={10} />}{' '}
+        {state === 'copied' ? 'kopiert' : state === 'failed' ? 'nicht kopiert — Pfad markieren' : 'kopieren'}
       </button>
     </span>
   );
