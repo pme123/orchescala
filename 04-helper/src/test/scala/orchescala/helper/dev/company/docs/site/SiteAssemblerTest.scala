@@ -102,6 +102,18 @@ class SiteAssemblerTest extends FunSuite:
       assertEquals(code, "404")
     finally running.stop()
 
+  test("LocalSiteServer serves the extras from memory - they win over a file in the site"):
+    val site = os.temp.dir(prefix = "site-extras")
+    os.write(site / "spec" / "folder.json", """{"path":"from-disk"}""", createFolders = true)
+    val extras  = Map("spec/folder.json" -> """{"path":"/co/00-docs/spec"}""", "ops/folder.json" -> """{"path":"/co/00-docs/ops"}""")
+    val running = LocalSiteServer.start(site, 0, extras).getOrElse(fail("could not start the server"))
+    try
+      def get(p: String) = os.proc("curl", "--silent", "--max-time", "5", s"${running.url}$p").call().out.text()
+      assertEquals(get("spec/folder.json"), """{"path":"/co/00-docs/spec"}""")
+      assertEquals(get("ops/folder.json"), """{"path":"/co/00-docs/ops"}""")
+      assert(!os.exists(site / "ops"), "extras must not be written into the site")
+    finally running.stop()
+
   test("writeApi - the API of a project in a single repo, at its tag"):
     val gitTemp = singleRepoGitTemp()
     val repo    = gitTemp / "orchescala-acme"

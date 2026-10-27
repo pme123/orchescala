@@ -41,6 +41,14 @@ trait DocCreator extends DependencyCreator, Helpers:
     */
   protected def docsPreviewPort: Int = LocalSiteServer.defaultPort
 
+  /** The company's folders for orch-spec and orch-ops - by convention `00-docs/spec` and
+    * `00-docs/ops`. `prepareDocs` creates them, and the local preview names them on the apps'
+    * start screen (`spec/folder.json`, `ops/folder.json`). A browser cannot be given a folder,
+    * so it is linked once per preview port; the browser remembers it afterwards.
+    */
+  protected def docsSpecDir: os.Path = apiConfig.basePath / "spec"
+  protected def docsOpsDir: os.Path  = apiConfig.basePath / "ops"
+
   lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs
 
@@ -72,8 +80,18 @@ trait DocCreator extends DependencyCreator, Helpers:
         println(s"Spec catalog / APIs incomplete (non-fatal for preview): ${ex.getMessage}")
         siteDir
     .get
-    LocalSiteServer.serve(site, docsPreviewPort)
+    LocalSiteServer.serve(site, docsPreviewPort, companyFolders())
   end previewLocally
+
+  /** Creates the company's orch-spec and orch-ops folders and returns them as the preview's
+    * `folder.json` files - served from memory only, so no local path ends up in the site.
+    */
+  private def companyFolders(): Map[String, String] =
+    Seq("spec" -> docsSpecDir, "ops" -> docsOpsDir).map: (app, dir) =>
+      os.makeDir.all(dir)
+      println(s"Folder for orch-$app: $dir")
+      s"$app/folder.json" -> io.circe.Json.obj("path" -> io.circe.Json.fromString(dir.toString)).noSpaces
+    .toMap
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released
     * versions, orch-spec, orch-ops) into `00-docs/site` - what the company gateway serves - and uploads it
