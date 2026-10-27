@@ -2,6 +2,7 @@
 // `folder.json` next to index.html - by convention `00-docs/spec` of the company project.
 // A browser cannot be handed a folder, so it is only shown as a hint on the start screen:
 // the path to paste into the folder dialog. Without the preview there is no such file.
+// Keep in sync with ../../04-orch-ops/src/companyFolder.tsx (the two apps share no package).
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
