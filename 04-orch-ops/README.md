@@ -119,6 +119,13 @@ errors/<id>.json        ein Fehler
 attachments/<jjjj-mm>/  Bilder aus Details und Workaround
 ```
 
+**Ordner der Firma.** Nach Konvention `00-docs/ops` im Firmenprojekt
+(`docsOpsDir` im `CompanyOrchescalaDevHelper`). `./helper.scala prepareDocs`
+legt ihn an, die lokale Vorschau liefert ihn als `ops/folder.json` (nur aus dem
+Speicher), und die Startseite zeigt ihn unter «Lokalen Ordner wählen» mit einem
+Knopf zum Kopieren (macOS: im Ordner-Dialog ⌘⇧G). Verknüpft wird einmal je
+Vorschau-Port, danach merkt ihn sich der Browser.
+
 ```jsonc
 // errors/acme-order-card--karte-kann-nicht-bestellt-werden.json
 {

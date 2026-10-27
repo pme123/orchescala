@@ -30,6 +30,18 @@ The following files will be created by `./helper.scala prepareDocs`:
 ```
 So do **not adjust** them manually.
 
+`prepareDocs` also creates the company's data folders for the two apps of the site - they are
+never overwritten, the apps write into them:
+
+```bash
+00-docs
+    | - spec    # orch-spec: process specifications (config/model.json, processes/, pages/)
+    | - ops     # orch-ops: recurring errors in operation (model.json, errors/)
+```
+
+The local preview names them on the apps' start screen; a company can use other folders
+(`docsSpecDir`, `docsOpsDir`) - see [Development](development.md#preparedocs).
+
 `00-docs/site` is the built site (`publishDocs`) - the company gateway serves it, older releases
 keep their classic sites there (`site/<company>/<tag>/`).
 
