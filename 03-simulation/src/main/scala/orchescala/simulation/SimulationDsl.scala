@@ -54,6 +54,26 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     inline def apply(process: Process[?, ?, ?]): ProcessScenario =
       ProcessScenario(nameOfVariable(process), process)
   
+  // A check on a process makes it a scenario named after the val it is defined in - not after
+  // `example` (the conversion above would take the name of the process value):
+  // `lazy val Approved = example.exists("x")` -> scenario `Approved`.
+  extension (inline process: Process[?, ?, ?])
+    inline def exists(key: String): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).exists(key)
+    inline def notExists(key: String): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).notExists(key)
+    inline def isEquals[V: InOutEncoder](key: String, value: V): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).isEquals(key, value)
+    inline def hasSize(key: String, size: Int): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).hasSize(key, size)
+    inline def hasSize(size: Int): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).hasSize(size)
+    inline def contains(key: String, value: CamundaVariable): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).contains(key, value)
+    inline def contains[V: InOutEncoder](expected: V): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).contains(expected)
+  end extension
+
   inline given Conversion[UserTask[?, ?], SUserTask] with
     inline def apply(task: UserTask[?, ?]): SUserTask =
       SUserTask(nameOfVariable(task), task)
