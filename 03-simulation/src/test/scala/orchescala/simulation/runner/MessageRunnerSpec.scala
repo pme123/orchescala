@@ -20,7 +20,8 @@ object MessageRunnerSpec extends ZIOSpecDefault:
           timeToLiveInSec: Option[Int],
           businessKey: Option[String],
           processInstanceId: Option[String],
-          variables: Option[io.circe.JsonObject]
+          variables: Option[io.circe.JsonObject],
+          identityCorrelation: Option[orchescala.domain.IdentityCorrelation]
       ): IO[EngineError, MessageCorrelationResult] =
         ZIO.fail(EngineError.ServiceRequestError(400, "variable 'amount' has a wrong type"))
     def processInstanceService         = ???

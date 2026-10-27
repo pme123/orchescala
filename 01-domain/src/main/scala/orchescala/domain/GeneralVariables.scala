@@ -16,6 +16,8 @@ case class GeneralVariables(
     _identityCorrelation: Option[IdentityCorrelation] = None,
     // set by the engine only - see InputParams._identityCorrelationPending
     _identityCorrelationPending: Option[Boolean] = None,
+    // set by the engine only - see InputParams._identityCorrelationOfActor
+    _identityCorrelationOfActor: Option[IdentityCorrelation] = None,
     // idempotency
     _idempotentId: Option[IdempotentId] = None,
     // DEPRECATED
