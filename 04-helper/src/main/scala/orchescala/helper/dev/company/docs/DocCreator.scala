@@ -35,6 +35,12 @@ trait DocCreator extends DependencyCreator, Helpers:
   protected def apiProjectConfig(projectConfigPath: os.Path): ApiProjectConfig =
     ApiProjectConfig(projectConfigPath)
 
+  /** The port of the local preview at the end of `prepareDocs` (`http://localhost:<port>/`).
+    * Override it when several companies preview on the same machine, or when an identity
+    * provider has a fixed redirect URI registered for it.
+    */
+  protected def docsPreviewPort: Int = LocalSiteServer.defaultPort
+
   lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs
 
@@ -66,7 +72,7 @@ trait DocCreator extends DependencyCreator, Helpers:
         println(s"Spec catalog / APIs incomplete (non-fatal for preview): ${ex.getMessage}")
         siteDir
     .get
-    LocalSiteServer.serve(site)
+    LocalSiteServer.serve(site, docsPreviewPort)
   end previewLocally
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released

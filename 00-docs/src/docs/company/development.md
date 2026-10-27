@@ -88,6 +88,13 @@ the sibling repos does not stop the preview, it is printed and the preview conti
 available. Everything needed ships with orchescala; Node.js is only used for the orch-spec
 catalog (skipped without it).
 
+The preview port is 3004 by default. A company changes it in its `CompanyOrchescalaDevHelper`, e.g.
+when two companies preview on the same machine:
+
+```scala
+override protected def docsPreviewPort: Int = 3003
+```
+
 - Manually adjust the Release Notes _release.md_ - and check the result in the local preview
   (run `prepareDocs` again, or `npm run site` in orch-doc).
 
