@@ -47,7 +47,10 @@ class MessageRunner(val messageScenario: SMessageEvent)(using
                                   tenantId = tenantId,
                                   processInstanceId = processInstanceId,
                                   businessKey = businessKey,
-                                  variables = messageScenario.inOut.inAsJson.asObject
+                                  variables = messageScenario.inOut.inAsJson.asObject,
+                                  // like a user task: the sender goes as `_identityCorrelationOfActor`
+                                  // (only to a known process instance)
+                                  identityCorrelation = Some(testIdentityCorrelation)
                                 )
                                 .as:
                                   summon[ScenarioData]
