@@ -19,6 +19,21 @@ object LocalSiteServer:
   /** The preview port unless the company sets its own (`DocCreator.docsPreviewPort`). */
   val defaultPort = 3004
 
+  /** Creates the apps' company folders (app -> folder) and returns them as `<app>/folder.json`
+    * for `extras`. Best-effort like the rest of the preview: a folder that cannot be created
+    * is printed and left out - the app then shows no hint.
+    */
+  def folderHints(folders: Seq[(String, os.Path)]): Map[String, String] =
+    folders.flatMap: (app, dir) =>
+      scala.util.Try(os.makeDir.all(dir)) match
+        case scala.util.Success(_)  =>
+          println(s"Folder for orch-$app: $dir")
+          Some(s"$app/folder.json" -> io.circe.Json.obj("path" -> io.circe.Json.fromString(dir.toString)).noSpaces)
+        case scala.util.Failure(ex) =>
+          println(s"Folder for orch-$app not created (non-fatal for preview): $dir - ${ex.getMessage}")
+          None
+    .toMap
+
   case class Running(url: String, private val server: HttpServer):
     def stop(): Unit = server.stop(0)
 
@@ -36,14 +51,20 @@ object LocalSiteServer:
           ex.getResponseHeaders.add("Content-Type", contentType)
           ex.sendResponseHeaders(200, bytes.length)
           ex.getResponseBody.write(bytes)
-        extras.get(rel) match
-          case Some(json) => send(json.getBytes("UTF-8"), contentTypes("json"))
-          case None       =>
-            val file = scala.util.Try(site / os.RelPath(rel)).toOption.filter(f => f.startsWith(site) && os.isFile(f))
-            file match
-              case Some(f) => send(os.read.bytes(f), contentTypes.getOrElse(f.ext.toLowerCase, "application/octet-stream"))
-              case None    => ex.sendResponseHeaders(404, -1)
-        ex.close()
+        try
+          extras.get(rel) match
+            case Some(json) => send(json.getBytes("UTF-8"), contentTypes("json"))
+            case None       =>
+              val file = scala.util.Try(site / os.RelPath(rel)).toOption.filter(f => f.startsWith(site) && os.isFile(f))
+              file match
+                case Some(f) => send(os.read.bytes(f), contentTypes.getOrElse(f.ext.toLowerCase, "application/octet-stream"))
+                case None    => ex.sendResponseHeaders(404, -1)
+        catch
+          case scala.util.control.NonFatal(e) =>
+            // headers not sent yet -> a 500; otherwise the client just gets a cut-off response
+            scala.util.Try(ex.sendResponseHeaders(500, -1))
+            println(s"Preview: $rel failed - ${e.getMessage}")
+        finally ex.close()
       )
       server.setExecutor(null)
       server.start()

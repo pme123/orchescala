@@ -80,18 +80,9 @@ trait DocCreator extends DependencyCreator, Helpers:
         println(s"Spec catalog / APIs incomplete (non-fatal for preview): ${ex.getMessage}")
         siteDir
     .get
-    LocalSiteServer.serve(site, docsPreviewPort, companyFolders())
+    val folders = LocalSiteServer.folderHints(Seq("spec" -> docsSpecDir, "ops" -> docsOpsDir))
+    LocalSiteServer.serve(site, docsPreviewPort, folders)
   end previewLocally
-
-  /** Creates the company's orch-spec and orch-ops folders and returns them as the preview's
-    * `folder.json` files - served from memory only, so no local path ends up in the site.
-    */
-  private def companyFolders(): Map[String, String] =
-    Seq("spec" -> docsSpecDir, "ops" -> docsOpsDir).map: (app, dir) =>
-      os.makeDir.all(dir)
-      println(s"Folder for orch-$app: $dir")
-      s"$app/folder.json" -> io.circe.Json.obj("path" -> io.circe.Json.fromString(dir.toString)).noSpaces
-    .toMap
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released
     * versions, orch-spec, orch-ops) into `00-docs/site` - what the company gateway serves - and uploads it

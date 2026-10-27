@@ -114,6 +114,17 @@ class SiteAssemblerTest extends FunSuite:
       assert(!os.exists(site / "ops"), "extras must not be written into the site")
     finally running.stop()
 
+  test("folderHints - creates the folders; one that cannot be created is left out, not fatal"):
+    val base    = os.temp.dir(prefix = "company-folders")
+    val spec    = base / "00-docs" / "spec \"quoted\""
+    val blocker = base / "a-file"
+    os.write(blocker, "x")
+    val hints   = LocalSiteServer.folderHints(Seq("spec" -> spec, "ops" -> blocker / "ops"))
+    assert(os.isDir(spec), "spec folder not created")
+    assertEquals(hints.keySet, Set("spec/folder.json"))
+    val path = io.circe.parser.parse(hints("spec/folder.json")).flatMap(_.hcursor.get[String]("path"))
+    assertEquals(path, Right(spec.toString))
+
   test("writeApi - the API of a project in a single repo, at its tag"):
     val gitTemp = singleRepoGitTemp()
     val repo    = gitTemp / "orchescala-acme"
