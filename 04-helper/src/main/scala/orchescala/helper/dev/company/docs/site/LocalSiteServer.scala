@@ -2,7 +2,12 @@ package orchescala.helper.dev.company.docs.site
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
 
+import io.circe.Json
+
+import java.io.IOException
 import java.net.InetSocketAddress
+import scala.util.Try
+import scala.util.control.NonFatal
 
 /** Serves an assembled site locally - the preview at the end of `prepareDocs`. Static files
   * only, `/` -> `index.html`; runs until the JVM is stopped (Ctrl-C).
@@ -19,19 +24,12 @@ object LocalSiteServer:
   /** The preview port unless the company sets its own (`DocCreator.docsPreviewPort`). */
   val defaultPort = 3004
 
-  /** Creates the apps' company folders (app -> folder) and returns them as `<app>/folder.json`
-    * for `extras`. Best-effort like the rest of the preview: a folder that cannot be created
-    * is printed and left out - the app then shows no hint.
+  /** The apps' company folders (app -> folder) as `<app>/folder.json` for `extras` - only the
+    * folders that exist (`prepareDocs` creates them first); for any other the app shows no hint.
     */
   def folderHints(folders: Seq[(String, os.Path)]): Map[String, String] =
-    folders.flatMap: (app, dir) =>
-      scala.util.Try(os.makeDir.all(dir)) match
-        case scala.util.Success(_)  =>
-          println(s"Folder for orch-$app: $dir")
-          Some(s"$app/folder.json" -> io.circe.Json.obj("path" -> io.circe.Json.fromString(dir.toString)).noSpaces)
-        case scala.util.Failure(ex) =>
-          println(s"Folder for orch-$app not created (non-fatal for preview): $dir - ${ex.getMessage}")
-          None
+    folders.collect:
+      case (app, dir) if os.isDir(dir) => s"$app/folder.json" -> Json.obj("path" -> Json.fromString(dir.toString)).noSpaces
     .toMap
 
   case class Running(url: String, private val server: HttpServer):
@@ -42,7 +40,7 @@ object LocalSiteServer:
     * e.g. the company folders for orch-spec and orch-ops; they win over files in the site.
     */
   def start(site: os.Path, port: Int = defaultPort, extras: Map[String, String] = Map.empty): Option[Running] =
-    scala.util.Try(HttpServer.create(InetSocketAddress("localhost", port), 0)).toOption.map: server =>
+    Try(HttpServer.create(InetSocketAddress("localhost", port), 0)).toOption.map: server =>
       server.createContext("/", (ex: HttpExchange) =>
         val raw  = ex.getRequestURI.getPath
         val rel  = java.net.URLDecoder.decode(if raw.endsWith("/") then raw + "index.html" else raw, "UTF-8")
@@ -60,11 +58,12 @@ object LocalSiteServer:
                 case Some(f) => send(os.read.bytes(f), contentTypes.getOrElse(f.ext.toLowerCase, "application/octet-stream"))
                 case None    => ex.sendResponseHeaders(404, -1)
         catch
-          case scala.util.control.NonFatal(e) =>
+          case _: IOException => // the client went away (e.g. reload) - nothing to report
+          case NonFatal(e)    =>
             // headers not sent yet -> a 500; otherwise the client just gets a cut-off response
-            scala.util.Try(ex.sendResponseHeaders(500, -1))
+            Try(ex.sendResponseHeaders(500, -1))
             println(s"Preview: $rel failed - ${e.getMessage}")
-        finally ex.close()
+        finally ex.close() // also ends the response body
       )
       server.setExecutor(null)
       server.start()
@@ -77,6 +76,6 @@ object LocalSiteServer:
         println(s"\nPreview ready: ${running.url}  (Ctrl-C to stop)\n")
         Thread.currentThread().join()
       case None      =>
-        println(s"\nPort $port is in use - stop what runs there (lsof -nP -iTCP:$port) or use another port. Preview NOT started.\n")
+        println(s"\nPort $port is in use - stop what runs there (lsof -nP -iTCP:$port) or give the company another port (`docsPreviewPort` in its CompanyOrchescalaDevHelper). Preview NOT started.\n")
 
 end LocalSiteServer

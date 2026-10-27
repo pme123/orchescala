@@ -22,6 +22,7 @@ import os.Path
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /** the idea is use Orchescala to create Company's Process documentation.
   *
@@ -62,6 +63,7 @@ trait DocCreator extends DependencyCreator, Helpers:
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
     apiConfig.init
+    createCompanyFolders()
     createCatalog()
     DevStatisticsCreator(gitBasePath, apiConfig.basePath, apiConfig.companyName).create()
     createDynamicConf()
@@ -80,9 +82,20 @@ trait DocCreator extends DependencyCreator, Helpers:
         println(s"Spec catalog / APIs incomplete (non-fatal for preview): ${ex.getMessage}")
         siteDir
     .get
-    val folders = LocalSiteServer.folderHints(Seq("spec" -> docsSpecDir, "ops" -> docsOpsDir))
-    LocalSiteServer.serve(site, docsPreviewPort, folders)
+    LocalSiteServer.serve(site, docsPreviewPort, LocalSiteServer.folderHints(companyFolders))
   end previewLocally
+
+  private def companyFolders: Seq[(String, os.Path)] = Seq("spec" -> docsSpecDir, "ops" -> docsOpsDir)
+
+  /** Creates the company's orch-spec and orch-ops folders - first thing in `prepareDocs`, so a
+    * later failing step does not leave them out. Best-effort: a folder that cannot be created is
+    * printed, and the preview then names no folder for that app.
+    */
+  private def createCompanyFolders(): Unit =
+    companyFolders.foreach: (app, dir) =>
+      Try(os.makeDir.all(dir)) match
+        case Success(_)  => println(s"Folder for orch-$app: $dir")
+        case Failure(ex) => println(s"Folder for orch-$app not created (non-fatal): $dir - ${ex.getMessage}")
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released
     * versions, orch-spec, orch-ops) into `00-docs/site` - what the company gateway serves - and uploads it

@@ -114,13 +114,20 @@ class SiteAssemblerTest extends FunSuite:
       assert(!os.exists(site / "ops"), "extras must not be written into the site")
     finally running.stop()
 
-  test("folderHints - creates the folders; one that cannot be created is left out, not fatal"):
-    val base    = os.temp.dir(prefix = "company-folders")
-    val spec    = base / "00-docs" / "spec \"quoted\""
-    val blocker = base / "a-file"
-    os.write(blocker, "x")
-    val hints   = LocalSiteServer.folderHints(Seq("spec" -> spec, "ops" -> blocker / "ops"))
-    assert(os.isDir(spec), "spec folder not created")
+  test("LocalSiteServer without extras has no folder.json - the apps show no hint"):
+    val site    = os.temp.dir(prefix = "site-no-extras")
+    os.write(site / "spec" / "index.html", "<html></html>", createFolders = true)
+    val running = LocalSiteServer.start(site, 0).getOrElse(fail("could not start the server"))
+    try
+      val code = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${running.url}spec/folder.json").call().out.text()
+      assertEquals(code, "404")
+    finally running.stop()
+
+  test("folderHints - only existing folders; the path survives quotes and backslashes"):
+    val base  = os.temp.dir(prefix = "company-folders")
+    val spec  = base / "00-docs" / "spec \"quoted\" back\\slash"
+    os.makeDir.all(spec)
+    val hints = LocalSiteServer.folderHints(Seq("spec" -> spec, "ops" -> base / "00-docs" / "ops"))
     assertEquals(hints.keySet, Set("spec/folder.json"))
     val path = io.circe.parser.parse(hints("spec/folder.json")).flatMap(_.hcursor.get[String]("path"))
     assertEquals(path, Right(spec.toString))
