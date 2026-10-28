@@ -54,14 +54,16 @@ function titleOf(id: string, markdown: string): string {
 const isText = (line: string) => line.trim() !== '' && !/^\s*([#>|!<*-]|\d+\.)/.test(line);
 
 /** The first paragraph of text (with all its lines), cut at a word to 160 characters. */
-function descriptionOf(markdown: string): string {
+export function descriptionOf(markdown: string): string {
   const lines = proseLines(markdown);
   const start = lines.findIndex(l => isText(l) && plain(l).length > 30);
   if (start < 0) return '';
   const para: string[] = [];
   for (let i = start; i < lines.length && isText(lines[i]); i++) para.push(plain(lines[i]));
   const text = para.join(' ');
-  return text.length > 160 ? text.slice(0, text.lastIndexOf(' ', 157)) + ' …' : text;
+  if (text.length <= 160) return text;
+  const space = text.lastIndexOf(' ', 157);
+  return (space > 0 ? text.slice(0, space) : text.slice(0, 157)) + ' …';
 }
 
 /** Broken includes and navigation entries found while loading the pages - the build fails on them (see entry-server.tsx). */

@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {allDocs, docIdOf, docUrl, findDoc, loadProblems, resolvePath} from './docs';
+import {allDocs, descriptionOf, docIdOf, docUrl, findDoc, loadProblems, resolvePath} from './docs';
 
 describe('resolvePath', () => {
   it('resolves against the folder', () => {
@@ -54,5 +54,20 @@ describe('pages', () => {
       expect(doc.title, doc.id).not.toBe('');
       if (doc.id !== 'index') expect(doc.description, doc.id).not.toBe('');
     }
+  });
+});
+
+describe('descriptionOf', () => {
+  it('takes the whole first paragraph of text', () => {
+    expect(descriptionOf('# Title\n\n> [!NOTE]\n> a note that is long enough to count\n\nThe first paragraph of the page,\nwith a second line.\n\nMore.'))
+      .toBe('The first paragraph of the page, with a second line.');
+  });
+  it('cuts a long paragraph at a word', () => {
+    const text = descriptionOf(`${'word '.repeat(40)}end`);
+    expect(text.endsWith('word …')).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(160);
+  });
+  it('cuts a long paragraph without a space', () => {
+    expect(descriptionOf('x'.repeat(200))).toBe(`${'x'.repeat(157)} …`);
   });
 });
