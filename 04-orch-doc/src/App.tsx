@@ -25,7 +25,9 @@ export default function App() {
   const site = useSiteIndex();
   const docs = useCompanyDocs(company);
   const [navOpen, setNavOpen] = useState(false);
-  // each link starts at the top - one to an operation (`?op=`) is brought into view by the API page
+  // each link starts at the top - one to an operation (`?op=`) is brought into view by the API page.
+  // The API page's effect runs before this one (child effects run first), so this must not scroll
+  // to the top for an `op` link - it would undo the jump to the operation.
   useEffect(() => {
     setNavOpen(false);
     if (!(route.kind === 'api' && route.op)) window.scrollTo({ top: 0 });

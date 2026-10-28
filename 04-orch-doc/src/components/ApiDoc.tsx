@@ -672,9 +672,9 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
     const list = listRef.current;
     const item = list?.querySelector('[data-active="true"]');
     if (!list || !item) return;
-    const l = list.getBoundingClientRect(), i = item.getBoundingClientRect();
-    if (i.top < l.top) list.scrollTop -= l.top - i.top;
-    else if (i.bottom > l.bottom) list.scrollTop += i.bottom - l.bottom;
+    const listBox = list.getBoundingClientRect(), itemBox = item.getBoundingClientRect();
+    if (itemBox.top < listBox.top) list.scrollTop -= listBox.top - itemBox.top;
+    else if (itemBox.bottom > listBox.bottom) list.scrollTop += itemBox.bottom - listBox.bottom;
   }, [selected]);
   // a link to an operation (a click in the list or `?op=`): jump to the list and the details - they
   // are below the project text (README …), which can be long; without `op` the app starts at the top
