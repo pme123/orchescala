@@ -151,8 +151,8 @@ async function searchDomain(
   // catalog is as old as its last build (Admin → Katalog, prepareDocs),
   // otherwise the sync would only see a change to the domain after that.
   const folders = model?.projects ?? [];
-  // the project whose name is the longest prefix — `valiant` is not the project of
-  // `valiant-bpmn-…` when `valiant-bpmn` is listed too (folders of the same name all count)
+  // the project whose name is the longest prefix — `acme` is not the project of
+  // `acme-bpmn-…` when `acme-bpmn` is listed too (folders of the same name all count)
   const matching = folders.filter(p => processId.startsWith(`${p.name}-`));
   const longest = Math.max(0, ...matching.map(p => p.name.length));
   const own = matching.filter(p => p.name.length === longest);
@@ -182,7 +182,7 @@ const isScalar = (t: string) => (SCALA_TYPES as readonly string[]).includes(t);
 
 /**
  * Does the type belong to the project of the process package (same package root
- * up to `.domain`)? `valiant.addresschange.domain.x.v1` → `valiant.addresschange.domain`.
+ * up to `.domain`)? `acme.addresschange.domain.x.v1` → `acme.addresschange.domain`.
  */
 function inProject(t: DomainType, pkg: string): boolean {
   const stem = pkg.replace(/\.domain\..*$/, '.domain');
@@ -227,7 +227,7 @@ class Converter {
 
   /**
    * A type via the imports of its file: `LoadPoas.Out` with
-   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` (or a rename `… as X`) — first the
+   * `import acme.vollmacht.domain.loadPoas.v1.LoadPoas` (or a rename `… as X`) — first the
    * explicit ones, then those with `*`; a relative import (`schema.*`) also
    * from the package.
    */
@@ -683,14 +683,14 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     // A worker of the project is recognized by its topic — even if it does not
     // start with the process ID (worker of a neighbouring package). Only one of
     // this project: the catalog also holds the workers of other projects
-    // (`valiant-graviton-person.GetConsultant`) — those are services, not own workers.
+    // (`acme-graviton-person.GetConsultant`) — those are services, not own workers.
     const byTopic = step.kind === 'service' && step.topic && step.topic !== processId
       ? objects.find(o => objectKind(o) === 'customTask' && o.topicName === step.topic && inProject(o, pkg)) : undefined;
     // A signal describes the object also when the process **catches** it
     // (start event of an event subprocess, intermediate event)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
     // A decision in the package of the process (or a sub-package) belongs to it — even if
-    // its decisionRef does not start with the process ID (`valiant-bpmn-map-actions`)
+    // its decisionRef does not start with the process ID (`acme-bpmn-map-actions`)
     const ownDecision = step.kind === 'rule' && !!step.topic
       && objects.some(o => inProcessPkg(o) && objectKind(o) === 'decision' && o.key?.toLowerCase() === step.topic!.toLowerCase())
       ? 'decision' as const : null;

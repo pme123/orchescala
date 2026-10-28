@@ -58,7 +58,7 @@ object AppRoutesSpec extends ZIOSpecDefault:
     },
     test("only plain host names are accepted as project name") {
       assertTrue(
-        appRoutes.isValidProjectName("esprit-konto"),
+        appRoutes.isValidProjectName("acme-konto"),
         !appRoutes.isValidProjectName("attacker.example"),
         !appRoutes.isValidProjectName("host:8080"),
         !appRoutes.isValidProjectName("")
@@ -74,22 +74,22 @@ object AppRoutesSpec extends ZIOSpecDefault:
     },
     test("an escaped path that leaves the ui folder is 404") {
       for
-        dots  <- get("/app/esprit-konto/%2e%2e/OpenApi.yml")
-        slash <- get("/app/esprit-konto/a%2Fb.js")
+        dots  <- get("/app/acme-konto/%2e%2e/OpenApi.yml")
+        slash <- get("/app/acme-konto/a%2Fb.js")
       yield assertTrue(dots.status == Status.NotFound, slash.status == Status.NotFound)
     },
     test("GET /app/{projectName} redirects to the canonical path with slash") {
-      get("/app/esprit-konto").map: response =>
+      get("/app/acme-konto").map: response =>
         assertTrue(
           response.status == Status.Found,
-          response.rawHeader("Location").contains("/app/esprit-konto/")
+          response.rawHeader("Location").contains("/app/acme-konto/")
         )
     },
     test("the redirect keeps the query - e.g. code and state of an OIDC login") {
-      get("/app/esprit-konto?code=abc&state=xyz").map: response =>
+      get("/app/acme-konto?code=abc&state=xyz").map: response =>
         assertTrue(
           response.status == Status.Found,
-          response.rawHeader("Location").contains("/app/esprit-konto/?code=abc&state=xyz")
+          response.rawHeader("Location").contains("/app/acme-konto/?code=abc&state=xyz")
         )
     },
     test("an invalid project name is 404") {
@@ -143,7 +143,7 @@ object AppRoutesSpec extends ZIOSpecDefault:
         .whenRequestMatches(_.uri.path == List("ui", "index.html"))
         .thenRespond(workerAnswer(StatusCode.Ok, "<html>ok</html>", "Content-Type" -> "text/html"))
       for
-        response <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
+        response <- getVia(stubbed(stub), "/app/acme-konto/index.html")
         body     <- response.body.asString
       yield assertTrue(
         response.status == Status.Ok,
@@ -158,26 +158,26 @@ object AppRoutesSpec extends ZIOSpecDefault:
         .thenRespond(workerAnswer(StatusCode.NotModified, "", "ETag" -> "\"e1\""))
         .whenAnyRequest
         .thenRespond(workerAnswer(StatusCode.Ok, "full"))
-      getVia(stubbed(stub), "/app/esprit-konto/index.html", "If-None-Match" -> "\"e1\"").map:
+      getVia(stubbed(stub), "/app/acme-konto/index.html", "If-None-Match" -> "\"e1\"").map:
         response => assertTrue(response.status == Status.NotModified)
     },
     test("forward: a redirect of the worker app is not followed - 502") {
       val stub = AsyncHttpClientZioBackend.stub.whenAnyRequest
         .thenRespond(workerAnswer(StatusCode.Found, "", "Location" -> "http://elsewhere.example/"))
-      getVia(stubbed(stub), "/app/esprit-konto/index.html").map: response =>
+      getVia(stubbed(stub), "/app/acme-konto/index.html").map: response =>
         assertTrue(response.status == Status.BadGateway)
     },
     test("forward: an unreachable worker app is 502") {
       val stub = AsyncHttpClientZioBackend.stub.whenAnyRequest
         .thenRespondF(ZIO.fail(RuntimeException("worker app down")))
-      getVia(stubbed(stub), "/app/esprit-konto/index.html").map: response =>
+      getVia(stubbed(stub), "/app/acme-konto/index.html").map: response =>
         assertTrue(response.status == Status.BadGateway)
     },
     test("forward: error answers carry the security headers too") {
       val stub = AsyncHttpClientZioBackend.stub.whenAnyRequest
         .thenRespondF(ZIO.fail(RuntimeException("worker app down")))
       for
-        badGateway <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
+        badGateway <- getVia(stubbed(stub), "/app/acme-konto/index.html")
         notFound   <- get("/app/attacker.example/index.html")
       yield assertTrue(
         badGateway.rawHeader("X-Content-Type-Options").contains("nosniff"),
@@ -194,8 +194,8 @@ object AppRoutesSpec extends ZIOSpecDefault:
       val stub  = AsyncHttpClientZioBackend.stub.whenAnyRequest
         .thenRespond(workerAnswer(StatusCode.Ok, "12345"))
       for
-        tooBig <- getVia(stubbed(stub, small), "/app/esprit-konto/index.html")
-        fits   <- getVia(stubbed(stub), "/app/esprit-konto/index.html")
+        tooBig <- getVia(stubbed(stub, small), "/app/acme-konto/index.html")
+        fits   <- getVia(stubbed(stub), "/app/acme-konto/index.html")
       yield assertTrue(tooBig.status == Status.BadGateway, fits.status == Status.Ok)
     },
     test("uiMaxConcurrentForwards must be positive - else every UI request would wait for ever") {

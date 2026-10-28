@@ -14,7 +14,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       files.map(f => f.path.last -> f.insert),
       Seq("KundenkontaktDokumentieren.scala" -> true, "CreateContactNote.scala" -> false)
     )
-    assert(files(1).content.startsWith("package valiant.addresschange.domain.kundenkontaktDokumentieren.v1"))
+    assert(files(1).content.startsWith("package acme.addresschange.domain.kundenkontaktDokumentieren.v1"))
     assert(files(1).content.endsWith("end CreateContactNote\n"))
 
   test("parse drops the section headers"):
@@ -73,39 +73,39 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("workers only for the custom tasks of the process - not for user tasks, signals, messages"):
     val interactions = Seq(
-      ("PrepareOrderCard", "CustomTask", Some("valiant-product-orderCard-PrepareOrderCard")),
-      ("CreateAllPoa", "CustomTask", Some("valiant-product-orderCardV1-CreateAllPoaStatus90")),
+      ("PrepareOrderCard", "CustomTask", Some("acme-product-orderCard-PrepareOrderCard")),
+      ("CreateAllPoa", "CustomTask", Some("acme-product-orderCardV1-CreateAllPoaStatus90")),
       ("ApproveOrder", "UserTask", None),
       ("WaitForPreview", "SignalEvent", None),
       ("CardDelivered", "MessageEvent", None),
       // a worker of another project - exists there already
-      ("AdjustProcessVariables", "CustomTask", Some("valiant-addresschange-addressChangeV1-AdjustProcessVariables"))
+      ("AdjustProcessVariables", "CustomTask", Some("acme-addresschange-addressChangeV1-AdjustProcessVariables"))
     )
     assertEquals(
-      OrchSpecExport.workerNames(interactions, "valiant-product-orderCard"),
+      OrchSpecExport.workerNames(interactions, "acme-product-orderCard"),
       Seq("PrepareOrderCard", "CreateAllPoa")
     )
 
   test("a custom task of another project is foreign - neither domain object nor worker"):
     def task(topic: String) = s"object T extends CompanyBpmnCustomTaskDsl:\n  val topicName = \"$topic\"\n"
-    val processId = "valiant-product-orderCard"
-    assert(!OrchSpecExport.isForeign(task("valiant-product-orderCard-PrepareOrderCard"), processId))
-    assert(!OrchSpecExport.isForeign(task("valiant-product-orderCardV1-CreateAllPoaStatus90"), processId))
-    assert(OrchSpecExport.isForeign(task("valiant-addresschange-addressChangeV1-AdjustProcessVariables"), processId))
+    val processId = "acme-product-orderCard"
+    assert(!OrchSpecExport.isForeign(task("acme-product-orderCard-PrepareOrderCard"), processId))
+    assert(!OrchSpecExport.isForeign(task("acme-product-orderCardV1-CreateAllPoaStatus90"), processId))
+    assert(OrchSpecExport.isForeign(task("acme-addresschange-addressChangeV1-AdjustProcessVariables"), processId))
     // the others decides the export of Orch Spec (with the catalog) - and plain classes are always own
     assert(!OrchSpecExport.isForeign("object X extends CompanyBpmnUserTaskDsl:\n  val name = \"T\"\n", processId))
     assert(!OrchSpecExport.isForeign("case class Address(street: String)\n", processId))
 
   test("topicName of a worker object"):
-    val content = "object Check extends CompanyBpmnCustomTaskDsl:\n  val topicName     = \"valiant-product-orderCard-Check\"\n"
-    assertEquals(OrchSpecExport.topicName(content), Some("valiant-product-orderCard-Check"))
+    val content = "object Check extends CompanyBpmnCustomTaskDsl:\n  val topicName     = \"acme-product-orderCard-Check\"\n"
+    assertEquals(OrchSpecExport.topicName(content), Some("acme-product-orderCard-Check"))
     assertEquals(OrchSpecExport.topicName("object X extends CompanyBpmnUserTaskDsl:\n  val name = \"T\"\n"), None)
 
   test("processId takes the executable process"):
     val bpmn =
       """<bpmn:process id="other" isExecutable="false"></bpmn:process>
-        |<bpmn:process id="valiant-addresschange-kundenkontaktDokumentierenV1" name="x" isExecutable="true">""".stripMargin
-    assertEquals(OrchSpecExport.processId(bpmn), Some("valiant-addresschange-kundenkontaktDokumentierenV1"))
+        |<bpmn:process id="acme-addresschange-kundenkontaktDokumentierenV1" name="x" isExecutable="true">""".stripMargin
+    assertEquals(OrchSpecExport.processId(bpmn), Some("acme-addresschange-kundenkontaktDokumentierenV1"))
 
   test("withImport adds the import after the package"):
     assertEquals(
@@ -114,18 +114,18 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     )
 
   lazy val processObject = OrchSpecProcessObject(
-    "valiant.addresschange.domain.kundenkontaktDokumentieren.v1",
+    "acme.addresschange.domain.kundenkontaktDokumentieren.v1",
     "KundenkontaktDokumentieren",
-    "valiant-addresschange-kundenkontaktDokumentierenV1",
+    "acme-addresschange-kundenkontaktDokumentierenV1",
     files.head.content
   )
 
   test("process object - imports, name and examples"):
     val content = processObject.content
-    assert(content.startsWith("package valiant.addresschange.domain\npackage kundenkontaktDokumentieren.v1\n\nimport io.github.iltotore.iron.*\n"))
-    assert(content.contains("import valiant.graviton.domain.work.v1.PostWorkActivity\n"))
+    assert(content.startsWith("package acme.addresschange.domain\npackage kundenkontaktDokumentieren.v1\n\nimport io.github.iltotore.iron.*\n"))
+    assert(content.contains("import acme.graviton.domain.work.v1.PostWorkActivity\n"))
     assert(content.contains("object KundenkontaktDokumentieren extends CompanyBpmnProcessDsl:"))
-    assert(content.contains("""  val processName = "valiant-addresschange-kundenkontaktDokumentierenV1""""))
+    assert(content.contains("""  val processName = "acme-addresschange-kundenkontaktDokumentierenV1""""))
     assert(content.contains("    InitIn.exampleMinimal\n  )\nend KundenkontaktDokumentieren\n"))
     assert(!content.contains("// in object"))
     assert(processObject.hasInitIn)
@@ -396,7 +396,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(processObject.differences(implemented), Seq.empty)
     val changedIn   = implemented.replace("      shabNumber: Option[String],", "      shabNumber: Option[String],\n      newField: Int,")
     assertEquals(processObject.differences(changedIn), Seq("In"))
-    val noImport    = implemented.replace("import valiant.graviton.domain.work.v1.PostWorkActivity\n", "")
+    val noImport    = implemented.replace("import acme.graviton.domain.work.v1.PostWorkActivity\n", "")
     assertEquals(processObject.differences(noImport), Seq("imports"))
 
   test("object name - the exported one while its file exists, otherwise without the version"):
@@ -406,7 +406,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("names from the process id - like Orch Spec"):
     assertEquals(
-      OrchSpecNames("valiant-addresschange-kundenkontakt-dokumentieren", "valiant-addresschange"),
+      OrchSpecNames("acme-addresschange-kundenkontakt-dokumentieren", "acme-addresschange"),
       OrchSpecNames("kundenkontaktDokumentieren", 1, "KundenkontaktDokumentieren")
     )
     assertEquals(

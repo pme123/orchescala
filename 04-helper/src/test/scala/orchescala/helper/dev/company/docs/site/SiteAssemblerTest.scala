@@ -36,14 +36,14 @@ class SiteAssemblerTest extends FunSuite:
     os.write(out / "spec" / "assets" / "index-OLD.js", "old", createFolders = true)
     os.write(out / "ops" / "assets" / "index-OLD.js", "old", createFolders = true)
     os.write(out / "spec" / "catalog.generated.json", "{}")
-    os.write(out / "valiant" / "1.0" / "assets" / "classic.js", "keep", createFolders = true)
+    os.write(out / "acme" / "1.0" / "assets" / "classic.js", "keep", createFolders = true)
     SiteAssembler.clearAppAssets(out, Seq("index.html", "assets/index-NEW.js", "spec/index.html", "spec/assets/index-NEW.js",
       "ops/index.html", "ops/assets/index-NEW.js"))
     assert(!os.exists(out / "assets"), "old assets/ still there")
     assert(!os.exists(out / "spec" / "assets"), "old spec/assets/ still there")
     assert(!os.exists(out / "ops" / "assets"), "old ops/assets/ still there")
     assert(os.exists(out / "spec" / "catalog.generated.json"), "catalog removed")
-    assert(os.exists(out / "valiant" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
+    assert(os.exists(out / "acme" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
 
   test("writeProjectColors adds the colors to the catalog - keeps what is there, leaves out #fff and white"):
     val out = os.temp.dir(prefix = "spec-colors") / "spec" / "catalog.generated.json"

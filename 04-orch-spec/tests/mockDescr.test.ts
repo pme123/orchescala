@@ -23,12 +23,12 @@ test('service mock: the service response of its example - every ServiceTask has 
 test('a worker from the catalog over its topic: GetEventStatus, not a guessed EventStatus', async () => {
   const { indexTypes } = await import('../src/scala');
   const model = { services: [], domainTypes: [
-    { id: 'valiant.graviton.domain.GetEventStatus.Out', name: 'GetEventStatus.Out', pkg: 'valiant.graviton.domain', owner: 'GetEventStatus', topicName: 'valiant-graviton-eventStatus.get', kind: 'case', fields: [] },
+    { id: 'acme.graviton.domain.GetEventStatus.Out', name: 'GetEventStatus.Out', pkg: 'acme.graviton.domain', owner: 'GetEventStatus', topicName: 'acme-graviton-eventStatus.get', kind: 'case', fields: [] },
   ] } as unknown as Parameters<typeof indexTypes>[1];
-  const s = { ...spec('output'), steps: [{ id: 'GetPrintStatusCallActivity', name: 'Get Archived Status', kind: 'service', topic: 'valiant-graviton-eventStatus.get', mockKind: 'output' }] } as unknown as ProcessSpec;
+  const s = { ...spec('output'), steps: [{ id: 'GetPrintStatusCallActivity', name: 'Get Archived Status', kind: 'service', topic: 'acme-graviton-eventStatus.get', mockKind: 'output' }] } as unknown as ProcessSpec;
   const imports = new Set<string>();
   const out = renderInConfig(s, imports, indexTypes([], model));
   assert.match(out, /serviceOrProcessMockDescr\(GetEventStatus\.Out\.example\)/, out);
   assert.match(out, /Option\[GetEventStatus\.Out\]/, out);
-  assert.deepEqual([...imports], ['import valiant.graviton.domain.GetEventStatus']);
+  assert.deepEqual([...imports], ['import acme.graviton.domain.GetEventStatus']);
 });

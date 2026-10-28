@@ -42,9 +42,9 @@ class RepoCheckTest extends FunSuite:
 
   test("the company's artifacts carry the Scala suffix, a project's do not"):
     val company = RepoCheck.releaseArtifactUrls(
-      "https://repo", "valiant", Seq("valiant-orchescala-domain_3"), "1.2.3"
+      "https://repo", "acme", Seq("acme-orchescala-domain_3"), "1.2.3"
     )
-    assertEquals(company, Seq("https://repo/valiant/valiant-orchescala-domain_3/1.2.3/valiant-orchescala-domain_3-1.2.3.pom"))
+    assertEquals(company, Seq("https://repo/acme/acme-orchescala-domain_3/1.2.3/acme-orchescala-domain_3-1.2.3.pom"))
 
   test("wrong credentials, a redirect and an unreachable repository stop the release"):
     val refused  = intercept[IllegalStateException](RepoCheck.verifyUrlsFree("1.2.3", urls, _ => 401))

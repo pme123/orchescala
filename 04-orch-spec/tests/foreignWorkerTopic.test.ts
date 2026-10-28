@@ -1,5 +1,5 @@
 // A service whose topic belongs to a worker of another project
-// (`valiant-graviton-person.GetConsultant`) is no own worker of the process —
+// (`acme-graviton-person.GetConsultant`) is no own worker of the process —
 // even if the catalog knows that worker. A worker of a neighbouring package of
 // the same project still is.
 import assert from 'node:assert/strict';

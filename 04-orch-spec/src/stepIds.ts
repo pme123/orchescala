@@ -80,10 +80,10 @@ export function unnamed(step: Pick<Step, 'name' | 'id'>): boolean {
  * The name of a step from the selected service or process — the
  * identifier in words, without project, version and placeholders:
  *
- *   valiant-fil-is-accountAndPortfolioV3.GetAccountsAccountKey → Get Accounts Account Key
- *   valiant-vollmacht-getAccountsV2                            → Get Accounts
- *   valiant-documents-print-document                           → Print Document
- *   valiant-depot-updateContractsV1-UpdateContract             → Update Contract
+ *   acme-fil-is-accountAndPortfolioV3.GetAccountsAccountKey → Get Accounts Account Key
+ *   acme-vollmacht-getAccountsV2                            → Get Accounts
+ *   acme-documents-print-document                           → Print Document
+ *   acme-depot-updateContractsV1-UpdateContract             → Update Contract
  *
  * `prefixes`: the known `firma-projekt` (see knownPrefixes) — without them
  * the first two parts count as the project.
@@ -101,7 +101,7 @@ export function nameFromService(ref: string, prefixes: string[] = []): string {
     // a verb alone (`get`, `post`) says nothing — then with the service in front
     tail = /^[a-z]+$/.test(op) ? `${service.replace(/V\d+$/, '')} ${op}` : op;
   }
-  // the process is the project itself (`valiant-addresschange`)
+  // the process is the project itself (`acme-addresschange`)
   else if (prefixes.includes(ref)) tail = ref.slice(ref.lastIndexOf('-') + 1);
   else {
     const rest = p0 ? ref.slice(p0.length + 1) : ref.split('-').slice(2).join('-') || ref;
