@@ -28,6 +28,14 @@ export function pageHtml(template, page, markup) {
     .replace('<div id="root"></div>', () => `<div id="root">${markup}</div>`);
 }
 
+/** The 404 page: the app shows "not found" - not indexed and without the start page's canonical link. */
+export function notFoundHtml(template) {
+  return template.replace(
+    /<!-- seo:start -->[\s\S]*?<!-- seo:end -->/,
+    () => '<!-- seo:start -->\n    <title>Page not found | Orchescala</title>\n    <meta name="robots" content="noindex" />\n    <!-- seo:end -->',
+  );
+}
+
 /**
  * The page of an old Laika URL (/orchescala/specification.html): redirects to the page, keeping the
  * #anchor. The meta refresh (without the anchor) is only the fallback without JavaScript.

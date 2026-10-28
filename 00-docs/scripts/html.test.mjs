@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {pageHtml, redirectPage} from './html.mjs';
+import {notFoundHtml, pageHtml, redirectPage} from './html.mjs';
 
 const template = '<head><!-- seo:start --><title>x</title><!-- seo:end --></head><body><div id="root"></div></body>';
 const page = {url: '/orchescala/a/', title: 'A $& "B"', description: "costs $' and $$"};
@@ -21,5 +21,14 @@ describe('redirectPage', () => {
     expect(html).toContain('<noscript><meta http-equiv="refresh" content="0; url=/orchescala/a/" /></noscript>');
     expect(html).toContain('location.replace("/orchescala/a/" + location.hash)');
     expect(html).toContain('<link rel="canonical" href="https://pme123.github.io/orchescala/a/" />');
+  });
+});
+
+describe('notFoundHtml', () => {
+  it('is not indexed and has no canonical link', () => {
+    const html = notFoundHtml('<head><!-- seo:start --><link rel="canonical" href="x" /><!-- seo:end --></head>');
+    expect(html).toContain('<meta name="robots" content="noindex" />');
+    expect(html).toContain('<title>Page not found | Orchescala</title>');
+    expect(html).not.toContain('canonical');
   });
 });

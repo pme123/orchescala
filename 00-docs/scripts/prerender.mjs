@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {pageHtml, redirectPage} from './html.mjs';
+import {notFoundHtml, pageHtml, redirectPage} from './html.mjs';
 
 async function main() {
   const distDir = path.resolve('dist');
@@ -28,7 +28,7 @@ async function main() {
   }
 
   // unknown URLs - the app shows its "not found" page (or still finds an old URL it knows)
-  fs.writeFileSync(path.join(distDir, '404.html'), template);
+  fs.writeFileSync(path.join(distDir, '404.html'), notFoundHtml(template));
 
   for (const page of pages()) {
     const html = pageHtml(template, page, render(page.url));
@@ -38,7 +38,8 @@ async function main() {
     console.log(`prerendered ${page.url} -> dist/${page.outFile}`);
 
     // the old Laika URL (/orchescala/specification.html) - a real page (not a 404) that redirects,
-    // so links and search results to it keep working
+    // so links and search results to it keep working. Pages are written as <id>/index.html, so only a
+    // file of src/docs can be in the way.
     const legacyFile = page.outFile.replace(/\/index\.html$/, '.html');
     const legacyPath = path.join(distDir, legacyFile);
     if (legacyFile === page.outFile) continue;
