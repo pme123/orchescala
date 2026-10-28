@@ -42,8 +42,10 @@ async function main() {
     const legacyFile = page.outFile.replace(/\/index\.html$/, '.html');
     const legacyPath = path.join(distDir, legacyFile);
     if (legacyFile === page.outFile) continue;
-    if (fs.existsSync(legacyPath)) console.warn(`warning: no redirect for ${legacyFile} - a file with that name exists`);
-    else fs.writeFileSync(legacyPath, redirectPage(page));
+    if (fs.existsSync(legacyPath)) {
+      throw new Error(`dist/${legacyFile} exists - the old URL of ${page.url} cannot redirect there (rename the file or the page)`);
+    }
+    fs.writeFileSync(legacyPath, redirectPage(page));
   }
 
   // the markdown sources come along with the content folder (publicDir) - the pages replace them
