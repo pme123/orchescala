@@ -26,11 +26,22 @@ import {visit} from 'unist-util-visit';
 import {assetUrl, type Doc, docUrl, findDoc, resolvePath} from './docs';
 
 export type TocEntry = {id: string; text: string; level: number};
+/** A link to an anchor (`#id`) of a page - checked against the ids of that page (see entry-server.tsx). */
+export type AnchorLink = {href: string; doc: string; id: string};
+
 /**
  * `problems`: links and images that point nowhere - the build fails on them (see entry-server.tsx).
  * `warnings`: code blocks in a language without highlighting.
+ * `ids`: the anchors of the page (headings, raw HTML ids); `anchorLinks`: its links to anchors.
  */
-export type Rendered = {content: ReactNode; toc: TocEntry[]; problems: string[]; warnings: string[]};
+export type Rendered = {
+  content: ReactNode;
+  toc: TocEntry[];
+  problems: string[];
+  warnings: string[];
+  ids: string[];
+  anchorLinks: AnchorLink[];
+};
 
 const ALERTS: Record<string, string> = {
   NOTE: 'Note',
@@ -69,7 +80,7 @@ const rehypeAlerts = () => (tree: Root) => {
 const isExternal = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//');
 
 /** Links to other pages (`../x/y.md#anchor`) and files of src/docs get their site URLs. */
-const rehypeLinks = (options: {dir: string; problems: string[]}) => (tree: Root) => {
+const rehypeLinks = (options: {id: string; dir: string; problems: string[]; anchorLinks: AnchorLink[]}) => (tree: Root) => {
   visit(tree, 'element', (node: Element) => {
     if (node.tagName === 'img' && typeof node.properties.src === 'string') {
       const src = node.properties.src;
@@ -82,7 +93,10 @@ const rehypeLinks = (options: {dir: string; problems: string[]}) => (tree: Root)
     }
     if (node.tagName !== 'a' || typeof node.properties.href !== 'string') return;
     const href = node.properties.href;
-    if (href.startsWith('#')) return;
+    if (href.startsWith('#')) {
+      if (href.length > 1) options.anchorLinks.push({href, doc: options.id, id: decodeURIComponent(href.slice(1))});
+      return;
+    }
     if (isExternal(href)) {
       node.properties.target = '_blank';
       node.properties.rel = ['noopener', 'noreferrer'];
@@ -95,6 +109,7 @@ const rehypeLinks = (options: {dir: string; problems: string[]}) => (tree: Root)
     const docId = target.replace(/\.md$/, '');
     if (path.endsWith('.md')) {
       if (findDoc(docId)) {
+        if (hash) options.anchorLinks.push({href, doc: docId, id: decodeURIComponent(hash)});
         node.properties.href = docUrl(docId) + (hash ? `#${hash}` : '');
         node.properties.dataInternal = 'true';
       } else options.problems.push(`link ${href} - there is no such page`);
@@ -158,6 +173,7 @@ export function renderDoc(doc: Doc): Rendered {
   if (cached) return cached;
   const problems: string[] = [];
   const warnings: string[] = [];
+  const anchorLinks: AnchorLink[] = [];
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -165,12 +181,18 @@ export function renderDoc(doc: Doc): Rendered {
     .use(rehypeRaw)
     .use(rehypeSlug)
     .use(rehypeAlerts)
-    .use(rehypeLinks, {dir: doc.dir, problems})
+    .use(rehypeLinks, {id: doc.id, dir: doc.dir, problems, anchorLinks})
     .use(rehypeCodeHighlight, {warnings});
   const tree = processor.runSync(processor.parse(doc.markdown)) as Root;
   const toc = tocOf(tree);
+  const ids: string[] = [];
+  visit(tree, 'element', (node: Element) => {
+    for (const key of ['id', 'name'] as const) {
+      if (typeof node.properties[key] === 'string') ids.push(node.properties[key]);
+    }
+  });
   rehypeHeadingAnchors()(tree);
-  const rendered = {content: toJsxRuntime(tree, {Fragment, jsx, jsxs}), toc, problems, warnings};
+  const rendered = {content: toJsxRuntime(tree, {Fragment, jsx, jsxs}), toc, problems, warnings, ids, anchorLinks};
   cache.set(doc.id, rendered);
   return rendered;
 }

@@ -6,8 +6,8 @@ import {renderDoc} from './markdown';
 let n = 0;
 const render = (markdown: string, dir = '') => {
   const doc: Doc = {id: `test/page${n++}`, dir, title: '', description: '', markdown};
-  const {content, toc, problems, warnings} = renderDoc(doc);
-  return {html: renderToStaticMarkup(<>{content}</>), toc, problems, warnings};
+  const {content, toc, problems, warnings, ids, anchorLinks} = renderDoc(doc);
+  return {html: renderToStaticMarkup(<>{content}</>), toc, problems, warnings, ids, anchorLinks, id: doc.id};
 };
 
 describe('alerts', () => {
@@ -43,6 +43,17 @@ describe('links and images', () => {
       'link nope.md - there is no such page',
       'link nope.yml - there is no such file',
       'image images/nope.png - there is no such file',
+    ]);
+  });
+});
+
+describe('anchors', () => {
+  it('collects the ids of the page and its links to anchors', () => {
+    const {ids, anchorLinks, id} = render('## My Heading\n<a id="raw"></a>\n[a](#raw) [b](../specification.md#intro)', 'functionalityDsls');
+    expect(ids).toEqual(expect.arrayContaining(['my-heading', 'raw']));
+    expect(anchorLinks).toEqual([
+      {href: '#raw', doc: id, id: 'raw'},
+      {href: '../specification.md#intro', doc: 'specification', id: 'intro'},
     ]);
   });
 });
