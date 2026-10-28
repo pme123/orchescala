@@ -19,6 +19,7 @@ import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
 import { nowIsoWithTimezone, todayIso } from './util';
 import { DemoBackend, LocalBackend, StorageBackend } from './backend';
+import { readSpecFile } from './specFile';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, SharePointFolder } from './graph';
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
@@ -712,11 +713,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const loadSpec = useCallback(async (slug: string) => {
     const be = backendRef.current;
     if (!be) return null;
-    const read = await be.read(`${DIR}/${slug}.json`);
+    const read = await readSpecFile(be, `${DIR}/${slug}.json`);
     if (!read) return null;
-    let raw: ProcessSpec;
-    try { raw = JSON.parse(read.text) as ProcessSpec; }
-    catch { throw new Error(`${DIR}/${slug}.json ist unlesbar (kein gültiges JSON).`); }
+    const { raw } = read;
     const data = withoutRetiredFields(raw);
     const dropped = makeEntry(raw, data, { source: 'load', note: 'Ausgemusterte Felder entfernt (Offene Frage, Technische Notiz — dafür gibt es Kommentare; Quelle)' }, authorOf());
     return { data, version: read.version, audit: dropped ? [dropped] : [] };

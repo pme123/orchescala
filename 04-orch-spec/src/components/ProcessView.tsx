@@ -228,17 +228,27 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   }, []);
 
   // Not there or not readable: said so instead of «Lade Spezifikation …» forever (e.g. a link
-  // from Teams into another folder). Read again when the folder changes after opening -
-  // the folder from a link is often connected only after the sign-in.
+  // from Teams into another folder). Read again when another folder is connected after opening -
+  // the folder from a link is often connected only after the sign-in. Keyed by the folder, not
+  // the storage object: reconnecting the same folder does not read again over local edits.
   const [loadIssue, setLoadIssue] = useState<{ missing: true } | { error: string } | null>(null);
   const [loadSeq, setLoadSeq] = useState(0);
+  const folderKey = storage ? `${storage.kind}|${storage.name}|${storage.webUrl ?? ''}` : null;
   useEffect(() => {
-    if (!storage) return;
+    if (!folderKey) return; // without a folder the app shows the start card, not this view
     let alive = true;
+    // nothing of the previous folder stays: a pending save would go into the new folder
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = null;
+    latest.current = null;
+    auditBase.current = null;
+    auditQueue.current = [];
+    setSpec(null); setVersion(null); setXml(null); setShowDiagram(false);
     setLoadIssue(null);
     loadSpec(slug).then(r => {
       if (!alive) return;
-      if (!r) { setSpec(null); setLoadIssue({ missing: true }); return; }
+      if (!r) { setLoadIssue({ missing: true }); return; }
       setSpec(r.data);
       setVersion(r.version);
       auditBase.current = r.data;
@@ -253,9 +263,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       console.error('[orch-spec] loadSpec:', e);
       if (alive) setLoadIssue({ error: e instanceof Error ? e.message : String(e) });
     });
-    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } });
+    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } },
+      e => console.error('[orch-spec] loadBpmn:', e));
     return () => { alive = false; };
-  }, [slug, storage, loadSeq, loadSpec, loadBpmn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs and setters only; the folder by its key
+  }, [slug, folderKey, loadSeq, loadSpec, loadBpmn]);
 
   // Bare type names from an import without a catalog: as soon as the catalog
   // knows them, they become references — this is saved with the next
