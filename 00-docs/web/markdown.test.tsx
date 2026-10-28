@@ -22,6 +22,11 @@ describe('alerts', () => {
     expect(html).toContain('callout-warning');
     expect(html).toContain('<p>Be careful.</p>');
   });
+  it('turns a bare [!NOTE] without text into a callout with just its title', () => {
+    const {html} = render('> [!NOTE]');
+    expect(html).toContain('<p class="callout-title">Note</p>');
+    expect(html).not.toContain('[!NOTE]');
+  });
   it('leaves a plain quote and an unknown kind alone', () => {
     expect(render('> Just a quote.').html).toContain('<blockquote>');
     expect(render('> [!FOO] x').html).toContain('<blockquote>');

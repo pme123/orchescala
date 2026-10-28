@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {notFoundHtml, pageHtml, redirectPage} from './html.mjs';
+import {escape, notFoundHtml, pageHtml, redirectPage} from './html.mjs';
 
 const template = '<head><!-- seo:start --><title>x</title><!-- seo:end --></head><body><div id="root"></div></body>';
 const page = {url: '/orchescala/a/', title: 'A $& "B"', description: "costs $' and $$"};
@@ -10,7 +10,7 @@ describe('pageHtml', () => {
     const html = pageHtml(template, page, markup);
     expect(html).toContain(`<div id="root">${markup}</div>`);
     expect(html).toContain('<title>A $&amp; &quot;B&quot;</title>');
-    expect(html).toContain('<meta name="description" content="costs $\' and $$" />');
+    expect(html).toContain('<meta name="description" content="costs $&#39; and $$" />');
     expect(html).toContain('<link rel="canonical" href="https://pme123.github.io/orchescala/a/" />');
   });
 });
@@ -30,5 +30,11 @@ describe('notFoundHtml', () => {
     expect(html).toContain('<meta name="robots" content="noindex" />');
     expect(html).toContain('<title>Page not found | Orchescala</title>');
     expect(html).not.toContain('canonical');
+  });
+});
+
+describe('escape', () => {
+  it('escapes all five HTML characters', () => {
+    expect(escape(`<a href="x" title='y'>&</a>`)).toBe('&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;');
   });
 });

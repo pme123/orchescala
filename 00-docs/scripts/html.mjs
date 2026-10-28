@@ -2,8 +2,9 @@
 
 export const SITE = 'https://pme123.github.io';
 
-// for double-quoted attribute values and text - not for single-quoted attributes or inside <script>
-export const escape = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+// for attribute values and text - not inside <script>
+export const escape = s =>
+  s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function buildHead(page) {
   const url = `${SITE}${page.url}`;
