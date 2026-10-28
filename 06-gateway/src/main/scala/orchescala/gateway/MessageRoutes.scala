@@ -32,18 +32,38 @@ case class MessageRoutes(
       processInstanceId: Option[String],
       variables: Option[io.circe.JsonObject]
   ): IO[ServiceRequestError, orchescala.engine.domain.MessageCorrelationResult] =
-    // Set the bearer token in AuthContext so it can be used by the engine services
-    AuthContext.withBearerToken(validatedToken):
-      messageService
-        .sendMessage(
-          name = messageName,
-          tenantId = tenantId,
-          timeToLiveInSec = timeToLiveInSec,
-          businessKey = businessKey,
-          processInstanceId = processInstanceId,
-          variables = variables
-        )
-        .mapError(ServiceRequestError.apply)
+    actorIdentity(validatedToken, processInstanceId, variables).flatMap: identityCorrelation =>
+      // Set the bearer token in AuthContext so it can be used by the engine services
+      AuthContext.withBearerToken(validatedToken):
+        messageService
+          .sendMessage(
+            name = messageName,
+            tenantId = tenantId,
+            timeToLiveInSec = timeToLiveInSec,
+            businessKey = businessKey,
+            processInstanceId = processInstanceId,
+            variables = variables,
+            identityCorrelation = identityCorrelation
+          )
+          .mapError(ServiceRequestError.apply)
   end send
+
+  /** The sender's identity - only for a message to a named process instance (the engine signs it
+    * for that instance, see `withActorIdentityOfMessage`). A token without identity claims sends
+    * the message as before, just without it.
+    */
+  private def actorIdentity(
+      validatedToken: String,
+      processInstanceId: Option[String],
+      variables: Option[io.circe.JsonObject]
+  ): UIO[Option[orchescala.domain.IdentityCorrelation]] =
+    if processInstanceId.isEmpty then ZIO.none
+    else
+      config
+        .extractCorrelation(validatedToken, variables.getOrElse(io.circe.JsonObject.empty))
+        .map(Some(_))
+        .catchAll: err =>
+          ZIO.logWarning(s"Message without `_identityCorrelationOfActor`: ${err.errorMsg}").as(None)
+  end actorIdentity
 
 end MessageRoutes

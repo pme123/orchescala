@@ -64,7 +64,8 @@ object PublicAccessSpec extends ZIOSpecDefault:
         timeToLiveInSec: Option[Int],
         businessKey: Option[String],
         processInstanceId: Option[String],
-        variables: Option[JsonObject]
+        variables: Option[JsonObject],
+        identityCorrelation: Option[orchescala.domain.IdentityCorrelation]
     ): IO[EngineError, MessageCorrelationResult] =
       AuthContext.getBearerToken.flatMap(token => got.set(Some(token -> variables))) *>
         answer.as(MessageCorrelationResult.ProcessInstance("pi-1", "pi-1", EngineType.C7))

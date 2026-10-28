@@ -283,6 +283,42 @@ and dropped when the engine rejects it (401 - at most every 10 seconds; a 403 ca
 rule and keeps it); after a failed login, public calls fail at once
 for a few seconds.
 
+### Identity of the process and of the actor
+
+The gateway builds an `IdentityCorrelation` from the token (`preferred_username`, `email` and the
+value of `impersonateProcessKey` from the body) and the engine signs it for the process instance it
+goes into (HMAC with `ORCHESCALA_IDENTITY_SIGNING_KEY`). Workers verify the signature of
+`_identityCorrelation` and act with that identity.
+
+| Call | `_identityCorrelation` | `_identityCorrelationOfActor` |
+|------|------------------------|-------------------------------|
+| Start a process (also by message) | the caller, signed | - |
+| Complete a user task | unchanged | the caller, signed |
+| Send a message with `processInstanceId` | unchanged | the caller, signed |
+| Send a message with only a `businessKey` (or C8 with `timeToLiveInSec` and no `processInstanceId`) | unchanged | - (the instance and with it the signature is known only after the correlation) |
+
+Whether the process takes over the actor's identity is up to the BPMN, e.g. with output mappings on
+an empty intermediate event right after the user task or the message receipt:
+
+- take over: `_identityCorrelationBefore = _identityCorrelation`, then
+  `_identityCorrelation = _identityCorrelationOfActor`
+- reset: `_identityCorrelation = _identityCorrelationBefore`
+
+The signature binds the identity to the process instance, not to the variable name - after the
+copy, workers verify it as before. A caller cannot set `_identityCorrelation`,
+`_identityCorrelationPending` or `_identityCorrelationOfActor` - the engine removes them from the
+variables it gets.
+
+Without a signing key the engine logs a warning and passes both identities unsigned - also after a
+take-over. A worker with `identityVerification = true` and a signing key rejects an unsigned
+`_identityCorrelation` (`BadSignatureError`), so set `ORCHESCALA_IDENTITY_SIGNING_KEY` for the
+engine (gateway) and the workers alike.
+
+**Deprecated (C7):** a user task with the form variable `doOverrideImpersonation = true` still
+overwrites `_identityCorrelation` with the actor (with the `impersonateProcessKey` value of the
+task's form variables), for processes with the old `impersonateUserId` scripts. Without the flag -
+until 0.8.3 a missing flag meant overwrite - the process keeps its identity.
+
 ## Integration with Existing Code
 
 The HTTP API integrates seamlessly with the existing Gateway infrastructure:

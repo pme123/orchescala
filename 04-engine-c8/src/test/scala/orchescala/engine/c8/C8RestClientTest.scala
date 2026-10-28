@@ -295,6 +295,77 @@ object C8RestClientTest extends ZIOSpecDefault:
           !tenant.contains("zeebe:subscription")
         )
       },
+      test("complete user task: the signed actor as _identityCorrelationOfActor - _identityCorrelation untouched") {
+        val cluster = StubCluster: request =>
+          request.uri.path.mkString("/") match
+            case "v2/user-tasks/123" => 200 -> """{"userTaskKey":"123","processInstanceKey":"4711"}"""
+            case _                   => 204 -> ""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig =
+          DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
+        val forged = io.circe.JsonObject(
+          "approved"                    -> Json.True,
+          "_identityCorrelationOfActor" -> Json.obj("username" -> Json.fromString("mallory"))
+        )
+        for _ <- C8UserTaskService().complete("123", forged, Some(orchescala.domain.IdentityCorrelation("bob")))
+        yield
+          val variables = bodyJson(cluster.all.last).hcursor.downField("variables")
+          val signed    = variables.get[orchescala.domain.IdentityCorrelation]("_identityCorrelationOfActor").toOption
+          assertTrue(
+            cluster.paths == Seq("v2/user-tasks/123", "v2/user-tasks/123/completion"),
+            variables.get[Boolean]("approved").contains(true),
+            signed.map(_.username).contains("bob"),
+            signed.exists(c =>
+              orchescala.domain.IdentityCorrelationSigner.verify(c, "4711", c.signature.get, "test-signing-key")
+            ),
+            variables.downField("_identityCorrelation").failed
+          )
+      },
+      test("complete user task without identity: no identity variables - forged ones removed") {
+        val cluster = StubCluster: request =>
+          request.uri.path.mkString("/") match
+            case "v2/user-tasks/123" => 200 -> """{"userTaskKey":"123","processInstanceKey":"4711"}"""
+            case _                   => 204 -> ""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig =
+          DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
+        val forged = io.circe.JsonObject(
+          "approved"                    -> Json.True,
+          "_identityCorrelationOfActor" -> Json.obj("username" -> Json.fromString("mallory")),
+          "_identityCorrelation"        -> Json.obj("username" -> Json.fromString("mallory"))
+        )
+        for _ <- C8UserTaskService().complete("123", forged, None)
+        yield
+          val variables = bodyJson(cluster.all.last).hcursor.downField("variables")
+          assertTrue(
+            variables.get[Boolean]("approved").contains(true),
+            variables.downField("_identityCorrelationOfActor").failed,
+            variables.downField("_identityCorrelation").failed
+          )
+      },
+      test("send message: the signed sender only with a processInstanceId") {
+        val cluster = StubCluster(_ => 200 -> """{"messageKey":"9","processInstanceKey":"4711"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig =
+          DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
+        val service = C8MessageService()
+        val sender  = Some(orchescala.domain.IdentityCorrelation("bob"))
+        for
+          _ <- service.sendMessage("reset", processInstanceId = Some("4711"), identityCorrelation = sender)
+          _ <- service.sendMessage("reset", businessKey = Some("bk-1"), identityCorrelation = sender)
+          _ <- service.sendMessage("reset", processInstanceId = Some("4711"))
+        yield
+          val actors = cluster.jsonBodies.map(
+            _.hcursor.downField("variables")
+              .get[orchescala.domain.IdentityCorrelation]("_identityCorrelationOfActor").toOption
+          )
+          assertTrue(
+            actors.head.exists(c =>
+              orchescala.domain.IdentityCorrelationSigner.verify(c, "4711", c.signature.get, "test-signing-key")
+            ),
+            actors.tail == Seq(None, None)
+          )
+      },
       test("a caller supplied _identityCorrelation is removed before the process starts") {
         val cluster = StubCluster(_ => 200 -> """{"processInstanceKey":"1"}""")
         given C8RestClient = cluster.client()

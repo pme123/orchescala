@@ -21,6 +21,9 @@ trait MessageService extends EngineService:
       timeToLiveInSec: Option[Int] = None,
       businessKey: Option[String] = None,
       processInstanceId: Option[String] = None,
-      variables: Option[JsonObject] = None
+      variables: Option[JsonObject] = None,
+      // the identity of the person who sends the message (the gateway sets it from the token) - goes
+      // signed into the process as `_identityCorrelationOfActor`, only with a processInstanceId
+      identityCorrelation: Option[IdentityCorrelation] = None
   ): IO[EngineError, MessageCorrelationResult]
 end MessageService

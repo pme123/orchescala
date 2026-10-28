@@ -249,7 +249,8 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
         InputParams._identityCorrelation,
         """Identity correlation for binding user identity to the process instance using HMAC-SHA256 signatures.
           |This prevents replay attacks and tampering by cryptographically binding the user identity to a specific process instance.
-          |The correlation is automatically signed with the process instance ID when starting a process or completing a user task.
+          |The correlation is automatically signed with the process instance ID when starting a process.
+          |Completing a user task or sending a message does not change it - see `_identityCorrelationOfActor`.
           |Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY` or in `EngineConfig`.""".stripMargin,
         """val identity = IdentityCorrelation(
           |  username = "alice@example.com",
@@ -265,6 +266,24 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
           |  "issuedAt": 1706371200000,
           |  "processInstanceId": "12345",
           |  "signature": "abc123..."
+          |},"""
+      ) +
+      createGeneralVariable(
+        InputParams._identityCorrelationOfActor,
+        """Set by the engine only: the signed identity of the person who completed a user task or sent a message
+          |(only with a `processInstanceId` - the signature needs the process instance).
+          |`_identityCorrelation` stays as set at the start - the BPMN decides whether the process takes over the actor's identity.
+          |The signature is valid for `_identityCorrelation` as well, so a worker can verify it after the copy.""".stripMargin,
+        """// in the BPMN, e.g. output mappings of an empty intermediate event right after the user task:
+          |//   _identityCorrelationBefore = _identityCorrelation
+          |//   _identityCorrelation       = _identityCorrelationOfActor
+          |// and to reset:
+          |//   _identityCorrelation       = _identityCorrelationBefore""".stripMargin,
+        """"_identityCorrelationOfActor": {
+          |  "username": "bob@example.com",
+          |  "issuedAt": 1706371200000,
+          |  "processInstanceId": "12345",
+          |  "signature": "def456..."
           |},"""
       ) +
       """</p>

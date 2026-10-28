@@ -38,6 +38,10 @@ enum InputParams:
   // set by the engine only: the process was started with an identity, its signed correlation
   // follows right after the start (it needs the process instance id) - a worker waits for it
   case _identityCorrelationPending
+  // set by the engine only: the signed identity of the person who completed the user task or sent
+  // the message (with a processInstanceId) - the BPMN decides whether the process takes it over
+  // (`_identityCorrelation = _identityCorrelationOfActor`)
+  case _identityCorrelationOfActor
   // idempotency
   case _idempotentId
   @deprecated("Use `identityCorrelation`") case impersonateUserId
