@@ -19,6 +19,7 @@ import { getHandle, putHandle } from './handles.ts';
 import { DEFAULT_MODEL } from './defaultModel';
 import { nowIsoWithTimezone, todayIso } from './util';
 import { DemoBackend, LocalBackend, StorageBackend } from './backend';
+import { readSpecFile } from './specFile';
 import { GRAPH_SCOPES, GraphBackend, resolveFolderLink, SharePointFolder } from './graph';
 import { PENDING_FOLDER_KEY, useAuth } from './auth';
 import { readCatalogFile, type CatalogFile } from './catalogImport';
@@ -113,9 +114,10 @@ interface StoreCtx {
   /** the list is currently being (re)read */
   specsLoading: boolean;
   refreshSpecs: () => Promise<void>;
-  /** `audit`: what was already changed on load (retired fields) — goes into the log with the next save */
+  /** `audit`: what was already changed on load (retired fields) — goes into the log with the next save.
+   *  null: not in the folder (or no folder); a read error rejects */
   loadSpec: (slug: string) => Promise<{ data: ProcessSpec; version: string; audit: AuditEntry[] } | null>;
-  /** the BPMN for the specification — `processes/<slug>.bpmn` */
+  /** the BPMN for the specification — `processes/<slug>.bpmn`. null: no diagram yet; a read error rejects */
   loadBpmn: (slug: string) => Promise<string | null>;
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** the table of a DMN decision — `processes/<slug>/<decisionId>.dmn` */
@@ -706,32 +708,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [auth.status, activate, activateSharePoint, connectPendingFolder]);
 
   // ── Specifications ────────────────────────────────────────────────────────
+  // null: there is no such specification in the folder; a read or parse error is thrown -
+  // the view says which one it was instead of waiting forever
   const loadSpec = useCallback(async (slug: string) => {
     const be = backendRef.current;
     if (!be) return null;
-    try {
-      const read = await be.read(`${DIR}/${slug}.json`);
-      if (!read) return null;
-      const raw = JSON.parse(read.text) as ProcessSpec;
-      const data = withoutRetiredFields(raw);
-      const dropped = makeEntry(raw, data, { source: 'load', note: 'Ausgemusterte Felder entfernt (Offene Frage, Technische Notiz — dafür gibt es Kommentare; Quelle)' }, authorOf());
-      return { data, version: read.version, audit: dropped ? [dropped] : [] };
-    } catch {
-      return null;
-    }
+    const read = await readSpecFile(be, `${DIR}/${slug}.json`);
+    if (!read) return null;
+    const { raw } = read;
+    const data = withoutRetiredFields(raw);
+    const dropped = makeEntry(raw, data, { source: 'load', note: 'Ausgemusterte Felder entfernt (Offene Frage, Technische Notiz — dafür gibt es Kommentare; Quelle)' }, authorOf());
+    return { data, version: read.version, audit: dropped ? [dropped] : [] };
   }, []);
 
   // The BPMN lives next to the specification in the same folder. That way it belongs
   // to the app and can be edited here — instead of choosing it anew every time.
+  // null: no diagram yet; a read error rejects - the view says so instead of just showing none
   const loadBpmn = useCallback(async (slug: string) => {
     const be = backendRef.current;
     if (!be) return null;
-    try {
-      const read = await be.read(`${DIR}/${slug}.bpmn`);
-      return read?.text ?? null;
-    } catch {
-      return null;
-    }
+    const read = await be.read(`${DIR}/${slug}.bpmn`);
+    return read?.text ?? null;
   }, []);
 
   const saveBpmn = useCallback(async (slug: string, xml: string) => {

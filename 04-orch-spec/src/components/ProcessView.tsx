@@ -227,24 +227,53 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     return () => mq.removeEventListener('change', h);
   }, []);
 
+  // Not there or not readable: said so instead of «Lade Spezifikation …» forever (e.g. a link
+  // from Teams into another folder). Read again when another folder is connected after opening -
+  // the folder from a link is often connected only after the sign-in. Keyed by the folder, not
+  // the storage object: reconnecting the same folder does not read again over local edits.
+  const [loadIssue, setLoadIssue] = useState<{ missing: true } | { error: string } | null>(null);
+  const [loadSeq, setLoadSeq] = useState(0);
+  const folderKey = storage ? `${storage.kind}|${storage.name}|${storage.webUrl ?? ''}` : null;
   useEffect(() => {
+    if (!folderKey) return; // without a folder the app shows the start card, not this view
     let alive = true;
+    // nothing of the previous folder stays: a pending save would go into the new folder
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = null;
+    latest.current = null;
+    auditBase.current = null;
+    auditQueue.current = [];
+    setSpec(null); setVersion(null); setXml(null); setShowDiagram(false);
+    setLoadIssue(null); setNotice(null);
     loadSpec(slug).then(r => {
-      if (!alive || !r) return;
-      setSpec(r.data);
-      setVersion(r.version);
+      if (!alive) return;
+      if (!r) { setLoadIssue({ missing: true }); return; }
+      // Subprocesses and error paths collapsed at first: overview first
+      // the pattern blocks too — their wiring is only shown when needed.
+      // Worked out before any state is set: if it throws, the catch below shows it.
+      const start = new Set<string>(foldIds(r.data.steps));
+      for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       auditBase.current = r.data;
       latest.current = r.data;
       auditQueue.current = [...r.audit];
-      // Subprocesses and error paths collapsed at first: overview first
-      // the pattern blocks too — their wiring is only shown when needed
-      const start = new Set<string>(foldIds(r.data.steps));
-      for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       setCollapsed(start);
+      setVersion(r.version);
+      setSpec(r.data);
+    }).catch(e => {
+      console.error('[orch-spec] loadSpec:', e);
+      if (!alive) return;
+      latest.current = null; auditBase.current = null;
+      setSpec(null);
+      setLoadIssue({ error: e instanceof Error ? e.message : String(e) });
     });
-    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } });
+    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } }, e => {
+      console.error('[orch-spec] loadBpmn:', e);
+      if (alive) setNotice({ tone: 'warn', message: `Das Diagramm konnte nicht geladen werden: ${e instanceof Error ? e.message : String(e)} Seite neu laden, um es nochmals zu versuchen.` });
+    });
     return () => { alive = false; };
-  }, [slug, loadSpec, loadBpmn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs and setters only; the folder by its key
+  }, [slug, folderKey, loadSeq, loadSpec, loadBpmn]);
 
   // Bare type names from an import without a catalog: as soon as the catalog
   // knows them, they become references — this is saved with the next
@@ -968,6 +997,17 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     setSync({ raw: await file.text(), from: file.name });
   };
 
+  if (!spec && loadIssue) return (
+    <div className="max-w-5xl mx-auto px-6 py-6">
+      <button onClick={onBack} className={`text-[11px] ${c.muted2}`}>‹ Prozesse</button>
+      <p className={`mt-4 text-xs ${c.muted}`}>
+        {'missing' in loadIssue
+          ? <>Den Prozess «{slug}» gibt es im Ordner «{storage?.name ?? '–'}» nicht (mehr) – vielleicht zeigt der Link auf einen anderen Ordner, oder der Prozess wurde umbenannt oder gelöscht.</>
+          : <>Der Prozess «{slug}» konnte nicht geladen werden: {loadIssue.error}</>}
+      </p>
+      <button onClick={() => setLoadSeq(n => n + 1)} className={`mt-3 text-[11px] underline ${c.muted2}`}>Nochmals laden</button>
+    </div>
+  );
   if (!spec) return <div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Lade Spezifikation …</div>;
 
   const selectedStep = selected ? shownById.get(selected) ?? null : null;
