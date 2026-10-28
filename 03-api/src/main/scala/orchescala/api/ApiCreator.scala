@@ -250,7 +250,7 @@ trait ApiCreator extends PostmanApiCreator, TapirApiCreator:
         """Identity correlation for binding user identity to the process instance using HMAC-SHA256 signatures.
           |This prevents replay attacks and tampering by cryptographically binding the user identity to a specific process instance.
           |The correlation is automatically signed with the process instance ID when starting a process.
-Completing a user task or sending a message does not change it - see `_identityCorrelationOfActor`.
+          |Completing a user task or sending a message does not change it - see `_identityCorrelationOfActor`.
           |Configure the signing key via environment variable `ORCHESCALA_IDENTITY_SIGNING_KEY` or in `EngineConfig`.""".stripMargin,
         """val identity = IdentityCorrelation(
           |  username = "alice@example.com",
