@@ -263,8 +263,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       console.error('[orch-spec] loadSpec:', e);
       if (alive) setLoadIssue({ error: e instanceof Error ? e.message : String(e) });
     });
-    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } },
-      e => console.error('[orch-spec] loadBpmn:', e));
+    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } }, e => {
+      console.error('[orch-spec] loadBpmn:', e);
+      if (alive) setNotice({ tone: 'warn', message: `Das Diagramm konnte nicht geladen werden: ${e instanceof Error ? e.message : String(e)} Seite neu laden, um es nochmals zu versuchen.` });
+    });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs and setters only; the folder by its key
   }, [slug, folderKey, loadSeq, loadSpec, loadBpmn]);

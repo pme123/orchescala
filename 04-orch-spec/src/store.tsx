@@ -118,6 +118,7 @@ interface StoreCtx {
    *  null: not in the folder (or no folder); a read error rejects */
   loadSpec: (slug: string) => Promise<{ data: ProcessSpec; version: string; audit: AuditEntry[] } | null>;
   /** the BPMN for the specification — `processes/<slug>.bpmn` */
+  /** null: no diagram yet; a read error rejects */
   loadBpmn: (slug: string) => Promise<string | null>;
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** the table of a DMN decision — `processes/<slug>/<decisionId>.dmn` */
@@ -723,15 +724,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // The BPMN lives next to the specification in the same folder. That way it belongs
   // to the app and can be edited here — instead of choosing it anew every time.
+  // null: no diagram yet; a read error rejects - the view says so instead of just showing none
   const loadBpmn = useCallback(async (slug: string) => {
     const be = backendRef.current;
     if (!be) return null;
-    try {
-      const read = await be.read(`${DIR}/${slug}.bpmn`);
-      return read?.text ?? null;
-    } catch {
-      return null;
-    }
+    const read = await be.read(`${DIR}/${slug}.bpmn`);
+    return read?.text ?? null;
   }, []);
 
   const saveBpmn = useCallback(async (slug: string, xml: string) => {
