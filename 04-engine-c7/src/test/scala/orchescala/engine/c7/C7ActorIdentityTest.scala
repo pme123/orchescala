@@ -82,13 +82,25 @@ object C7ActorIdentityTest extends ZIOSpecDefault:
     c.processInstanceId.contains(pid) &&
       IdentityCorrelationSigner.verify(c, pid, c.signature.get, signingKey)
 
-  private def complete(formVariables: String, in: JsonObject = JsonObject.empty) =
+  private def complete(
+      formVariables: String,
+      in: JsonObject = JsonObject.empty,
+      identity: Option[IdentityCorrelation] = Some(actor)
+  ) =
+    completeWithRequests(formVariables, in, identity).map(_._1)
+
+  /** The variables of the completion and all requests to the engine. */
+  private def completeWithRequests(
+      formVariables: String,
+      in: JsonObject,
+      identity: Option[IdentityCorrelation]
+  ) =
     for
       (baseUrl, requests) <- engine(formVariables)
       given IO[EngineError, ApiClient] = apiClient(baseUrl)
       given EngineConfig               = DefaultEngineConfig(identitySigningKey = Some(signingKey))
-      _                   <- C7UserTaskService().complete("t-1", in, Some(actor))
-    yield variablesOf(requests, "/complete", "variables")
+      _                   <- C7UserTaskService().complete("t-1", in, identity)
+    yield (variablesOf(requests, "/complete", "variables"), requests.asScala.map(_._1).toSeq)
 
   def spec = suite("C7 identity of the actor")(
     test("completing a user task adds the signed actor - _identityCorrelation untouched") {
@@ -110,6 +122,24 @@ object C7ActorIdentityTest extends ZIOSpecDefault:
       yield assertTrue(
         correlationIn(variables, "_identityCorrelationOfActor").map(_.username).contains("bob"),
         variables.downField("_identityCorrelation").failed
+      )
+    },
+    test("completing without identity: no identity variables, forged ones removed, no form lookup") {
+      val forged = JsonObject(
+        "approved"                    -> Json.True,
+        "_identityCorrelationOfActor" -> Json.obj("username" -> Json.fromString("mallory")),
+        "_identityCorrelation"        -> Json.obj("username" -> Json.fromString("mallory"))
+      )
+      for (variables, paths) <- completeWithRequests(
+                                  """{"doOverrideImpersonation":{"value":true,"type":"Boolean"}}""",
+                                  forged,
+                                  None
+                                )
+      yield assertTrue(
+        variables.downField("approved").succeeded,
+        variables.downField("_identityCorrelationOfActor").failed,
+        variables.downField("_identityCorrelation").failed,
+        !paths.exists(_.endsWith("/form-variables"))
       )
     },
     test("doOverrideImpersonation = false keeps _identityCorrelation") {

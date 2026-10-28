@@ -321,6 +321,28 @@ object C8RestClientTest extends ZIOSpecDefault:
             variables.downField("_identityCorrelation").failed
           )
       },
+      test("complete user task without identity: no identity variables - forged ones removed") {
+        val cluster = StubCluster: request =>
+          request.uri.path.mkString("/") match
+            case "v2/user-tasks/123" => 200 -> """{"userTaskKey":"123","processInstanceKey":"4711"}"""
+            case _                   => 204 -> ""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig =
+          DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
+        val forged = io.circe.JsonObject(
+          "approved"                    -> Json.True,
+          "_identityCorrelationOfActor" -> Json.obj("username" -> Json.fromString("mallory")),
+          "_identityCorrelation"        -> Json.obj("username" -> Json.fromString("mallory"))
+        )
+        for _ <- C8UserTaskService().complete("123", forged, None)
+        yield
+          val variables = bodyJson(cluster.all.last).hcursor.downField("variables")
+          assertTrue(
+            variables.get[Boolean]("approved").contains(true),
+            variables.downField("_identityCorrelationOfActor").failed,
+            variables.downField("_identityCorrelation").failed
+          )
+      },
       test("send message: the signed sender only with a processInstanceId") {
         val cluster = StubCluster(_ => 200 -> """{"messageKey":"9","processInstanceKey":"4711"}""")
         given C8RestClient = cluster.client()
