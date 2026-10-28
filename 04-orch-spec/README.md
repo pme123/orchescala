@@ -1782,6 +1782,16 @@ Teil in ein Archiv `<slug>.audit-<Zeitstempel>.jsonl`; die laufende Datei
 behält die letzten 1000. Eine kaputte Zeile kostet nur sich selbst. Die
 Liste der Spezifikationen liest nur `.json` und sieht die Protokolle nicht.
 
+**Ordner der Firma.** Jede Firma hat einen vorgesehenen Ordner für Orch Spec,
+nach Konvention `00-docs/spec` im Firmenprojekt (`docsSpecDir` im
+`CompanyOrchescalaDevHelper`). `./helper.scala prepareDocs` legt ihn an, und die
+lokale Vorschau der Doku-Site liefert ihn als `spec/folder.json` (nur aus dem
+Speicher, nicht in der Site). Die Startseite zeigt ihn dann unter «Lokaler
+Ordner» mit einem Knopf zum Kopieren — im Ordner-Dialog unter macOS mit ⌘⇧G
+einfügen. Ein Browser kann keinen Ordner vorgegeben bekommen: verknüpft wird
+einmal je Vorschau-Port, danach merkt ihn sich der Browser. Ohne Vorschau
+(Dev-Server, publizierte Site) gibt es keine `folder.json` und keinen Hinweis.
+
 ## Anmeldung (Microsoft Entra ID)
 
 Wie im arch-review: MSAL im Browser, Authorization Code Flow + PKCE, kein

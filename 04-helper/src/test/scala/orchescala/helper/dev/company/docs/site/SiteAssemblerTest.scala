@@ -102,6 +102,36 @@ class SiteAssemblerTest extends FunSuite:
       assertEquals(code, "404")
     finally running.stop()
 
+  test("LocalSiteServer serves the extras from memory - they win over a file in the site"):
+    val site = os.temp.dir(prefix = "site-extras")
+    os.write(site / "spec" / "folder.json", """{"path":"from-disk"}""", createFolders = true)
+    val extras  = Map("spec/folder.json" -> """{"path":"/co/00-docs/spec"}""", "ops/folder.json" -> """{"path":"/co/00-docs/ops"}""")
+    val running = LocalSiteServer.start(site, 0, extras).getOrElse(fail("could not start the server"))
+    try
+      def get(p: String) = os.proc("curl", "--silent", "--max-time", "5", s"${running.url}$p").call().out.text()
+      assertEquals(get("spec/folder.json"), """{"path":"/co/00-docs/spec"}""")
+      assertEquals(get("ops/folder.json"), """{"path":"/co/00-docs/ops"}""")
+      assert(!os.exists(site / "ops"), "extras must not be written into the site")
+    finally running.stop()
+
+  test("LocalSiteServer without extras has no folder.json - the apps show no hint"):
+    val site    = os.temp.dir(prefix = "site-no-extras")
+    os.write(site / "spec" / "index.html", "<html></html>", createFolders = true)
+    val running = LocalSiteServer.start(site, 0).getOrElse(fail("could not start the server"))
+    try
+      val code = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${running.url}spec/folder.json").call().out.text()
+      assertEquals(code, "404")
+    finally running.stop()
+
+  test("folderHints - only existing folders; the path survives quotes and backslashes"):
+    val base  = os.temp.dir(prefix = "company-folders")
+    val spec  = base / "00-docs" / "spec \"quoted\" back\\slash"
+    os.makeDir.all(spec)
+    val hints = LocalSiteServer.folderHints(Seq("spec" -> spec, "ops" -> base / "00-docs" / "ops"))
+    assertEquals(hints.keySet, Set("spec/folder.json"))
+    val path = io.circe.parser.parse(hints("spec/folder.json")).flatMap(_.hcursor.get[String]("path"))
+    assertEquals(path, Right(spec.toString))
+
   test("writeApi - the API of a project in a single repo, at its tag"):
     val gitTemp = singleRepoGitTemp()
     val repo    = gitTemp / "orchescala-acme"

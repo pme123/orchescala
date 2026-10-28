@@ -12,6 +12,7 @@ import ErrorPanel from './components/ErrorPanel';
 import HowtoView from './components/HowtoView';
 import AdminView from './components/AdminView';
 import { readRoute, writeRoute, type Route } from './route';
+import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
@@ -21,6 +22,7 @@ export default function App() {
   const [spBusy, setSpBusy] = useState(false);
   const [spError, setSpError] = useState('');
   const auth = useAuth();
+  const companyFolder = useCompanyFolder();
   const { canAdmin, canView, level } = usePermissions();
   // view, selection and filters live in the address (#/…) — links can be shared
   const [route, setRouteState] = useState<Route>(() => readRoute());
@@ -324,6 +326,11 @@ export default function App() {
                     className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30 hover:text-white' : 'border-black/15 text-black/50 hover:border-black/30 hover:text-black'}`}>
                     <FolderOpen size={12} /> Lokalen Ordner wählen
                   </button>
+                )}
+                {companyFolder && (
+                  <p className={`text-[10px] leading-relaxed ${textMuted}`}>
+                    <CompanyFolderHint path={companyFolder} muted={textMuted} />
+                  </p>
                 )}
               </div>
               <p className={`text-[10px] leading-relaxed mt-5 ${textMuted}`}>

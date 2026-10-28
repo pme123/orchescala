@@ -65,7 +65,7 @@ ausgeliefert (`./helper.scala publishDocs` legt sie unter `/site/spec/` ab):
 | Umgebung | Umleitungs-URI (Beispiel) |
 |---|---|
 | Produktion (Doku-Site) | `https://docs.firma.ch/site/spec/` — `<documentationUrl>/site/spec/` |
-| Lokale Vorschau der Doku-Site (`prepareDocs`) | `http://localhost:3004/spec/` |
+| Lokale Vorschau der Doku-Site (`prepareDocs`) | `http://localhost:3004/spec/` — 3004 ist der Standard, eine Firma kann einen eigenen Port setzen (`docsPreviewPort`, democompany: 3003) |
 | Entwicklung (`npm run dev`) | `http://localhost:3002/orch-spec/` |
 
 **Authentifizierung** → unter *Single-Page-Webanwendung* **URI hinzufügen**

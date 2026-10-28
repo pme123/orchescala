@@ -22,6 +22,7 @@ import os.Path
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /** the idea is use Orchescala to create Company's Process documentation.
   *
@@ -34,6 +35,20 @@ trait DocCreator extends DependencyCreator, Helpers:
   protected def configs: Seq[DocProjectConfig]                                 = setupConfigs()
   protected def apiProjectConfig(projectConfigPath: os.Path): ApiProjectConfig =
     ApiProjectConfig(projectConfigPath)
+
+  /** The port of the local preview at the end of `prepareDocs` (`http://localhost:<port>/`).
+    * Override it when several companies preview on the same machine, or when an identity
+    * provider has a fixed redirect URI registered for it.
+    */
+  protected def docsPreviewPort: Int = LocalSiteServer.defaultPort
+
+  /** The company's folders for orch-spec and orch-ops - by convention `00-docs/spec` and
+    * `00-docs/ops`. `prepareDocs` creates them, and the local preview names them on the apps'
+    * start screen (`spec/folder.json`, `ops/folder.json`). A browser cannot be given a folder,
+    * so it is linked once per preview port; the browser remembers it afterwards.
+    */
+  protected def docsSpecDir: os.Path = apiConfig.basePath / "spec"
+  protected def docsOpsDir: os.Path  = apiConfig.basePath / "ops"
 
   lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs
@@ -48,6 +63,7 @@ trait DocCreator extends DependencyCreator, Helpers:
   def prepareDocs(): Unit =
     println(s"API Config: $apiConfig")
     apiConfig.init
+    createCompanyFolders()
     createCatalog()
     DevStatisticsCreator(gitBasePath, apiConfig.basePath, apiConfig.companyName).create()
     createDynamicConf()
@@ -66,8 +82,20 @@ trait DocCreator extends DependencyCreator, Helpers:
         println(s"Spec catalog / APIs incomplete (non-fatal for preview): ${ex.getMessage}")
         siteDir
     .get
-    LocalSiteServer.serve(site)
+    LocalSiteServer.serve(site, docsPreviewPort, LocalSiteServer.folderHints(companyFolders))
   end previewLocally
+
+  private def companyFolders: Seq[(String, os.Path)] = Seq("spec" -> docsSpecDir, "ops" -> docsOpsDir)
+
+  /** Creates the company's orch-spec and orch-ops folders - first thing in `prepareDocs`, so a
+    * later failing step does not leave them out. Best-effort: a folder that cannot be created is
+    * printed, and the preview then names no folder for that app.
+    */
+  private def createCompanyFolders(): Unit =
+    companyFolders.foreach: (app, dir) =>
+      Try(os.makeDir.all(dir)) match
+        case Success(_)  => println(s"Folder for orch-$app: $dir")
+        case Failure(ex) => println(s"Folder for orch-$app not created (non-fatal): $dir - ${ex.getMessage}")
 
   /** Builds the documentation site (this company and its siblings, the APIs at their released
     * versions, orch-spec, orch-ops) into `00-docs/site` - what the company gateway serves - and uploads it
