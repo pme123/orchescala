@@ -383,8 +383,8 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
   // (`GetAccounts` in vollmacht and fil-is) do not count
   if (owner) return all.find(t => t.pkg === owner.pkg && t.name === `${owner.owner}.${member}`) ?? null;
   // a service without `topicName` in the catalog: the object via its name and
-  // the derived package (`valiant-fil-is-cardV4.GetX` → `GetX` in
-  // `valiant.fil.is.domain.card.v4`) — objects of the same name in other versions do not count
+  // the derived package (`acme-fil-is-cardV4.GetX` → `GetX` in
+  // `acme.fil.is.domain.card.v4`) — objects of the same name in other versions do not count
   const ref = step.serviceId ?? step.topic;
   const obj = ref && step.kind === 'service' ? catalogObject(ref, model) : null;
   return obj ? all.find(t => t.pkg === obj.pkg && t.name === `${obj.object}.${member}`) ?? null : null;

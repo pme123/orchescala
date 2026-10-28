@@ -39,12 +39,12 @@ ${work}
 <bpmn:sequenceFlow id="${prefix}CatchFlow" sourceRef="${prefix}Catch" targetRef="${prefix}Work" />
 <bpmn:sequenceFlow id="${prefix}WorkFlow" sourceRef="${prefix}Work" targetRef="${prefix}End" />`;
 
-const mailC7 = (prefix: string, topic = 'valiant-graviton-workV1.PostSendEmail', ext = '') =>
+const mailC7 = (prefix: string, topic = 'acme-graviton-workV1.PostSendEmail', ext = '') =>
   `<bpmn:serviceTask id="${prefix}Work" camunda:type="external" camunda:topic="${topic}">${ext}</bpmn:serviceTask>`;
-const mailC8 = (prefix: string, type = 'valiant-graviton-workV1.PostSendEmail') =>
-  `<bpmn:serviceTask id="${prefix}Work" zeebe:modelerTemplate="valiant-graviton-workV1.PostSendEmail"><bpmn:extensionElements><zeebe:taskDefinition type="${type}" /></bpmn:extensionElements></bpmn:serviceTask>`;
-const callC7 = (prefix: string, called = 'valiant-bpmn-sendProcessEvent') => `<bpmn:callActivity id="${prefix}Work" calledElement="${called}" />`;
-const listenerUt = '<camunda:taskListener event="create"><camunda:script scriptFormat="groovy" resource="valiant-bpmn:scripts/sendProcessEvent/taskListener.groovy" /></camunda:taskListener>';
+const mailC8 = (prefix: string, type = 'acme-graviton-workV1.PostSendEmail') =>
+  `<bpmn:serviceTask id="${prefix}Work" zeebe:modelerTemplate="acme-graviton-workV1.PostSendEmail"><bpmn:extensionElements><zeebe:taskDefinition type="${type}" /></bpmn:extensionElements></bpmn:serviceTask>`;
+const callC7 = (prefix: string, called = 'acme-bpmn-sendProcessEvent') => `<bpmn:callActivity id="${prefix}Work" calledElement="${called}" />`;
+const listenerUt = '<camunda:taskListener event="create"><camunda:script scriptFormat="groovy" resource="acme-bpmn:scripts/sendProcessEvent/taskListener.groovy" /></camunda:taskListener>';
 
 /** a pattern on a user task: its path and its block, as the admin stores it */
 const onTask = (id: string, engine: EngineId, anchorExt: string, timer: string, link: string, work: (p: string) => string): PatternDef => ({
@@ -146,7 +146,7 @@ test('Camunda 8: the job type of the block decides', () => {
 test('the calls are compared engine-neutrally - a topic matches the same job type', () => {
   // a Camunda 8 pattern on a block that only names its topic the Camunda 7 way
   const c8Task = userTask('Task', '<zeebe:userTask />');
-  const mixed = `<bpmn:serviceTask id="MWork" zeebe:modelerTemplate="valiant-graviton-workV1.PostSendEmail" camunda:topic="valiant-graviton-workV1.PostSendEmail" />`;
+  const mixed = `<bpmn:serviceTask id="MWork" zeebe:modelerTemplate="acme-graviton-workV1.PostSendEmail" camunda:topic="acme-graviton-workV1.PostSendEmail" />`;
   const r = detect(doc(c8Task + timerPath('I', 'Task', '=timerInformKube', 'acme-informKube-Task') + linkBlock('M', 'acme-informKube-Task', mixed)), [informC8], 'c8');
   assert.deepEqual(r.hits, ['inform-user@Task']);
 });

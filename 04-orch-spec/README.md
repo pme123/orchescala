@@ -444,7 +444,7 @@ Beispiel des Typs — je Feld ein Scala-Ausdruck. Daraus wird
 (geht auch bei einer eigenen Klasse: `In.example.copy(…)`).
 
 **Werte aus Scala in Texten:** ein Schlüssel, `descr` oder `@description` mit
-`${…}` auf einen Scala-Pfad (`valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
+`${…}` auf einen Scala-Pfad (`acme-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
 `${OrderCard.processName}`) wird ein interpolierter String `s"…"` — sonst stünde
 der Platzhalter wörtlich darin (ein Signal käme nie an). JUEL im Text
 (`${execution.processInstanceId}`) bleibt Text; in Kommentaren bleibt alles, wie es ist.
@@ -863,10 +863,10 @@ das Topic `…createPensionProductV1.CreatePensionProduct` gehört zum Objekt
 `ComposePensionProduct`, `CreatePensionProduct` ist der Prozess selbst.
 
 Dasselbe gilt für die Objekte, die ein Prozess **ruft** — ein Teilprozess
-im Mock des `InConfig` (`valiant-vollmacht-loadPoasV1` → `LoadPoas` aus
-`valiant.vollmacht.domain.loadPoas.v1`), ein Service-Objekt über seinen
-Namen (`valiant-services-tadv2.GetProfileCompletionCustomerId` liegt in
-`valiant.services.domain.tad.v2`, abgeleitet wäre `…tadv2.domain.tadv2.v1`).
+im Mock des `InConfig` (`acme-vollmacht-loadPoasV1` → `LoadPoas` aus
+`acme.vollmacht.domain.loadPoas.v1`), ein Service-Objekt über seinen
+Namen (`acme-services-tadv2.GetProfileCompletionCustomerId` liegt in
+`acme.services.domain.tad.v2`, abgeleitet wäre `…tadv2.domain.tadv2.v1`).
 Der Import kommt dann ohne «Pfad prüfen».
 
 Ohne Katalog-Eintrag bleibt die Ableitung — sie schreibt Umlaute um
@@ -1518,7 +1518,7 @@ Eine **ältere Spezifikation** (vor diesen Angaben importiert) weiss weder die
 Art des Services noch seine Mock-Variable. Dann gilt, was das Diagramm sagt:
 ohne `_manualOutMapping` nicht manuell, `_outputVariables` und
 `_outputMock = getPoasMock` wie dort, und `x = x` mit x in `_outputVariables`
-ohne Output-Parameter im Diagramm wird keiner — in `valiant-product` legten
+ohne Output-Parameter im Diagramm wird keiner — in `acme-product` legten
 sonst `Get Details ClientKey` und `Get Details clientKeyCardholder` in den
 zwei Zweigen eines Parallel-Gateways beide `master` und `person` an.
 Ein Skript, das eine ältere Version als FEEL-Text eingepackt hat
@@ -1781,6 +1781,16 @@ Speichern nochmals. Wer gleichzeitig anhängt, bekommt einen Konflikt
 Teil in ein Archiv `<slug>.audit-<Zeitstempel>.jsonl`; die laufende Datei
 behält die letzten 1000. Eine kaputte Zeile kostet nur sich selbst. Die
 Liste der Spezifikationen liest nur `.json` und sieht die Protokolle nicht.
+
+**Ordner der Firma.** Jede Firma hat einen vorgesehenen Ordner für Orch Spec,
+nach Konvention `00-docs/spec` im Firmenprojekt (`docsSpecDir` im
+`CompanyOrchescalaDevHelper`). `./helper.scala prepareDocs` legt ihn an, und die
+lokale Vorschau der Doku-Site liefert ihn als `spec/folder.json` (nur aus dem
+Speicher, nicht in der Site). Die Startseite zeigt ihn dann unter «Lokaler
+Ordner» mit einem Knopf zum Kopieren — im Ordner-Dialog unter macOS mit ⌘⇧G
+einfügen. Ein Browser kann keinen Ordner vorgegeben bekommen: verknüpft wird
+einmal je Vorschau-Port, danach merkt ihn sich der Browser. Ohne Vorschau
+(Dev-Server, publizierte Site) gibt es keine `folder.json` und keinen Hinweis.
 
 ## Anmeldung (Microsoft Entra ID)
 

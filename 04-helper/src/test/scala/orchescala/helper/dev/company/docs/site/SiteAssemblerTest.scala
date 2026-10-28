@@ -36,14 +36,14 @@ class SiteAssemblerTest extends FunSuite:
     os.write(out / "spec" / "assets" / "index-OLD.js", "old", createFolders = true)
     os.write(out / "ops" / "assets" / "index-OLD.js", "old", createFolders = true)
     os.write(out / "spec" / "catalog.generated.json", "{}")
-    os.write(out / "valiant" / "1.0" / "assets" / "classic.js", "keep", createFolders = true)
+    os.write(out / "acme" / "1.0" / "assets" / "classic.js", "keep", createFolders = true)
     SiteAssembler.clearAppAssets(out, Seq("index.html", "assets/index-NEW.js", "spec/index.html", "spec/assets/index-NEW.js",
       "ops/index.html", "ops/assets/index-NEW.js"))
     assert(!os.exists(out / "assets"), "old assets/ still there")
     assert(!os.exists(out / "spec" / "assets"), "old spec/assets/ still there")
     assert(!os.exists(out / "ops" / "assets"), "old ops/assets/ still there")
     assert(os.exists(out / "spec" / "catalog.generated.json"), "catalog removed")
-    assert(os.exists(out / "valiant" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
+    assert(os.exists(out / "acme" / "1.0" / "assets" / "classic.js"), "classic site assets removed")
 
   test("writeProjectColors adds the colors to the catalog - keeps what is there, leaves out #fff and white"):
     val out = os.temp.dir(prefix = "spec-colors") / "spec" / "catalog.generated.json"
@@ -101,6 +101,36 @@ class SiteAssemblerTest extends FunSuite:
       val code  = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${url}nope.txt").call().out.text()
       assertEquals(code, "404")
     finally running.stop()
+
+  test("LocalSiteServer serves the extras from memory - they win over a file in the site"):
+    val site = os.temp.dir(prefix = "site-extras")
+    os.write(site / "spec" / "folder.json", """{"path":"from-disk"}""", createFolders = true)
+    val extras  = Map("spec/folder.json" -> """{"path":"/co/00-docs/spec"}""", "ops/folder.json" -> """{"path":"/co/00-docs/ops"}""")
+    val running = LocalSiteServer.start(site, 0, extras).getOrElse(fail("could not start the server"))
+    try
+      def get(p: String) = os.proc("curl", "--silent", "--max-time", "5", s"${running.url}$p").call().out.text()
+      assertEquals(get("spec/folder.json"), """{"path":"/co/00-docs/spec"}""")
+      assertEquals(get("ops/folder.json"), """{"path":"/co/00-docs/ops"}""")
+      assert(!os.exists(site / "ops"), "extras must not be written into the site")
+    finally running.stop()
+
+  test("LocalSiteServer without extras has no folder.json - the apps show no hint"):
+    val site    = os.temp.dir(prefix = "site-no-extras")
+    os.write(site / "spec" / "index.html", "<html></html>", createFolders = true)
+    val running = LocalSiteServer.start(site, 0).getOrElse(fail("could not start the server"))
+    try
+      val code = os.proc("curl", "--silent", "-o", "/dev/null", "-w", "%{http_code}", s"${running.url}spec/folder.json").call().out.text()
+      assertEquals(code, "404")
+    finally running.stop()
+
+  test("folderHints - only existing folders; the path survives quotes and backslashes"):
+    val base  = os.temp.dir(prefix = "company-folders")
+    val spec  = base / "00-docs" / "spec \"quoted\" back\\slash"
+    os.makeDir.all(spec)
+    val hints = LocalSiteServer.folderHints(Seq("spec" -> spec, "ops" -> base / "00-docs" / "ops"))
+    assertEquals(hints.keySet, Set("spec/folder.json"))
+    val path = io.circe.parser.parse(hints("spec/folder.json")).flatMap(_.hcursor.get[String]("path"))
+    assertEquals(path, Right(spec.toString))
 
   test("writeApi - the API of a project in a single repo, at its tag"):
     val gitTemp = singleRepoGitTemp()

@@ -19,6 +19,7 @@ def maybe[T](value: T | Option[T]): Option[T] = value match
 
 inline def allFieldNames[T <: Enum | Product]: Seq[String] = ${ FieldNamesOf.allFieldNames[T] }
 inline def nameOfVariable(inline x: Any): String           = ${ NameOf.nameOfVariable('x) }
+inline def nameOfEnclosingVal(inline x: Any): String       = ${ NameOf.nameOfEnclosingVal('x) }
 inline def nameOfType[A]: String                           = ${ NameOf.nameOfType[A] }
 
 enum InputParams:
