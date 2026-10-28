@@ -37,5 +37,5 @@ export function check(): {errors: string[]; warnings: string[]} {
     warnings.push(...pageWarnings.map(w => `${doc.id}: ${w}`));
     if (doc.id !== 'index' && !doc.description) warnings.push(`${doc.id}: no description - add a paragraph of text at the top`);
   }
-  return {errors, warnings};
+  return {errors: [...new Set(errors)], warnings: [...new Set(warnings)]};
 }
