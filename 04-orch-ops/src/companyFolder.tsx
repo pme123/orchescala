@@ -1,5 +1,5 @@
 // The company's folder for this app. The local docs preview (prepareDocs) serves it as
-// `folder.json` next to index.html - by convention `00-docs/ops` of the company project.
+// `folder.json` next to index.html - by convention `00-docs/testdata/ops` of the company project.
 // A browser cannot be handed a folder, so it is only shown as a hint on the start screen:
 // the path to paste into the folder dialog. Without the preview there is no such file.
 // Keep in sync with ../../04-orch-spec/src/companyFolder.tsx (the two apps share no package).

@@ -35,8 +35,9 @@ never overwritten, the apps write into them:
 
 ```bash
 00-docs
-    | - spec    # orch-spec: process specifications (config/model.json, processes/, pages/)
-    | - ops     # orch-ops: recurring errors in operation (model.json, errors/)
+    | - testdata
+        | - spec    # orch-spec: process specifications (config/model.json, processes/, pages/)
+        | - ops     # orch-ops: recurring errors in operation (model.json, errors/)
 ```
 
 The local preview names them on the apps' start screen; a company can use other folders

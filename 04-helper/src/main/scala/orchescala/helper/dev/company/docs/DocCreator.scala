@@ -42,13 +42,13 @@ trait DocCreator extends DependencyCreator, Helpers:
     */
   protected def docsPreviewPort: Int = LocalSiteServer.defaultPort
 
-  /** The company's folders for orch-spec and orch-ops - by convention `00-docs/spec` and
-    * `00-docs/ops`. `prepareDocs` creates them, and the local preview names them on the apps'
-    * start screen (`spec/folder.json`, `ops/folder.json`). A browser cannot be given a folder,
-    * so it is linked once per preview port; the browser remembers it afterwards.
+  /** The company's folders for orch-spec and orch-ops - by convention `00-docs/testdata/spec`
+    * and `00-docs/testdata/ops`. `prepareDocs` creates them, and the local preview names them on
+    * the apps' start screen (`spec/folder.json`, `ops/folder.json`). A browser cannot be given a
+    * folder, so it is linked once per preview port; the browser remembers it afterwards.
     */
-  protected def docsSpecDir: os.Path = apiConfig.basePath / "spec"
-  protected def docsOpsDir: os.Path  = apiConfig.basePath / "ops"
+  protected def docsSpecDir: os.Path = apiConfig.basePath / "testdata" / "spec"
+  protected def docsOpsDir: os.Path  = apiConfig.basePath / "testdata" / "ops"
 
   lazy val projectConfigs: Seq[ProjectConfig] =
     apiConfig.projectsConfig.projectConfigs

@@ -1783,7 +1783,7 @@ behält die letzten 1000. Eine kaputte Zeile kostet nur sich selbst. Die
 Liste der Spezifikationen liest nur `.json` und sieht die Protokolle nicht.
 
 **Ordner der Firma.** Jede Firma hat einen vorgesehenen Ordner für Orch Spec,
-nach Konvention `00-docs/spec` im Firmenprojekt (`docsSpecDir` im
+nach Konvention `00-docs/testdata/spec` im Firmenprojekt (`docsSpecDir` im
 `CompanyOrchescalaDevHelper`). `./helper.scala prepareDocs` legt ihn an, und die
 lokale Vorschau der Doku-Site liefert ihn als `spec/folder.json` (nur aus dem
 Speicher, nicht in der Site). Die Startseite zeigt ihn dann unter «Lokaler
