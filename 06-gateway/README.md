@@ -309,6 +309,11 @@ copy, workers verify it as before. A caller cannot set `_identityCorrelation`,
 `_identityCorrelationPending` or `_identityCorrelationOfActor` - the engine removes them from the
 variables it gets.
 
+Without a signing key the engine logs a warning and passes both identities unsigned - also after a
+take-over. A worker with `identityVerification = true` and a signing key rejects an unsigned
+`_identityCorrelation` (`BadSignatureError`), so set `ORCHESCALA_IDENTITY_SIGNING_KEY` for the
+engine (gateway) and the workers alike.
+
 **Deprecated (C7):** a user task with the form variable `doOverrideImpersonation = true` still
 overwrites `_identityCorrelation` with the actor (with the `impersonateProcessKey` value of the
 task's form variables), for processes with the old `impersonateUserId` scripts. Without the flag -
