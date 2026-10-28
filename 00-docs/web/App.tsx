@@ -2,9 +2,17 @@ import React from 'react';
 import {ChevronLeft, ChevronRight, Menu, Moon, Pencil, Sun, X} from 'lucide-react';
 import {allDocs, assetUrl, base, type Doc, docIdOf, docUrl, findDoc, sections, version} from './docs';
 import {renderDoc, type TocEntry} from './markdown';
+import z9naiLogo from './z9nai-logo.png';
 
 const GITHUB_URL = 'https://github.com/pme123/orchescala';
 const logo = assetUrl('images/orchescala_icon.png');
+
+// Footer: when this version of the site was built (= published)
+const BUILD_LABEL = (() => {
+  const d = new Date(__BUILD_TIME__);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+})();
 
 // ── Theme ──────────────────────────────────────────────────────────────────
 const ThemeContext = React.createContext<{isDark: boolean; toggle: () => void}>({
@@ -233,23 +241,48 @@ const PrevNext = ({doc, navigate}: {doc: Doc; navigate: Navigate}) => {
 
 const Footer = ({doc}: {doc?: Doc}) => {
   const {isDark} = useTheme();
-  const muted = isDark ? 'text-white/25 hover:text-white/60' : 'text-black/30 hover:text-black/60';
+  const faint = isDark ? 'text-white/25' : 'text-black/35';
+  const link = isDark ? 'text-white/25 hover:text-white/60' : 'text-black/35 hover:text-black/65';
+  const sep = <span className={isDark ? 'text-white/10' : 'text-black/15'}>//</span>;
   return (
     <footer className={`py-10 px-6 border-t ${isDark ? 'border-white/10' : 'border-black/10'}`}>
-      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-        <div className={`text-[10px] font-mono tracking-widest ${isDark ? 'text-white/20' : 'text-black/30'}`}>
-          © pme123 // MIT License
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row gap-4 justify-between items-start md:items-center text-[10px] font-mono tracking-widest">
+        <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${faint}`}>
+          <span>© pme123 // MIT License</span>
+          {sep}
+          <span title={`Orchescala ${version}`}>v{version}</span>
+          {sep}
+          <span title={`Build ${__BUILD_TIME__}${__BUILD_COMMIT__ ? ` · Commit ${__BUILD_COMMIT__}` : ''}`}>
+            {import.meta.env.DEV
+              ? 'local development'
+              : `built ${BUILD_LABEL}${__BUILD_COMMIT__ ? ` · ${__BUILD_COMMIT__}` : ''}`}
+          </span>
         </div>
-        {doc && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          {doc && (
+            <>
+              <a
+                href={`${GITHUB_URL}/blob/develop/00-docs/src/docs/${doc.id}.md`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1.5 uppercase transition-colors ${link}`}
+              >
+                <Pencil className="w-3 h-3" /> Source of this page
+              </a>
+              {sep}
+            </>
+          )}
           <a
-            href={`${GITHUB_URL}/blob/develop/00-docs/src/docs/${doc.id}.md`}
+            href="https://z9nai.ch"
             target="_blank"
             rel="noopener noreferrer"
-            className={`inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest transition-colors ${muted}`}
+            title="z9nai GmbH - to the website"
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap transition-colors ${link}`}
           >
-            <Pencil className="w-3 h-3" /> Source of this page
+            by z9nai GmbH
+            <img src={z9naiLogo} alt="" className="w-4 h-4 opacity-80" />
           </a>
-        )}
+        </div>
       </div>
     </footer>
   );
