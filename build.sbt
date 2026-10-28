@@ -51,10 +51,9 @@ lazy val docs =
     .settings(
       projectSettings("docs"),
       autoImportSetting,
-      laikaSettings,
       mdocSettings
     )
-    .enablePlugins(LaikaPlugin, MdocPlugin)
+    .enablePlugins(MdocPlugin)
     .dependsOn(helper, gateway)
 
 // layer 01

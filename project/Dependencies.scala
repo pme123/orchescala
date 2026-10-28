@@ -5,7 +5,7 @@ object Dependencies {
 
   // dependency Versions
   // 00-docs
-  // - Laika Plugin
+  // - mdoc Plugin (compiles the scala snippets of the markdown pages)
   // 04-helper
   val osLibVersion          = "0.11.8"
   // 01-domain
