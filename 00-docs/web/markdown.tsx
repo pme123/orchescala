@@ -1,6 +1,7 @@
 // Renders a markdown page: GitHub markdown (tables, alerts), raw HTML, heading anchors,
 // syntax highlighting, links between pages and the images of src/docs.
 import type {Element, ElementContent, Root} from 'hast';
+import type {Code, Root as MdRoot} from 'mdast';
 import {toJsxRuntime} from 'hast-util-to-jsx-runtime';
 import {toString} from 'hast-util-to-string';
 import {createLowlight} from 'lowlight';
@@ -22,6 +23,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import {unified} from 'unified';
+import {remove} from 'unist-util-remove';
 import {visit} from 'unist-util-visit';
 import {assetUrl, type Doc, docUrl, findDoc, resolvePath} from './docs';
 
@@ -75,6 +77,14 @@ const rehypeAlerts = () => (tree: Root) => {
     node.properties = {className: ['callout', `callout-${kind}`]};
     node.children = [title, ...node.children] as ElementContent[];
   });
+};
+
+/**
+ * mdoc fences (```scala mdoc:reset …): the language is the first word, so they are Scala blocks; the
+ * modifiers are not shown. `mdoc:invisible` blocks are setup for the compile check (sbt docs/mdoc) only.
+ */
+const remarkMdoc = () => (tree: MdRoot) => {
+  remove(tree, node => node.type === 'code' && /\bmdoc:invisible\b/.test((node as Code).meta ?? ''));
 };
 
 const isExternal = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//');
@@ -177,6 +187,7 @@ export function renderDoc(doc: Doc): Rendered {
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkMdoc)
     .use(remarkRehype, {allowDangerousHtml: true})
     .use(rehypeRaw)
     .use(rehypeSlug)

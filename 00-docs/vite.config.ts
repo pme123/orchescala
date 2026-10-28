@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import {execSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import {defineConfig} from 'vite';
+import {defineConfig} from 'vitest/config';
 
 // The Orchescala version (root `version` file) - replaces `@VERSION@` in the markdown.
 const version = fs.readFileSync(path.resolve(__dirname, '../version'), 'utf-8').trim();
@@ -24,9 +24,11 @@ const commit = (() => {
   }
 })();
 
+const base = process.env.DOCS_BASE ?? '/orchescala/';
+
 export default defineConfig({
   // served by GitHub Pages under https://pme123.github.io/orchescala/
-  base: process.env.DOCS_BASE ?? '/orchescala/',
+  base,
   plugins: [react(), tailwindcss()],
   // the bundle holds all pages (markdown) and the markdown renderer
   build: {chunkSizeWarningLimit: 1200},
@@ -37,4 +39,6 @@ export default defineConfig({
     __BUILD_COMMIT__: JSON.stringify(commit),
     __CONTENT_FILES__: JSON.stringify(contentFiles),
   },
+  // vitest serves the tests under '/' - the pages are tested with the URLs of the site
+  test: {env: {BASE_URL: base}},
 });

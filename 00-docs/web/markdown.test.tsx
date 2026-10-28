@@ -64,6 +64,13 @@ describe('code and headings', () => {
       'code block in kotlin - no highlighting (register it in markdown.tsx)',
     ]);
   });
+  it('shows mdoc fences as Scala without their modifiers, and hides mdoc:invisible', () => {
+    const {html, warnings} = render('```scala mdoc:invisible\nval setup = 1\n```\n\n```scala mdoc:reset\nval x = 1\n```');
+    expect(html).toContain('<code class="language-scala hljs"><span class="hljs-keyword">val</span> x');
+    expect(html).not.toContain('setup');
+    expect(html).not.toContain('mdoc');
+    expect(warnings).toEqual([]);
+  });
   it('highlights Scala', () => {
     expect(render('```scala\nval x = 1\n```').html).toContain('<span class="hljs-keyword">val</span>');
   });
