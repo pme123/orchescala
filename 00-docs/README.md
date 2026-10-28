@@ -31,6 +31,8 @@ cd 00-docs
 npm install
 npm run dev     # http://localhost:3020/orchescala/
 npm run build   # dist/ - what GitHub Pages serves
+npm test        # vitest - links, includes, callouts …
+npm run lint    # tsc
 ```
 
 The build fails on a broken include, a link to a page or file that does not exist and a missing

@@ -8,7 +8,8 @@
     "build": "vite build && vite build --ssr web/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs",
     "preview": "vite preview --port=4180",
     "clean": "rm -rf dist dist-ssr",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "hast-util-to-jsx-runtime": "^2.3.6",
@@ -35,6 +36,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.8.2",
-    "vite": "^6.4.5"
+    "vite": "^6.4.5",
+    "vitest": "^3.2.7"
   }
 }

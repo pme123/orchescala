@@ -1,0 +1,62 @@
+import {renderToStaticMarkup} from 'react-dom/server';
+import {describe, expect, it} from 'vitest';
+import type {Doc} from './docs';
+import {renderDoc} from './markdown';
+
+let n = 0;
+const render = (markdown: string, dir = '') => {
+  const doc: Doc = {id: `test/page${n++}`, dir, title: '', description: '', markdown};
+  const {content, toc, problems} = renderDoc(doc);
+  return {html: renderToStaticMarkup(<>{content}</>), toc, problems};
+};
+
+describe('alerts', () => {
+  it('turns a [!NOTE] with the text on the next line into a callout', () => {
+    const {html} = render('> [!NOTE]\n> Some info.');
+    expect(html).toContain('<div class="callout callout-note"><p class="callout-title">Note</p>');
+    expect(html).toContain('<p>Some info.</p>');
+    expect(html).not.toContain('[!NOTE]');
+  });
+  it('turns a [!WARNING] with the text on the same line into a callout', () => {
+    const {html} = render('> [!WARNING] Be careful.');
+    expect(html).toContain('callout-warning');
+    expect(html).toContain('<p>Be careful.</p>');
+  });
+  it('leaves a plain quote and an unknown kind alone', () => {
+    expect(render('> Just a quote.').html).toContain('<blockquote>');
+    expect(render('> [!FOO] x').html).toContain('<blockquote>');
+  });
+});
+
+describe('links and images', () => {
+  it('links a page by its URL', () => {
+    const {html, problems} = render('[spec](../specification.md#intro)', 'functionalityDsls');
+    expect(html).toContain('href="/orchescala/specification/#intro"');
+    expect(problems).toEqual([]);
+  });
+  it('opens external links in a new tab', () => {
+    expect(render('[gh](https://github.com)').html).toContain('target="_blank" rel="noopener noreferrer"');
+  });
+  it('reports links and images that point nowhere', () => {
+    const {problems} = render('[x](nope.md) [y](nope.yml) ![z](images/nope.png)');
+    expect(problems).toEqual([
+      'link nope.md - there is no such page',
+      'link nope.yml - there is no such file',
+      'image images/nope.png - there is no such file',
+    ]);
+  });
+});
+
+describe('code and headings', () => {
+  it('highlights Scala', () => {
+    expect(render('```scala\nval x = 1\n```').html).toContain('<span class="hljs-keyword">val</span>');
+  });
+  it('builds the table of contents from h2 and h3', () => {
+    const {toc, html} = render('# Title\n## One\n### Two\n#### Three');
+    expect(toc).toEqual([
+      {id: 'one', text: 'One', level: 2},
+      {id: 'two', text: 'Two', level: 3},
+    ]);
+    expect(html).toContain('<a href="#one" class="heading-anchor" aria-hidden="true">#</a>');
+  });
+});

@@ -127,7 +127,8 @@ export const docUrl = (id: string) => (id === 'index' ? base : `${base}${id}/`);
 
 /** The page of a URL path. Old Laika URLs (`/orchescala/specification.html`) still find their page. */
 export function docIdOf(pathname: string): string {
-  let p = pathname.startsWith(base) ? pathname.slice(base.length) : pathname.replace(/^\//, '');
+  const path = pathname.endsWith('/') ? pathname : `${pathname}/`; // '/orchescala' is the base too
+  let p = path.startsWith(base) ? path.slice(base.length) : path.replace(/^\//, '');
   p = p.replace(/\/+$/, '').replace(/(\/index)?\.html$/, '').replace(/^index$/, '');
   return p === '' ? 'index' : p;
 }
