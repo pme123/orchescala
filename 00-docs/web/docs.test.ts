@@ -71,6 +71,10 @@ describe('descriptionOf', () => {
     expect(descriptionOf('Set **my_var** in `*.md` files - _not_ in __other__ ones, **_nested_** too.'))
       .toBe('Set my_var in *.md files - not in other ones, nested too.');
   });
+  it('skips code blocks - a ``` line inside a ~~~ block does not end it', () => {
+    expect(descriptionOf('~~~markdown\n```\nThis line is inside the code block, not text.\n~~~\n\nThe text after the code block is the description.'))
+      .toBe('The text after the code block is the description.');
+  });
   it('cuts a long paragraph without a space', () => {
     expect(descriptionOf('x'.repeat(200))).toBe(`${'x'.repeat(157)} …`);
   });

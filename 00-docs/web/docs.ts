@@ -3,11 +3,12 @@ import {navigation, partials} from './nav';
 
 const CONTENT_ROOT = '../src/docs/';
 
-const rawPages = import.meta.glob('../src/docs/**/*.md', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
+// line endings normalised - a page saved with CRLF works the same
+const rawPages = Object.fromEntries(
+  Object.entries(
+    import.meta.glob('../src/docs/**/*.md', {query: '?raw', import: 'default', eager: true}) as Record<string, string>,
+  ).map(([file, raw]) => [file, raw.replace(/\r\n?/g, '\n')]),
+);
 
 // Everything else in src/docs that a page may show or link: images, example APIs, scripts …
 // (served unchanged under its path - see vite.config.ts)
@@ -29,15 +30,17 @@ export type Doc = {
 const idOf = (file: string) => file.slice(CONTENT_ROOT.length).replace(/\.md$/, '');
 const dirOf = (id: string) => (id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : '');
 
-/** Lines outside of fenced code blocks. */
+/** Lines outside of fenced code blocks. A block ends only with its own marker (``` or ~~~, at least as long). */
 function proseLines(markdown: string): string[] {
-  let fence = false;
+  let fence: string | undefined;
   return markdown.split('\n').filter(line => {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fence = !fence;
-      return false;
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (!fence) {
+      if (marker) fence = marker;
+      return !marker;
     }
-    return !fence;
+    if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = undefined;
+    return false;
   });
 }
 
@@ -116,6 +119,8 @@ const docsById = new Map<string, Doc>();
 for (const [file, raw] of Object.entries(rawPages)) {
   const id = idOf(file);
   if (partials.includes(id)) continue;
+  // its URL would be <folder>/index/ - and the old URL <folder>/index.html finds the folder, not the page
+  if (id.endsWith('/index')) loadProblems.push(`${id}: a page in a folder cannot be called index - rename it`);
   const dir = dirOf(id);
   const markdown = withIncludes(raw, id, dir).replaceAll('@VERSION@', version);
   docsById.set(id, {id, dir, title: titleOf(id, markdown), description: descriptionOf(markdown), markdown});
