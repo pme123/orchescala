@@ -26,6 +26,22 @@ function buildHead(page) {
   ].join('\n    ');
 }
 
+function redirectPage(page) {
+  const target = escape(page.url);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escape(page.title)}</title>
+  <link rel="canonical" href="${SITE}${target}" />
+  <meta http-equiv="refresh" content="0; url=${target}" />
+  <script>location.replace(${JSON.stringify(page.url)} + location.hash);</script>
+</head>
+<body><p>This page has moved to <a href="${target}">${target}</a>.</p></body>
+</html>
+`;
+}
+
 async function main() {
   const distDir = path.resolve('dist');
   const ssrDir = path.resolve('dist-ssr');
@@ -44,7 +60,7 @@ async function main() {
     throw new Error(`${errors.length} broken include(s), link(s) or image(s):\n  ${errors.join('\n  ')}`);
   }
 
-  // unknown URLs (and the old Laika URLs like /orchescala/specification.html) - the app finds the page
+  // unknown URLs - the app shows its "not found" page (or still finds an old URL it knows)
   fs.writeFileSync(path.join(distDir, '404.html'), template);
 
   for (const page of pages()) {
@@ -57,6 +73,14 @@ async function main() {
     fs.mkdirSync(path.dirname(outPath), {recursive: true});
     fs.writeFileSync(outPath, html);
     console.log(`prerendered ${page.url} -> dist/${page.outFile}`);
+
+    // the old Laika URL (/orchescala/specification.html) - a real page (not a 404) that redirects,
+    // so links and search results to it keep working
+    const legacyFile = page.outFile.replace(/\/index\.html$/, '.html');
+    const legacyPath = path.join(distDir, legacyFile);
+    if (legacyFile !== page.outFile && !fs.existsSync(legacyPath)) {
+      fs.writeFileSync(legacyPath, redirectPage(page));
+    }
   }
 
   // the markdown sources come along with the content folder (publicDir) - the pages replace them
