@@ -2,6 +2,7 @@
 
 export const SITE = 'https://pme123.github.io';
 
+// for double-quoted attribute values and text - not for single-quoted attributes or inside <script>
 export const escape = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
 function buildHead(page) {
