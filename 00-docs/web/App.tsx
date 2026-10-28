@@ -312,8 +312,21 @@ const sectionOf = (doc: Doc) => {
   return i < 0 ? undefined : {index: String(i + 1).padStart(2, '0'), title: sections[i].title};
 };
 
+/** Letters and digits only - `input--output-variables` (now) matches `input-output-variables` (Laika). */
+const looseId = (id: string) => id.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+/** The element of an anchor - for old links with Laika's ids also the heading whose id differs only in - and _. */
+export function anchorTarget(hash: string): HTMLElement | null {
+  const id = decodeURIComponent(hash.replace(/^#/, ''));
+  if (!id) return null;
+  const exact = document.getElementById(id);
+  if (exact) return exact;
+  const loose = looseId(id);
+  return [...document.querySelectorAll<HTMLElement>('[id]')].find(el => looseId(el.id) === loose) ?? null;
+}
+
 function scrollToHash(hash: string) {
-  const el = hash ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+  const el = anchorTarget(hash);
   if (el) el.scrollIntoView();
   else window.scrollTo(0, 0);
 }
