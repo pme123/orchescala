@@ -28,7 +28,10 @@ export function pageHtml(template, page, markup) {
     .replace('<div id="root"></div>', () => `<div id="root">${markup}</div>`);
 }
 
-/** The page of an old Laika URL (/orchescala/specification.html): redirects to the page, keeping the #anchor. */
+/**
+ * The page of an old Laika URL (/orchescala/specification.html): redirects to the page, keeping the
+ * #anchor. The meta refresh (without the anchor) is only the fallback without JavaScript.
+ */
 export function redirectPage(page) {
   const target = escape(page.url);
   return `<!doctype html>
@@ -37,8 +40,8 @@ export function redirectPage(page) {
   <meta charset="UTF-8" />
   <title>${escape(page.title)}</title>
   <link rel="canonical" href="${SITE}${target}" />
-  <meta http-equiv="refresh" content="0; url=${target}" />
   <script>location.replace(${JSON.stringify(page.url)} + location.hash);</script>
+  <noscript><meta http-equiv="refresh" content="0; url=${target}" /></noscript>
 </head>
 <body><p>This page has moved to <a href="${target}">${target}</a>.</p></body>
 </html>

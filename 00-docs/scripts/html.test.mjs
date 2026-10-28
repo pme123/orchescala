@@ -18,7 +18,7 @@ describe('pageHtml', () => {
 describe('redirectPage', () => {
   it('redirects to the page and keeps the anchor', () => {
     const html = redirectPage(page);
-    expect(html).toContain('<meta http-equiv="refresh" content="0; url=/orchescala/a/" />');
+    expect(html).toContain('<noscript><meta http-equiv="refresh" content="0; url=/orchescala/a/" /></noscript>');
     expect(html).toContain('location.replace("/orchescala/a/" + location.hash)');
     expect(html).toContain('<link rel="canonical" href="https://pme123.github.io/orchescala/a/" />');
   });
