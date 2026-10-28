@@ -117,8 +117,7 @@ interface StoreCtx {
   /** `audit`: what was already changed on load (retired fields) — goes into the log with the next save.
    *  null: not in the folder (or no folder); a read error rejects */
   loadSpec: (slug: string) => Promise<{ data: ProcessSpec; version: string; audit: AuditEntry[] } | null>;
-  /** the BPMN for the specification — `processes/<slug>.bpmn` */
-  /** null: no diagram yet; a read error rejects */
+  /** the BPMN for the specification — `processes/<slug>.bpmn`. null: no diagram yet; a read error rejects */
   loadBpmn: (slug: string) => Promise<string | null>;
   saveBpmn: (slug: string, xml: string) => Promise<{ ok: true } | { ok: false; message: string }>;
   /** the table of a DMN decision — `processes/<slug>/<decisionId>.dmn` */

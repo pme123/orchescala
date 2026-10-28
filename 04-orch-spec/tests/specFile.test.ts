@@ -26,5 +26,6 @@ test('a read error rejects with its message', async () => {
 test('a file that is not JSON rejects with the path and the cause', async () => {
   await assert.rejects(
     readSpecFile(backend(async () => ({ text: '<!doctype html>', version: '1' })), 'processes/x.json'),
-    (e: Error) => e.message.startsWith('processes/x.json ist unlesbar (kein gültiges JSON: ') && /Unexpected token|not valid JSON/.test(e.message));
+    // the cause comes from the JS engine - only that it is there, not its wording
+    (e: Error) => /^processes\/x\.json ist unlesbar \(kein gültiges JSON: .+\)\.$/.test(e.message));
 });
