@@ -95,10 +95,11 @@ when two companies preview on the same machine:
 override protected def docsPreviewPort: Int = 3003
 ```
 
-Each company has a folder for orch-spec and one for orch-ops: `00-docs/spec` and `00-docs/ops`.
-`prepareDocs` creates them, and the preview shows the path on the start screen of both apps (with a
-copy button - in the folder dialog on macOS paste it with ⌘⇧G). A browser cannot be given a folder,
-so it is linked once per preview port; the browser remembers it afterwards. Other folders:
+Each company has a folder for orch-spec and one for orch-ops: `00-docs/testdata/spec` and
+`00-docs/testdata/ops`. `prepareDocs` creates them, and the preview shows the path on the start
+screen of both apps (with a copy button - in the folder dialog on macOS paste it with ⌘⇧G). A browser
+cannot be given a folder, so it is linked once per preview port; the browser remembers it afterwards.
+Other folders:
 
 ```scala
 override protected def docsSpecDir: os.Path = os.home / "specs" / "my-company"
