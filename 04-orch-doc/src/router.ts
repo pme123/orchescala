@@ -37,11 +37,6 @@ export function parseHash(hash: string): Route {
   }
 }
 
-/** The page a route shows - without `op`, which only selects an operation on the API page. The app
- *  scrolls to the top only when the page changes, not when another operation is selected. */
-export const pageKey = (route: Route): string =>
-  JSON.stringify(route.kind === 'api' ? { ...route, op: undefined } : route);
-
 export function useRoute(): Route {
   const [route, setRoute] = useState(() => parseHash(window.location.hash));
   useEffect(() => {
