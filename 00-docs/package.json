@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
   "scripts": {
     "dev": "vite --port=3020",
     "build": "vite build && vite build --ssr web/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs",
