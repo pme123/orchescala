@@ -11,13 +11,14 @@ object NameOf:
     Expr(name)
   end nameOfVariable
 
-  /** The name of the val (or def) the expression is defined in - e.g. `Approved` for
+  /** The name of the val the expression is defined in - e.g. `Approved` for
     * `lazy val Approved = example.exists("x")`. Outside of one: [[nameOfVariable]].
+    * Defs do not count - a helper like `def scenarios` or `def run` is no scenario name.
     */
   def nameOfEnclosingVal(x: Expr[Any])(using Quotes): Expr[String] =
     import quotes.reflect.*
     def isNamed(sym: Symbol) =
-      (sym.isValDef || sym.isDefDef) &&
+      sym.isValDef &&
         !sym.flags.is(Flags.Synthetic) && !sym.flags.is(Flags.Param) &&
         !sym.name.startsWith("$") && !sym.name.startsWith("<")
     def enclosing(sym: Symbol): Option[String] =

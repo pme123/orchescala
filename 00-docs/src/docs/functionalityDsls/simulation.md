@@ -480,6 +480,7 @@ Now only these checks are run by the validation.
 
 A check on a process makes it a scenario named after the `val` it is defined in -
 here `WithOverrideScenario`, not `Invoice Receipt with Override`.
+In a `def`, or outside of a `val`, it keeps the name of the process.
 
 The following overrides are provided (for now):
 

@@ -37,7 +37,11 @@ object SimulationDslSpec extends ZIOSpecDefault:
     lazy val CheckContains: ProcessScenario       = example.contains("x")
 
     val StrictVal: ProcessScenario  = example.exists("a")
+    // a def is no scenario name - e.g. `def scenarios` or `def run`
     def InDef: ProcessScenario      = example.exists("a")
+    def InDefWithVal: ProcessScenario =
+      val Local = example.exists("a")
+      Local
     lazy val InLambda: ProcessScenario = Seq(1).map(_ => example.exists("a")).head
     // known limit: several checked processes in one val all get the name of that val
     lazy val Several: Seq[ProcessScenario] = Seq(example.exists("a"), example.notExists("b"))
@@ -86,11 +90,16 @@ object SimulationDslSpec extends ZIOSpecDefault:
         checks.forall((scen, expected) => overrideOf(scen) == Seq(expected))
       )
     },
-    test("a strict val, a def and a lambda inside a val are named after the val or def") {
+    test("a strict val and a lambda inside a val are named after the val") {
       assertTrue(
         Dsl.StrictVal.scenarioName == "StrictVal",
-        Dsl.InDef.scenarioName == "InDef",
         Dsl.InLambda.scenarioName == "InLambda"
+      )
+    },
+    test("a check in a def keeps the name of the process - a val inside the def counts") {
+      assertTrue(
+        Dsl.InDef.scenarioName == "example",
+        Dsl.InDefWithVal.scenarioName == "Local"
       )
     },
     test("several checked processes in one val get the name of that val (known limit)") {
