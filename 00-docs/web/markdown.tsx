@@ -88,7 +88,9 @@ const rehypeLinks = (options: {dir: string; problems: string[]}) => (tree: Root)
       node.properties.rel = ['noopener', 'noreferrer'];
       return;
     }
-    const [path, hash] = href.split('#');
+    // only the first # starts the anchor; a query string (x.md?a) is not supported - such a link is reported
+    const cut = href.indexOf('#');
+    const [path, hash] = cut < 0 ? [href, ''] : [href.slice(0, cut), href.slice(cut + 1)];
     const target = resolvePath(options.dir, path);
     const docId = target.replace(/\.md$/, '');
     if (path.endsWith('.md')) {

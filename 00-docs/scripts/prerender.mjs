@@ -7,40 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-
-const SITE = 'https://pme123.github.io';
-
-const escape = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-
-function buildHead(page) {
-  const url = `${SITE}${page.url}`;
-  return [
-    `<title>${escape(page.title)}</title>`,
-    `<meta name="description" content="${escape(page.description)}" />`,
-    `<link rel="canonical" href="${url}" />`,
-    `<meta property="og:type" content="website" />`,
-    `<meta property="og:site_name" content="Orchescala" />`,
-    `<meta property="og:title" content="${escape(page.title)}" />`,
-    `<meta property="og:description" content="${escape(page.description)}" />`,
-    `<meta property="og:url" content="${url}" />`,
-  ].join('\n    ');
-}
-
-function redirectPage(page) {
-  const target = escape(page.url);
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>${escape(page.title)}</title>
-  <link rel="canonical" href="${SITE}${target}" />
-  <meta http-equiv="refresh" content="0; url=${target}" />
-  <script>location.replace(${JSON.stringify(page.url)} + location.hash);</script>
-</head>
-<body><p>This page has moved to <a href="${target}">${target}</a>.</p></body>
-</html>
-`;
-}
+import {pageHtml, redirectPage} from './html.mjs';
 
 async function main() {
   const distDir = path.resolve('dist');
@@ -64,11 +31,7 @@ async function main() {
   fs.writeFileSync(path.join(distDir, '404.html'), template);
 
   for (const page of pages()) {
-    let html = template.replace(
-      /<!-- seo:start -->[\s\S]*?<!-- seo:end -->/,
-      `<!-- seo:start -->\n    ${buildHead(page)}\n    <!-- seo:end -->`,
-    );
-    html = html.replace('<div id="root"></div>', `<div id="root">${render(page.url)}</div>`);
+    const html = pageHtml(template, page, render(page.url));
     const outPath = path.join(distDir, page.outFile);
     fs.mkdirSync(path.dirname(outPath), {recursive: true});
     fs.writeFileSync(outPath, html);
@@ -78,9 +41,9 @@ async function main() {
     // so links and search results to it keep working
     const legacyFile = page.outFile.replace(/\/index\.html$/, '.html');
     const legacyPath = path.join(distDir, legacyFile);
-    if (legacyFile !== page.outFile && !fs.existsSync(legacyPath)) {
-      fs.writeFileSync(legacyPath, redirectPage(page));
-    }
+    if (legacyFile === page.outFile) continue;
+    if (fs.existsSync(legacyPath)) console.warn(`warning: no redirect for ${legacyFile} - a file with that name exists`);
+    else fs.writeFileSync(legacyPath, redirectPage(page));
   }
 
   // the markdown sources come along with the content folder (publicDir) - the pages replace them
