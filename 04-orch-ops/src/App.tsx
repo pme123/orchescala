@@ -103,6 +103,10 @@ export default function App() {
   // the sign-in configuration comes from the shared folder's model.json
   const applyConfig = auth.applyConfig;
   useEffect(() => { if (model) applyConfig(model.auth); }, [model, applyConfig]);
+  // tab title: the company of the folder, if it has one
+  useEffect(() => {
+    document.title = model?.company ? `Orch Ops ${model.company}` : 'Z9nAI Orch Ops';
+  }, [model?.company]);
 
   const bg = isDark ? 'bg-[#0e0f11]' : 'bg-[#f5f4f0]';
   const border = isDark ? 'border-white/8' : 'border-black/8';
