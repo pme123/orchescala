@@ -245,23 +245,27 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     auditBase.current = null;
     auditQueue.current = [];
     setSpec(null); setVersion(null); setXml(null); setShowDiagram(false);
-    setLoadIssue(null);
+    setLoadIssue(null); setNotice(null);
     loadSpec(slug).then(r => {
       if (!alive) return;
       if (!r) { setLoadIssue({ missing: true }); return; }
-      setSpec(r.data);
-      setVersion(r.version);
+      // Subprocesses and error paths collapsed at first: overview first
+      // the pattern blocks too — their wiring is only shown when needed.
+      // Worked out before any state is set: if it throws, the catch below shows it.
+      const start = new Set<string>(foldIds(r.data.steps));
+      for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       auditBase.current = r.data;
       latest.current = r.data;
       auditQueue.current = [...r.audit];
-      // Subprocesses and error paths collapsed at first: overview first
-      // the pattern blocks too — their wiring is only shown when needed
-      const start = new Set<string>(foldIds(r.data.steps));
-      for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       setCollapsed(start);
-    }, e => {
+      setVersion(r.version);
+      setSpec(r.data);
+    }).catch(e => {
       console.error('[orch-spec] loadSpec:', e);
-      if (alive) setLoadIssue({ error: e instanceof Error ? e.message : String(e) });
+      if (!alive) return;
+      latest.current = null; auditBase.current = null;
+      setSpec(null);
+      setLoadIssue({ error: e instanceof Error ? e.message : String(e) });
     });
     loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } }, e => {
       console.error('[orch-spec] loadBpmn:', e);

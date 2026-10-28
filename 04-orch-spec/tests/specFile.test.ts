@@ -29,3 +29,11 @@ test('a file that is not JSON rejects with the path and the cause', async () => 
     // the cause comes from the JS engine - only that it is there, not its wording
     (e: Error) => /^processes\/x\.json ist unlesbar \(kein gültiges JSON: .+\)\.$/.test(e.message));
 });
+
+test('valid JSON that is no specification rejects with the path', async () => {
+  for (const text of ['null', '[]', '42', '"x"'])
+    await assert.rejects(
+      readSpecFile(backend(async () => ({ text, version: '1' })), 'processes/x.json'),
+      (e: Error) => e.message.startsWith('processes/x.json ist unlesbar (keine Spezifikation'),
+      text);
+});
