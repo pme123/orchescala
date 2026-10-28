@@ -59,6 +59,9 @@ jobs:
         run: python3 -m unittest -v test_build_theme
       - name: Compile
         run: sbt compile
+      - name: Compile the documentation snippets
+        # mdoc compiles the ```scala mdoc snippets of 00-docs/src/docs - so they keep up with the code
+        run: sbt docs/mdoc
       - name: Test
         # persistencePostgres/test runs against Postgres in Docker (Testcontainers) - on CI it fails
         # instead of being skipped when there is no Docker
