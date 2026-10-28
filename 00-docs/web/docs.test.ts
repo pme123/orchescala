@@ -67,6 +67,10 @@ describe('descriptionOf', () => {
     expect(text.endsWith('word …')).toBe(true);
     expect(text.length).toBeLessThanOrEqual(160);
   });
+  it('removes emphasis but keeps _ and * in words and patterns', () => {
+    expect(descriptionOf('Set **my_var** in `*.md` files - _not_ in __other__ ones, **_nested_** too.'))
+      .toBe('Set my_var in *.md files - not in other ones, nested too.');
+  });
   it('cuts a long paragraph without a space', () => {
     expect(descriptionOf('x'.repeat(200))).toBe(`${'x'.repeat(157)} …`);
   });

@@ -41,8 +41,22 @@ function proseLines(markdown: string): string[] {
   });
 }
 
-const plain = (s: string) =>
-  s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[`*_]/g, '').replace(/<[^>]+>/g, '').trim();
+const EMPHASIS = /(?<![\w*_])(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*_])/g;
+
+/** Text without markdown: links, emphasis (`*x*`, `**_x_**` - not `my_var` or `*.md`), code ticks and HTML tags. */
+function plain(s: string): string {
+  const withoutEmphasis = (text: string) => {
+    for (let prev = ''; prev !== text; ) [prev, text] = [text, text.replace(EMPHASIS, '$2')]; // nested: **_x_**
+    return text;
+  };
+  return s
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .split('`') // odd parts are code spans - kept as they are
+    .map((part, i) => (i % 2 === 0 ? withoutEmphasis(part) : part))
+    .join('')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
 
 function titleOf(id: string, markdown: string): string {
   // the first heading - a `# heading` if there is one
