@@ -19,7 +19,8 @@ The content is markdown - in [src/docs](src/docs):
   ```
   `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` are supported.
 - `<!-- include: other.md -->` (on its own line) puts the content of another page there - such a
-  page is listed as a partial in [web/nav.ts](web/nav.ts).
+  page is listed as a partial in [web/nav.ts](web/nav.ts). It must be in the same folder as the page
+  that includes it (its relative links and images are resolved from there).
 - `@VERSION@` is replaced with the version from the `version` file.
 - Raw HTML works too (`<img src="images/x.png" width="800">`, `<details>` …).
 
@@ -31,6 +32,9 @@ npm install
 npm run dev     # http://localhost:3020/orchescala/
 npm run build   # dist/ - what GitHub Pages serves
 ```
+
+The build fails on a broken include, a link to a page or file that does not exist and a missing
+image; it warns about a page without a description (the first paragraph of text).
 
 The Scala snippets marked ` ```scala mdoc ` are compiled with [mdoc](https://scalameta.org/mdoc/):
 `sbt docs/mdoc` (the release runs it as well).

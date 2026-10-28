@@ -36,7 +36,13 @@ async function main() {
     throw new Error('dist-ssr/entry-server.js is missing - run "vite build --ssr web/entry-server.tsx --outDir dist-ssr" first.');
   }
   const template = fs.readFileSync(templatePath, 'utf-8');
-  const {render, pages} = await import(pathToFileURL(ssrEntryPath).href);
+  const {render, pages, check} = await import(pathToFileURL(ssrEntryPath).href);
+
+  const {errors, warnings} = check();
+  warnings.forEach(w => console.warn(`warning: ${w}`));
+  if (errors.length > 0) {
+    throw new Error(`${errors.length} broken include(s), link(s) or image(s):\n  ${errors.join('\n  ')}`);
+  }
 
   // unknown URLs (and the old Laika URLs like /orchescala/specification.html) - the app finds the page
   fs.writeFileSync(path.join(distDir, '404.html'), template);

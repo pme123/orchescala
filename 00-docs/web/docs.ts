@@ -59,12 +59,22 @@ function descriptionOf(markdown: string): string {
   return text.length > 160 ? text.slice(0, 157) + '…' : text;
 }
 
-/** `<!-- include: other.md -->` is replaced with the content of that page. */
-function withIncludes(markdown: string, dir: string, depth = 0): string {
+/** Broken includes found while loading the pages - the build fails on them (see entry-server.tsx). */
+export const includeProblems: string[] = [];
+
+/**
+ * `<!-- include: other.md -->` is replaced with the content of that page. The included page must be
+ * in the same folder: its relative links and images are resolved against the including page.
+ */
+function withIncludes(markdown: string, id: string, dir: string, depth = 0): string {
   return markdown.replace(/^<!--\s*include:\s*([\w./-]+\.md)\s*-->$/gm, (all, file) => {
-    const included = rawPages[CONTENT_ROOT + resolvePath(dir, file)];
-    if (included === undefined || depth > 3) return all;
-    return withIncludes(included, dirOf(resolvePath(dir, file)), depth + 1);
+    const target = resolvePath(dir, file);
+    const included = rawPages[CONTENT_ROOT + target];
+    if (included === undefined) includeProblems.push(`${id}: include ${file} - there is no such page`);
+    else if (dirOf(target) !== dir) includeProblems.push(`${id}: include ${file} - must be in the same folder`);
+    else if (depth >= 3) includeProblems.push(`${id}: include ${file} - nested more than 3 levels`);
+    else return withIncludes(included, id, dir, depth + 1);
+    return all;
   });
 }
 
@@ -83,7 +93,7 @@ for (const [file, raw] of Object.entries(rawPages)) {
   const id = idOf(file);
   if (partials.includes(id)) continue;
   const dir = dirOf(id);
-  const markdown = withIncludes(raw, dir).replaceAll('@VERSION@', version);
+  const markdown = withIncludes(raw, id, dir).replaceAll('@VERSION@', version);
   docsById.set(id, {id, dir, title: titleOf(id, markdown), description: descriptionOf(markdown), markdown});
 }
 

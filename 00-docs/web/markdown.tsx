@@ -26,7 +26,8 @@ import {visit} from 'unist-util-visit';
 import {assetUrl, type Doc, docUrl, findDoc, resolvePath} from './docs';
 
 export type TocEntry = {id: string; text: string; level: number};
-export type Rendered = {content: ReactNode; toc: TocEntry[]};
+/** `problems`: links and images that point nowhere - the build fails on them (see entry-server.tsx). */
+export type Rendered = {content: ReactNode; toc: TocEntry[]; problems: string[]};
 
 const ALERTS: Record<string, string> = {
   NOTE: 'Note',
@@ -65,11 +66,15 @@ const rehypeAlerts = () => (tree: Root) => {
 const isExternal = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//');
 
 /** Links to other pages (`../x/y.md#anchor`) and files of src/docs get their site URLs. */
-const rehypeLinks = (options: {dir: string}) => (tree: Root) => {
+const rehypeLinks = (options: {dir: string; problems: string[]}) => (tree: Root) => {
   visit(tree, 'element', (node: Element) => {
     if (node.tagName === 'img' && typeof node.properties.src === 'string') {
       const src = node.properties.src;
-      if (!isExternal(src)) node.properties.src = assetUrl(resolvePath(options.dir, src)) ?? src;
+      if (!isExternal(src)) {
+        const url = assetUrl(resolvePath(options.dir, src));
+        if (url) node.properties.src = url;
+        else options.problems.push(`image ${src} - there is no such file`);
+      }
       node.properties.loading = 'lazy';
     }
     if (node.tagName !== 'a' || typeof node.properties.href !== 'string') return;
@@ -83,15 +88,17 @@ const rehypeLinks = (options: {dir: string}) => (tree: Root) => {
     const [path, hash] = href.split('#');
     const target = resolvePath(options.dir, path);
     const docId = target.replace(/\.md$/, '');
-    if (path.endsWith('.md') && findDoc(docId)) {
-      node.properties.href = docUrl(docId) + (hash ? `#${hash}` : '');
-      node.properties.dataInternal = 'true';
+    if (path.endsWith('.md')) {
+      if (findDoc(docId)) {
+        node.properties.href = docUrl(docId) + (hash ? `#${hash}` : '');
+        node.properties.dataInternal = 'true';
+      } else options.problems.push(`link ${href} - there is no such page`);
     } else {
       const url = assetUrl(target);
       if (url) {
         node.properties.href = url + (hash ? `#${hash}` : '');
         node.properties.target = '_blank';
-      }
+      } else options.problems.push(`link ${href} - there is no such file`);
     }
   });
 };
@@ -140,6 +147,7 @@ const cache = new Map<string, Rendered>();
 export function renderDoc(doc: Doc): Rendered {
   const cached = cache.get(doc.id);
   if (cached) return cached;
+  const problems: string[] = [];
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -147,12 +155,12 @@ export function renderDoc(doc: Doc): Rendered {
     .use(rehypeRaw)
     .use(rehypeSlug)
     .use(rehypeAlerts)
-    .use(rehypeLinks, {dir: doc.dir})
+    .use(rehypeLinks, {dir: doc.dir, problems})
     .use(rehypeCodeHighlight);
   const tree = processor.runSync(processor.parse(doc.markdown)) as Root;
   const toc = tocOf(tree);
   rehypeHeadingAnchors()(tree);
-  const rendered = {content: toJsxRuntime(tree, {Fragment, jsx, jsxs}), toc};
+  const rendered = {content: toJsxRuntime(tree, {Fragment, jsx, jsxs}), toc, problems};
   cache.set(doc.id, rendered);
   return rendered;
 }
