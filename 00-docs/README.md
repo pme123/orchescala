@@ -36,6 +36,9 @@ npm run lint    # tsc
 npm run ci      # lint, test and build - what CI and the deploy run
 ```
 
+A new image or file in `src/docs` shows up in `npm run dev` after a restart of the dev server
+(the list of files is read at start).
+
 The build fails on a broken include, a link to a page, file or anchor (`#heading`) that does not exist, a missing image
 and an entry in `web/nav.ts` without a page; it warns about a page without a description (the first
 paragraph of text) and a code block in a language without highlighting (see `web/markdown.tsx`).
