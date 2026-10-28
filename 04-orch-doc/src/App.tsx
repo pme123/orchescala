@@ -9,7 +9,7 @@ import Overview from './components/Overview';
 import Release from './components/Release';
 import SearchBox from './components/SearchBox';
 import { useCompanyDocs, useSiteIndex } from './data';
-import { href, useRoute, type Route } from './router';
+import { href, pageKey, useRoute, type Route } from './router';
 import type { CompanyDocs, CompanyRef, SiteIndex } from './types';
 import { Card, Empty, cls } from './ui';
 
@@ -25,7 +25,13 @@ export default function App() {
   const site = useSiteIndex();
   const docs = useCompanyDocs(company);
   const [navOpen, setNavOpen] = useState(false);
-  useEffect(() => { setNavOpen(false); window.scrollTo({ top: 0 }); }, [route]);
+  useEffect(() => { setNavOpen(false); }, [route]);
+  // a new page starts at the top - selecting another operation on the API page does not; a link to
+  // an operation (`?op=`) is brought into view by the API page itself
+  const page = pageKey(route);
+  useEffect(() => {
+    if (!(route.kind === 'api' && route.op)) window.scrollTo({ top: 0 });
+  }, [page]);
   const c = cls(isDark);
   const siteData = site.state === 'ok' ? site.data : undefined;
   const companyRef = siteData?.companies.find(x => x.id === company) ?? (company ? { id: company, name: company } : undefined);
