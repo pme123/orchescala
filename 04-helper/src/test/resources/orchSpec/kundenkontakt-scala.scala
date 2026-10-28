@@ -1,13 +1,13 @@
 // ────────────────────────────────────────────────────────────────────────
-// 01-domain/src/main/scala/valiant/addresschange/domain/kundenkontaktDokumentieren/v1/KundenkontaktDokumentieren.scala  (in die bestehende Datei einfügen)
+// 01-domain/src/main/scala/acme/addresschange/domain/kundenkontaktDokumentieren/v1/KundenkontaktDokumentieren.scala  (in die bestehende Datei einfügen)
 // ────────────────────────────────────────────────────────────────────────
 
 // oben in der Datei ergänzen:
 // import io.github.iltotore.iron.*
 // import io.github.iltotore.iron.constraint.all.*
-// import valiant.graviton.domain.person.v1.GetCustomer
-// import valiant.addresschange.customerContactNotesV1.CreateContactNote.domain.CreateContactNote.v1.CreateContactNote  // Pfad prüfen
-// import valiant.graviton.domain.work.v1.PostWorkActivity
+// import acme.graviton.domain.person.v1.GetCustomer
+// import acme.addresschange.customerContactNotesV1.CreateContactNote.domain.CreateContactNote.v1.CreateContactNote  // Pfad prüfen
+// import acme.graviton.domain.work.v1.PostWorkActivity
 
 // in object KundenkontaktDokumentieren einfügen
 // (InConfig und InitIn werden aus dem Ablauf erzeugt — nicht von Hand pflegen)
@@ -81,15 +81,15 @@
   end InitIn
 
 // ────────────────────────────────────────────────────────────────────────
-// 01-domain/src/main/scala/valiant/addresschange/domain/kundenkontaktDokumentieren/v1/CreateContactNote.scala
+// 01-domain/src/main/scala/acme/addresschange/domain/kundenkontaktDokumentieren/v1/CreateContactNote.scala
 // ────────────────────────────────────────────────────────────────────────
 
-package valiant.addresschange.domain.kundenkontaktDokumentieren.v1
+package acme.addresschange.domain.kundenkontaktDokumentieren.v1
 
 /** Creates the contact note. */
 object CreateContactNote extends CompanyBpmnCustomTaskDsl:
 
-  val topicName = "valiant-addresschange-customerContactNotesV1-CreateContactNote"
+  val topicName = "acme-addresschange-customerContactNotesV1-CreateContactNote"
   val descr = "Creates the contact note."
 
   case class In(

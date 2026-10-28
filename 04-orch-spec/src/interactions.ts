@@ -100,7 +100,7 @@ export function interactionKind(step: Step, processId: string): InteractionKind 
   // its fields are in the process's `In` (see `missingInteractions`).
   if (step.kind !== 'receive' && step.eventKind !== 'message' && !(step.eventKind === 'signal' && step.eventDirection === 'throw')) return null;
   // only the messages and signals of this process — as with the workers: a
-  // name of another process (`valiant-bpmn-stopEscalation-…`, `valiant-cancel-…`
+  // name of another process (`acme-bpmn-stopEscalation-…`, `acme-cancel-…`
   // from a pattern) is wiring, its object lives there
   if (step.messageName && processId && !step.messageName.startsWith(processId.replace(/V\d+$/, ''))) return null;
   return step.eventKind === 'signal' ? 'signal' : 'message';
@@ -297,7 +297,7 @@ export interface ForeignOrigin {
   /** the domain object, e.g. `SubStatusAllDmn` */
   object: string;
   pkg: string;
-  /** the project after the package convention: `valiant.bpmn.domain…` → `valiant-bpmn` */
+  /** the project after the package convention: `acme.bpmn.domain…` → `acme-bpmn` */
   project: string;
 }
 
@@ -540,7 +540,7 @@ export interface InteractionOrigin {
  *
  * - if `ia.pkg` is set (remembered on creation), that applies
  * - a match in the own package: the own object
- * - a key with a placeholder (`valiant-cancel-${…}`) applies per process instance —
+ * - a key with a placeholder (`acme-cancel-${…}`) applies per process instance —
  *   each process defines it itself: without its own match, new
  * - exactly one foreign match: referenced; several: new, but needs checking
  */

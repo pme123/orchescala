@@ -121,7 +121,7 @@ test('import keeps the alias and the deviating values - export writes them again
 });
 
 test('a key with a value from Scala is an interpolated string - JUEL stays text', () => {
-  assert.equal(scalaKey('valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}'), 's"valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}"');
+  assert.equal(scalaKey('acme-cancel-${SignalEvent.Dynamic_ProcessInstance}'), 's"acme-cancel-${SignalEvent.Dynamic_ProcessInstance}"');
   assert.equal(scalaKey('Wert ${execution.processInstanceId}'), '"Wert ${execution.processInstanceId}"');
   assert.equal(scalaKey('${OrderCard.processName} kostet 5$'), 's"${OrderCard.processName} kostet 5$$"');
 });

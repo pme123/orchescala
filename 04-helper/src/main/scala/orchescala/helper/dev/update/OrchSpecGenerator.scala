@@ -251,7 +251,7 @@ object OrchSpecNames:
     exported.filter(exists).getOrElse(derived)
 
   /** The names from the process id - the same way Orch Spec derives them:
-    *   - `valiant-addresschange-kundenkontakt-dokumentieren` -> `kundenkontaktDokumentieren`, 1, `KundenkontaktDokumentieren`
+    *   - `acme-addresschange-kundenkontakt-dokumentieren` -> `kundenkontaktDokumentieren`, 1, `KundenkontaktDokumentieren`
     *   - `globex-savings-openSavingsV2` -> `openSavings`, 2, `OpenSavings` (the version is in the package)
     */
   def apply(processId: String, projectName: String): OrchSpecNames =
@@ -599,7 +599,7 @@ object OrchSpecExport:
       .map(m => m.group(1) -> m.group(2))
 
   /** The interactions that get a worker: the custom tasks of this process - their topic starts with
-    * the process id (`valiant-product-orderCard-…`, also `…orderCardV1-…`); one of another project
+    * the process id (`acme-product-orderCard-…`, also `…orderCardV1-…`); one of another project
     * exists there already. A user task, a signal and a message have none - a validation worker was
     * created and registered for each signal and message.
     */
@@ -832,7 +832,7 @@ case class OrchSpecProcessObject(
       )
     else Seq.empty
 
-  // `package valiant.product.domain` + `package lilaSet.v2` - everything of the domain package is
+  // `package acme.product.domain` + `package lilaSet.v2` - everything of the domain package is
   // visible without import, as in the domain files; without `domain` one clause
   private lazy val packageClause: Seq[String] =
     val parts = pkg.split('.').toSeq
@@ -1378,7 +1378,7 @@ object OrchSpecImports:
     selector.stripPrefix("{").stripSuffix("}").split(",").toSeq.map(_.trim.split("\\s+").head)
       .map(n => if n == "_" then "*" else n).filter(_.nonEmpty)
 
-  // `package valiant.product` + `package domain.orderCard.v1` - both are visible without import
+  // `package acme.product` + `package domain.orderCard.v1` - both are visible without import
   private def visiblePackages(lines: Seq[String]): Seq[String] =
     lines.takeWhile(l => !l.startsWith("object ") && !l.startsWith("import "))
       .collect { case l if l.startsWith("package ") => l.stripPrefix("package ").trim }
