@@ -37,6 +37,32 @@ object MessageRunnerSpec extends ZIOSpecDefault:
     def deploymentService              = ???
   end RefusingEngine
 
+  /** An engine that accepts every message - records what it got. */
+  private class RecordingEngine extends ProcessEngine:
+    val sent = java.util.concurrent.ConcurrentLinkedQueue[(Option[String], Option[orchescala.domain.IdentityCorrelation])]()
+    val messageService: MessageService = new MessageService:
+      def engineType = orchescala.engine.domain.EngineType.C7
+      def sendMessage(
+          name: String,
+          tenantId: Option[String],
+          timeToLiveInSec: Option[Int],
+          businessKey: Option[String],
+          processInstanceId: Option[String],
+          variables: Option[io.circe.JsonObject],
+          identityCorrelation: Option[orchescala.domain.IdentityCorrelation]
+      ): IO[EngineError, MessageCorrelationResult] =
+        ZIO.succeed(sent.add(processInstanceId -> identityCorrelation))
+          .as(MessageCorrelationResult.ProcessInstance("pi-1", "pi-1", orchescala.engine.domain.EngineType.C7))
+    def processInstanceService         = ???
+    def historicProcessInstanceService = ???
+    def historicVariableService        = ???
+    def incidentService                = ???
+    def jobService                     = ???
+    def signalService                  = ???
+    def userTaskService                = ???
+    def deploymentService              = ???
+  end RecordingEngine
+
   def spec = suite("Sending a message in a simulation")(
     test("a refused message fails with its error - it was only 'was not found'") {
       given ProcessEngine    = RefusingEngine
@@ -49,6 +75,17 @@ object MessageRunnerSpec extends ZIOSpecDefault:
           case SimulationError.WaitingError(data) => data.logEntries.map(_.toString).mkString("\n")
           case other                              => other.toString
         assertTrue(logged.contains("variable 'amount' has a wrong type"), logged.contains("Last error"))
-    } @@ TestAspect.withLiveClock
+    } @@ TestAspect.withLiveClock,
+    test("a message to the process instance carries the test identity - the engine signs it as actor") {
+      val engine             = RecordingEngine()
+      given ProcessEngine    = engine
+      given SimulationConfig = DefaultSimulationConfig()
+      given ScenarioData     = ScenarioData("message", ContextData(processInstanceId = "pi-1"))
+      val event              = SMessageEvent("message", MessageEvent("my-message", InOutDescr("my-message", NoInput())))
+      for _ <- MessageRunner(event).sendMessage
+      yield
+        import scala.jdk.CollectionConverters.*
+        assertTrue(engine.sent.asScala.toSeq == Seq(Some("pi-1") -> Some(testIdentityCorrelation)))
+    }
   )
 end MessageRunnerSpec
