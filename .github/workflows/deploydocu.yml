@@ -34,7 +34,7 @@ jobs:
       - name: Build the documentation site
         # Vite/React app in 00-docs - renders the markdown of 00-docs/src/docs, one prerendered page per file
         working-directory: 00-docs
-        run: npm ci && npm run lint && npm test && npm run build
+        run: npm ci && npm run ci
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: 00-docs/package-lock.json
       - name: Lint, test and build the documentation site
         working-directory: 00-docs
-        run: npm ci && npm run lint && npm test && npm run build
+        run: npm ci && npm run ci
   testAndGenerateDocs:
     runs-on: ubuntu-latest
     # a run takes about 7 minutes (more with a cold cache) - a hanging test fails the job instead of blocking it for 6 hours

@@ -33,6 +33,7 @@ npm run dev     # http://localhost:3020/orchescala/
 npm run build   # dist/ - what GitHub Pages serves
 npm test        # vitest - links, includes, callouts …
 npm run lint    # tsc
+npm run ci      # lint, test and build - what CI and the deploy run
 ```
 
 The build fails on a broken include, a link to a page, file or anchor (`#heading`) that does not exist, a missing image

@@ -12,7 +12,8 @@
     "preview": "vite preview --port=4180",
     "clean": "rm -rf dist dist-ssr",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ci": "npm run lint && npm test && npm run build"
   },
   "dependencies": {
     "hast-util-to-jsx-runtime": "^2.3.6",
