@@ -74,6 +74,16 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       ProcessScenario(nameOfEnclosingVal(process), process).contains(expected)
   end extension
 
+  // Acting as another identity names the step after the val it is defined in, like the checks
+  // on a process: `lazy val CloseUT = CloseRequestUT.example.actingAs(testActorIdentityCorrelation)`.
+  extension (inline task: UserTask[?, ?])
+    inline def actingAs(identity: IdentityCorrelation): SUserTask =
+      SUserTask(nameOfEnclosingVal(task), task).actingAs(identity)
+
+  extension (inline event: MessageEvent[?])
+    inline def actingAs(identity: IdentityCorrelation): SMessageEvent =
+      SMessageEvent(nameOfEnclosingVal(event), event).actingAs(identity)
+
   inline given Conversion[UserTask[?, ?], SUserTask] with
     inline def apply(task: UserTask[?, ?]): SUserTask =
       SUserTask(nameOfVariable(task), task)
@@ -94,7 +104,7 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     def waitFor(readyVariable: String): SMessageEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): SMessageEvent =
-      SMessageEvent(event.name, event.inOut, Some(readyVariable), readyValue)
+      event.copy(scenarioName = event.name, optReadyVariable = Some(readyVariable), readyValue = readyValue)
 
   end extension
 
@@ -103,19 +113,19 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       event.waitFor(readyVariable, true)
 
     def waitFor(readyVariable: String, readyValue: Any): SSignalEvent =
-      SSignalEvent(event.scenarioName, event.inOut, readyVariable, readyValue)
+      event.copy(readyVariable = readyVariable, readyValue = readyValue)
   end extension
 
   extension (event: STimerEvent)
     def waitFor(readyVariable: String): STimerEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): STimerEvent =
-      STimerEvent(event.scenarioName, event.inOut, Some(readyVariable), readyValue)
+      event.copy(optReadyVariable = Some(readyVariable), readyValue = readyValue)
   end extension
 
   extension (ut: SUserTask)
     def waitForSec(sec: Int): SUserTask =
-      SUserTask(ut.scenarioName, ut.inOut, waitForSec = Some(sec))
+      ut.copy(waitForSec = Some(sec))
 
   end extension
 

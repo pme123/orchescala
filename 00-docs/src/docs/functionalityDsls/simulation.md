@@ -395,6 +395,30 @@ scenario(PROCESS)(
 
 See example in [Process Scenarios].
 
+### Acting as another identity
+
+A simulation starts the process, completes the user tasks and sends the messages as the same test
+identity, `testIdentityCorrelation`. To complete a user task or send a message as someone else - e.g.
+to check that the process takes over the identity of the person who approved and resets it later -
+use `actingAs`:
+
+```scala
+scenario(`Identity approved`)(
+  `Approve Request UT`, // as the starter
+  `Close Request UT`    // as another person
+)
+...
+private lazy val `Close Request UT` =
+  CloseRequestUT.example
+    .actingAs(testActorIdentityCorrelation)
+```
+
+The engine passes this identity as `_identityCorrelationOfActor` - signed for the process
+instance, for a message only when it goes to the process instance (not when it starts one or
+is correlated by a `businessKey`). `testActorIdentityCorrelation` is a second test identity
+(username `actor`); you can also pass your own `IdentityCorrelation`. Like the checks on a process,
+the step is named after the `val` it is defined in.
+
 ### Sub Process (Call Activity)
 
 A sub process must be mocked, see [Mocking].
