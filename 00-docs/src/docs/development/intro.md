@@ -1,6 +1,3 @@
-{%
-helium.site.pageNavigation.enabled = false
-%}
 # Introduction
 
 ## Pre-Requisites

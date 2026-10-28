@@ -37,6 +37,5 @@ trait CompanyBpmnDsl extends BpmnDsl:
 end CompanyBpmnDsl
 ```
 
-@:callout(info)
-Documentation of `companyDescr` will be in every BPMN element you define by the DSL, e.g. processes or workers.
-@:@
+> [!NOTE]
+> Documentation of `companyDescr` will be in every BPMN element you define by the DSL, e.g. processes or workers.

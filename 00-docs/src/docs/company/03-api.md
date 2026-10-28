@@ -183,9 +183,8 @@ lazy val services = ProjectGroup(
 
 ```
 
-@:callout(info)
-All other information is taken automatically from the _ApiProjectConf_.
-@:@
+> [!NOTE]
+> All other information is taken automatically from the _ApiProjectConf_.
 
 ## Standard Features:
 
@@ -222,9 +221,8 @@ end InputParams
 ```
 That expects that your implementation can handle these variables.
 
-@:callout(info)
-If you are using our Workers they are supported out of the box!
-@:@
+> [!NOTE]
+> If you are using our Workers they are supported out of the box!
 
 If you only want to support some of them, you can override them:
 
@@ -266,9 +264,8 @@ There are 3 ways:
 2. As a link to download the BPMN-/ DMN-diagram
 3. As SVG image to show the diagram in the browser (you can zoom in and out)
 
-@:callout(info)
-This is only working if you upload your BPMN- and DMN-diagrams to a Web server (via WebDAV).
-@:@
+> [!NOTE]
+> This is only working if you upload your BPMN- and DMN-diagrams to a Web server (via WebDAV).
 
 
 ### Project dependencies
@@ -344,15 +341,13 @@ For each Worker, the Scala sources of all configured projects are checked:
 - The Topic of a Worker is taken from the Domain Object it imports (`topicName` / `processName`
   of the `01-domain` module), so it can be linked to its documentation.
 
-@:callout(info)
-A Worker of a project that is not configured (e.g. a Worker of another company) has no
-documentation to link to - only its class name is listed.
-@:@
+> [!NOTE]
+> A Worker of a project that is not configured (e.g. a Worker of another company) has no
+> documentation to link to - only its class name is listed.
 
-@:callout(info)
-The BPMNs and DMNs are resolved by their ids. So it is essential that the ids are unique.
-
-This is done by following naming conventions.
-You can easily enforce that by using the provided generators, see [Generate Process/-Elements].
-
-@:@
+> [!NOTE]
+> The BPMNs and DMNs are resolved by their ids. So it is essential that the ids are unique.
+>
+> This is done by following naming conventions.
+> You can easily enforce that by using the provided generators, see [Generate Process/-Elements].
+>

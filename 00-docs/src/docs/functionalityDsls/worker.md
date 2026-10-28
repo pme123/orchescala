@@ -3,9 +3,8 @@ The implementation of an **_External Task_** is done by a _**Worker**_.
 
 So for each _External Task_ type we have a DSL for an according _Worker_.
 
-@:callout(info)
-In the future, it is possible to have more than the Worker types, that are described here.
-@:@
+> [!NOTE]
+> In the future, it is possible to have more than the Worker types, that are described here.
 
 ## General
 Let's start with functions that are provided for all Workers.
@@ -78,7 +77,7 @@ In a process it is a `CustomError` like any other (no retries). The status is ca
 `causeError` - a copy with another cause is a plain `CustomError` (500) again. Only a 4xx counts - not the auth
 statuses 401, 403 and 407, they belong to the token check.
 
-@:include(workers_advanced.md)
+<!-- include: workers_advanced.md -->
 
 ## Init Process Worker
 The _Init Process Worker_ is a special _Worker_ that is used to start a process.
@@ -261,9 +260,8 @@ override def outputMapper(
 
 Mapping the response body and -headers to the output variables.
 
-@:callout(info)
-As you can see there are only two methods that can fail:
-- `validate` -> For the input, use this methode to validate the input and return any possible error.
-- `outputMapper` -> For the output, we do not have an extra 'validate' method. 
-  So if the service response is not as expected, you can return an error here.
-@:@
+> [!NOTE]
+> As you can see there are only two methods that can fail:
+> - `validate` -> For the input, use this methode to validate the input and return any possible error.
+> - `outputMapper` -> For the output, we do not have an extra 'validate' method. 
+>   So if the service response is not as expected, you can return an error here.
