@@ -26,8 +26,11 @@ import {visit} from 'unist-util-visit';
 import {assetUrl, type Doc, docUrl, findDoc, resolvePath} from './docs';
 
 export type TocEntry = {id: string; text: string; level: number};
-/** `problems`: links and images that point nowhere - the build fails on them (see entry-server.tsx). */
-export type Rendered = {content: ReactNode; toc: TocEntry[]; problems: string[]};
+/**
+ * `problems`: links and images that point nowhere - the build fails on them (see entry-server.tsx).
+ * `warnings`: code blocks in a language without highlighting.
+ */
+export type Rendered = {content: ReactNode; toc: TocEntry[]; problems: string[]; warnings: string[]};
 
 const ALERTS: Record<string, string> = {
   NOTE: 'Note',
@@ -121,13 +124,17 @@ const lowlight = createLowlight({bash, groovy, ini, javascript, json, plaintext,
 lowlight.registerAlias({ini: ['hocon', 'conf'], plaintext: ['log', 'mermaid', 'text'], shell: ['sh', 'console']});
 
 /** Syntax highlighting of fenced code blocks (```scala …). */
-const rehypeCodeHighlight = () => (tree: Root) => {
+const rehypeCodeHighlight = (options: {warnings: string[]}) => (tree: Root) => {
   visit(tree, 'element', (node: Element, _index, parent) => {
     if (node.tagName !== 'code' || (parent as Element | undefined)?.tagName !== 'pre') return;
     const classes = Array.isArray(node.properties.className) ? node.properties.className.map(String) : [];
     const lang = classes.find(c => c.startsWith('language-'))?.slice('language-'.length);
     node.properties.className = [...classes, 'hljs'];
-    if (!lang || !lowlight.registered(lang)) return;
+    if (!lang) return;
+    if (!lowlight.registered(lang)) {
+      options.warnings.push(`code block in ${lang} - no highlighting (register it in markdown.tsx)`);
+      return;
+    }
     node.children = lowlight.highlight(lang, toString(node)).children as ElementContent[];
   });
 };
@@ -148,6 +155,7 @@ export function renderDoc(doc: Doc): Rendered {
   const cached = cache.get(doc.id);
   if (cached) return cached;
   const problems: string[] = [];
+  const warnings: string[] = [];
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -156,11 +164,11 @@ export function renderDoc(doc: Doc): Rendered {
     .use(rehypeSlug)
     .use(rehypeAlerts)
     .use(rehypeLinks, {dir: doc.dir, problems})
-    .use(rehypeCodeHighlight);
+    .use(rehypeCodeHighlight, {warnings});
   const tree = processor.runSync(processor.parse(doc.markdown)) as Root;
   const toc = tocOf(tree);
   rehypeHeadingAnchors()(tree);
-  const rendered = {content: toJsxRuntime(tree, {Fragment, jsx, jsxs}), toc, problems};
+  const rendered = {content: toJsxRuntime(tree, {Fragment, jsx, jsxs}), toc, problems, warnings};
   cache.set(doc.id, rendered);
   return rendered;
 }

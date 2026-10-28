@@ -1,6 +1,6 @@
 import {renderToStaticMarkup} from 'react-dom/server';
 import App from './App';
-import {allDocs, docUrl, includeProblems} from './docs';
+import {allDocs, docUrl, loadProblems} from './docs';
 import {renderDoc} from './markdown';
 
 const SITE_DESCRIPTION =
@@ -25,13 +25,16 @@ export function pages() {
 
 /**
  * Checks all pages before they are written: broken includes, links to pages or files that do not
- * exist and missing images are errors (the build fails); a page without a description a warning.
+ * exist, missing images and navigation entries without a page are errors (the build fails); a page
+ * without a description and a code block in a language without highlighting are warnings.
  */
 export function check(): {errors: string[]; warnings: string[]} {
-  const errors = [...includeProblems];
+  const errors = [...loadProblems];
   const warnings: string[] = [];
   for (const doc of allDocs) {
-    errors.push(...renderDoc(doc).problems.map(p => `${doc.id}: ${p}`));
+    const {problems, warnings: pageWarnings} = renderDoc(doc);
+    errors.push(...problems.map(p => `${doc.id}: ${p}`));
+    warnings.push(...pageWarnings.map(w => `${doc.id}: ${w}`));
     if (doc.id !== 'index' && !doc.description) warnings.push(`${doc.id}: no description - add a paragraph of text at the top`);
   }
   return {errors, warnings};

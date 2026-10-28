@@ -6,8 +6,8 @@ import {renderDoc} from './markdown';
 let n = 0;
 const render = (markdown: string, dir = '') => {
   const doc: Doc = {id: `test/page${n++}`, dir, title: '', description: '', markdown};
-  const {content, toc, problems} = renderDoc(doc);
-  return {html: renderToStaticMarkup(<>{content}</>), toc, problems};
+  const {content, toc, problems, warnings} = renderDoc(doc);
+  return {html: renderToStaticMarkup(<>{content}</>), toc, problems, warnings};
 };
 
 describe('alerts', () => {
@@ -48,6 +48,11 @@ describe('links and images', () => {
 });
 
 describe('code and headings', () => {
+  it('warns about a language without highlighting', () => {
+    expect(render('```kotlin\nval x = 1\n```').warnings).toEqual([
+      'code block in kotlin - no highlighting (register it in markdown.tsx)',
+    ]);
+  });
   it('highlights Scala', () => {
     expect(render('```scala\nval x = 1\n```').html).toContain('<span class="hljs-keyword">val</span>');
   });

@@ -57,7 +57,7 @@ async function main() {
   const {errors, warnings} = check();
   warnings.forEach(w => console.warn(`warning: ${w}`));
   if (errors.length > 0) {
-    throw new Error(`${errors.length} broken include(s), link(s) or image(s):\n  ${errors.join('\n  ')}`);
+    throw new Error(`${errors.length} broken page(s), link(s), image(s) or navigation entries:\n  ${errors.join('\n  ')}`);
   }
 
   // unknown URLs - the app shows its "not found" page (or still finds an old URL it knows)

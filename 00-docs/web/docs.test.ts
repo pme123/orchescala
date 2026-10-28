@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {allDocs, docIdOf, docUrl, findDoc, includeProblems, resolvePath} from './docs';
+import {allDocs, docIdOf, docUrl, findDoc, loadProblems, resolvePath} from './docs';
 
 describe('resolvePath', () => {
   it('resolves against the folder', () => {
@@ -39,7 +39,9 @@ describe('pages', () => {
     const worker = findDoc('functionalityDsls/worker')!;
     expect(worker.markdown).not.toContain('<!-- include:');
     expect(worker.markdown).toContain('## Advanced Custom Workers');
-    expect(includeProblems).toEqual([]);
+  });
+  it('loads without broken includes or navigation entries', () => {
+    expect(loadProblems).toEqual([]);
   });
   it('lists no partial as a page', () => {
     expect(findDoc('functionalityDsls/workers_advanced')).toBeUndefined();

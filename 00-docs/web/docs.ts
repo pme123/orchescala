@@ -59,8 +59,8 @@ function descriptionOf(markdown: string): string {
   return text.length > 160 ? text.slice(0, 157) + '…' : text;
 }
 
-/** Broken includes found while loading the pages - the build fails on them (see entry-server.tsx). */
-export const includeProblems: string[] = [];
+/** Broken includes and navigation entries found while loading the pages - the build fails on them (see entry-server.tsx). */
+export const loadProblems: string[] = [];
 
 /**
  * `<!-- include: other.md -->` is replaced with the content of that page. The included page must be
@@ -70,9 +70,9 @@ function withIncludes(markdown: string, id: string, dir: string, depth = 0): str
   return markdown.replace(/^<!--\s*include:\s*([\w./-]+\.md)\s*-->$/gm, (all, file) => {
     const target = resolvePath(dir, file);
     const included = rawPages[CONTENT_ROOT + target];
-    if (included === undefined) includeProblems.push(`${id}: include ${file} - there is no such page`);
-    else if (dirOf(target) !== dir) includeProblems.push(`${id}: include ${file} - must be in the same folder`);
-    else if (depth >= 3) includeProblems.push(`${id}: include ${file} - nested more than 3 levels`);
+    if (included === undefined) loadProblems.push(`${id}: include ${file} - there is no such page`);
+    else if (dirOf(target) !== dir) loadProblems.push(`${id}: include ${file} - must be in the same folder`);
+    else if (depth >= 3) loadProblems.push(`${id}: include ${file} - nested more than 3 levels`);
     else return withIncludes(included, id, dir, depth + 1);
     return all;
   });
@@ -87,6 +87,9 @@ export function resolvePath(dir: string, relative: string): string {
   }
   return parts.join('/');
 }
+
+partials.filter(id => rawPages[`${CONTENT_ROOT}${id}.md`] === undefined)
+  .forEach(id => loadProblems.push(`nav.ts: partial ${id} - there is no such page`));
 
 const docsById = new Map<string, Doc>();
 for (const [file, raw] of Object.entries(rawPages)) {
@@ -104,6 +107,7 @@ export const sections: Section[] = (() => {
   const listed = new Set<string>();
   const result = navigation.map(section => {
     const ids = section.pages.map(p => (section.dir ? `${section.dir}/${p}` : p));
+    ids.filter(id => !docsById.has(id)).forEach(id => loadProblems.push(`nav.ts: ${id} - there is no such page`));
     const docs = ids.map(id => docsById.get(id)).filter((d): d is Doc => !!d);
     docs.forEach(d => listed.add(d.id));
     return {title: section.title, dir: section.dir, docs};

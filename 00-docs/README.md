@@ -35,8 +35,9 @@ npm test        # vitest - links, includes, callouts …
 npm run lint    # tsc
 ```
 
-The build fails on a broken include, a link to a page or file that does not exist and a missing
-image; it warns about a page without a description (the first paragraph of text).
+The build fails on a broken include, a link to a page or file that does not exist, a missing image
+and an entry in `web/nav.ts` without a page; it warns about a page without a description (the first
+paragraph of text) and a code block in a language without highlighting (see `web/markdown.tsx`).
 
 The Scala snippets marked ` ```scala mdoc ` are compiled with [mdoc](https://scalameta.org/mdoc/):
 `sbt docs/mdoc` (the release runs it as well).
