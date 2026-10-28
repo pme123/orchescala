@@ -8,11 +8,17 @@ const GITHUB_URL = 'https://github.com/pme123/orchescala';
 const logo = assetUrl('images/orchescala_icon.png');
 
 // Footer: when this version of the site was built (= published)
-const BUILD_LABEL = (() => {
-  const d = new Date(__BUILD_TIME__);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
-})();
+// Swiss time - the same in the prerendered page (built on CI in UTC) and in every browser
+const BUILD_LABEL = new Intl.DateTimeFormat('de-CH', {
+  timeZone: 'Europe/Zurich',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+  .format(new Date(__BUILD_TIME__))
+  .replace(',', '');
 
 // ── Theme ──────────────────────────────────────────────────────────────────
 const ThemeContext = React.createContext<{isDark: boolean; toggle: () => void}>({
@@ -370,6 +376,11 @@ export default function App({ssrPath}: {ssrPath?: string} = {}) {
   React.useEffect(() => {
     if (scrollTarget) scrollToHash(scrollTarget.hash);
   }, [scrollTarget]);
+
+  // rendered in the visitor's theme - show the page (hidden by index.html for light mode)
+  React.useEffect(() => {
+    delete document.documentElement.dataset.theme;
+  }, []);
 
   React.useEffect(() => {
     // old Laika URLs (…/specification.html) land here through 404.html - show the new URL

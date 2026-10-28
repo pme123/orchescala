@@ -8,6 +8,16 @@
     <title>Orchescala</title>
     <meta name="description" content="Orchescala - use your Domain as much as possible in your Process Automation (Camunda 7 and 8, Scala 3)." />
     <!-- seo:end -->
+    <script>
+      // the prerendered page is dark - a visitor who chose light mode sees it only once the app has rendered (App.tsx)
+      try {
+        if (localStorage.getItem('theme') === 'light') document.documentElement.dataset.theme = 'light-pending';
+      } catch {}
+    </script>
+    <style>
+      html[data-theme='light-pending'] body { background: #f5f4f0; }
+      html[data-theme='light-pending'] #root { visibility: hidden; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
