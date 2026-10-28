@@ -53,10 +53,12 @@ async function main() {
   for (const file of fs.readdirSync(distDir, {recursive: true})) {
     if (file.endsWith('.md')) fs.rmSync(path.join(distDir, file));
   }
-  fs.rmSync(ssrDir, {recursive: true, force: true});
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .catch(err => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  // the SSR bundle is only needed here - also gone after a failed check
+  .finally(() => fs.rmSync(path.resolve('dist-ssr'), {recursive: true, force: true}));

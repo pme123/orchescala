@@ -49,7 +49,7 @@ export function redirectPage(page) {
   <meta charset="UTF-8" />
   <title>${escape(page.title)}</title>
   <link rel="canonical" href="${SITE}${target}" />
-  <script>location.replace(${JSON.stringify(page.url)} + location.hash);</script>
+  <script>location.replace(${JSON.stringify(page.url).replace(/</g, '\\u003c')} + location.hash);</script>
   <noscript><meta http-equiv="refresh" content="0; url=${target}" /></noscript>
 </head>
 <body><p>This page has moved to <a href="${target}">${target}</a>.</p></body>
