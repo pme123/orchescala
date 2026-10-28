@@ -20,7 +20,7 @@ const commit = (() => {
   try {
     return execSync('git rev-parse --short HEAD', {stdio: ['ignore', 'pipe', 'ignore']}).toString().trim();
   } catch {
-    return '';
+    return process.env.GITHUB_SHA?.slice(0, 8) ?? ''; // GitHub Actions sets it - also without git
   }
 })();
 
