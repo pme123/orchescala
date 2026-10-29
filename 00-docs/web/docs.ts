@@ -1,0 +1,168 @@
+// Loads the markdown pages from src/docs and builds the navigation from them.
+import {navigation, partials} from './nav';
+
+const CONTENT_ROOT = '../src/docs/';
+
+// line endings normalised - a page saved with CRLF works the same
+const rawPages = Object.fromEntries(
+  Object.entries(
+    import.meta.glob('../src/docs/**/*.md', {query: '?raw', import: 'default', eager: true}) as Record<string, string>,
+  ).map(([file, raw]) => [file, raw.replace(/\r\n?/g, '\n')]),
+);
+
+// Everything else in src/docs that a page may show or link: images, example APIs, scripts …
+// (served unchanged under its path - see vite.config.ts)
+const contentFiles = new Set(__CONTENT_FILES__);
+
+export const version = __ORCH_VERSION__;
+export const base = import.meta.env.BASE_URL; // '/orchescala/'
+
+export type Doc = {
+  /** path in src/docs without `.md`, e.g. `functionalityDsls/apiDoc` */
+  id: string;
+  /** folder of the page in src/docs ('' for the top level) */
+  dir: string;
+  title: string;
+  description: string;
+  markdown: string;
+};
+
+const idOf = (file: string) => file.slice(CONTENT_ROOT.length).replace(/\.md$/, '');
+const dirOf = (id: string) => (id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : '');
+
+/** Lines outside of fenced code blocks. A block ends only with its own marker (``` or ~~~, at least as long). */
+function proseLines(markdown: string): string[] {
+  let fence: string | undefined;
+  return markdown.split('\n').filter(line => {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (!fence) {
+      if (marker) fence = marker;
+      return !marker;
+    }
+    if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = undefined;
+    return false;
+  });
+}
+
+const EMPHASIS = /(?<![\w*_])(\*\*|__|\*|_)(?=\S)(.+?)(?<=\S)\1(?![\w*_])/g;
+
+/** Text without markdown: links, emphasis (`*x*`, `**_x_**` - not `my_var` or `*.md`), code ticks and HTML tags. */
+function plain(s: string): string {
+  const withoutEmphasis = (text: string) => {
+    for (let prev = ''; prev !== text; ) [prev, text] = [text, text.replace(EMPHASIS, '$2')]; // nested: **_x_**
+    return text;
+  };
+  return s
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .split('`') // odd parts are code spans - kept as they are
+    .map((part, i) => (i % 2 === 0 ? withoutEmphasis(part) : part))
+    .join('')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
+
+function titleOf(id: string, markdown: string): string {
+  // the first heading - a `# heading` if there is one
+  const headings = proseLines(markdown).filter(l => /^#{1,6}\s+/.test(l));
+  const heading = headings.find(l => /^#\s+/.test(l)) ?? headings[0];
+  return heading ? plain(heading.replace(/^#+\s+/, '')) : id.split('/').pop()!;
+}
+
+const isText = (line: string) => line.trim() !== '' && !/^\s*([#>|!<*-]|\d+\.)/.test(line);
+
+/** The first paragraph of text (with all its lines), cut at a word to 160 characters. */
+export function descriptionOf(markdown: string): string {
+  const lines = proseLines(markdown);
+  const start = lines.findIndex(l => isText(l) && plain(l).length > 30);
+  if (start < 0) return '';
+  const para: string[] = [];
+  for (let i = start; i < lines.length && isText(lines[i]); i++) para.push(plain(lines[i]));
+  const text = para.join(' ');
+  if (text.length <= 160) return text;
+  const space = text.lastIndexOf(' ', 157);
+  return (space > 0 ? text.slice(0, space) : text.slice(0, 157)) + ' …';
+}
+
+/** Broken includes and navigation entries found while loading the pages - the build fails on them (see entry-server.tsx). */
+export const loadProblems: string[] = [];
+
+/**
+ * `<!-- include: other.md -->` is replaced with the content of that page. The included page must be
+ * in the same folder: its relative links and images are resolved against the including page.
+ */
+function withIncludes(markdown: string, id: string, dir: string, depth = 0): string {
+  return markdown.replace(/^<!--\s*include:\s*([\w./-]+\.md)\s*-->$/gm, (all, file) => {
+    const target = resolvePath(dir, file);
+    const included = rawPages[CONTENT_ROOT + target];
+    if (included === undefined) loadProblems.push(`${id}: include ${file} - there is no such page`);
+    else if (dirOf(target) !== dir) loadProblems.push(`${id}: include ${file} - must be in the same folder`);
+    else if (depth >= 3) loadProblems.push(`${id}: include ${file} - nested more than 3 levels`);
+    else return withIncludes(included, id, dir, depth + 1);
+    return all;
+  });
+}
+
+/** Resolves a relative path (`../x/y.md`) against a folder in src/docs. */
+export function resolvePath(dir: string, relative: string): string {
+  const parts = relative.startsWith('/') ? [] : dir.split('/').filter(Boolean);
+  for (const part of relative.split('/')) {
+    if (part === '..') parts.pop();
+    else if (part && part !== '.') parts.push(part);
+  }
+  return parts.join('/');
+}
+
+partials.filter(id => rawPages[`${CONTENT_ROOT}${id}.md`] === undefined)
+  .forEach(id => loadProblems.push(`nav.ts: partial ${id} - there is no such page`));
+
+const docsById = new Map<string, Doc>();
+for (const [file, raw] of Object.entries(rawPages)) {
+  const id = idOf(file);
+  if (partials.includes(id)) continue;
+  // its URL would be <folder>/index/ - and the old URL <folder>/index.html finds the folder, not the page
+  if (id.endsWith('/index')) loadProblems.push(`${id}: a page in a folder cannot be called index - rename it`);
+  const dir = dirOf(id);
+  const markdown = withIncludes(raw, id, dir).replaceAll('@VERSION@', version);
+  docsById.set(id, {id, dir, title: titleOf(id, markdown), description: descriptionOf(markdown), markdown});
+}
+
+export type Section = {title: string; docs: Doc[]};
+
+/** The navigation: the sections of nav.ts, unlisted pages added to the section of their folder. */
+export const sections: Section[] = (() => {
+  const listed = new Set<string>();
+  const result = navigation.map(section => {
+    const ids = section.pages.map(p => (section.dir ? `${section.dir}/${p}` : p));
+    ids.filter(id => !docsById.has(id)).forEach(id => loadProblems.push(`nav.ts: ${id} - there is no such page`));
+    const docs = ids.map(id => docsById.get(id)).filter((d): d is Doc => !!d);
+    docs.forEach(d => listed.add(d.id));
+    return {title: section.title, dir: section.dir, docs};
+  });
+  const rest = [...docsById.values()].filter(d => !listed.has(d.id)).sort((a, b) => a.id.localeCompare(b.id));
+  for (const doc of rest) {
+    const section = result.find(s => s.dir === doc.dir);
+    if (section) section.docs.push(doc);
+    else result.push({title: doc.dir, dir: doc.dir, docs: [doc]});
+  }
+  return result.filter(s => s.docs.length > 0).map(({title, docs}) => ({title, docs}));
+})();
+
+/** All pages in the order of the navigation. */
+export const allDocs: Doc[] = sections.flatMap(s => s.docs);
+
+export const findDoc = (id: string) => docsById.get(id);
+
+/** The URL of a page: `/orchescala/functionalityDsls/apiDoc/` (with a trailing slash, as GitHub Pages serves it). */
+export const docUrl = (id: string) => (id === 'index' ? base : `${base}${id}/`);
+
+/** The page of a URL path. Old Laika URLs (`/orchescala/specification.html`) still find their page. */
+export function docIdOf(pathname: string): string {
+  const path = pathname.endsWith('/') ? pathname : `${pathname}/`; // '/orchescala' is the base too
+  let p = path.startsWith(base) ? path.slice(base.length) : path.replace(/^\//, '');
+  p = p.replace(/\/+$/, '').replace(/(\/index)?\.html$/, '').replace(/^index$/, '');
+  return p === '' ? 'index' : p;
+}
+
+/** The URL of a file in src/docs (image, example API …), if there is one. */
+export const assetUrl = (path: string): string | undefined =>
+  contentFiles.has(path) ? base + path : undefined;

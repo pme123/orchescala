@@ -3,11 +3,10 @@
 Simulations let you run BPMNs automatically on an installed Camunda 7 or 8 Platform.
 The diagrams must be deployed.
 
-@:callout(info)
-For the deployment I created a script that also starts the Simulation.
-
-See [deploy](../development/projectDev.md#deploy).
-@:@
+> [!NOTE]
+> For the deployment I created a script that also starts the Simulation.
+>
+> See [deploy](../development/projectDev.md#deploy).
 
 ## Why
 
@@ -23,10 +22,9 @@ I like Simulations because:
 
 Of course most of these points are also true for Unit- and/or Scenario tests.
 
-@:callout(info)
-I also experimented with Unit- and Scenario Tests, and it would also be possible. But for now I concentrate
-my time on Simulations. I also think you should only do one of them, due to the work involved.
-@:@
+> [!NOTE]
+> I also experimented with Unit- and Scenario Tests, and it would also be possible. But for now I concentrate
+> my time on Simulations. I also think you should only do one of them, due to the work involved.
 
 ## Get Started
 
@@ -62,9 +60,8 @@ class InvoiceSimulation extends CompanySimulation:
   end InvoiceSimulation
 ```
 
-@:callout(info)
-This class is automatically created with `./helper.scala process <processName>` - see [development > process](../development/projectDev.md#process).
-@:@
+> [!NOTE]
+> This class is automatically created with `./helper.scala process <processName>` - see [development > process](../development/projectDev.md#process).
 
 #### simulate
 
@@ -150,16 +147,15 @@ scenario(`Invoice Receipt with Review`)(
 In this example we have a ProcessScenario with the name _Invoice Receipt with Review_.
 The first Step has the name _NotApproveInvoiceUT_.
 
-@:callout(info)
-Use descriptive variable names.
-If you use special characters, you need to use backticks, like:
-
-```scala
-lazy val `Invoice Receipt with Review` =
-...
-```
-
-@:@
+> [!NOTE]
+> Use descriptive variable names.
+> If you use special characters, you need to use backticks, like:
+>
+> ```scala
+> lazy val `Invoice Receipt with Review` =
+> ...
+> ```
+>
 
 These names are then used in the output Log:
 
@@ -573,32 +569,24 @@ A DMNs result must be a collection and one of its values must have the `VARIABLE
 During execution and checking the results some of the results are printed on the console.
 The most important stuff is then gathered during the Simulation and printed grouped by the Simulation and Scenario.
 
-@:callout(info)
-The reason that there are some logs during execution, is that we used Gatling earlier.
-So the core still is not migrated to the new Simulation, that gathers all the logs and prints it nicely at the end.
-@:@
+> [!NOTE]
+> The reason that there are some logs during execution, is that we used Gatling earlier.
+> So the core still is not migrated to the new Simulation, that gathers all the logs and prints it nicely at the end.
 
 #### Simulations Overview
 
-@:image(images/simulation_simulationsOverview.png) {
-intrinsicWidth = 800
-style = logo
-}
+<img src="images/simulation_simulationsOverview.png" width="800" alt="">
 
 - First you see all Scenarios grouped by its LogLevel.
 - Failed Simulations are listed at the end.
 
-@:callout(info)
-If you run more than one Simulation (`sbt It/test`), each Simulation is printed with the Scenario overview.
-At the end all Simulation that failed are listed.
-@:@
+> [!NOTE]
+> If you run more than one Simulation (`sbt It/test`), each Simulation is printed with the Scenario overview.
+> At the end all Simulation that failed are listed.
 
 #### Scenarios Overview
 
-@:image(images/simulation_scenariosOverview.png) {
-intrinsicWidth = 800
-style = logo
-}
+<img src="images/simulation_scenariosOverview.png" width="800" alt="">
 
 - Each Scenario is started with a marker in the color of its log level.
 - According to the configured Log Level all messages are printed.
@@ -719,11 +707,10 @@ scenario(signalExampleProcess)(
 Just add the postfix `.waitFor(WAITFOR_VARIABLE_NAME, WAITFOR_VARIABLE_VALUE)` to the BPMN Signal definition.
 In your process you must now set this variable with the according value, when the process is at this event.
 
-@:callout(info)
-This is also possible for _Receive Message Event_.
-If you do not define it for _Receive Signal Event_ it takes the default
-value `waitForSignal` and checks if it is `true`.
-@:@
+> [!NOTE]
+> This is also possible for _Receive Message Event_.
+> If you do not define it for _Receive Signal Event_ it takes the default
+> value `waitForSignal` and checks if it is `true`.
 
 #### Timer Event
 
@@ -751,15 +738,14 @@ This will wait for 2 seconds.
 
 ## Mocking
 
-@:callout(info)
-Mocking is handled directly in the processes itself.
-
-This is especially useful in _Simulations_.
-
-However, you can mock on any environment, like local or production (e.g. with _Postman_).
-
-See also [General Concerns](../generalConcerns.md#mocking).
-@:@
+> [!NOTE]
+> Mocking is handled directly in the processes itself.
+>
+> This is especially useful in _Simulations_.
+>
+> However, you can mock on any environment, like local or production (e.g. with _Postman_).
+>
+> See also [General Concerns](../generalConcerns.md#mocking).
 
 ### Generic Mocking
 
@@ -932,8 +918,7 @@ So in general you can override a generic Mock with a specific Mock.
 
 ## Load Testing
 
-@:callout(info)
-At the moment this is not supported.
-
-As the simulations are run in parallel, you can add more scenarios to increase the load.
-@:@
+> [!NOTE]
+> At the moment this is not supported.
+>
+> As the simulations are run in parallel, you can add more scenarios to increase the load.

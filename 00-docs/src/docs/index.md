@@ -3,18 +3,16 @@
 
 # Intro
 
-@:callout()
-_The main goal of **Orchescala** is to use your **Domain** as much as possible in your **Process Automation**._
+> [!NOTE]
+> _The main goal of **Orchescala** is to use your **Domain** as much as possible in your **Process Automation**._
+>
+> _Define the **Domain** and let **Orchescala** do most of the rest._ 
+>
+> This project is the follow up of [Camundala](https://github.com/pme123/camundala)
 
-_Define the **Domain** and let **Orchescala** do most of the rest._ 
-
-This project is the follow up of [Camundala](https://github.com/pme123/camundala)
-@:@
-
-@:callout(info)
-I gave a talk at the _Camunda Community Summit 2022_ that covers the basics - well, the DSLs got a bit nicer since then😉. 
-Check out here [Domain Driven Process Development](https://page.camunda.com/ccs2022-domaindrivenprocessdevelopment?hsLang=en)
-@:@
+> [!NOTE]
+> I gave a talk at the _Camunda Community Summit 2022_ that covers the basics - well, the DSLs got a bit nicer since then😉. 
+> Check out here [Domain Driven Process Development](https://page.camunda.com/ccs2022-domaindrivenprocessdevelopment?hsLang=en)
 
 ## Why the Focus on the Domain?
 ### Common Language
@@ -52,9 +50,8 @@ The design consists of **three Layers**:
    
    Adds your Domain Model to concrete BPMN elements, like _Process_ or _User Task_.
 
-   @:callout(info)
-   DSL stays for Domain Specific Language.
-   @:@
+   > [!NOTE]
+   > DSL stays for Domain Specific Language.
 
 3. **Function DSLs**
  
@@ -68,9 +65,8 @@ The design consists of **three Layers**:
    - _camunda_: Generate some of your Process Specification.
 
 ## Technology
-@:callout(info)
-We use _**Scala 3**_ for everything, except the Process Specification (BPMN).
-@:@
+> [!NOTE]
+> We use _**Scala 3**_ for everything, except the Process Specification (BPMN).
 
 ![Technology](images/technology.png)
 

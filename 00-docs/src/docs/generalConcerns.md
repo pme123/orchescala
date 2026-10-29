@@ -30,9 +30,8 @@ override def supportedVariables: Seq[InputParams] = Seq(
 )
 ```
 
-@:callout(info)
-If you use our Workers - you must use the predefined Variables.
-@:@
+> [!NOTE]
+> If you use our Workers - you must use the predefined Variables.
 
 ### Mocking
 This looks a bit strange, that mocking is at the domain level.
@@ -42,14 +41,13 @@ However, it turns out that this is quite helpful:
 - Simulation: You can simply mock sub processes and workers.
 - Postman Requests: You can manipulate with mocks the path taken in the process (even on production).
 
-@:callout(info)
-The mocking is done with General Variables - see also the chapter above.
-
-**The Usage** is described here under [_General Variables_](exampleApi/OpenApi.html)
-
-As **Simulations** use mocking the most, we describe it [there](functionalityDsls/simulation.md#mocking)
-in more detail.
-@:@
+> [!NOTE]
+> The mocking is done with General Variables - see also the chapter above.
+>
+> **The Usage** is described here under [_General Variables_](exampleApi/OpenApi.html)
+>
+> As **Simulations** use mocking the most, we describe it [there](functionalityDsls/simulation.md#mocking)
+> in more detail.
 
 We have four ways to mock. Each possibility is done with a dedicated Process Variable.
 
@@ -163,9 +161,8 @@ This will complete the External Task only with **local** output variables.
 And you must do the output mapping manually in the _BPMN_.
 
 
-@:callout(info)
-This is needed, if you have the output variable already in the process with another value.
-@:@
+> [!NOTE]
+> This is needed, if you have the output variable already in the process with another value.
 
 ### Exception Handling
 

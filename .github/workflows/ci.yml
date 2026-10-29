@@ -11,6 +11,24 @@ permissions:
   checks: write
 
 jobs:
+  docsSite:
+    # the markdown pages of 00-docs/src/docs - deployed to GitHub Pages from master (deploydocu.yml).
+    # An own job: a broken page (link, include, image) shows up in a minute, next to the sbt job.
+    # The Scala snippets are compiled by the sbt job (sbt docs/mdoc).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 00-docs/package-lock.json
+      - name: Lint, test and build the documentation site
+        working-directory: 00-docs
+        run: npm ci && npm run ci
   testAndGenerateDocs:
     runs-on: ubuntu-latest
     # a run takes about 7 minutes (more with a cold cache) - a hanging test fails the job instead of blocking it for 6 hours
@@ -52,6 +70,9 @@ jobs:
         run: python3 -m unittest -v test_build_theme
       - name: Compile
         run: sbt compile
+      - name: Compile the documentation snippets
+        # mdoc compiles the ```scala mdoc snippets of 00-docs/src/docs - so they keep up with the code
+        run: sbt docs/mdoc
       - name: Test
         # persistencePostgres/test runs against Postgres in Docker (Testcontainers) - on CI it fails
         # instead of being skipped when there is no Docker

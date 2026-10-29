@@ -95,29 +95,27 @@ private lazy val companySbtConfig = SbtConfig(
   publishSbtOptions = Seq("-J-Xmx3G")
 )
 ```
-@:callout(warning)
-The default builds **every** image for `linux/amd64` - on an amd64 machine nothing changes, on
-Apple Silicon the images are amd64 from the next `./helper.scala update` on (as OpenShift needs them).
-For arm64 images set `dockerBuildOptions = Seq.empty` (the machine's platform) or your own platform.
-@:@
+> [!WARNING]
+> The default builds **every** image for `linux/amd64` - on an amd64 machine nothing changes, on
+> Apple Silicon the images are amd64 from the next `./helper.scala update` on (as OpenShift needs them).
+> For arm64 images set `dockerBuildOptions = Seq.empty` (the machine's platform) or your own platform.
 
 `dockerBuildSettings` appends to `dockerBuildOptions` (`++=`) and comes after your `dockerSettings` in
 the build - so a `dockerBuildOptions := Seq(...)` of yours keeps the platform. An own `dockerBuildCommand`
 replaces the whole command, the platform included - then add `--platform` there yourself.
 
-@:callout(info)
-`--platform` needs BuildKit, i.e. the `buildx` plugin of the Docker CLI - the legacy builder of
-Docker 29 (e.g. Colima) fails with _does not provide the specified platform (linux/amd64)_.
-With Homebrew the plugin is installed but not linked:
-
-```
-brew install docker-buildx
-mkdir -p ~/.docker/cli-plugins
-ln -sfn $(brew --prefix)/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
-docker buildx version
-```
-The `RUN` steps of the image are emulated (Rosetta or QEMU, Colima registers both) - no x86_64 VM is needed.
-@:@
+> [!NOTE]
+> `--platform` needs BuildKit, i.e. the `buildx` plugin of the Docker CLI - the legacy builder of
+> Docker 29 (e.g. Colima) fails with _does not provide the specified platform (linux/amd64)_.
+> With Homebrew the plugin is installed but not linked:
+>
+> ```
+> brew install docker-buildx
+> mkdir -p ~/.docker/cli-plugins
+> ln -sfn $(brew --prefix)/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
+> docker buildx version
+> ```
+> The `RUN` steps of the image are emulated (Rosetta or QEMU, Colima registers both) - no x86_64 VM is needed.
 
 ## CompanyOrchescalaDevHelper
 The `CompanyOrchescalaDevHelper` is a helper dedicated for the `company-orchescala` project.

@@ -1,10 +1,4 @@
 import Dependencies.*
-import laika.ast.Path.Root
-import laika.config.*
-import laika.format.Markdown.GitHubFlavor
-import laika.helium.Helium
-import laika.helium.config.{HeliumIcon, IconLink}
-import laika.sbt.LaikaPlugin.autoImport.*
 import mdoc.MdocPlugin.autoImport.*
 import sbt.*
 import sbt.Keys.*
@@ -90,38 +84,6 @@ object Settings {
         "sttp.tapir.json.circe"
       ).mkString(start = "-Yimports:", sep = ",", end = "")
 
-  lazy val laikaSettings = Seq(
-    laikaConfig := LaikaConfig.defaults
-      .withConfigValue(LaikaKeys.excludeFromNavigation, Seq(Root))
-      .withConfigValue("project.version", projectVersion)
-      .withConfigValue(
-        LinkConfig.empty
-          .addTargets(
-            TargetDefinition.external("bpmn specification", "https://www.bpmn.org"),
-            TargetDefinition.external("camunda", "https://camunda.com")
-          ).addSourceLinks(
-            SourceLinks(
-              baseUri =
-                githubUrl + "/tree/master/05-examples/invoice/camunda7/src/main/scala/",
-              suffix = "scala"
-            )
-          )
-      )
-      .withRawContent
-    // .failOnMessages(MessageFilter.None)
-    //  .renderMessages(MessageFilter.None)
-    ,
-    Laika / sourceDirectories := Seq(mdocOut.value),
-    laikaExtensions := Seq(GitHubFlavor, SyntaxHighlighting),
-    laikaTheme := Helium.defaults.site
-      .topNavigationBar(
-        homeLink = IconLink.internal(Root / "index.md", HeliumIcon.home),
-        navLinks = Seq(
-          IconLink.external(githubUrl, HeliumIcon.github),
-        )
-      )
-      .build,
-  )
   lazy val mdocSettings = Seq(
     mdocIn                    := baseDirectory.value / "src" / "docs",
     mdocVariables             := Map(

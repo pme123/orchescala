@@ -78,7 +78,7 @@ You see here the following elements:
 * `enum InvoiceCategory..` this is how you define an enumeration.
 * `` `Travel Expenses`, `` if you have names with spaces you need to use Back-Ticks.
 
-Checkout the Domain Description of @:source(orchescala.examples.invoice.InvoiceReceipt).
+Checkout the Domain Description of `InvoiceReceipt`.
 
 There are 2 things you have to care for that is not purely your domain.
 
@@ -130,12 +130,11 @@ You can create examples with `toJson("""{"value": 12}""")`.
 
 This will be a Json Variable in the Simulations and you can use them everywhere in your domain model.
 
-@:callout(info)
-That this works you need this import: `import sttp.tapir.json.circe.*` - see [JSON marshalling].
-
-**Tip**: Start with _Jsons_ and replace them with proper classes as soon you start documenting
-(mostly when the process is stable).
-@:@
+> [!NOTE]
+> That this works you need this import: `import sttp.tapir.json.circe.*` - see [JSON marshalling].
+>
+> **Tip**: Start with _Jsons_ and replace them with proper classes as soon you start documenting
+> (mostly when the process is stable).
 
 
 ### Documentation
@@ -143,20 +142,18 @@ The closer the documentation is to your code, that you work with, the higher is 
 So we use `@description("my descr")` from _[Tapir](https://tapir.softwaremill.com/en/latest/index.html)_. 
 These descriptions will then automatically taken into account when the API documentation is generated.
 
-@:callout(info)
-Be aware that the description of Input- and Output Objects are not taken into the doc by Open API.
-
-So document them in the process description if needed.
-@:@
+> [!NOTE]
+> Be aware that the description of Input- and Output Objects are not taken into the doc by Open API.
+>
+> So document them in the process description if needed.
 
 ### JSON marshalling
 
-@:callout(info)
-We need this to get to and from JSON.
-There is an automatic way, but it turned out that it made compiling slow.
-
-Sorry for this technical noise 😥.
-@:@
+> [!NOTE]
+> We need this to get to and from JSON.
+> There is an automatic way, but it turned out that it made compiling slow.
+>
+> Sorry for this technical noise 😥.
 
 * Case Classes and Enumerations:
   ```scala
