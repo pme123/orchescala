@@ -161,31 +161,75 @@ for (const def of STANDARD_PATTERNS) {
 // start message carries the correlation key the event subprocess catches it with
 const unique = STANDARD_PATTERNS.find(p => p.id === 'unique-execution')!;
 const parse = (xml: string) => new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
-const elements = (doc: Document, tag: string) => Array.from(doc.getElementsByTagName(tag));
-/** the start event `Start`, the message it starts with, and all messages of the diagram */
+const elements = (scope: Document | Element, tag: string): Element[] => Array.from(scope.getElementsByTagName(tag));
+const one = (scope: Document | Element, tag: string): Element => {
+  const found = elements(scope, tag);
+  assert.equal(found.length, 1, `exactly one ${tag}`);
+  return found[0];
+};
+/** the start event of the process (not the one of the event subprocess), its message and all messages */
 const startOf = (xml: string) => {
   const doc = parse(xml);
-  const start = elements(doc, 'bpmn:startEvent').find(e => e.getAttribute('id') === 'Start')!;
-  const ref = elements(start as unknown as Document, 'bpmn:messageEventDefinition')[0]?.getAttribute('messageRef');
+  const process = one(doc, 'bpmn:process');
+  const starts = Array.from(process.children).filter(e => e.tagName === 'bpmn:startEvent');
+  assert.equal(starts.length, 1, 'one start event of the process');
+  const ref = one(starts[0], 'bpmn:messageEventDefinition').getAttribute('messageRef');
+  assert.ok(ref, 'the start refers to a message');
   const messages = elements(doc, 'bpmn:message');
-  return { doc, message: messages.find(m => m.getAttribute('id') === ref), messages };
+  const message = messages.find(m => m.getAttribute('id') === ref);
+  assert.ok(message, `message ${ref} is in the diagram`);
+  return { doc, message, messages };
 };
-const subscriptionOf = (message: Element | undefined) =>
-  message ? elements(message as unknown as Document, 'zeebe:subscription').map(s => s.getAttribute('correlationKey')) : [];
+const subscriptionOf = (message: Element) => elements(message, 'zeebe:subscription').map(s => s.getAttribute('correlationKey'));
+/** what the end of the event subprocess sets: C7 an execution listener, C8 an output mapping */
+const alreadyRunningSet = (end: Element, engine: EngineId) =>
+  engine === 'c7'
+    ? elements(end, 'camunda:executionListener').some(l => /setVariable\(("|&#34;)alreadyRunning("|&#34;), true\)/.test(l.getAttribute('expression') ?? ''))
+    : elements(end, 'zeebe:output').some(o => o.getAttribute('target') === 'alreadyRunning' && o.getAttribute('source') === '=true');
+
+/** the test diagram with a message start `Msg` (name = process ID, no subscription) */
+const withMessageStart = (engine: EngineId) => {
+  const plain = diagram(engine, 'task');
+  const startTag = '<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>';
+  assert.ok(plain.includes(startTag) && plain.includes('<bpmn:process '), 'the test diagram has the plain start');
+  return plain
+    .replace(startTag, '<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing><bpmn:messageEventDefinition id="StartDef" messageRef="Msg" /></bpmn:startEvent>')
+    .replace('<bpmn:process ', '<bpmn:message id="Msg" name="acme-demoV1" />\n  <bpmn:process ');
+};
+
+/** the event subprocess: starts not interrupting on the start message and sets alreadyRunning at its end */
+const assertEventSubprocess = (doc: Document, message: Element, engine: EngineId) => {
+  const esp = elements(doc, 'bpmn:subProcess').filter(e => e.getAttribute('triggeredByEvent') === 'true');
+  assert.equal(esp.length, 1, 'one event subprocess');
+  const espStart = one(esp[0], 'bpmn:startEvent');
+  assert.equal(espStart.getAttribute('isInterrupting'), 'false');
+  assert.equal(one(espStart, 'bpmn:messageEventDefinition').getAttribute('messageRef'), message.getAttribute('id'), 'the same message as the start');
+  assert.ok(alreadyRunningSet(one(esp[0], 'bpmn:endEvent'), engine), 'alreadyRunning = true at the end');
+};
 
 for (const engine of ['c7', 'c8'] as const) {
   test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: a plain start event becomes a message start - message = process ID`, () => {
     const res = applyPattern(diagram(engine, 'task'), unique, engine, null);
     assert.ok(res.changed, res.issues.join('; '));
+    assert.ok(!res.xml.includes('{{'), 'no placeholder left');
     const { doc, message, messages } = startOf(res.xml);
-    assert.equal(message?.getAttribute('name'), 'acme-demoV1');
+    assert.equal(message.getAttribute('name'), 'acme-demoV1');
     assert.equal(messages.length, 1);
-    // the event subprocess catches the same message, not interrupting
-    const esp = elements(doc, 'bpmn:subProcess').find(e => e.getAttribute('triggeredByEvent') === 'true');
-    assert.ok(esp, 'event subprocess');
-    const espStart = elements(esp as unknown as Document, 'bpmn:startEvent')[0];
-    assert.equal(espStart.getAttribute('isInterrupting'), 'false');
-    assert.equal(elements(espStart as unknown as Document, 'bpmn:messageEventDefinition')[0].getAttribute('messageRef'), message?.getAttribute('id'));
+    assertEventSubprocess(doc, message, engine);
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+  });
+
+  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: an existing start message is taken - no second message`, () => {
+    const before = startOf(withMessageStart(engine));
+    assert.equal(before.message.getAttribute('id'), 'Msg');
+    assert.deepEqual(subscriptionOf(before.message), []);
+    const res = applyPattern(withMessageStart(engine), unique, engine, null);
+    assert.ok(res.changed, res.issues.join('; '));
+    const { doc, message, messages } = startOf(res.xml);
+    assert.equal(message.getAttribute('id'), 'Msg');
+    assert.equal(messages.length, 1);
+    assertEventSubprocess(doc, message, engine);
+    // C8: the correlation key comes onto the existing message (addRootExtensions)
     assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
   });
 
@@ -194,23 +238,9 @@ for (const engine of ['c7', 'c8'] as const) {
     const res = removePattern(applied, unique, engine, null, STANDARD_PATTERNS);
     assert.ok(res.changed, res.issues.join('; '));
     assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits, []);
-    assert.ok(!elements(parse(res.xml), 'bpmn:subProcess').length, 'event subprocess gone');
+    assert.equal(elements(parse(res.xml), 'bpmn:subProcess').length, 0, 'event subprocess gone');
     // and it can be inserted again
     const again = applyPattern(res.xml, unique, engine, null);
     assert.deepEqual(detectPatterns(again.xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]), [['unique-execution', null]]);
   });
 }
-
-test('«Einmalige Ausführung» on C8: an existing start message gets the correlation key - no second message', () => {
-  const withMessageStart = diagram('c8', 'task')
-    .replace('<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>',
-      '<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing><bpmn:messageEventDefinition id="StartDef" messageRef="Msg" /></bpmn:startEvent>')
-    .replace('<bpmn:process ', '<bpmn:message id="Msg" name="acme-demoV1" />\n  <bpmn:process ');
-  assert.deepEqual(subscriptionOf(startOf(withMessageStart).message), []);
-  const res = applyPattern(withMessageStart, unique, 'c8', null);
-  assert.ok(res.changed, res.issues.join('; '));
-  const { message, messages } = startOf(res.xml);
-  assert.equal(message?.getAttribute('id'), 'Msg');
-  assert.equal(messages.length, 1);
-  assert.deepEqual(subscriptionOf(message), ['=businessKey']);
-});
