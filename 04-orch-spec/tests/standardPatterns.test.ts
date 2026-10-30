@@ -271,14 +271,20 @@ for (const engine of ['c7', 'c8'] as const) {
   });
 }
 
-test('«Einmalige Ausführung»: the limitation on C8 is said when it is inserted - not on C7', () => {
-  assert.ok(unique.limitations?.c8, 'has a limitation on C8');
-  const c8 = applyPattern(diagram('c8', 'task'), unique, 'c8', null);
+test('a limitation of a pattern on an engine is said when it is inserted there - not on the other engine', () => {
+  // «Einmalige Ausführung» with a limitation on C8, as an own pattern
+  const limited: PatternDef = { ...unique, id: 'acme-limited', limitations: { c8: 'greift hier noch nicht.' } };
+  const c8 = applyPattern(diagram('c8', 'task'), limited, 'c8', null);
   assert.ok(c8.changed);
-  assert.ok(c8.issues.includes(`«${unique.name}»: ${unique.limitations!.c8}`), c8.issues.join('; '));
-  const c7 = applyPattern(diagram('c7', 'task'), unique, 'c7', null);
+  assert.ok(c8.issues.includes(`«${limited.name}»: greift hier noch nicht.`), c8.issues.join('; '));
+  const c7 = applyPattern(diagram('c7', 'task'), limited, 'c7', null);
   assert.ok(c7.changed);
-  assert.ok(!c7.issues.some(i => i.startsWith(`«${unique.name}»:`)), c7.issues.join('; '));
+  assert.ok(!c7.issues.some(i => i.startsWith(`«${limited.name}»:`)), c7.issues.join('; '));
+});
+
+test('«Einmalige Ausführung» has no limitation on C8 any more - the start through Orchescala sends the correlation key', () => {
+  assert.equal(unique.limitations, undefined);
+  assert.ok(!unique.description?.includes('noch nicht'), unique.description);
 });
 
 test('«Einmalige Ausführung» on C8: a start message with another correlation key keeps it - the pattern says so', () => {
