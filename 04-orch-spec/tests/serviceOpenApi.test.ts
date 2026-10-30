@@ -487,3 +487,32 @@ end PostCheck
   assert.equal(fromApi.noIn, true);
   assert.equal(fromApi.noOut, true);
 });
+
+test('the scanner reads enum cases behind an annotation — `) case A(` and `@description("…") case B(`', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const source = `package acme.crm.domain
+package client.v1.schema
+
+enum MasterCreateOrUpdate:
+
+  def segment: Option[Int]
+
+  @description(
+    "Most fields of _MasterCreate_ - only _advisor_ as extra field. "
+  ) case MasterCreate(
+      @description("Only additional field")
+      advisor: Option[String],
+      segment: Option[Int]
+  ) extends MasterCreateOrUpdate
+
+  @description("No extra fields. ") case MasterUpdate(
+      branch: Int,
+      segment: Option[Int]
+  ) extends MasterCreateOrUpdate
+end MasterCreateOrUpdate
+`;
+  const t = scanScala(source, 'MasterCreateOrUpdate.scala').find(x => x.name === 'MasterCreateOrUpdate')!;
+  assert.deepEqual(t.values, ['MasterCreate', 'MasterUpdate']);
+  assert.deepEqual(t.cases?.map(c => `${c.name}: ${c.fields?.map(f => f.name).join(', ')}`), ['MasterCreate: advisor, segment', 'MasterUpdate: branch, segment']);
+  assert.deepEqual(t.fields?.map(f => `${f.name}:${f.type}`), ['segment:Option[Int]']);
+});
