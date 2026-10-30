@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, parseFragment, patternDefs } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs } from '../src/patterns';
 import type { EngineId, PatternDef } from '../src/types';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -31,7 +31,9 @@ const diagram = (engine: EngineId, type: string) => `<bpmn:definitions ${NS[engi
 test('the standard patterns are there without a company pattern', () => {
   const ids = patternDefs(null).map(p => p.id);
   for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks']) assert.ok(ids.includes(id), id);
-  assert.ok(STANDARD_PATTERNS.every(p => p.standard && !p.builtin));
+  assert.ok(STANDARD_PATTERNS.every(p => isStandardPattern(p) && !p.builtin));
+  // a copy (an own pattern from a file) is not a standard pattern, whatever it carries
+  assert.ok(!isStandardPattern({ ...STANDARD_PATTERNS[0], standard: true }));
   assert.ok(allPatterns(undefined).some(p => p.id === 'process-labels'));
 });
 
@@ -57,7 +59,7 @@ test('an own pattern with the same ID replaces the standard one, others are adde
 
 for (const std of STANDARD_PATTERNS) {
   test(`an own pattern with the BPMN of «${std.name}» under another ID gets the element, the standard one does not`, () => {
-    const own: PatternDef = { ...std, id: `acme-${std.id}`, name: `Eigenes ${std.name}`, standard: undefined };
+    const own: PatternDef = { ...std, id: `acme-${std.id}`, name: `Eigenes ${std.name}` };
     for (const engine of ['c7', 'c8'] as const) {
       const xml = applyPattern(diagram(engine, std.appliesTo[0]), std, engine, 'Target').xml;
       const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
@@ -66,6 +68,36 @@ for (const std of STANDARD_PATTERNS) {
   });
 }
 
+test('an own pattern with the same ID and other BPMN: only the own one is recognised', () => {
+  const std = STANDARD_PATTERNS.find(p => p.id === 'propagate-mocks')!;
+  // the own one passes only the mocks on, not the identity
+  const own: PatternDef = { ...std, name: 'Nur Mocks', bpmn: { c8: std.bpmn.c8!.replace(/\s*<zeebe:input source="=_identityCorrelation"[^>]*\/>/, '') } };
+  assert.notEqual(own.bpmn.c8, std.bpmn.c8);
+  const defs = patternDefs({ patterns: [own] });
+  const withStd = applyPattern(diagram('c8', 'callActivity'), std, 'c8', 'Target').xml;
+  // the full standard BPMN contains the own one — it is the own one that is found
+  assert.deepEqual(detectPatterns(withStd, defs, 'c8').hits.map(h => h.patternId), ['propagate-mocks']);
+  assert.equal(defs.find(p => p.id === 'propagate-mocks'), own);
+  // and with only the own BPMN in the diagram, the standard one finds nothing
+  const withOwn = applyPattern(diagram('c8', 'callActivity'), own, 'c8', 'Target').xml;
+  assert.deepEqual(detectPatterns(withOwn, STANDARD_PATTERNS, 'c8').hits, []);
+  assert.deepEqual(detectPatterns(withOwn, defs, 'c8').hits.map(h => h.targetId), ['Target']);
+});
+
+test('Init Process: the topic is the process ID - another topic is not the pattern', () => {
+  const init = STANDARD_PATTERNS.find(p => p.id === 'init-process')!;
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = applyPattern(diagram(engine, 'serviceTask'), init, engine, 'Target').xml;
+    assert.ok(xml.includes('acme-demoV1'), `${engine}: topic filled with the process ID`);
+    assert.ok(!xml.includes('{{processId}}'), engine);
+    assert.deepEqual(detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => h.patternId), ['init-process'], engine);
+    const other = xml.replace(/(topic|type)="acme-demoV1"/, '$1="acme-otherV1"');
+    assert.notEqual(other, xml, engine);
+    assert.deepEqual(detectPatterns(other, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'init-process'), [], engine);
+  }
+});
+
+// ESM runs in strict mode — changing a frozen object throws instead of failing silently
 test('the standard patterns cannot be changed by a caller', () => {
   assert.throws(() => (patternDefs(null) as PatternDef[]).push({ id: 'x', name: 'x', appliesTo: [], bpmn: {} }));
   assert.throws(() => { (STANDARD_PATTERNS[0] as { name: string }).name = 'x'; });

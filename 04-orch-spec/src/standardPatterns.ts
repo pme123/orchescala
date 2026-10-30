@@ -1,11 +1,12 @@
 // The standard patterns of Orchescala — every company has them (see STANDARD_PATTERNS
-// in patterns.ts). Same format as a pattern file of the admin (Export / Import);
-// the example processes and the documentation are in democompany-patterns.
+// in patterns.ts). Same format as a pattern file of the admin (Export / Import):
+// to change one, edit it in Orch Spec (Admin → Pattern, as an own pattern with the
+// same ID), export it and replace its entry here — the BPMN is not edited by hand.
+// The example processes and the documentation are in democompany-patterns.
 
 import type { PatternDef } from './types.ts';
 
-export const STANDARD_PATTERN_DEFS: PatternDef[] = 
-[
+export const STANDARD_PATTERN_DEFS: PatternDef[] = [
   {
     "id": "init-process",
     "name": "Init Process",
@@ -58,5 +59,4 @@ export const STANDARD_PATTERN_DEFS: PatternDef[] =
       "c8": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<bpmn:definitions xmlns:bpmn=\"http://www.omg.org/spec/BPMN/20100524/MODEL\" xmlns:bpmndi=\"http://www.omg.org/spec/BPMN/20100524/DI\" xmlns:dc=\"http://www.omg.org/spec/DD/20100524/DC\" xmlns:di=\"http://www.omg.org/spec/DD/20100524/DI\" xmlns:modeler=\"http://camunda.org/schema/modeler/1.0\" xmlns:zeebe=\"http://camunda.org/schema/zeebe/1.0\" modeler:executionPlatform=\"Camunda Cloud\" modeler:executionPlatformVersion=\"8.8.0\" id=\"PatternDefinitions\" targetNamespace=\"http://bpmn.io/schema/bpmn\">\n  <bpmn:process id=\"PatternProcess\" isExecutable=\"true\">\n    <bpmn:callActivity id=\"PatternTarget\">\n      <bpmn:extensionElements>\n        <zeebe:ioMapping>\n          <zeebe:input source=\"=_servicesMocked\" target=\"_servicesMocked\" />\n          <zeebe:input source=\"=_mockedWorkers\" target=\"_mockedWorkers\" />\n          <zeebe:input source=\"=_identityCorrelation\" target=\"_identityCorrelation\" />\n        </zeebe:ioMapping>\n      </bpmn:extensionElements>\n    </bpmn:callActivity>\n  </bpmn:process>\n  <bpmndi:BPMNDiagram id=\"PatternDiagram\">\n    <bpmndi:BPMNPlane id=\"PatternPlane\" bpmnElement=\"PatternProcess\">\n      <bpmndi:BPMNShape id=\"PatternTarget_di\" bpmnElement=\"PatternTarget\">\n        <dc:Bounds x=\"200\" y=\"100\" width=\"100\" height=\"80\" />\n      </bpmndi:BPMNShape>\n    </bpmndi:BPMNPlane>\n  </bpmndi:BPMNDiagram>\n</bpmn:definitions>\n"
     }
   }
-]
-;
+];
