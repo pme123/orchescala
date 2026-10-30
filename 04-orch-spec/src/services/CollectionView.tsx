@@ -20,7 +20,7 @@ import { StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
   API_NAME, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
-  serviceIssues, serviceTopic, suggestPathBase, withoutService, workerPath,
+  serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import { catalogProjects, syncWithCatalog, type CatalogSync } from './catalogCollections';
@@ -265,7 +265,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
               onOpenType={id => setSelection({ kind: 'type', id })}
               onRemove={() => { update(s => withoutService(s, service.id)); setSelection({ kind: 'overview' }); }} />
           ) : type ? (
-            <StandaloneTypeEditor key={type.id} type={type} spec={processFrame(spec)} isDark={isDark} canEdit={canEdit} model={model}
+            <StandaloneTypeEditor key={type.id} type={type} spec={processFrame(spec, typeHome(spec, type.id))} isDark={isDark} canEdit={canEdit} model={model}
               onTypes={types => update(s => ({ ...s, types }))}
               onOpenType={id => setSelection({ kind: 'type', id })} />
           ) : (
@@ -407,7 +407,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
   const { isDark, model } = useStore();
   const confirm = useConfirm();
   const c = cls(isDark);
-  const frame = useMemo(() => processFrame(spec), [spec]);
+  const frame = useMemo(() => processFrame(spec, collectionPackage(apiOf(spec, s))), [spec, s]);
   const { in: inType, out: outType } = membersOf(spec, s);
   const issues = serviceIssues(spec, s);
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;

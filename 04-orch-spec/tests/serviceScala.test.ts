@@ -163,3 +163,32 @@ test('a base the company sets: serviceBasePath has it, the worker adds the rest'
   const task = files.find(f => f.path.endsWith('/GetClient.scala'))!.content;
   assert.match(task, /val path = "GET: \/banks\/\{bankNumber\}\/clients\/\{clientKey\}"/);
 });
+
+test('enums as in the process: a case from a text, the shared fields of an ADT, the package of the API', async () => {
+  const productType: TypeDef = { id: 't-pt', name: 'ProductType', kind: 'enum', values: [{ name: 'Account' }, { name: 'Power of attorney' }] };
+  const clientRead: TypeDef = {
+    id: 't-cr', name: 'ClientRead', kind: 'enum', fields: [{ id: 's1', name: 'master', type: 'String' }],
+    values: [{ name: 'private', fields: [{ id: 'p1', name: 'person', type: 'String' }] }, { name: 'company' }],
+  };
+  const types = [productType, clientRead];
+  const target = { type: 't-pt' };
+  assert.deepEqual(feelToScala('= "Account"', new Map(), types, target), { scala: 'ProductType.Account', optional: false });
+  assert.equal(feelToScala('= "Power of attorney"', new Map(), types, target).scala, 'ProductType.`Power of attorney`');
+  assert.match(feelToScala('= "Nope"', new Map(), types, target).scala, /^\?\?\? \/\* TODO «Nope» ist kein Fall von ProductType/);
+  assert.equal(feelToScala('= "x"', new Map(), types, { type: 't-cr' }).todo, true);
+  // a text stays a text where the target is no enum
+  assert.equal(feelToScala('= "Account"', new Map(), types, { type: 'String' }).scala, '"Account"');
+  // the fields all cases of an ADT share
+  const vars = new Map<string, ScalaVar>([['body', { scala: 'body', type: 't-cr' }]]);
+  assert.deepEqual(feelToScala('= body.master', vars, types), { scala: 'body.master', optional: false });
+  assert.equal(feelToScala('= body.person', vars, types).todo, true);
+
+  // the type editor sees the types of the API as its own — not as referenced from elsewhere
+  const { processFrame, typeHome } = await import('../src/services/collection');
+  const { packageOf, referencedClass } = await import('../src/scala');
+  const c = { ...collection(), types: [...collection().types, { ...productType, domainId: 'acme.crm.domain.client.v1.schema.ProductType' }] };
+  assert.equal(typeHome(c, 't-pt'), 'acme.crm.domain.client.v1');
+  assert.equal(packageOf(processFrame(c, typeHome(c, 't-pt'))), 'acme.crm.domain.client.v1');
+  const model = { version: 1, services: [], domainTypes: [{ id: 'acme.crm.domain.client.v1.schema.ProductType', name: 'ProductType', pkg: 'acme.crm.domain.client.v1.schema', kind: 'enum', importPath: 'x', values: ['Account'] }] } as never;
+  assert.deepEqual(referencedClass(c.types.find(t => t.id === 't-pt')!, model, typeHome(c, 't-pt')), {});
+});

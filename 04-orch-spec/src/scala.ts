@@ -1163,6 +1163,8 @@ function imports(t: TypeDef, idx: TypeIndex): string {
  * hyphen would not be allowed in a package name.
  */
 export function packageOf(spec: ProcessSpec, model: Model | null = null): string {
+  // a frame with a package of its own — the API of a service collection
+  if (typeof spec.ownPackage === 'string' && spec.ownPackage) return spec.ownPackage;
   const echt = domainHome(spec, model);
   if (echt) return echt.pkg;
   const project = (spec.project ?? '').split('-').filter(Boolean);

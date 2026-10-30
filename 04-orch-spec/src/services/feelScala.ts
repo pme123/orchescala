@@ -8,6 +8,7 @@
 //   = body.address.city    → body.address.flatMap(_.city)     (address optional)
 //   = headers.etag         → headers.get("etag")
 //   = "CH" · = 3 · = true  → "CH" · 3L (for a Long) · true
+//   = "Account"            → ProductType.Account (for an enum field, as the process writes it)
 //
 // Everything else stays FEEL for a human: `??? /* TODO FEEL: … */` — the project
 // compiles and the place is easy to find.
@@ -49,7 +50,7 @@ export function feelToScala(expression: string, vars: Map<string, ScalaVar>, typ
   // not FEEL: a fixed text
   if (!raw.startsWith('=')) return { scala: JSON.stringify(raw), optional: false };
 
-  const literal = literalOf(body, target);
+  const literal = literalOf(body, target, types);
   if (literal) return literal;
 
   const parts = splitPath(body);
@@ -70,7 +71,8 @@ export function feelToScala(expression: string, vars: Map<string, ScalaVar>, typ
     // into a list: not a path any more
     if (shape.collection) return todo(body, 'Pfad in eine Liste');
     const owner = types.find(t => t.id === shape.type);
-    const field = owner?.kind === 'case' ? (owner.fields ?? []).find(f => f.name === name) : undefined;
+    // a class — or an ADT: the fields all its cases share (`body.master`)
+    const field = (owner?.fields ?? []).find(f => f.name === name);
     if (!field) return todo(body, `«${name}» gibt es nicht`);
     if (optional) {
       scala = `${scala}.${field.optional ? 'flatMap' : 'map'}(_.${ident(name)})`;
@@ -99,11 +101,20 @@ function splitPath(body: string): string[] | null {
   return at >= body.length && out.length ? out : null;
 }
 
-function literalOf(body: string, target?: Pick<Field, 'type'>): Translated | null {
+function literalOf(body: string, target: Pick<Field, 'type'> | undefined, types: TypeDef[]): Translated | null {
   if (body === 'null') return { scala: 'None', optional: true };
   if (body === 'true' || body === 'false') return { scala: body, optional: false };
   const str = /^"((?:[^"\\]|\\.)*)"$/.exec(body);
-  if (str) return { scala: `"${str[1]}"`, optional: false };
+  if (str) {
+    // a case of an enum: `ProductType.Account` — a name the enum lacks stays to check
+    const en = enumOf(target?.type, types);
+    if (en) {
+      if (en.adt) return todo(body, `${en.name} hat Fälle mit Feldern — ein Text reicht nicht`);
+      if (en.cases.includes(str[1])) return { scala: `${en.name}.${ident(str[1])}`, optional: false };
+      return todo(body, `«${str[1]}» ist kein Fall von ${en.name}`);
+    }
+    return { scala: `"${str[1]}"`, optional: false };
+  }
   if (/^-?\d+(\.\d+)?$/.test(body)) {
     const t = target?.type;
     if (t === 'Long' && !body.includes('.')) return { scala: `${body}L`, optional: false };
@@ -112,6 +123,13 @@ function literalOf(body: string, target?: Pick<Field, 'type'>): Translated | nul
     return { scala: body, optional: false };
   }
   return null;
+}
+
+/** The enum a target type is (a type of the collection) — with its cases; an ADT has fields in them. */
+function enumOf(type: string | undefined, types: TypeDef[]): { name: string; cases: string[]; adt: boolean } | null {
+  const own = type ? types.find(t => t.id === type) : undefined;
+  if (own?.kind !== 'enum') return null;
+  return { name: own.name, cases: (own.values ?? []).map(v => v.name), adt: (own.values ?? []).some(v => v.fields?.length) };
 }
 
 /**
