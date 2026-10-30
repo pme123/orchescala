@@ -15,13 +15,13 @@ import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../com
 import { epicsOf } from '../epics';
 import { useStore } from '../store';
 import { EpicChip, StatusChip, cls } from '../ui';
-import { API_NAME, PROJECT_NAME, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
+import { API_NAME, PROJECT_NAME, apiList, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
 import { useServices, type ServiceListItem } from './store';
 import CollectionImport from './CollectionImport';
 
 const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
   title: data.title,
-  terms: [slug, data.api, topicPrefix(data), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)],
+  terms: [slug, data.pathPrefix ?? '', ...apisOf(data).map(a => `${a.api} ${topicPrefix(a)}`), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)],
   project: data.project, epics: data.epics, updatedAt: data.updatedAt,
 });
 
@@ -54,13 +54,14 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
         )}
       </div>
       <p className={`text-[11px] mb-4 ${c.muted}`}>
-        Eine <b>Service Collection</b> ist eine REST-API eines Service-Projekts: die Operationen aus der OpenAPI wählen,
+        Eine <b>Service Collection</b> ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein Teilpfad, mit ihren
+        APIs (<span className="font-mono">client v1</span>, <span className="font-mono">crm v2</span> …): die Operationen wählen,
         je Service <span className="font-mono">In</span> und <span className="font-mono">Out</span> ergänzen und die Mappings
         festlegen. Daraus entstehen ServiceTasks und ServiceWorker.
       </p>
 
       {importing && (
-        <CollectionImport model={model} existing={services.map(s => s.slug)} isDark={isDark} onClose={() => setImporting(false)}
+        <CollectionImport model={model} existing={services.map(s => s.data)} isDark={isDark} onClose={() => setImporting(false)}
           onCreate={async spec => {
             const r = await createService(spec);
             if (r.ok) { setImporting(false); onOpen(spec.slug); }
@@ -111,7 +112,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
                 <Boxes size={14} className={isDark ? 'text-teal-300' : 'text-teal-700'} />
                 <div className="min-w-0 flex-1">
                   <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
-                  <div className={`text-[10px] font-mono truncate ${c.muted}`}>{collectionPackage(data)}</div>
+                  <div className={`text-[10px] font-mono truncate ${c.muted}`}>{data.project}{data.pathPrefix ? ` · ${data.pathPrefix}` : ''}{data.services.length ? ` · ${apiList(data)}` : ''}</div>
                 </div>
                 {epicsOf({ epics: data.epics }, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
                 <span className={`hidden sm:inline text-[9px] ${c.muted}`}>{data.services.length} Service{data.services.length === 1 ? '' : 's'}</span>
@@ -144,7 +145,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
 
 function NewCollection({ existing, onCreate, onClose }: {
   existing: string[];
-  onCreate: (input: { title: string; project: string; api: string; apiVersion: number }) => Promise<{ ok: true } | { ok: false; message: string }>;
+  onCreate: (input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string }) => Promise<{ ok: true } | { ok: false; message: string }>;
   onClose: () => void;
 }) {
   const { isDark, model } = useStore();
@@ -153,22 +154,24 @@ function NewCollection({ existing, onCreate, onClose }: {
   const [project, setProject] = useState('');
   const [api, setApi] = useState('');
   const [apiVersion, setApiVersion] = useState(1);
+  const [pathPrefix, setPathPrefix] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   // the projects of the catalog as suggestions — the services usually belong to an existing one
   const projects = [...new Set((model?.projects ?? []).map(p => p.name).filter(Boolean))] as string[];
-  const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion };
+  const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, pathPrefix: pathPrefix.trim() };
   const slug = collectionSlug(input);
   const taken = existing.includes(slug);
   const problem = !input.title ? 'Titel fehlt'
     : !PROJECT_NAME.test(input.project) ? 'Projekt: Kleinbuchstaben mit «-», z. B. acme-crm'
       : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
         : apiVersion < 1 ? 'Version ab 1'
-          : taken ? `services/${slug}.json gibt es schon` : '';
+          : input.pathPrefix && !input.pathPrefix.startsWith('/') ? 'Teilpfad beginnt mit «/»'
+            : taken ? `services/${slug}.json gibt es schon` : '';
   const field = `w-full px-2 py-1 rounded border bg-transparent text-[11px] outline-none ${c.border2} ${c.text}`;
   return (
     <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
-      <div className="grid grid-cols-[2fr_1.5fr_1fr_4rem] gap-2">
+      <div className="grid grid-cols-[2fr_1.5fr_1.5fr_1fr_4rem] gap-2">
         <label className="space-y-0.5">
           <span className={`text-[10px] ${c.muted}`}>Titel</span>
           <input className={field} value={title} onChange={e => setTitle(e.target.value)} placeholder="Kunden-API" autoFocus />
@@ -178,7 +181,11 @@ function NewCollection({ existing, onCreate, onClose }: {
           <input className={`${field} font-mono`} value={project} onChange={e => setProject(e.target.value)} placeholder="acme-crm" list="service-projects" />
           <datalist id="service-projects">{projects.map(p => <option key={p} value={p} />)}</datalist>
         </label>
-        <label className="space-y-0.5">
+        <label className="space-y-0.5" title="Nur dieser Teil der OpenAPI — leer: die ganze">
+          <span className={`text-[10px] ${c.muted}`}>Teilpfad (optional)</span>
+          <input className={`${field} font-mono`} value={pathPrefix} onChange={e => setPathPrefix(e.target.value)} placeholder="/clients" />
+        </label>
+        <label className="space-y-0.5" title="Die API neuer Services — je Service änderbar; die OpenAPI schlägt sie je Teilpfad vor">
           <span className={`text-[10px] ${c.muted}`}>API</span>
           <input className={`${field} font-mono`} value={api} onChange={e => setApi(e.target.value)} placeholder="client" />
         </label>
@@ -190,7 +197,7 @@ function NewCollection({ existing, onCreate, onClose }: {
       <div className="flex items-center gap-2">
         <span className={`text-[10px] font-mono ${problem && input.title ? 'text-rose-500' : c.muted}`}>
           {problem && (input.title || input.project || input.api) ? problem
-            : input.project && input.api ? `${collectionPackage(input)} · Topics ${topicPrefix(input)}.…` : 'Paket und Topics folgen aus Projekt, API und Version'}
+            : input.project && input.api ? `services/${slug}.json · neue Services in ${collectionPackage(input)}` : 'Paket und Topics folgen aus Projekt, API und Version — je Service'}
         </span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>

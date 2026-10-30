@@ -1,32 +1,48 @@
 // Import an existing collection:
-//   · from the catalog — an API whose services a project already has
-//     (grouped by the prefix of their topic, see catalogCollections.ts)
+//   · from the catalog — a project whose services exist already, with the APIs
+//     to take (all, or some of them — see catalogCollections.ts)
 //   · from a file — a collection of another folder (`services/<slug>.json`)
-import { AlertTriangle, Boxes, Check, FileJson, Library, Search, X } from 'lucide-react';
+import { AlertTriangle, Boxes, ChevronDown, ChevronRight, FileJson, Library, Search, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import type { Model } from '../types';
 import { cls } from '../ui';
-import { collectionPackage } from './collection';
-import { catalogApis, collectionFromCatalog, collectionOf } from './catalogCollections';
+import { collectionPackage, serviceTopic } from './collection';
+import { catalogProjects, collectionFromCatalog, describedTopics, type CatalogApi, type CatalogProject } from './catalogCollections';
 import { serviceProblem } from './store';
 import type { ServiceCollectionSpec } from './types';
 
+const topicOf = (a: CatalogApi, name: string) => serviceTopic(a, { name });
+
 export default function CollectionImport({ model, existing, isDark, onClose, onCreate }: {
   model: Model | null;
-  /** the slugs in services/ — an API that is there already is marked */
-  existing: string[];
+  /** the collections in services/ — APIs described there already are marked */
+  existing: ServiceCollectionSpec[];
   isDark: boolean;
   onClose: () => void;
   onCreate: (spec: ServiceCollectionSpec) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
   const c = cls(isDark);
-  const apis = useMemo(() => catalogApis(model), [model]);
+  const projects = useMemo(() => catalogProjects(model), [model]);
+  const described = useMemo(() => describedTopics(existing), [existing]);
   const [query, setQuery] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  /** per project the chosen APIs (prefix) — without a choice: all not yet described */
+  const [chosen, setChosen] = useState<Record<string, Set<string>>>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const visible = apis.filter(a => words.every(w => `${a.prefix} ${a.group ?? ''} ${a.services.map(s => s.name).join(' ')}`.toLowerCase().includes(w)));
+  const visible = projects.filter(p => words.every(w =>
+    `${p.project} ${p.group ?? ''} ${p.apis.map(a => `${a.prefix} ${a.services.map(s => s.name).join(' ')}`).join(' ')}`.toLowerCase().includes(w)));
+
+  /** where an API is described already — the collection of its first described service */
+  const describedIn = (a: CatalogApi) => a.services.map(s => described.get(topicOf(a, TOPIC_NAME(s.topic ?? s.id)))).find(Boolean);
+  const choiceOf = (p: CatalogProject) => chosen[p.project] ?? new Set(p.apis.filter(a => !describedIn(a)).map(a => a.prefix));
+  const toggle = (p: CatalogProject, prefix: string) => setChosen(prev => {
+    const next = new Set(choiceOf(p));
+    if (next.has(prefix)) next.delete(prefix); else next.add(prefix);
+    return { ...prev, [p.project]: next };
+  });
 
   const create = async (spec: ServiceCollectionSpec, key: string) => {
     setBusy(key); setError('');
@@ -56,13 +72,13 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
         </div>
         <div className="px-4 py-3 space-y-2 flex-1 min-h-0 flex flex-col">
           <p className={`text-[10px] ${c.muted}`}>
-            Aus dem <b>Katalog</b>: eine API, deren Services es in einem Projekt schon gibt — mit In und Out aus der Domain.
-            Methode und Pfad kennt der Katalog nicht: eine danach importierte OpenAPI ergänzt sie (gleicher Name).
+            Aus dem <b>Katalog</b>: ein Projekt, dessen Services es schon gibt — alle seine APIs oder eine Auswahl, mit In und Out
+            aus der Domain. Methode und Pfad kennt der Katalog nicht: eine danach importierte OpenAPI ergänzt sie (gleicher Name).
           </p>
           <div className="flex items-center gap-2">
             <div className={`flex items-center gap-1 px-2 py-1 rounded border flex-1 ${c.border2}`}>
               <Search size={11} className={c.muted} />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="API, Projekt, Service …" autoFocus
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Projekt, API, Service …" autoFocus
                 className={`flex-1 bg-transparent outline-none text-[11px] ${c.text}`} />
             </div>
             <input ref={fileRef} type="file" accept=".json" className="hidden"
@@ -74,27 +90,51 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
           </div>
           {error && <p className="text-[11px] text-rose-500 flex items-center gap-1.5"><AlertTriangle size={11} /> {error}</p>}
           <div className={`flex-1 min-h-0 overflow-y-auto rounded border ${c.border2}`}>
-            {!apis.length && <p className={`p-3 text-[11px] ${c.muted}`}>Der Katalog kennt keine Service-Worker (Topic <span className="font-mono">projekt-apiV1.Name</span>) — Admin → Katalog.</p>}
-            {apis.length > 0 && !visible.length && <p className={`p-3 text-[11px] ${c.muted}`}>Keine API passt zur Suche.</p>}
-            {visible.map(a => {
-              const there = collectionOf(a, existing);
+            {!projects.length && <p className={`p-3 text-[11px] ${c.muted}`}>Der Katalog kennt keine Service-Worker (Topic <span className="font-mono">projekt-apiV1.Name</span>) — Admin → Katalog.</p>}
+            {projects.length > 0 && !visible.length && <p className={`p-3 text-[11px] ${c.muted}`}>Kein Projekt passt zur Suche.</p>}
+            {visible.map(p => {
+              const isOpen = open === p.project || (visible.length === 1);
+              const choice = choiceOf(p);
+              const picked = p.apis.filter(a => choice.has(a.prefix));
+              const n = picked.reduce((sum, a) => sum + a.services.length, 0);
               return (
-                <div key={a.prefix} className={`flex items-center gap-2 px-3 py-1.5 border-b last:border-b-0 ${c.border}`}>
-                  <Boxes size={13} className={isDark ? 'text-teal-300' : 'text-teal-700'} />
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-[11px] font-mono font-semibold truncate ${c.text}`}>{a.prefix}</div>
-                    <div className={`text-[10px] truncate ${c.muted}`} title={a.services.map(s => s.name).join(', ')}>
-                      {a.group ? `${a.group} · ` : ''}{collectionPackage(a)} · {a.services.length} Service{a.services.length === 1 ? '' : 's'}: {a.services.map(s => s.name).join(', ')}
+                <div key={p.project} className={`border-b last:border-b-0 ${c.border}`}>
+                  <div className="flex items-center gap-2 px-3 py-1.5">
+                    <button onClick={() => setOpen(isOpen ? null : p.project)} className={`p-0.5 rounded ${c.muted} ${c.hover}`}>
+                      {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    </button>
+                    <Boxes size={13} className={isDark ? 'text-teal-300' : 'text-teal-700'} />
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-[11px] font-semibold truncate ${c.text}`}>{p.group || p.project} <span className={`font-mono font-normal ${c.muted}`}>{p.project}</span></div>
+                      <div className={`text-[10px] truncate ${c.muted}`}>
+                        {p.apis.length} API{p.apis.length === 1 ? '' : 's'}: {p.apis.map(a => `${a.api} v${a.apiVersion}`).join(', ')}
+                      </div>
                     </div>
+                    <button disabled={!!busy || !picked.length}
+                      title={picked.length ? `${picked.length} API(s), ${n} Services als eine Collection` : 'keine API gewählt'}
+                      onClick={() => void create(collectionFromCatalog(p, picked, model), p.project)}
+                      className={`text-[11px] px-2.5 py-1 rounded border border-transparent whitespace-nowrap disabled:opacity-40 ${c.btnPrimary}`}>
+                      {busy === p.project ? '…' : `${n} übernehmen`}
+                    </button>
                   </div>
-                  {there
-                    ? <span className={`text-[10px] flex items-center gap-0.5 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}><Check size={10} /> schon da</span>
-                    : (
-                      <button disabled={!!busy} onClick={() => void create(collectionFromCatalog(a, model), a.prefix)}
-                        className={`text-[11px] px-2.5 py-1 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
-                        {busy === a.prefix ? '…' : 'Übernehmen'}
-                      </button>
-                    )}
+                  {isOpen && (
+                    <div className="pl-12 pr-3 pb-2 space-y-0.5">
+                      {p.apis.map(a => {
+                        const where = describedIn(a);
+                        return (
+                          <label key={a.prefix} className={`flex items-center gap-2 text-[11px] cursor-pointer ${c.hover} rounded px-1`}>
+                            <input type="checkbox" checked={choice.has(a.prefix)} onChange={() => toggle(p, a.prefix)} />
+                            <span className={`w-40 font-mono ${c.text}`}>{a.api} v{a.apiVersion}</span>
+                            <span className={`w-64 truncate font-mono text-[10px] ${c.muted}`}>{collectionPackage(a)}</span>
+                            <span className={`flex-1 truncate text-[10px] ${c.muted}`} title={a.services.map(s => s.name).join(', ')}>
+                              {a.services.length}: {a.services.map(s => s.name).join(', ')}
+                            </span>
+                            {where && <span className={`text-[10px] whitespace-nowrap ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`} title="Services dieser API sind schon in einer Collection beschrieben">✓ in «{where}»</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -104,3 +144,6 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
     </div>
   );
 }
+
+/** the object name at the end of a topic (`acme-crm-clientV1.GetClient` → `GetClient`) */
+const TOPIC_NAME = (topic: string) => topic.slice(topic.lastIndexOf('.') + 1);

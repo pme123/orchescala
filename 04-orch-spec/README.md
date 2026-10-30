@@ -1742,10 +1742,11 @@ Fehlertexte nach HTTP-Status – der Gateway gibt Anonymen nur den Status weiter
 ### Services — Collections von REST-Services
 
 Neben **Prozesse** und **Seiten** steht **Services**. Eine **Service Collection**
-ist eine REST-API eines Service-Projekts, so wie Orchescala sie einpackt: je
-Operation ein ServiceTask mit `In`/`Out` für den Prozess und `ServiceIn`/`ServiceOut`
-für den HTTP-Aufruf, dazu ein ServiceWorker. Projekt, API und Version ergeben die
-Namen:
+ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein **Teilpfad**
+(`/clients`) —, so wie Orchescala es einpackt: je Operation ein ServiceTask mit
+`In`/`Out` für den Prozess und `ServiceIn`/`ServiceOut` für den HTTP-Aufruf, dazu ein
+ServiceWorker. Eine Collection kann **mehrere APIs** haben (`client v1`, `crm v2` …):
+jeder Service gehört zu einer, und Projekt, API und Version ergeben seine Namen:
 
 ```
 Projekt acme-crm · API client · Version 1
@@ -1754,8 +1755,11 @@ Projekt acme-crm · API client · Version 1
   → Topics       acme-crm-clientV1.GetClient   (auch die Kennung im Service-Katalog)
 ```
 
-- **OpenAPI importieren** liest eine OpenAPI 3 (YAML oder JSON) und listet alle
-  Operationen zum Ankreuzen. Was schon in der Collection ist, ist markiert und
+- **OpenAPI importieren** liest eine OpenAPI 3 (YAML oder JSON) und listet die
+  Operationen zum Ankreuzen — auf Wunsch nur die eines Teilpfads (die Collection
+  merkt ihn sich). Gruppiert sind sie nach dem Teilpfad, der ihre API nennt: das
+  erste feste Segment nach dem, was alle Pfade teilen (`/banks/{bankNumber}/clients/…`
+  → `client`, `/crm/v2/…` → `crm v2`); API und Version sind je Gruppe änderbar. Was schon in der Collection ist, ist markiert und
   bleibt, wie es ist; was der Katalog schon kennt (gleiches Topic), steht als
   «⌁ Katalog» da. Je gewählter Operation entsteht ein Service: Pfad-, Query- und
   Header-Parameter mit Typen, Body von Anfrage und Antwort mit den Typen aus den
@@ -1766,9 +1770,11 @@ Projekt acme-crm · API client · Version 1
   Typen, Beschreibungen.
 - **Mappings** in FEEL, geprüft wie im Prozess: die Parameter und Felder des Body
   aus dem `In`, das `Out` aus `body`, `headers` und dem `In`.
-- **Bestehende importieren** übernimmt eine API, deren Services es in einem Projekt
-  schon gibt: aus dem Katalog (die Service-Worker nach dem Präfix ihres Topics,
-  `In`/`Out` aus dem Domain-Katalog) oder als Datei aus einem anderen Ordner.
+- **Bestehende importieren** übernimmt ein Projekt, dessen Services es schon gibt:
+  aus dem Katalog mit allen oder einzelnen seiner APIs (die Service-Worker nach
+  ihrem Topic `projekt-apiVn.Name`, `In`/`Out` aus dem Domain-Katalog) — APIs, die
+  schon in einer Collection beschrieben sind, sind markiert —, oder als Datei aus
+  einem anderen Ordner.
   Methode und Pfad kennt der Katalog nicht — eine danach importierte OpenAPI
   **ergänzt** den Service gleichen Namens, statt einen zweiten anzulegen.
 - **Export**: der Scala-Code im Hausstil von `./helper.scala serviceTask` —
@@ -1780,13 +1786,15 @@ Projekt acme-crm · API client · Version 1
   `headers.get("etag")`, Literale nach dem Zieltyp. Ein Pflichtfeld des `Out` aus
   einem optionalen Wert wird ein Schritt, der mit `ServiceMappingError` scheitert.
   Was sich nicht übersetzen lässt, steht als `???` mit dem FEEL im Kommentar —
-  der Dialog nennt die Stellen. **Services from Spec** kopiert
+  der Dialog nennt die Stellen. Je API ein Paket mit eigenem Super-Trait; ein Typ
+  der API liegt im `schema/` der ersten API, die ihn braucht, die anderen
+  importieren ihn. **Services from Spec** kopiert
   `./helper.scala processFromSpec orchspec:…` (Format v2, `kind:
   serviceCollection`): der Helper legt an, was fehlt, vergleicht Bestehendes
-  (überschreibt nie) und registriert die Worker in der `WorkerApp` und die
-  Services als Gruppe in der API-Doku.
+  (überschreibt nie) und registriert je API die Worker in der `WorkerApp`
+  (`clientV1Workers`) und die Services als Gruppe in der API-Doku (`clientV1Api`).
 
-Ablage: `services/<projekt>-<api>v<n>.json`, gespeichert wie ein Prozess
+Ablage: `services/<projekt>[-<titel>].json`, gespeichert wie ein Prozess
 (automatisch, mit Konflikterkennung). Die **Service-Orchestrierung** (ein BPMN
 nur mit Service- und Script-Tasks, daraus ein Worker) folgt.
 

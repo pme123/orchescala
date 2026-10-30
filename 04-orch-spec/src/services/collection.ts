@@ -1,13 +1,45 @@
-// Names of a service collection in Orchescala — all derived from project, API
-// and version, the same way `deriveObject` (serviceTypes.ts) reads them back:
+// Names of the services in Orchescala — all derived from project, API and
+// version, the same way `deriveObject` (serviceTypes.ts) reads them back:
 //
 //   project acme-crm · api client · version 1
 //     → package     acme.crm.domain.client.v1
 //     → super trait ClientV1 (extends CompanyBpmnServiceTaskDsl)
 //     → topics      acme-crm-clientV1.GetClient
+//
+// A collection has one project, its services may belong to several APIs
+// (`client.v1`, `crm.v2`) — each service carries its own.
 import { STATUSES, type ProcessSpec, type Status, type TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify } from '../util';
 import type { CollectionService, ServiceCollectionSpec } from './types';
+
+/** One API of a project — what package, trait and topics are derived from. */
+export interface ApiRef { project: string; api: string; apiVersion: number }
+
+/** The API of a service — its own, otherwise the default of the collection (older files). */
+export const apiOf = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>, s: Partial<Pick<CollectionService, 'api' | 'apiVersion'>>): ApiRef =>
+  ({ project: c.project, api: s.api || c.api, apiVersion: s.apiVersion || c.apiVersion });
+
+/** The APIs of a collection, in the order of their first service — `client.v1`, `crm.v2`. */
+export function apisOf(c: ServiceCollectionSpec): ApiRef[] {
+  const out: ApiRef[] = [];
+  for (const s of c.services) {
+    const a = apiOf(c, s);
+    if (!out.some(x => sameApi(x, a))) out.push(a);
+  }
+  return out;
+}
+
+export const sameApi = (a: Pick<ApiRef, 'api' | 'apiVersion'>, b: Pick<ApiRef, 'api' | 'apiVersion'>): boolean =>
+  a.api === b.api && a.apiVersion === b.apiVersion;
+
+/** `client v1, crm v2` */
+export const apiList = (c: ServiceCollectionSpec): string => apisOf(c).map(a => `${a.api} v${a.apiVersion}`).join(', ');
+
+/** Older files have the API only on the collection — every service gets it. */
+export function withServiceApis(c: ServiceCollectionSpec): ServiceCollectionSpec {
+  if (c.services.every(s => s.api && s.apiVersion)) return c;
+  return { ...c, services: c.services.map(s => ({ ...s, api: s.api || c.api, apiVersion: s.apiVersion || c.apiVersion })) };
+}
 
 const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 
@@ -38,16 +70,22 @@ export const workerPackage = (c: Pick<ServiceCollectionSpec, 'project' | 'api' |
 export const workerDir = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>): string =>
   `03-worker/src/main/scala/${workerPackage(c).replace(/\./g, '/')}`;
 
-/** The file name in `services/` — from project, API and version, so a second import finds the same one. */
-export const collectionSlug = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>): string =>
-  slugify(topicPrefix(c));
+/**
+ * The file name in `services/` — the project, and the title if it says more
+ * (`acme-crm`, `acme-crm-kunden`).
+ */
+export function collectionSlug(c: Pick<ServiceCollectionSpec, 'project' | 'title'>): string {
+  const project = slugify(c.project);
+  const title = slugify(c.title ?? '');
+  return !title || title === project || title.startsWith(`${project}-`) ? title || project : `${project}-${title}`;
+}
 
 /** A valid Scala identifier for the API (`client`, `paymentRules`). */
 export const API_NAME = /^[a-z][A-Za-z0-9]*$/;
 /** `acme-crm` — lower case words joined by `-` */
 export const PROJECT_NAME = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)+$/;
 
-export function newCollection(input: { title: string; project: string; api: string; apiVersion: number; description?: string }): ServiceCollectionSpec {
+export function newCollection(input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string; description?: string }): ServiceCollectionSpec {
   const now = nowIsoWithTimezone();
   return {
     kind: 'serviceCollection',
@@ -57,6 +95,7 @@ export function newCollection(input: { title: string; project: string; api: stri
     project: input.project,
     api: input.api,
     apiVersion: input.apiVersion,
+    ...(input.pathPrefix?.trim() ? { pathPrefix: input.pathPrefix.trim() } : {}),
     status: 'draft',
     ...(input.description ? { description: input.description } : {}),
     createdAt: now,
@@ -95,7 +134,7 @@ export function withoutService(c: ServiceCollectionSpec, id: string): ServiceCol
  */
 export function processFrame(c: ServiceCollectionSpec): ProcessSpec {
   return {
-    version: 1, slug: c.slug, name: collectionTrait(c), title: c.title, project: c.project,
+    version: 1, slug: c.slug, name: c.slug, title: c.title, project: c.project,
     status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt,
     types: c.types, interactions: [], steps: [],
   };
@@ -108,6 +147,7 @@ export const pathParams = (path: string): string[] => [...path.matchAll(/\{([^}]
 export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): string[] {
   const out: string[] = [];
   if (!/^[A-Z][A-Za-z0-9]*$/.test(s.name)) out.push(`«${s.name}» ist kein Scala-Objektname (gross, ohne Sonderzeichen).`);
+  if (!API_NAME.test(apiOf(c, s).api)) out.push(`API «${apiOf(c, s).api}» ist kein Paketname (klein, camelCase).`);
   if (c.services.some(x => x.id !== s.id && x.name === s.name)) out.push(`«${s.name}» gibt es zweimal.`);
   if (!s.path) out.push('Pfad fehlt — aus der OpenAPI ergänzen (gleicher Name) oder von Hand.');
   else if (!s.path.startsWith('/')) out.push('Der Pfad beginnt mit «/».');

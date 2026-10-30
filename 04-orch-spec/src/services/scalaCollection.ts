@@ -12,7 +12,7 @@
 import { exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala';
 import type { Field, Model, TypeDef } from '../types';
 import {
-  collectionPackage, collectionTrait, domainDir, membersOf, pathParams, serviceTopic, workerDir, workerPackage,
+  apiOf, apisOf, collectionPackage, collectionTrait, domainDir, membersOf, pathParams, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection';
 import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
@@ -57,13 +57,14 @@ function serviceTypeLines(name: 'ServiceIn' | 'ServiceOut', b: BodyRef | undefin
   return { type: fieldType(f, idx), object: [...obj, `  end ${name}`] };
 }
 
-function domainObject(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, hasSchema: boolean): string {
-  const pkg = collectionPackage(c);
+function domainObject(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
+  const ref = apiOf(c, s);
+  const pkg = collectionPackage(ref);
   const { in: inType, out: outType } = membersOf(c, s);
   const imports = new Set<string>();
   const lines: string[] = [];
-  lines.push(`object ${s.name} extends ${collectionTrait(c)}:`, '');
-  lines.push(`  final val topicName = ${scalaKey(serviceTopic(c, s))}`);
+  lines.push(`object ${s.name} extends ${collectionTrait(ref)}:`, '');
+  lines.push(`  final val topicName = ${scalaKey(serviceTopic(ref, s))}`);
   lines.push(descr(s.description));
   lines.push(`  val path = ${scalaKey(`${s.method}: ${s.path}`)}`, '');
 
@@ -103,16 +104,17 @@ function domainObject(c: ServiceCollectionSpec, s: CollectionService, idx: TypeI
     '    )',
     `end ${s.name}`,
   );
-  if (hasSchema) imports.add(`import ${pkg}.schema.*`);
+  for (const i of schemaImports) imports.add(i);
   const head = [packageClause(pkg), '', ...[...imports].sort(), ...(imports.size ? [''] : [])];
   return `${head.join('\n')}\n${lines.join('\n')}\n`;
 }
 
-function superTrait(c: ServiceCollectionSpec): string {
-  const name = collectionTrait(c);
-  const version = c.source?.version?.trim() || `${c.apiVersion}.0`;
+function superTrait(c: ServiceCollectionSpec, ref: ApiRef, single: boolean): string {
+  const name = collectionTrait(ref);
+  // the version of the OpenAPI is the one of its API only if there is one
+  const version = (single && c.source?.version?.trim()) || `${ref.apiVersion}.0`;
   const label = c.serviceLabel?.trim() || c.source?.title?.trim() || c.title;
-  return `${packageClause(collectionPackage(c))}
+  return `${packageClause(collectionPackage(ref))}
 
 object ${name}:
 
@@ -133,8 +135,8 @@ end ${name}
 
 // ── the worker ───────────────────────────────────────────────────────────────
 
-const workerPackageClause = (c: ServiceCollectionSpec): string => {
-  const parts = workerPackage(c).split('.');
+const workerPackageClause = (ref: ApiRef): string => {
+  const parts = workerPackage(ref).split('.');
   const at = parts.indexOf('worker');
   return `package ${parts.slice(0, at + 1).join('.')}\npackage ${parts.slice(at + 1).join('.')}`;
 };
@@ -152,8 +154,9 @@ function sure(t: Translated, what: string): string {
   return `${t.scala}.getOrElse(??? /* TODO ${what} ist optional */)`;
 }
 
-function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, hasSchema: boolean): string {
-  const pkg = collectionPackage(c);
+function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
+  const ref = apiOf(c, s);
+  const pkg = collectionPackage(ref);
   const { in: inType, out: outType } = membersOf(c, s);
   const types = c.types;
   const vars = inVars(inType);
@@ -256,10 +259,10 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     'import WorkerError.*',
     '',
     `import ${pkg}.*`,
-    ...(hasSchema ? [`import ${pkg}.schema.*`] : []),
+    ...schemaImports,
     `import ${pkg}.${s.name}.*`,
   ];
-  return `${workerPackageClause(c)}
+  return `${workerPackageClause(ref)}
 
 ${imports.join('\n')}
 
@@ -272,32 +275,68 @@ end ${s.name}Worker
 `;
 }
 
-/** All files of the collection — what the helper writes into the project. */
+/** The own types a type reaches through its fields — itself included. */
+function reach(id: string | undefined, types: TypeDef[], seen = new Set<string>()): Set<string> {
+  if (!id || seen.has(id)) return seen;
+  const t = types.find(x => x.id === id);
+  if (!t) return seen;
+  seen.add(id);
+  for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) reach(f.type, types, seen);
+  return seen;
+}
+
+/** The own types a service uses — In, Out, bodies and parameters. */
+function typesOf(s: CollectionService, types: TypeDef[]): Set<string> {
+  const seen = new Set<string>();
+  for (const id of [s.inTypeId, s.outTypeId, s.serviceIn?.type, s.serviceOut?.type, ...s.params.map(p => p.type)]) reach(id, types, seen);
+  return seen;
+}
+
+/**
+ * All files of the collection — what the helper writes into the project. Per API
+ * its package: the super trait, the ServiceTasks, the ServiceWorkers. A type of the
+ * API lives in the `schema/` of the first API that uses it; the others import it.
+ */
 export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = null): ScalaFile[] {
-  const pkg = collectionPackage(c);
-  const idx = indexTypes(c.types, model, c.project.split('-').join('.'), pkg);
-  const schema = c.types.filter(t => !t.interactionId && t.name?.trim() && !idx.referenced.has(t.id));
-  const hasSchema = schema.length > 0;
+  const home = c.project.split('-').join('.');
   const services = c.services.filter(s => s.name.trim());
-  const dDir = domainDir(c);
-  const wDir = workerDir(c);
-  const out: ScalaFile[] = [];
-  out.push({ path: `${dDir}/${collectionTrait(c)}.scala`, content: superTrait(c) });
-  for (const s of services) out.push({ path: `${dDir}/${s.name}.scala`, content: domainObject(c, s, idx, hasSchema) });
-  for (const t of schema) {
-    const imports = importsOf(t, idx);
-    out.push({
-      path: `${dDir}/schema/${t.name}.scala`,
-      content: `${packageClause(`${pkg}.schema`)}\n${imports.length ? `\n${imports.join('\n')}\n` : ''}\n${renderType(t, idx)}\n`,
-    });
+  const apis = apisOf({ ...c, services });
+  const schema = c.types.filter(t => !t.interactionId && t.name?.trim());
+  // the owner API of each schema type: the first one whose services use it — or the first API
+  const owner = new Map<string, ApiRef>();
+  for (const a of apis) {
+    for (const s of services.filter(x => sameApi(apiOf(c, x), a))) {
+      for (const id of typesOf(s, c.types)) if (!owner.has(id) && schema.some(t => t.id === id)) owner.set(id, a);
+    }
   }
-  if (services.length) {
+  if (apis[0]) for (const t of schema) if (!owner.has(t.id)) owner.set(t.id, apis[0]);
+  const schemaImports = (ids: Set<string>): string[] =>
+    [...new Set([...ids].map(id => owner.get(id)).filter((a): a is ApiRef => !!a).map(a => `import ${collectionPackage(a)}.schema.*`))].sort();
+
+  const out: ScalaFile[] = [];
+  for (const a of apis) {
+    const pkg = collectionPackage(a);
+    const idx = indexTypes(c.types, model, home, pkg);
+    const own = services.filter(s => sameApi(apiOf(c, s), a));
+    const dDir = domainDir(a);
+    const wDir = workerDir(a);
+    out.push({ path: `${dDir}/${collectionTrait(a)}.scala`, content: superTrait(c, a, apis.length === 1) });
+    for (const s of own) out.push({ path: `${dDir}/${s.name}.scala`, content: domainObject(c, s, idx, schemaImports(typesOf(s, c.types))) });
+    for (const t of schema.filter(x => owner.get(x.id) === a && !idx.referenced.has(x.id))) {
+      // a type of another API it points to: imported from there
+      const others = schemaImports(reach(t.id, c.types)).filter(i => i !== `import ${pkg}.schema.*`);
+      const imports = [...others, ...importsOf(t, idx)];
+      out.push({
+        path: `${dDir}/schema/${t.name}.scala`,
+        content: `${packageClause(`${pkg}.schema`)}\n${imports.length ? `\n${imports.join('\n')}\n` : ''}\n${renderType(t, idx)}\n`,
+      });
+    }
     out.push({
       path: `${wDir}/exports.scala`,
-      content: `${workerPackageClause(c)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${scalaKey(c.source?.basePath || 'TODO: https://…')}\n`,
+      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${scalaKey(c.source?.basePath || 'TODO: https://…')}\n`,
     });
+    for (const s of own) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types))) });
   }
-  for (const s of services) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, hasSchema) });
   return out;
 }
 

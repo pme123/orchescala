@@ -6,6 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useStore, type SaveResult } from '../store';
 import type { StorageBackend } from '../backend';
 import type { ServiceSpec } from './types';
+import { withServiceApis } from './collection';
 
 export const SERVICES_DIR = 'services';
 
@@ -66,7 +67,7 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
           const data: unknown = JSON.parse(read.text);
           const problem = serviceProblem(data);
           if (problem) throw new Error(problem);
-          items.push({ slug: f.name.replace(/\.json$/, ''), data: data as ServiceSpec, version: read.version });
+          items.push({ slug: f.name.replace(/\.json$/, ''), data: withServiceApis(data as ServiceSpec), version: read.version });
         } catch (e) {
           unreadable.push({ file: f.name, problem: e instanceof Error ? e.message : String(e) });
         }
@@ -102,7 +103,7 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
     const data: unknown = JSON.parse(read.text);
     const problem = serviceProblem(data);
     if (problem) throw new Error(`${pathOf(slug)}: ${problem}`);
-    return { data: data as ServiceSpec, version: read.version };
+    return { data: withServiceApis(data as ServiceSpec), version: read.version };
   }, [getBackend]);
 
   const write = useCallback(async (data: ServiceSpec, opts: { ifMatch?: string; createOnly?: boolean }): Promise<SaveResult & { exists?: true }> => {

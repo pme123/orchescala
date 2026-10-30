@@ -120,17 +120,18 @@ test('header names become Scala names', () => {
 
 test('a placeholder in the path without parameter is a finding', () => {
   const c = newCollection({ title: 'x', project: 'acme-crm', api: 'client', apiVersion: 1 });
-  const svc = { id: 's', name: 'GetX', status: 'draft' as const, method: 'GET' as const, path: '/x/{id}', params: [] };
+  const svc = { id: 's', name: 'GetX', api: 'client', apiVersion: 1, status: 'draft' as const, method: 'GET' as const, path: '/x/{id}', params: [] };
   assert.deepEqual(serviceIssues({ ...c, services: [svc] }, svc), ['Pfad-Parameter «id» ist nicht beschrieben.']);
 });
 
-test('an API of the catalog becomes a collection; an OpenAPI completes its services', async () => {
-  const { catalogApis, collectionFromCatalog } = await import('../src/services/catalogCollections');
+test('a project of the catalog becomes one collection with its APIs; an OpenAPI completes its services', async () => {
+  const { catalogProjects, collectionFromCatalog } = await import('../src/services/catalogCollections');
   const model = {
     version: 1,
     services: [
       { id: 'acme-crm-clientV1.GetClientKey', name: 'GetClientKey', kind: 'service', group: 'Acme CRM', topic: 'acme-crm-clientV1.GetClientKey', description: 'Reads a client' },
       { id: 'acme-crm-clientV1.PutClientKey', name: 'PutClientKey', kind: 'service', topic: 'acme-crm-clientV1.PutClientKey', inputs: [{ name: 'clientKey', required: true }] },
+      { id: 'acme-crm-crmV2.GetProductGroups', name: 'GetProductGroups', kind: 'service', topic: 'acme-crm-crmV2.GetProductGroups' },
       { id: 'acme-crm-clientV1', name: 'process', kind: 'call' },
     ],
     domainTypes: [
@@ -138,26 +139,46 @@ test('an API of the catalog becomes a collection; an OpenAPI completes its servi
       { id: 'acme.crm.domain.client.v1.GetClientKey.Out', name: 'GetClientKey.Out', pkg: 'acme.crm.domain.client.v1', kind: 'case', owner: 'GetClientKey', importPath: 'x', fields: [{ name: 'name', type: 'String' }, { name: 'etag', type: 'Option[String]' }] },
     ],
   } as never;
-  const apis = catalogApis(model);
-  assert.deepEqual(apis.map(a => `${a.prefix}:${a.services.length}`), ['acme-crm-clientV1:2']);
-  const c = collectionFromCatalog(apis[0], model);
-  assert.equal(c.slug, 'acme-crm-clientv1');
+  const projects = catalogProjects(model);
+  assert.deepEqual(projects.map(p => `${p.project} (${p.group}): ${p.apis.map(a => `${a.api}v${a.apiVersion}:${a.services.length}`).join(' ')}`),
+    ['acme-crm (Acme CRM): clientv1:2 crmv2:1']);
+  const c = collectionFromCatalog(projects[0], projects[0].apis, model);
+  assert.equal(c.slug, 'acme-crm');
+  assert.deepEqual(c.services.map(s => `${s.api}.v${s.apiVersion}.${s.name}`), ['client.v1.GetClientKey', 'client.v1.PutClientKey', 'crm.v2.GetProductGroups']);
+  // only some APIs: a sub set of the project
+  assert.deepEqual(collectionFromCatalog(projects[0], [projects[0].apis[1]], model).services.map(s => s.name), ['GetProductGroups']);
   const get = c.services.find(s => s.name === 'GetClientKey')!;
   assert.equal(get.path, '');
   assert.deepEqual(c.types.find(t => t.id === get.outTypeId)!.fields!.map(f => `${f.name}:${f.type}${f.optional ? '?' : ''}`), ['name:String', 'etag:String?']);
-  const put = c.services.find(s => s.name === 'PutClientKey')!;
-  assert.deepEqual(c.types.find(t => t.id === put.inTypeId)!.fields!.map(f => f.name), ['clientKey']);
 
-  // the OpenAPI: GetClientKey completes the one of the catalog, keeps its In/Out
+  // the OpenAPI: GetClientKey completes the one of the catalog, keeps its In/Out and its API
   const api = readApi(doc);
   const getOp = api.operations.find(o => o.name === 'GetClientKey')!;
   assert.equal(serviceOf(c, getOp)?.id, get.id);
-  const { spec, added } = addOperations(c, api, [getOp.key]);
+  const { spec, added } = addOperations(c, api, [getOp.key], () => ({ api: 'other', apiVersion: 9 }));
   assert.deepEqual(added, ['GetClientKey']);
-  assert.equal(spec.services.length, 2);
+  assert.equal(spec.services.length, 3);
   const done = spec.services.find(s => s.id === get.id)!;
   assert.equal(done.path, '/clients/{clientKey}');
+  assert.equal(`${done.api}.v${done.apiVersion}`, 'client.v1');
   assert.equal(done.outTypeId, get.outTypeId);
   assert.deepEqual(done.outMappings, [{ name: 'name', expression: '= body.name' }, { name: 'etag', expression: '= headers.etag' }]);
-  assert.equal(spec.types.filter(t => t.interactionId === get.id).length, 2);
+});
+
+test('the API of an operation from its sub path; a collection may cover a sub path only', async () => {
+  const { suggestApis, inPathPrefix, apiName } = await import('../src/services/openApiRest');
+  const ops = ['/banks/{bankNumber}/clients/{clientKey}', '/banks/{bankNumber}/clients', '/banks/{bankNumber}/crm/v2/productGroups', '/banks/{bankNumber}/payment-rules']
+    .map(path => ({ key: `GET ${path}`, method: 'GET', path, name: 'X', tags: [], params: [] }) as never);
+  const s = suggestApis(ops, { api: 'fallback', apiVersion: 1 });
+  assert.deepEqual([...s.values()].map(x => `${x.subPath} → ${x.api} v${x.apiVersion}`), [
+    '/banks/{bankNumber}/clients → client v1',
+    '/banks/{bankNumber}/clients → client v1',
+    '/banks/{bankNumber}/crm/v2 → crm v2',
+    '/banks/{bankNumber}/payment-rules → paymentRule v1',
+  ]);
+  assert.equal(apiName('addresses'), 'address');
+  assert.ok(inPathPrefix('/clients/{id}', '/clients/'));
+  assert.ok(inPathPrefix('/clients', '/clients'));
+  assert.ok(!inPathPrefix('/clientsX', '/clients'));
+  assert.ok(inPathPrefix('/anything', ''));
 });

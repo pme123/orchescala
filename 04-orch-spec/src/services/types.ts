@@ -1,11 +1,12 @@
 // Data model of the services — next to the processes.
 //
-// A **service collection** is one REST API of a service project, as Orchescala
-// wraps it: one object per operation that extends the API's super trait
-// (`object GetClient extends ClientV1`, a `CompanyBpmnServiceTaskDsl`), with its
-// `In` and `Out` for the process and its `ServiceIn` / `ServiceOut` for the
-// HTTP call — and one `ServiceWorker` that builds the request from the `In` and
-// the `Out` from the response.
+// A **service collection** is what one OpenAPI of a service project offers — all
+// of it or a sub path (`/clients/…`). Orchescala wraps it API by API: each API
+// has its package and version (`client.v1`, `crm.v2`) and a super trait
+// (`ClientV1`, a `CompanyBpmnServiceTaskDsl`); per operation one object extends
+// it (`object GetClient extends ClientV1`), with its `In` and `Out` for the process
+// and its `ServiceIn` / `ServiceOut` for the HTTP call — and one `ServiceWorker`
+// that builds the request from the `In` and the `Out` from the response.
 //
 // The operations come from an OpenAPI (tick the ones you want), the request
 // and response types from its schemas. What the spec adds: further `In` and
@@ -52,6 +53,10 @@ export interface BodyRef {
 export interface CollectionService {
   /** stable — the In/Out types point to it (`TypeDef.interactionId`) */
   id: string;
+  /** the API it belongs to, e.g. `client` — package `acme.crm.domain.client.v1`, trait `ClientV1` */
+  api: string;
+  /** version of its API — `v1` */
+  apiVersion: number;
   /** Scala object, e.g. `GetClient` — also the last part of the topic */
   name: string;
   status: Status;
@@ -95,10 +100,12 @@ export interface ServiceCollectionSpec {
   title: string;
   /** the service project (sbt), e.g. `acme-crm` — package `acme.crm.domain.…` */
   project: string;
-  /** name of the API in the project, e.g. `client` — `acme.crm.domain.client.v1` */
+  /** the API a new service gets, e.g. `client` (each service has its own, see CollectionService.api) */
   api: string;
-  /** version of the API — `v1`, the super trait `ClientV1` */
+  /** … and its version */
   apiVersion: number;
+  /** the part of the OpenAPI the collection covers — a path prefix like `/clients`; empty: all of it */
+  pathPrefix?: string;
   /** `serviceLabel` of the super trait — what the description of each service names */
   serviceLabel?: string;
   status: Status;

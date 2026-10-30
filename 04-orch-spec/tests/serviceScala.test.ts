@@ -49,7 +49,7 @@ const collection = (): ServiceCollectionSpec => {
     source: { basePath: 'https://api.example.com', version: '2.0' },
     types: [client, address, inT, outT],
     services: [{
-      id: 's1', name: 'GetClient', status: 'draft', method: 'GET', path: '/clients/{clientKey}',
+      id: 's1', name: 'GetClient', api: 'client', apiVersion: 1, status: 'draft', method: 'GET', path: '/clients/{clientKey}',
       description: 'Read a client',
       params: [
         { name: 'clientKey', in: 'path', type: 'Long', required: true, expression: '= clientKey' },
@@ -106,4 +106,37 @@ test('the worker: uri, headers and an output mapper that fails on a missing requ
 test('the bundle has the frame the helper splits', () => {
   const b = collectionBundle(collection());
   assert.match(b, /^\/\/ ─{72}\n\/\/ 01-domain\/src\/main\/scala\/acme\/crm\/domain\/client\/v1\/ClientV1\.scala\n\/\/ ─{72}\n/);
+});
+
+test('several APIs: one package each, a shared type lives with the first API that uses it', () => {
+  const c = collection();
+  const out2: TypeDef = { id: 't-out2', name: 'Out', kind: 'case', interactionId: 's2', fields: [{ id: 'g', name: 'client', type: 't-client' }] };
+  const two: ServiceCollectionSpec = {
+    ...c,
+    types: [...c.types, out2],
+    services: [...c.services, {
+      id: 's2', name: 'GetProductGroups', api: 'crm', apiVersion: 2, status: 'draft', method: 'GET', path: '/crm/v2/productGroups',
+      params: [], serviceOut: { type: 't-client' }, outTypeId: 't-out2', outMappings: [{ name: 'client', expression: '= body' }],
+    }],
+  };
+  const files = collectionFiles(two);
+  assert.deepEqual(files.map(f => f.path.replace(/^0\d-(domain|worker)\/src\/main\/scala\/acme\/crm\//, '')), [
+    'domain/client/v1/ClientV1.scala',
+    'domain/client/v1/GetClient.scala',
+    'domain/client/v1/schema/Client.scala',
+    'domain/client/v1/schema/Address.scala',
+    'worker/client/v1/exports.scala',
+    'worker/client/v1/GetClientWorker.scala',
+    'domain/crm/v2/CrmV2.scala',
+    'domain/crm/v2/GetProductGroups.scala',
+    'worker/crm/v2/exports.scala',
+    'worker/crm/v2/GetProductGroupsWorker.scala',
+  ]);
+  const crm = files.find(f => f.path.endsWith('/GetProductGroups.scala'))!.content;
+  assert.match(crm, /^package acme\.crm\.domain\npackage crm\.v2\n/);
+  assert.match(crm, /import acme\.crm\.domain\.client\.v1\.schema\.\*/);
+  assert.match(crm, /object GetProductGroups extends CrmV2:/);
+  assert.match(crm, /final val topicName = "acme-crm-crmV2\.GetProductGroups"/);
+  assert.match(files.find(f => f.path.endsWith('/CrmV2.scala'))!.content, /final val serviceVersion = "2\.0"/);
+  assert.match(files.find(f => f.path.endsWith('GetProductGroupsWorker.scala'))!.content, /^package acme\.crm\.worker\npackage crm\.v2\n/);
 });

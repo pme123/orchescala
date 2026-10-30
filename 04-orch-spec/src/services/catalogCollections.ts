@@ -1,9 +1,11 @@
 // Existing collections — the services a project already has.
 //
 // The service catalog knows them by their topic, `<project>-<api>V<n>.<Name>`
-// (`acme-crm-clientV1.GetClient`): grouped by everything before the dot, they
-// are the APIs. The domain catalog has their `In` and `Out` with the real
-// Scala types; without it, the names of the catalog entry (as `String`).
+// (`acme-crm-clientV1.GetClient`). A collection is what one OpenAPI offers — in
+// the catalog that is a project with its APIs (`client.v1`, `crm.v2`, …); the
+// user takes all of them or some. The domain catalog has the `In` and `Out` of
+// each service with the real Scala types; without it, the names of the catalog
+// entry (as `String`).
 //
 // What the catalog does not know is the request: method, path, parameters,
 // body. A service from the catalog therefore has no path yet — an OpenAPI
@@ -12,36 +14,48 @@ import { fieldFromScala } from '../interactions';
 import { objectOf } from '../serviceTypes';
 import type { Field, Model, ServiceDef, TypeDef } from '../types';
 import { uid } from '../util';
-import { collectionSlug, newCollection } from './collection';
+import { apiOf, newCollection, serviceTopic, type ApiRef } from './collection';
 import type { CollectionService, ServiceCollectionSpec } from './types';
 
 const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
 
-export interface CatalogApi {
+export interface CatalogApi extends ApiRef {
   /** `acme-crm-clientV1` */
   prefix: string;
-  project: string;
-  api: string;
-  apiVersion: number;
-  /** the group of the catalog entries, e.g. «Acme CRM» */
-  group?: string;
   services: ServiceDef[];
 }
 
-/** The APIs of the catalog — the service workers grouped by the prefix of their topic. */
-export function catalogApis(model: Model | null): CatalogApi[] {
-  const byPrefix = new Map<string, CatalogApi>();
+export interface CatalogProject {
+  project: string;
+  /** the group of the catalog entries, e.g. «Acme CRM» */
+  group?: string;
+  apis: CatalogApi[];
+}
+
+/** The projects of the catalog with their APIs — the service workers grouped by their topic. */
+export function catalogProjects(model: Model | null): CatalogProject[] {
+  const projects = new Map<string, CatalogProject>();
   for (const s of model?.services ?? []) {
     if (s.kind && s.kind !== 'service') continue;
     const m = TOPIC.exec(s.topic ?? s.id);
     if (!m) continue;
     const [, project, api, version] = m;
+    const p = projects.get(project) ?? { project, ...(s.group ? { group: s.group } : {}), apis: [] };
     const prefix = `${project}-${api}V${version}`;
-    const entry = byPrefix.get(prefix) ?? { prefix, project, api, apiVersion: Number(version), ...(s.group ? { group: s.group } : {}), services: [] };
-    if (!entry.services.some(x => x.id === s.id)) entry.services.push(s);
-    byPrefix.set(prefix, entry);
+    let a = p.apis.find(x => x.prefix === prefix);
+    if (!a) { a = { prefix, project, api, apiVersion: Number(version), services: [] }; p.apis.push(a); }
+    if (!a.services.some(x => x.id === s.id)) a.services.push(s);
+    projects.set(project, p);
   }
-  return [...byPrefix.values()].sort((a, b) => a.prefix.localeCompare(b.prefix));
+  for (const p of projects.values()) {
+    p.apis.sort((a, b) => a.prefix.localeCompare(b.prefix));
+    // the name of the project: the group most of its entries carry
+    const count = new Map<string, number>();
+    for (const s of p.apis.flatMap(a => a.services)) if (s.group) count.set(s.group, (count.get(s.group) ?? 0) + 1);
+    const group = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (group) p.group = group;
+  }
+  return [...projects.values()].sort((a, b) => a.project.localeCompare(b.project));
 }
 
 /** In or Out of a catalog service: from the domain catalog, otherwise the names of the entry. */
@@ -59,9 +73,7 @@ function member(svc: ServiceDef, which: 'In' | 'Out', model: Model | null, servi
   return { id: uid('t'), name: which, kind: 'case', status: 'implemented', interactionId: serviceId, fields };
 }
 
-/** A collection from an API of the catalog — its services exist, so they are «Umgesetzt». */
-export function collectionFromCatalog(api: CatalogApi, model: Model | null, title?: string): ServiceCollectionSpec {
-  const c = newCollection({ title: title || api.group || api.prefix, project: api.project, api: api.api, apiVersion: api.apiVersion });
+function servicesOf(api: CatalogApi, model: Model | null): { services: CollectionService[]; types: TypeDef[] } {
   const types: TypeDef[] = [];
   const services: CollectionService[] = [];
   for (const svc of api.services) {
@@ -71,15 +83,31 @@ export function collectionFromCatalog(api: CatalogApi, model: Model | null, titl
     const outType = member(svc, 'Out', model, id);
     types.push(inType, outType);
     services.push({
-      id, name, status: 'implemented',
+      id, name, api: api.api, apiVersion: api.apiVersion, status: 'implemented',
       ...(svc.description ? { description: svc.description } : {}),
       method: 'GET', path: '', params: [],
       inTypeId: inType.id, outTypeId: outType.id,
     });
   }
-  return { ...c, status: 'implemented', types, services, source: { title: api.group } };
+  return { services, types };
 }
 
-/** Is there already a collection for this API? */
-export const collectionOf = (api: CatalogApi, slugs: string[]): boolean =>
-  slugs.includes(collectionSlug(api));
+/** A collection from the chosen APIs of a project — its services exist, so they are «Umgesetzt». */
+export function collectionFromCatalog(project: CatalogProject, apis: CatalogApi[], model: Model | null, title?: string): ServiceCollectionSpec {
+  const first = apis[0] ?? project.apis[0];
+  const c = newCollection({ title: title || project.group || project.project, project: project.project, api: first.api, apiVersion: first.apiVersion });
+  const parts = apis.map(a => servicesOf(a, model));
+  return {
+    ...c, status: 'implemented',
+    types: parts.flatMap(p => p.types),
+    services: parts.flatMap(p => p.services),
+    ...(project.group ? { source: { title: project.group } } : {}),
+  };
+}
+
+/** Where a service of the catalog is described already: topic → title of the collection. */
+export function describedTopics(collections: ServiceCollectionSpec[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of collections) for (const s of c.services) out.set(serviceTopic(apiOf(c, s), s), c.title || c.slug);
+  return out;
+}

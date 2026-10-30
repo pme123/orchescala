@@ -354,6 +354,57 @@ function scalarOf(s: Schema): string {
   }
 }
 
+// ── Sub paths and APIs ──────────────────────────────────────────────────────
+//
+// One OpenAPI can hold several APIs of a project — `/clients/…` and `/crm/v2/…`,
+// each with its package and version. Which API an operation belongs to is a
+// suggestion from its path: the first fixed segment after what all paths share
+// (`/banks/{bankNumber}`), singular and camelCase (`clients` → `client`,
+// `payment-rules` → `paymentRule`), a `v2` next to it is the version.
+
+/** Is the path in the sub path? Empty: everything. */
+export function inPathPrefix(path: string, prefix: string | undefined): boolean {
+  const p = (prefix ?? '').trim().replace(/\/+$/, '');
+  return !p || path === p || path.startsWith(`${p}/`);
+}
+
+const segments = (path: string) => path.split('/').filter(Boolean);
+
+/** The segments all operations share — `['banks', '{bankNumber}']`. */
+function commonSegments(ops: Pick<ApiOperation, 'path'>[]): number {
+  const all = ops.map(o => segments(o.path));
+  if (!all.length) return 0;
+  let n = 0;
+  // at least one segment stays for the API — one operation alone shares everything with itself
+  while (all.every(s => s.length > n + 1 && s[n] === all[0][n])) n++;
+  return n;
+}
+
+/** `clients` → `client`, `payment-rules` → `paymentRule` */
+export function apiName(segment: string): string {
+  const name = camelName(segment);
+  return name.endsWith('ies') ? `${name.slice(0, -3)}y` : name.endsWith('ses') ? name.slice(0, -2) : name.endsWith('s') && !name.endsWith('ss') ? name.slice(0, -1) : name;
+}
+
+/** The suggested API of each operation (by key) — with the sub path it stands for (`/clients`). */
+export function suggestApis(ops: ApiOperation[], fallback: { api: string; apiVersion: number }): Map<string, { api: string; apiVersion: number; subPath: string }> {
+  const shared = commonSegments(ops);
+  const out = new Map<string, { api: string; apiVersion: number; subPath: string }>();
+  for (const o of ops) {
+    const segs = segments(o.path);
+    const at = segs.findIndex((s, i) => i >= shared && !s.startsWith('{') && !/^v\d+$/.test(s));
+    if (at < 0) { out.set(o.key, { ...fallback, subPath: '/' }); continue; }
+    const version = [segs[at + 1], segs[at - 1]].map(s => /^v(\d+)$/.exec(s ?? '')?.[1]).find(Boolean);
+    const end = segs[at + 1] && /^v\d+$/.test(segs[at + 1]) ? at + 2 : at + 1;
+    out.set(o.key, {
+      api: apiName(segs[at]) || fallback.api,
+      apiVersion: version ? Number(version) : fallback.apiVersion,
+      subPath: `/${segs.slice(0, end).join('/')}`,
+    });
+  }
+  return out;
+}
+
 // ── Operations → services ───────────────────────────────────────────────────
 
 /** Is this operation already in the collection? Via the operationId, otherwise method and path. */
@@ -374,7 +425,11 @@ const PARAM_ORDER: Record<ParamIn, number> = { path: 0, query: 1, header: 2 };
  * Add the chosen operations to the collection: the types they need, then per
  * operation the service with its `In`, `Out` and the first mappings.
  */
-export function addOperations(c: ServiceCollectionSpec, api: ApiImport, keys: string[]): { spec: ServiceCollectionSpec; added: string[] } {
+export function addOperations(
+  c: ServiceCollectionSpec, api: ApiImport, keys: string[],
+  /** the API of a new service — without: the default of the collection */
+  apiFor: (op: ApiOperation) => { api: string; apiVersion: number } = () => ({ api: c.api, apiVersion: c.apiVersion }),
+): { spec: ServiceCollectionSpec; added: string[] } {
   const builder = new SchemaTypes(api.doc, c.types);
   const services: CollectionService[] = [];
   const members: TypeDef[] = [];
@@ -476,8 +531,9 @@ export function addOperations(c: ServiceCollectionSpec, api: ApiImport, keys: st
     const inType: TypeDef = { id: uid('t'), name: 'In', kind: 'case', status: 'draft', interactionId: id, fields: inFields };
     const outType: TypeDef = { id: uid('t'), name: 'Out', kind: 'case', status: 'draft', interactionId: id, fields: outFields };
     members.push(inType, outType);
+    const { api: apiOfOp, apiVersion } = apiFor(op);
     services.push({
-      id, name, status: 'draft',
+      id, name, api: apiOfOp, apiVersion, status: 'draft',
       ...(description ? { description } : {}),
       method: op.method, path: op.path,
       ...(op.operationId ? { operationId: op.operationId } : {}),

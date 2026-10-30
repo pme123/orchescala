@@ -18,7 +18,7 @@ import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Stat
 import { StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
-  collectionPackage, collectionStatus, collectionTrait, membersOf, processFrame, serviceIssues, serviceTopic, withoutService,
+  API_NAME, apiList, apiOf, apisOf, collectionPackage, collectionStatus, collectionTrait, membersOf, processFrame, sameApi, serviceIssues, serviceTopic, withoutService,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import CollectionExport from './CollectionExport';
@@ -109,7 +109,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         <div className="min-w-0 flex-1">
           <input value={spec.title} disabled={!canEdit} onChange={e => update(s => ({ ...s, title: e.target.value }))}
             className={`w-full bg-transparent outline-none text-sm font-semibold ${c.text}`} />
-          <div className={`text-[10px] font-mono truncate ${c.muted}`}>{collectionPackage(spec)} · trait {collectionTrait(spec)}</div>
+          <div className={`text-[10px] font-mono truncate ${c.muted}`}>{spec.project}{spec.pathPrefix ? ` · ${spec.pathPrefix}` : ''}{spec.services.length ? ` · ${apiList(spec)}` : ''}</div>
         </div>
         <SaveBadge state={saveState} message={saveError} isDark={isDark} />
         <StatusChip status={collectionStatus(spec)} isDark={isDark} title="tiefster Status der Services" />
@@ -144,7 +144,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
 
       <div className="flex flex-1 min-h-0">
         {/* services and types */}
-        <div className={`w-72 flex-shrink-0 border-r ${c.border} overflow-y-auto p-2 space-y-3`}>
+        <div className={`w-80 flex-shrink-0 border-r ${c.border} overflow-y-auto p-2 space-y-3`}>
           <button onClick={() => setSelection({ kind: 'overview' })}
             className={`w-full text-left px-2 py-1 rounded text-[11px] ${c.hover} ${selection.kind === 'overview' ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''} ${c.text}`}>
             Übersicht
@@ -163,7 +163,10 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
             {!spec.services.length && (
               <p className={`px-2 text-[10px] ${c.muted}`}>Noch keine — «OpenAPI importieren» und die gewünschten Operationen ankreuzen.</p>
             )}
-            {spec.services.map(s => {
+            {apisOf(spec).map(a => (
+              <div key={`${a.api}.${a.apiVersion}`} className="mb-1">
+                <div className={`px-2 pt-1 text-[9px] font-mono ${c.muted}`} title={collectionPackage(a)}>{collectionTrait(a)} · {collectionPackage(a)}</div>
+            {spec.services.filter(s => sameApi(apiOf(spec, s), a)).map(s => {
               const issues = serviceIssues(spec, s);
               return (
                 <button key={s.id} onClick={() => setSelection({ kind: 'service', id: s.id })}
@@ -178,6 +181,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
                 </button>
               );
             })}
+              </div>
+            ))}
           </div>
           <div>
             <div className={`flex items-center text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>
@@ -238,7 +243,7 @@ function blankService(spec: ServiceCollectionSpec): { service: CollectionService
   const inType: TypeDef = { id: uid('t'), name: 'In', kind: 'case', status: 'draft', interactionId: id, fields: [] };
   const outType: TypeDef = { id: uid('t'), name: 'Out', kind: 'case', status: 'draft', interactionId: id, fields: [] };
   return {
-    service: { id, name, status: 'draft', method: 'GET', path: '/', params: [], inTypeId: inType.id, outTypeId: outType.id },
+    service: { id, name, api: spec.api, apiVersion: spec.apiVersion, status: 'draft', method: 'GET', path: '/', params: [], inTypeId: inType.id, outTypeId: outType.id },
     types: [inType, outType],
   };
 }
@@ -252,7 +257,7 @@ function Overview({ spec, canEdit, onChange }: { spec: ServiceCollectionSpec; ca
       <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Collection</div>
       <div className="grid grid-cols-3 gap-2 text-[11px]">
         <Info label="Projekt" value={spec.project} isDark={isDark} />
-        <Info label="API" value={`${spec.api} · v${spec.apiVersion}`} isDark={isDark} />
+        <Info label="APIs" value={apiList(spec) || `${spec.api} v${spec.apiVersion}`} isDark={isDark} />
         <Info label="Status" value={STATUS_META[collectionStatus(spec)].label} isDark={isDark} />
       </div>
       <label className="block space-y-0.5">
@@ -335,8 +340,16 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
           <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Service Task</div>
           <input value={s.name} disabled={!canEdit} onChange={e => onPatch({ name: e.target.value.trim() })}
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
-          <div className={`text-[10px] font-mono ${c.muted}`} title="Topic des Workers — auch die Kennung im Service-Katalog">{serviceTopic(spec, s)}</div>
+          <div className={`text-[10px] font-mono ${c.muted}`} title="Topic des Workers — auch die Kennung im Service-Katalog">{serviceTopic(apiOf(spec, s), s)}</div>
         </div>
+        <label className={`flex items-center gap-1 text-[10px] ${c.muted}`} title={`API (Paket ${collectionPackage(apiOf(spec, s))}) und Version des Services`}>
+          API
+          <input value={s.api} disabled={!canEdit} onChange={e => onPatch({ api: e.target.value.trim() })}
+            className={`w-28 font-mono ${input} ${API_NAME.test(s.api) ? '' : 'text-rose-500'}`} />
+          v
+          <input type="number" min={1} value={s.apiVersion} disabled={!canEdit} onChange={e => onPatch({ apiVersion: Math.max(1, Number(e.target.value) || 1) })}
+            className={`w-14 font-mono ${input}`} />
+        </label>
         <select value={s.status} disabled={!canEdit} onChange={e => onPatch({ status: e.target.value as Status })} className={input}>
           {STATUSES.map(x => <option key={x} value={x}>{STATUS_META[x].label}</option>)}
         </select>
