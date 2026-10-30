@@ -435,6 +435,14 @@ export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '',
     scala: scalaBundle(spec, model),
     ...(dmns.length ? { dmns } : {}),
   });
+  return helperCommandOf(payload);
+}
+
+/**
+ * `./helper.scala processFromSpec orchspec:…` for a payload — gzip, base64url. The
+ * services (src/services) use it too, with their own version of the payload.
+ */
+export function helperCommandOf(payload: string): string {
   const zipped = gzipSync(strToU8(payload), { level: 9 });
   let binary = '';
   for (let i = 0; i < zipped.length; i += 0x8000) binary += String.fromCharCode(...zipped.subarray(i, i + 0x8000));

@@ -6,7 +6,7 @@
 //
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
-import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileUp, ListOrdered, Loader2, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, ListOrdered, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -21,6 +21,7 @@ import {
   collectionPackage, collectionStatus, collectionTrait, membersOf, processFrame, serviceIssues, serviceTopic, withoutService,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
+import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
 import { useServices } from './store';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
@@ -38,6 +39,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [saveError, setSaveError] = useState('');
   const [selection, setSelection] = useState<Selection>({ kind: 'overview' });
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const version = useRef<string | null>(null);
   // the last state set — several changes in one event build on each other
   const latest = useRef<ServiceCollectionSpec | null>(null);
@@ -117,6 +119,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
             <FileUp size={12} /> OpenAPI importieren
           </button>
         )}
+        <button onClick={() => setExportOpen(true)} disabled={!spec.services.length}
+          title="Scala-Code der Services und der Befehl für den Helper"
+          className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+          <FileCode2 size={12} /> Export
+        </button>
       </div>
       {saveState === 'conflict' && (
         <div className={`px-3 py-1.5 text-[11px] border-b ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
@@ -124,6 +131,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
       )}
 
+      {exportOpen && <CollectionExport spec={spec} model={model} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
         <OpenApiImport spec={spec} model={model} isDark={isDark} onClose={() => setImportOpen(false)}
           onApply={(next, added) => {
