@@ -29,9 +29,15 @@ const diagram = (engine: EngineId, type: string) => `<bpmn:definitions ${NS[engi
   </bpmn:process>
 </bpmn:definitions>`;
 
+// a pattern on the process (`appliesTo: ['process']`) goes to the process, not to an element:
+// a plain task stands in for the element, and the hit has no target
+const onProcess = (def: PatternDef) => def.appliesTo[0] === 'process';
+const elementType = (def: PatternDef) => (onProcess(def) ? 'task' : def.appliesTo[0]);
+const targetOf = (def: PatternDef) => (onProcess(def) ? null : 'Target');
+
 test('the standard patterns are there without a company pattern', () => {
   const ids = patternDefs(null).map(p => p.id);
-  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks']) assert.ok(ids.includes(id), id);
+  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution']) assert.ok(ids.includes(id), id);
   assert.ok(STANDARD_PATTERNS.every(p => isStandardPattern(p) && !p.builtin));
   // a copy (an own pattern from a file) is not a standard pattern, whatever it carries
   assert.ok(!isStandardPattern({ ...STANDARD_PATTERNS[0], standard: true }));
@@ -59,12 +65,12 @@ test('an own pattern with the same ID replaces the standard one, others are adde
 });
 
 for (const std of STANDARD_PATTERNS) {
-  test(`an own pattern with the BPMN of «${std.name}» under another ID gets the element, the standard one does not`, () => {
+  test(`an own pattern with the BPMN of «${std.name}» under another ID gets the element (or the process), the standard one does not`, () => {
     const own: PatternDef = { ...std, id: `acme-${std.id}`, name: `Eigenes ${std.name}` };
     for (const engine of ['c7', 'c8'] as const) {
-      const xml = applyPattern(diagram(engine, std.appliesTo[0]), std, engine, 'Target').xml;
+      const xml = applyPattern(diagram(engine, elementType(std)), std, engine, targetOf(std)).xml;
       const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
-      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[own.id, 'Target']], engine);
+      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[own.id, targetOf(std)]], engine);
     }
   });
 }
@@ -138,12 +144,11 @@ for (const def of STANDARD_PATTERNS) {
       const src = def.bpmn[engine];
       assert.ok(src, 'has BPMN');
       assert.ok(!('error' in parseFragment(src!)), 'readable fragment');
-      const type = def.appliesTo[0];
-      const res = applyPattern(diagram(engine, type), def, engine, 'Target');
+      const res = applyPattern(diagram(engine, elementType(def)), def, engine, targetOf(def));
       assert.ok(res.changed, `inserted: ${res.issues.join('; ')}`);
       // exactly this pattern — no other standard pattern claims the element too
       const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits;
-      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[def.id, 'Target']]);
+      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[def.id, targetOf(def)]]);
     });
   }
 }
