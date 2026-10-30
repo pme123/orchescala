@@ -324,8 +324,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // where the foreign service comes from: its domain object, else the catalog group
   const origin = foreign ? foreignOrigin(step, model) : null;
   // Inputs and outputs contributed by a pattern: implementation — hidden
-  const fromPattern = useMemo(() => patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7'), [patternDefs(model), step.patterns, spec.engine]);
-  const patternName = (id: string) => patternDefs(model).find(d => d.id === id)?.name ?? id;
+  const defs = patternDefs(model);
+  const fromPattern = useMemo(() => patternMappings(defs, step.patterns, spec.engine ?? 'c7'), [defs, step.patterns, spec.engine]);
+  const patternName = (id: string) => defs.find(d => d.id === id)?.name ?? id;
   // Findings collected — the same list as the triangle in the tree
   // the kinds per timer variable — for the findings on the step and on its boundary timers
   const kinds = useMemo(() => timerKinds(spec.steps), [spec.steps]);
