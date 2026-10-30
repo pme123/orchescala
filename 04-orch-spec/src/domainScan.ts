@@ -44,6 +44,8 @@ const FIELD = /^\s*(?:@\w+.*)?(?:^|\s)([a-z]\w*)\s*:\s*\S/;
 const SCALADOC = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
 const END = /^(\s*)end\s+(\w+)/;
 // How a service or process object can be recognized
+/** `val path = "GET: /clients/{clientKey}"` of a ServiceTask — method and path of the wrapped service */
+const SERVICE_PATH = /^\s+(?:(?:final|override)\s+)*(?:val|lazy val|def)\s+path(?:\s*:\s*String)?\s*=\s*"([A-Za-z]+)\s*:\s*([^"\n]*)"/;
 const SERVICE_MARK = /^\s+(?:(?:final|override)\s+)*(?:val|lazy val|def)\s+(topicName|processName|name|messageName|decisionId)(?:\s*:\s*String)?\s*=\s*s?"?([^"\n]*)"?/;
 /** A nested scope for type names: `object`, `trait`, `class`, `enum` (indented) */
 const NESTED_SCOPE = /^(\s*)(?:(?:sealed|final|abstract|private|protected|case|open)\s+)*(?:object|trait|class|enum)\s+(\w+)/;
@@ -328,6 +330,7 @@ export function scanScala(source: string, path = ''): DomainType[] {
   const dsls = new Map<string, string>();
   /** `val descr = "…"` per object — and, if it is an expression, that expression */
   const descrs = new Map<string, string>();
+  const paths = new Map<string, string>();
   const descrExprs = new Map<string, string>();
   /** `override def processLabels` per object */
   const labels = new Map<string, { de: string; fr: string }>();
@@ -495,6 +498,12 @@ export function scanScala(source: string, path = ''): DomainType[] {
       continue;
     }
 
+    const sp = owner ? SERVICE_PATH.exec(line) : null;
+    if (owner && sp) {
+      paths.set(owner, `${sp[1].toUpperCase()}: ${sp[2].trim()}`);
+      continue;
+    }
+
     const mark = owner ? SERVICE_MARK.exec(line) : null;
     if (owner && mark) {
       if (!serviceObjects.includes(owner)) serviceObjects.push(owner);
@@ -650,6 +659,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
     if (key) { t.keyName = key.keyName; t.key = key.key; }
     const descr = descrs.get(t.owner);
     if (descr) t.ownerDescr = descr;
+    const path = paths.get(t.owner);
+    if (path) t.ownerPath = path;
     const descrExpr = descrExprs.get(t.owner);
     if (descrExpr) t.ownerDescrExpr = descrExpr;
     const pl = labels.get(t.owner);

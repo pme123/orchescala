@@ -7,15 +7,21 @@
 // each service with the real Scala types; without it, the names of the catalog
 // entry (as `String`).
 //
-// What the catalog does not know is the request: method, path, parameters,
-// body. A service from the catalog therefore has no path yet — an OpenAPI
-// read in afterwards completes it (same name) instead of adding a second one.
-import { fieldFromScala } from '../interactions';
-import { objectOf } from '../serviceTypes';
-import type { Field, Model, ServiceDef, TypeDef } from '../types';
+// The request comes from the ServiceTask as far as the domain says it: method
+// and path (`val path = "GET: /clients/{clientKey}"`, the placeholders become
+// path parameters) and the bodies (`type ServiceIn` / `type ServiceOut`). Query,
+// headers and the mappings of the body are not in the domain — an OpenAPI read
+// in afterwards completes the service (same name or same method and path)
+// instead of adding a second one. Without `val path` (an older catalog) the
+// service has no path yet.
+import { fieldFromScala, resolveType } from '../interactions';
+import { typeShape } from '../scalaTypes';
+import { domainRef, objectOf } from '../serviceTypes';
+import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
 import { apiOf, newCollection, serviceTopic, type ApiRef } from './collection';
-import type { CollectionService, ServiceCollectionSpec } from './types';
+import { camelName } from './openApiRest';
+import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
 const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
 
@@ -73,6 +79,35 @@ function member(svc: ServiceDef, which: 'In' | 'Out', model: Model | null, servi
   return { id: uid('t'), name: which, kind: 'case', status: 'implemented', interactionId: serviceId, fields };
 }
 
+/** The domain type of a member of the service object — `GetClient.In`, `GetClient.ServiceOut`. */
+function domainMember(svc: ServiceDef, which: string, model: Model | null): DomainType | undefined {
+  const { object, pkg } = objectOf(svc.id, model);
+  return (model?.domainTypes ?? []).find(t => t.id === `${pkg}.${object}.${which}`);
+}
+
+/** `type ServiceOut = Seq[PaymentRule]` → the body; `NoInput` / `NoOutput` → none. */
+function bodyOf(t: DomainType | undefined, model: Model | null): BodyRef | undefined {
+  if (!t) return undefined;
+  if (t.kind !== 'alias') return { type: domainRef(t.id) };
+  const shape = typeShape(t.target ?? '');
+  if (!shape.base || /^No(Input|Output)$/.test(shape.base)) return undefined;
+  const scalar = (SCALA_TYPES as readonly string[]).includes(shape.base);
+  const ref = scalar ? null : resolveType(shape.base, model, t.pkg);
+  return {
+    type: scalar ? shape.base : ref ? domainRef(ref.id) : shape.base,
+    ...(shape.collection ? { collection: true } : {}),
+    ...(shape.optional ? { optional: true } : {}),
+  };
+}
+
+/** `GET: clients/{clientKey}` → method and path (always with a leading `/`). */
+export function parseServicePath(raw: string | undefined): { method: HttpMethod; path: string } | null {
+  const m = /^\s*([A-Za-z]+)\s*:\s*(\S*)\s*$/.exec(raw ?? '');
+  const method = m?.[1].toUpperCase() as HttpMethod | undefined;
+  if (!m || !method || !(HTTP_METHODS as readonly string[]).includes(method)) return null;
+  return { method, path: m[2].startsWith('/') ? m[2] : `/${m[2]}` };
+}
+
 function servicesOf(api: CatalogApi, model: Model | null): { services: CollectionService[]; types: TypeDef[] } {
   const types: TypeDef[] = [];
   const services: CollectionService[] = [];
@@ -82,10 +117,24 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
     const inType = member(svc, 'In', model, id);
     const outType = member(svc, 'Out', model, id);
     types.push(inType, outType);
+    // the request as far as the ServiceTask says it: method, path, its placeholders, the bodies
+    const inDom = domainMember(svc, 'In', model);
+    const request = parseServicePath(inDom?.ownerPath);
+    const params: RequestParam[] = request
+      ? [...request.path.matchAll(/\{([^}]+)\}/g)].map(m => {
+          const field = (inType.fields ?? []).find(f => f.name === camelName(m[1]) || f.name === m[1]);
+          return { name: m[1], in: 'path' as const, type: field?.type ?? 'String', required: true, expression: field ? `= ${field.name}` : '' };
+        })
+      : [];
+    const serviceIn = bodyOf(domainMember(svc, 'ServiceIn', model), model);
+    const serviceOut = bodyOf(domainMember(svc, 'ServiceOut', model), model);
     services.push({
       id, name, api: api.api, apiVersion: api.apiVersion, status: 'implemented',
       ...(svc.description ? { description: svc.description } : {}),
-      method: 'GET', path: '', params: [],
+      method: request?.method ?? 'GET', path: request?.path ?? '', params,
+      ...(serviceIn ? { serviceIn } : {}),
+      ...(serviceOut ? { serviceOut } : {}),
+      ...(request ? { fromCatalog: true } : {}),
       inTypeId: inType.id, outTypeId: outType.id,
     });
   }

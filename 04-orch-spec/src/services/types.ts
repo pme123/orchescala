@@ -67,6 +67,11 @@ export interface CollectionService {
   path: string;
   /** from the OpenAPI — how it is recognized again on a new import */
   operationId?: string;
+  /**
+   * taken over from the catalog: method and path come from the ServiceTask, but query,
+   * headers and the mappings of the body are not known — an OpenAPI still completes it
+   */
+  fromCatalog?: boolean;
   params: RequestParam[];
   /** body of the request — without: `type ServiceIn = NoInput` */
   serviceIn?: BodyRef;

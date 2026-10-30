@@ -167,6 +167,7 @@ test('a project of the catalog becomes one collection with its APIs; an OpenAPI 
   assert.equal(spec.services.length, 3);
   const done = spec.services.find(s => s.id === get.id)!;
   assert.equal(done.path, '/clients/{clientKey}');
+  assert.equal(done.fromCatalog, undefined);
   assert.equal(`${done.api}.v${done.apiVersion}`, 'client.v1');
   assert.equal(done.outTypeId, get.outTypeId);
   assert.deepEqual(done.outMappings, [{ name: 'name', expression: '= body.name' }, { name: 'etag', expression: '= headers.etag' }]);
@@ -188,4 +189,54 @@ test('the API of an operation from its sub path; a collection may cover a sub pa
   assert.ok(inPathPrefix('/clients', '/clients'));
   assert.ok(!inPathPrefix('/clientsX', '/clients'));
   assert.ok(inPathPrefix('/anything', ''));
+});
+
+test('the scanner reads `val path` of a ServiceTask; the catalog import takes method, path and bodies from it', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const { catalogProjects, collectionFromCatalog, parseServicePath } = await import('../src/services/catalogCollections');
+  const { isIncomplete } = await import('../src/services/openApiRest');
+  const source = `package acme.crm.domain
+package rule.v1
+
+import acme.crm.domain.rule.v1.schema.*
+
+object GetRules extends RuleV1:
+
+  final val topicName = "acme-crm-ruleV1.GetRules"
+  val descr = "Reads the rules"
+  val path  = "GET: /banks/{bankNumber}/clients/{clientKey}/rules"
+
+  type ServiceIn  = NoInput
+  type ServiceOut = Seq[Rule]
+
+  case class In(
+      clientKey: Long
+  )
+  case class Out(
+      rules: Seq[Rule]
+  )
+end GetRules
+`;
+  const rule = `package acme.crm.domain
+package rule.v1.schema
+
+case class Rule(
+    name: String
+)
+`;
+  const domainTypes = [...scanScala(source, 'GetRules.scala'), ...scanScala(rule, 'schema/Rule.scala')];
+  assert.equal(domainTypes.find(t => t.name === 'GetRules.In')?.ownerPath, 'GET: /banks/{bankNumber}/clients/{clientKey}/rules');
+  const model = { version: 1, services: [{ id: 'acme-crm-ruleV1.GetRules', name: 'GetRules', kind: 'service', topic: 'acme-crm-ruleV1.GetRules' }], domainTypes } as never;
+  const p = catalogProjects(model)[0];
+  const svc = collectionFromCatalog(p, p.apis, model).services[0];
+  assert.equal(`${svc.method} ${svc.path}`, 'GET /banks/{bankNumber}/clients/{clientKey}/rules');
+  assert.deepEqual(svc.params.map(x => `${x.name}:${x.type}=${x.expression}`), ['bankNumber:String=', 'clientKey:Long== clientKey']);
+  assert.equal(svc.serviceIn, undefined);
+  assert.equal(svc.serviceOut?.collection, true);
+  assert.match(svc.serviceOut?.type ?? '', /^dom:acme\.crm\.domain\.rule\.v1\.schema\.Rule$/);
+  // the request is still not complete — an OpenAPI may complete it
+  assert.equal(svc.fromCatalog, true);
+  assert.ok(isIncomplete(svc));
+  assert.deepEqual(parseServicePath('POST: clients/clientId'), { method: 'POST', path: '/clients/clientId' });
+  assert.equal(parseServicePath('nonsense'), null);
 });

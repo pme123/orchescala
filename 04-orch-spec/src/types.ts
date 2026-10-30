@@ -792,6 +792,8 @@ export interface DomainType {
   decisionResult?: DecisionResult;
   /** `val descr` of the enclosing object */
   ownerDescr?: string;
+  /** `val path` of a ServiceTask object: method and path of the wrapped service — `GET: /clients/{clientKey}` */
+  ownerPath?: string;
   /** `val descr` as a Scala expression, if it is not plain text (`s"…${X}…"`) */
   ownerDescrExpr?: string;
   /** for `alias`: the target expression, e.g. `Int :| any.In[(11, 15)]` or `AdjustOrderUT.In` */

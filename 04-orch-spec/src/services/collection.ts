@@ -149,7 +149,7 @@ export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): s
   if (!/^[A-Z][A-Za-z0-9]*$/.test(s.name)) out.push(`«${s.name}» ist kein Scala-Objektname (gross, ohne Sonderzeichen).`);
   if (!API_NAME.test(apiOf(c, s).api)) out.push(`API «${apiOf(c, s).api}» ist kein Paketname (klein, camelCase).`);
   if (c.services.some(x => x.id !== s.id && x.name === s.name)) out.push(`«${s.name}» gibt es zweimal.`);
-  if (!s.path) out.push('Pfad fehlt — aus der OpenAPI ergänzen (gleicher Name) oder von Hand.');
+  if (!s.path) out.push('Pfad fehlt — der Katalog kennt ihn nicht (Katalog neu aufbauen: er liest jetzt `val path`), aus der OpenAPI ergänzen (gleicher Name) oder von Hand.');
   else if (!s.path.startsWith('/')) out.push('Der Pfad beginnt mit «/».');
   const declared = new Set(s.params.filter(p => p.in === 'path').map(p => p.name));
   for (const p of pathParams(s.path)) if (!declared.has(p)) out.push(`Pfad-Parameter «${p}» ist nicht beschrieben.`);

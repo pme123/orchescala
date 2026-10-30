@@ -14,6 +14,7 @@ import FeelInput from '../components/FeelInput';
 import { StandaloneTypeEditor } from '../components/TypeBuilder';
 import { checkFeel, expectedFor, fieldVariables, isFeel, type VarNode } from '../feel';
 import { useStore } from '../store';
+import { parseDomainRef } from '../serviceTypes';
 import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Status, type TypeDef } from '../types';
 import { StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
@@ -476,11 +477,15 @@ function Section({ title, hint, isDark, children }: { title: string; hint: strin
 function TypeSelect({ value, spec, disabled, className, onChange }: {
   value: string; spec: ServiceCollectionSpec; disabled?: boolean; className: string; onChange: (v: string) => void;
 }) {
+  const { model } = useStore();
   const own = spec.types.filter(t => !t.interactionId);
   const known = (SCALA_TYPES as readonly string[]).includes(value) || own.some(t => t.id === value);
+  // a type of the domain (`dom:<id>`, from the catalog): its name — the project has it already
+  const dom = parseDomainRef(value);
+  const label = dom ? `${model?.domainTypes?.find(t => t.id === dom)?.name ?? dom.split('.').pop()} (Domain)` : value;
   return (
-    <select value={value} disabled={disabled} onChange={e => onChange(e.target.value)} className={className}>
-      {!known && <option value={value}>{value}</option>}
+    <select value={value} disabled={disabled} onChange={e => onChange(e.target.value)} className={className} title={dom ?? undefined}>
+      {!known && <option value={value}>{label}</option>}
       <optgroup label="einfach">{SCALA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</optgroup>
       {own.length > 0 && <optgroup label="Typen der API">{own.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>}
     </select>

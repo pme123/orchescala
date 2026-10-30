@@ -417,7 +417,7 @@ export function serviceOf(c: ServiceCollectionSpec, op: Pick<ApiOperation, 'meth
  * A service without request — taken over from the catalog (see catalogCollections.ts):
  * an operation of the same name completes it instead of adding a second one.
  */
-export const isIncomplete = (s: CollectionService): boolean => !s.path;
+export const isIncomplete = (s: CollectionService): boolean => !s.path || !!s.fromCatalog;
 
 const PARAM_ORDER: Record<ParamIn, number> = { path: 0, query: 1, header: 2 };
 
@@ -514,8 +514,9 @@ export function addOperations(
         f.name === 'etag' && op.response?.headers.includes('etag') ? [{ name: f.name, expression: '= headers.etag' }]
           : (bodyCase?.fields ?? []).some(b => b.name === f.name) ? [{ name: f.name, expression: `= body.${f.name}` }]
             : serviceOut && f.type === serviceOut.type ? [{ name: f.name, expression: '= body' }] : []);
+      const { fromCatalog: _done, ...rest } = existing;
       completed.set(existing.id, {
-        ...existing,
+        ...rest,
         ...(!existing.description && description ? { description } : {}),
         method: op.method, path: op.path,
         ...(op.operationId ? { operationId: op.operationId } : {}),

@@ -105,8 +105,15 @@ function domainObject(c: ServiceCollectionSpec, s: CollectionService, idx: TypeI
     `end ${s.name}`,
   );
   for (const i of schemaImports) imports.add(i);
+  for (const l of bodyImports(s, idx)) imports.add(l);
   const head = [packageClause(pkg), '', ...[...imports].sort(), ...(imports.size ? [''] : [])];
   return `${head.join('\n')}\n${lines.join('\n')}\n`;
+}
+
+/** A body of another domain (`dom:…`, from the catalog) brings its import. */
+function bodyImports(s: CollectionService, idx: TypeIndex): string[] {
+  const fields = [s.serviceIn, s.serviceOut].filter((b): b is BodyRef => !!b).map(bodyField);
+  return fields.length ? importsOf({ id: 'bodies', name: 'Bodies', kind: 'case', fields }, idx) : [];
 }
 
 function superTrait(c: ServiceCollectionSpec, ref: ApiRef, single: boolean): string {
@@ -260,6 +267,7 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     '',
     `import ${pkg}.*`,
     ...schemaImports,
+    ...bodyImports(s, idx),
     `import ${pkg}.${s.name}.*`,
   ];
   return `${workerPackageClause(ref)}
