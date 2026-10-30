@@ -1771,7 +1771,7 @@ Projekt acme-crm · API client · Version 1
 - **Der Service** ist gegliedert wie die `ServiceWorkerDsl`, in der Reihenfolge, in
   der der Worker läuft: `In` → `apiUri(in)` (Methode, Pfad, Pfad-Parameter) →
   `querySegments(in)` → `inputHeaders(in)` → `inputMapper(in): ServiceIn` (der
-  Body der Anfrage) → `ServiceOut` (Body, Status und Header der Antwort) →
+  Body der Anfrage) → `ServiceResponse[ServiceOut]` (Body, Status und Header der Antwort) →
   `outputMapper(serviceOut, in): Out` → `Out` — links unter dem gewählten Service
   als Gliederung mit dem Wichtigsten je Teil (Felder, Body-Typ, gemappt/total), ein
   Klick springt hin. Die Mappings sind FEEL, geprüft wie

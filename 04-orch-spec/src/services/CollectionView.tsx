@@ -541,7 +541,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         )}
       </Section>
 
-      <Section id="serviceOut" title="ServiceOut" hint="die Antwort der API — Body, Status und Header (ServiceResponse)" isDark={isDark}>
+      <Section id="serviceOut" title="ServiceResponse[ServiceOut]" hint="die Antwort der API — der Body (ServiceOut), Status und Header" isDark={isDark}>
         <BodyPicker label="type ServiceOut" none="kein Body — NoOutput" value={s.serviceOut} spec={spec} canEdit={canEdit} isDark={isDark} allowOptional
           onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType} />
         <div className="flex items-center gap-2 text-[11px]">
@@ -583,7 +583,7 @@ const SERVICE_PARTS = ['in', 'apiUri', 'query', 'headers', 'inputMapper', 'servi
 type ServicePart = (typeof SERVICE_PARTS)[number];
 const PART_LABEL: Record<ServicePart, string> = {
   in: 'In', apiUri: 'apiUri', query: 'querySegments', headers: 'inputHeaders',
-  inputMapper: 'inputMapper → ServiceIn', serviceOut: 'ServiceOut', outputMapper: 'outputMapper → Out', out: 'Out',
+  inputMapper: 'inputMapper → ServiceIn', serviceOut: 'ServiceResponse', outputMapper: 'outputMapper → Out', out: 'Out',
 };
 const partAnchor = (part: ServicePart) => `service-part-${part}`;
 
