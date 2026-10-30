@@ -1,5 +1,6 @@
 package orchescala.worker.c8
 
+import com.github.blemale.scaffeine.Scaffeine
 import io.camunda.client.CamundaClient
 import io.camunda.client.api.response.ActivatedJob
 import io.camunda.client.api.worker.{JobClient, JobHandler}
@@ -182,10 +183,13 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       ZIO.attempt(EngineRunContext(
         c8Context,
         generalVariables,
-        // C8 delivers the root with the job - no lookup
         Some(JobProcessInstance(
           job.getProcessInstanceKey.toString,
-          ZIO.succeed(Option(job.getRootProcessInstanceKey).map(_.toString))
+          C8Worker.rootProcessInstanceId(
+            Option(job.getRootProcessInstanceKey).map(_.longValue),
+            job.getProcessInstanceKey,
+            camundaClient.map(C8Worker.fetchRootProcessInstanceKey)
+          )
         )),
         workerTimeoutForContext
       )).mapError(ex =>
@@ -429,6 +433,47 @@ object C8Worker:
           .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
           .filter(id => id.nonEmpty && id != processInstanceKey.toString)
       case _                      => None
+
+  // a root never changes - bounded, so a long-running worker app does not grow without end
+  private lazy val rootProcessInstances =
+    Scaffeine().maximumSize(10_000).expireAfterWrite(scala.concurrent.duration.FiniteDuration(1, "hour")).build[Long, String]()
+
+  // a sub process just started may not be in the engine's search data yet - wait a moment
+  private val rootLookupRetry: Schedule[Any, Any, Any] =
+    Schedule.spaced(500.millis) && Schedule.recurs(10)
+
+  /** The root process instance of a job - only needed for jobs in call activities, whose
+    * IdentityCorrelation is bound to the root (see `IdentityVerification.verifyBinding`).
+    *
+    * The REST job activation delivers it with the job. The gRPC one (the default) does not - the
+    * client sets it to null - so it is looked up in the engine (`lookup`), tried again a few times
+    * and cached. Without `lookup` (no CamundaClient) there is no root.
+    */
+  def rootProcessInstanceId(
+      jobRoot: Option[Long],
+      processInstanceKey: Long,
+      lookup: Option[Long => Task[Option[Long]]],
+      retry: Schedule[Any, Any, Any] = rootLookupRetry
+  ): IO[String, Option[String]] =
+    (jobRoot, lookup) match
+      case (Some(root), _)    => ZIO.some(root.toString)
+      case (None, None)       => ZIO.none
+      case (None, Some(find)) =>
+        rootProcessInstances.getIfPresent(processInstanceKey) match
+          case Some(root) => ZIO.some(root)
+          case None       =>
+            find(processInstanceKey)
+              .retry(retry)
+              .map(_.map(_.toString))
+              .tap(root => ZIO.succeed(root.foreach(rootProcessInstances.put(processInstanceKey, _))))
+              .mapError(err => s"Root process instance of '$processInstanceKey' not found: $err")
+  end rootProcessInstanceId
+
+  /** The root of a process instance from the engine (`GET /v2/process-instances/{key}`). */
+  def fetchRootProcessInstanceKey(client: CamundaClient)(processInstanceKey: Long): Task[Option[Long]] =
+    attemptBlocking:
+      Option(client.newProcessInstanceGetRequest(processInstanceKey).send().join().getRootProcessInstanceKey)
+        .map(_.longValue)
 
   /** The variables of a BPMN error as engine values - a circe `Json` (e.g. a mocked output) too. */
   def bpmnErrorVariables(variables: Map[String, Any]): Map[String, Any] =
