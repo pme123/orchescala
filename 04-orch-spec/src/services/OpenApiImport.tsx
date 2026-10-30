@@ -13,7 +13,7 @@ import type { Model } from '../types';
 import { cls } from '../ui';
 import { serviceTopic } from './collection';
 import { MethodChip } from './ui';
-import { addOperations, apiProblem, readApi, serviceOf, type ApiImport } from './openApiRest';
+import { addOperations, apiProblem, isIncomplete, readApi, serviceOf, type ApiImport } from './openApiRest';
 import type { ServiceCollectionSpec } from './types';
 
 /** The topics the catalog knows — services of the domain and of the service catalog. */
@@ -60,7 +60,12 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
     if (!api) return [];
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     return api.operations
-      .map(op => ({ op, here: serviceOf(spec, op), inCatalog: known.has(serviceTopic(spec, op)) }))
+      .map(op => {
+        const found = serviceOf(spec, op);
+        // a service from the catalog without request: the operation completes it
+        const completes = found && isIncomplete(found) ? found : undefined;
+        return { op, here: completes ? undefined : found, completes, inCatalog: known.has(serviceTopic(spec, op)) };
+      })
       .filter(({ op }) => words.every(w => `${op.method} ${op.path} ${op.name} ${op.summary ?? ''} ${op.tags.join(' ')}`.toLowerCase().includes(w)));
   }, [api, query, spec, known]);
   const selectable = rows.filter(r => !r.here);
@@ -106,7 +111,7 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
                 </span>
               </div>
               <div className={`flex-1 min-h-0 overflow-y-auto rounded border ${c.border2}`}>
-                {rows.map(({ op, here, inCatalog }) => (
+                {rows.map(({ op, here, completes, inCatalog }) => (
                   <label key={op.key}
                     className={`flex items-center gap-2 px-2 py-1 border-b last:border-b-0 ${c.border} ${here ? 'opacity-60' : `cursor-pointer ${c.hover}`}`}>
                     <input type="checkbox" disabled={!!here} checked={!!here || picked.has(op.key)} onChange={() => toggle(op.key)} />
@@ -115,7 +120,9 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
                     <span className={`w-48 truncate text-[11px] font-mono ${c.muted2}`} title="Name des Services (Scala-Objekt)">{here?.name ?? op.name}</span>
                     <span className={`flex-1 truncate text-[10px] ${c.muted}`} title={op.description}>{op.summary}</span>
                     {op.deprecated && <span className={`text-[9px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>veraltet</span>}
-                    {here
+                    {completes
+                      ? <span title={`ergänzt «${completes.name}» aus dem Katalog um Methode, Pfad, Parameter und Body`} className={`text-[10px] ${isDark ? 'text-sky-300' : 'text-sky-700'}`}>ergänzt</span>
+                      : here
                       ? <span title={`schon in der Collection als «${here.name}»`} className={`text-[10px] flex items-center gap-0.5 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}><Check size={10} /> da</span>
                       : inCatalog
                         ? <span title={`${serviceTopic(spec, op)} ist im Katalog — gibt es schon in einem Projekt`} className={`text-[10px] ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>⌁ Katalog</span>

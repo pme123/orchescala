@@ -7,7 +7,7 @@
 //
 // Same head as the other lists (search, epics, groups per project); deleting
 // only with the admin role or without mandatory login, as for processes.
-import { AlertTriangle, Boxes, Loader2, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Boxes, Library, Loader2, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -17,6 +17,7 @@ import { useStore } from '../store';
 import { EpicChip, StatusChip, cls } from '../ui';
 import { API_NAME, PROJECT_NAME, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
 import { useServices, type ServiceListItem } from './store';
+import CollectionImport from './CollectionImport';
 
 const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
   title: data.title,
@@ -31,6 +32,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
   const confirm = useConfirm();
   const c = cls(isDark);
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const list = useSpecList(services, serviceEntry, model);
 
@@ -39,10 +41,16 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
       <div className="flex items-center gap-3 mb-1">
         <h1 className={`text-sm font-semibold uppercase tracking-widest ${c.muted2}`}>Services</h1>
         {canEdit && (
-          <button onClick={() => setCreating(true)}
-            className={`ml-auto flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
-            <Plus size={12} /> Neue Collection
-          </button>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => setImporting(true)} title="Eine API, deren Services es schon gibt — aus dem Katalog oder einer Datei"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <Library size={12} /> Bestehende importieren
+            </button>
+            <button onClick={() => setCreating(true)}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
+              <Plus size={12} /> Neue Collection
+            </button>
+          </div>
         )}
       </div>
       <p className={`text-[11px] mb-4 ${c.muted}`}>
@@ -51,6 +59,14 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
         festlegen. Daraus entstehen ServiceTasks und ServiceWorker.
       </p>
 
+      {importing && (
+        <CollectionImport model={model} existing={services.map(s => s.slug)} isDark={isDark} onClose={() => setImporting(false)}
+          onCreate={async spec => {
+            const r = await createService(spec);
+            if (r.ok) { setImporting(false); onOpen(spec.slug); }
+            return r;
+          }} />
+      )}
       {creating && (
         <NewCollection existing={services.map(s => s.slug)} onClose={() => setCreating(false)}
           onCreate={async input => {

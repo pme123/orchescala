@@ -357,9 +357,16 @@ function scalarOf(s: Schema): string {
 // ── Operations → services ───────────────────────────────────────────────────
 
 /** Is this operation already in the collection? Via the operationId, otherwise method and path. */
-export function serviceOf(c: ServiceCollectionSpec, op: Pick<ApiOperation, 'method' | 'path' | 'operationId'>): CollectionService | undefined {
-  return c.services.find(s => (op.operationId && s.operationId === op.operationId) || (s.method === op.method && s.path === op.path));
+export function serviceOf(c: ServiceCollectionSpec, op: Pick<ApiOperation, 'method' | 'path' | 'operationId' | 'name'>): CollectionService | undefined {
+  return c.services.find(s => (op.operationId && s.operationId === op.operationId) || (s.method === op.method && s.path === op.path))
+    ?? c.services.find(s => !s.path && s.name === op.name);
 }
+
+/**
+ * A service without request — taken over from the catalog (see catalogCollections.ts):
+ * an operation of the same name completes it instead of adding a second one.
+ */
+export const isIncomplete = (s: CollectionService): boolean => !s.path;
 
 const PARAM_ORDER: Record<ParamIn, number> = { path: 0, query: 1, header: 2 };
 
@@ -372,11 +379,16 @@ export function addOperations(c: ServiceCollectionSpec, api: ApiImport, keys: st
   const services: CollectionService[] = [];
   const members: TypeDef[] = [];
   const names = new Set(c.services.map(s => s.name));
-  for (const op of api.operations.filter(o => keys.includes(o.key) && !serviceOf(c, o))) {
-    let name = op.name, i = 2;
-    while (names.has(name)) name = `${op.name}${i++}`;
-    names.add(name);
-    const id = uid('svc');
+  const completed = new Map<string, CollectionService>();
+  for (const op of api.operations.filter(o => keys.includes(o.key))) {
+    const existing = serviceOf(c, op);
+    if (existing && !isIncomplete(existing)) continue;
+    let name = existing?.name ?? op.name, i = 2;
+    if (!existing) {
+      while (names.has(name)) name = `${op.name}${i++}`;
+      names.add(name);
+    }
+    const id = existing?.id ?? uid('svc');
 
     const params: RequestParam[] = op.params
       .map(p => {
@@ -437,10 +449,33 @@ export function addOperations(c: ServiceCollectionSpec, api: ApiImport, keys: st
       outMappings.push({ name: 'etag', expression: '= headers.etag' });
     }
 
+    const description = [op.summary, op.description && op.description !== op.summary ? op.description : ''].filter(Boolean).join('\n\n');
+    if (existing) {
+      // from the catalog: its In and Out stay (they are the implemented ones); the request comes
+      // from the API, the Out fields are mapped where the body has a field of the same name
+      const out = c.types.find(t => t.id === existing.outTypeId);
+      const bodyCase = serviceOut && !serviceOut.collection ? [...c.types, ...builder.created].find(t => t.id === serviceOut.type && t.kind === 'case') : undefined;
+      const mapped: Mapping[] = (out?.fields ?? []).flatMap(f =>
+        f.name === 'etag' && op.response?.headers.includes('etag') ? [{ name: f.name, expression: '= headers.etag' }]
+          : (bodyCase?.fields ?? []).some(b => b.name === f.name) ? [{ name: f.name, expression: `= body.${f.name}` }]
+            : serviceOut && f.type === serviceOut.type ? [{ name: f.name, expression: '= body' }] : []);
+      completed.set(existing.id, {
+        ...existing,
+        ...(!existing.description && description ? { description } : {}),
+        method: op.method, path: op.path,
+        ...(op.operationId ? { operationId: op.operationId } : {}),
+        params,
+        ...(serviceIn ? { serviceIn } : {}),
+        ...(serviceOut ? { serviceOut } : {}),
+        ...(op.response ? { responseStatus: op.response.status } : {}),
+        ...(op.response?.headers.length ? { responseHeaders: op.response.headers } : {}),
+        ...(mapped.length && !existing.outMappings?.length ? { outMappings: mapped } : {}),
+      });
+      continue;
+    }
     const inType: TypeDef = { id: uid('t'), name: 'In', kind: 'case', status: 'draft', interactionId: id, fields: inFields };
     const outType: TypeDef = { id: uid('t'), name: 'Out', kind: 'case', status: 'draft', interactionId: id, fields: outFields };
     members.push(inType, outType);
-    const description = [op.summary, op.description && op.description !== op.summary ? op.description : ''].filter(Boolean).join('\n\n');
     services.push({
       id, name, status: 'draft',
       ...(description ? { description } : {}),
@@ -460,7 +495,7 @@ export function addOperations(c: ServiceCollectionSpec, api: ApiImport, keys: st
     spec: {
       ...c,
       types: [...c.types, ...builder.created, ...members],
-      services: [...c.services, ...services],
+      services: [...c.services.map(s => completed.get(s.id) ?? s), ...services],
       source: {
         ...(c.source ?? {}),
         ...(api.title ? { title: api.title } : {}),
@@ -468,7 +503,7 @@ export function addOperations(c: ServiceCollectionSpec, api: ApiImport, keys: st
         ...(api.basePath ? { basePath: api.basePath } : {}),
       },
     },
-    added: services.map(s => s.name),
+    added: [...completed.values(), ...services].map(s => s.name),
   };
 }
 

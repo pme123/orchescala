@@ -123,3 +123,41 @@ test('a placeholder in the path without parameter is a finding', () => {
   const svc = { id: 's', name: 'GetX', status: 'draft' as const, method: 'GET' as const, path: '/x/{id}', params: [] };
   assert.deepEqual(serviceIssues({ ...c, services: [svc] }, svc), ['Pfad-Parameter «id» ist nicht beschrieben.']);
 });
+
+test('an API of the catalog becomes a collection; an OpenAPI completes its services', async () => {
+  const { catalogApis, collectionFromCatalog } = await import('../src/services/catalogCollections');
+  const model = {
+    version: 1,
+    services: [
+      { id: 'acme-crm-clientV1.GetClientKey', name: 'GetClientKey', kind: 'service', group: 'Acme CRM', topic: 'acme-crm-clientV1.GetClientKey', description: 'Reads a client' },
+      { id: 'acme-crm-clientV1.PutClientKey', name: 'PutClientKey', kind: 'service', topic: 'acme-crm-clientV1.PutClientKey', inputs: [{ name: 'clientKey', required: true }] },
+      { id: 'acme-crm-clientV1', name: 'process', kind: 'call' },
+    ],
+    domainTypes: [
+      { id: 'acme.crm.domain.client.v1.GetClientKey.In', name: 'GetClientKey.In', pkg: 'acme.crm.domain.client.v1', kind: 'case', owner: 'GetClientKey', importPath: 'x', fields: [{ name: 'clientKey', type: 'Long' }] },
+      { id: 'acme.crm.domain.client.v1.GetClientKey.Out', name: 'GetClientKey.Out', pkg: 'acme.crm.domain.client.v1', kind: 'case', owner: 'GetClientKey', importPath: 'x', fields: [{ name: 'name', type: 'String' }, { name: 'etag', type: 'Option[String]' }] },
+    ],
+  } as never;
+  const apis = catalogApis(model);
+  assert.deepEqual(apis.map(a => `${a.prefix}:${a.services.length}`), ['acme-crm-clientV1:2']);
+  const c = collectionFromCatalog(apis[0], model);
+  assert.equal(c.slug, 'acme-crm-clientv1');
+  const get = c.services.find(s => s.name === 'GetClientKey')!;
+  assert.equal(get.path, '');
+  assert.deepEqual(c.types.find(t => t.id === get.outTypeId)!.fields!.map(f => `${f.name}:${f.type}${f.optional ? '?' : ''}`), ['name:String', 'etag:String?']);
+  const put = c.services.find(s => s.name === 'PutClientKey')!;
+  assert.deepEqual(c.types.find(t => t.id === put.inTypeId)!.fields!.map(f => f.name), ['clientKey']);
+
+  // the OpenAPI: GetClientKey completes the one of the catalog, keeps its In/Out
+  const api = readApi(doc);
+  const getOp = api.operations.find(o => o.name === 'GetClientKey')!;
+  assert.equal(serviceOf(c, getOp)?.id, get.id);
+  const { spec, added } = addOperations(c, api, [getOp.key]);
+  assert.deepEqual(added, ['GetClientKey']);
+  assert.equal(spec.services.length, 2);
+  const done = spec.services.find(s => s.id === get.id)!;
+  assert.equal(done.path, '/clients/{clientKey}');
+  assert.equal(done.outTypeId, get.outTypeId);
+  assert.deepEqual(done.outMappings, [{ name: 'name', expression: '= body.name' }, { name: 'etag', expression: '= headers.etag' }]);
+  assert.equal(spec.types.filter(t => t.interactionId === get.id).length, 2);
+});
