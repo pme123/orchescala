@@ -744,8 +744,10 @@ und nicht im BPMN — ihre Werte stehen in der Spezifikation:
 
 **Standard-Pattern** bringt Orchescala als BPMN mit, für C7 und C8 — jede
 Firma hat sie, ohne sie zu pflegen. Im Admin stehen sie zur Ansicht; ein
-eigenes Pattern mit derselben ID ersetzt eines. Beispielprozesse und Doku
-stehen in `democompany-patterns`:
+eigenes Pattern mit derselben ID ersetzt eines. Passt ein eigenes Pattern
+unter anderer ID an dieselbe Stelle, bekommt das spezifischere sie — bei
+gleichem BPMN das eigene; erkannt wird je Stelle nur eines. Beispielprozesse
+und Doku stehen in `democompany-patterns`:
 
 - **Init Process** (`init-process`, Service-Task): der erste Schritt, Topic =
   Prozess-ID. Ist der Prozess gemockt, springt `output-mocked` über den Link

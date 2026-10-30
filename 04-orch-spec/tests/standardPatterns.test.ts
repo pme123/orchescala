@@ -44,8 +44,25 @@ test('an own pattern with the same ID replaces the standard one, others are adde
   assert.deepEqual(defs.filter(p => p.id === 'init-process').map(p => p.name), ['Eigenes Init']);
   assert.ok(defs.some(p => p.id === 'acme-inform'));
   assert.equal(defs.length, STANDARD_PATTERNS.length + 1);
+  // own first, then the standard ones
+  assert.deepEqual(defs.slice(0, 2).map(p => p.id), ['init-process', 'acme-inform']);
   // stable per list — usable as a React dependency
   assert.equal(patternDefs({ patterns: own }), defs);
+  // with the patterns of Orchescala: built in, own, standard
+  const all = allPatterns(own).map(p => p.id);
+  assert.equal(all[0], 'process-labels');
+  assert.ok(all.includes('acme-inform') && all.includes('propagate-mocks'));
+  assert.equal(all.filter(id => id === 'init-process').length, 1);
+});
+
+test('an own pattern with the same BPMN under another ID gets the element, the standard one does not', () => {
+  const std = STANDARD_PATTERNS.find(p => p.id === 'propagate-mocks')!;
+  const own: PatternDef = { ...std, id: 'acme-call-sub', name: 'Teilprozess aufrufen', standard: undefined };
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = applyPattern(diagram(engine, 'callActivity'), std, engine, 'Target').xml;
+    const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
+    assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [['acme-call-sub', 'Target']], engine);
+  }
 });
 
 for (const def of STANDARD_PATTERNS) {
@@ -57,8 +74,9 @@ for (const def of STANDARD_PATTERNS) {
       const type = def.appliesTo[0];
       const res = applyPattern(diagram(engine, type), def, engine, 'Target');
       assert.ok(res.changed, `inserted: ${res.issues.join('; ')}`);
-      const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === def.id);
-      assert.deepEqual(hits.map(h => h.targetId), ['Target']);
+      // exactly this pattern — no other standard pattern claims the element too
+      const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits;
+      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[def.id, 'Target']]);
     });
   }
 }

@@ -98,9 +98,13 @@ export const STANDARD_PATTERNS: PatternDef[] = STANDARD_PATTERN_DEFS.map(p => ({
 const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
 
 /**
- * The patterns a company can use: the standard patterns plus its own from the
- * admin — its own replaces a standard pattern with the same ID. The result is
- * stable per list, so it can be used as a React dependency.
+ * The patterns a company can use: its own from the admin, then the standard
+ * patterns — its own replaces a standard pattern with the same ID. Own patterns
+ * come first: if one matches the same element as a standard pattern and is as
+ * specific, the recognition gives the element to the own one (what one pattern
+ * claims, another cannot have).
+ * The result is cached per list, so it can be used as a React dependency —
+ * every writer replaces `model.patterns`, none changes it in place.
  */
 export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): PatternDef[] {
   const own = model?.patterns;
@@ -108,7 +112,7 @@ export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): 
   let all = withStandard.get(own);
   if (!all) {
     const ids = new Set(own.map(p => p.id));
-    all = [...STANDARD_PATTERNS.filter(p => !ids.has(p.id)), ...own];
+    all = [...own, ...STANDARD_PATTERNS.filter(p => !ids.has(p.id))];
     withStandard.set(own, all);
   }
   return all;
