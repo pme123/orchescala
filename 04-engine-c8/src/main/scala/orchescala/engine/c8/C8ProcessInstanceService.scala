@@ -246,7 +246,9 @@ class C8ProcessInstanceService(using
                              messageName,
                              businessKey,
                              tenantId,
-                             Some(withIdentityPending(variables.getOrElse(JsonObject.empty)))
+                             Some(withIdentityPending(variables.getOrElse(JsonObject.empty))),
+                             // landed in a running instance: the marker must not stay there
+                             removePending = clearIdentityPending
                            )
       processInstanceId  = correlationResult.processInstanceId
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
@@ -264,48 +266,95 @@ class C8ProcessInstanceService(using
   end startProcessByMessageWithSignedCorrelation
 
   /** Send message to start a process (via Message Start Event) - the REST correlation returns the
-    * key of the started process instance.
+    * key of the process instance.
+    *
+    * With a `businessKey` it is the correlation key, like in C7: a running instance waiting for
+    * this message with that key gets it (e.g. the event subprocess of «Einmalige Ausführung») -
+    * that is no start, answered with 409. Zeebe also keeps a message start unique per correlation
+    * key: a process without such a waiting event refuses a second start with the same key. Then
+    * the message is sent again without key and starts a new instance - as before, and as in C7.
     */
   private def sendMessageToStartProcess(
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
-      processVariables: Option[JsonObject]
+      processVariables: Option[JsonObject],
+      removePending: String => UIO[Unit] = _ => ZIO.unit
   ): IO[EngineError, MessageCorrelationResult] =
-    val variables = processVariables
-      .map(_.asJson)
-      .map(_.deepMerge(businessKey
-        .map(bk =>
-          Json.obj("businessKey" -> bk.asJson)
-        ).getOrElse(Json.obj())))
-      .getOrElse(Json.obj())
+    // the businessKey also as variable - also without other variables: the instance correlates its
+    // waiting messages with it (`=businessKey`)
+    val variables = processVariables.getOrElse(JsonObject.empty).asJson
+      .deepMerge(businessKey.fold(Json.obj())(bk => Json.obj("businessKey" -> bk.asJson)))
+    def correlate(correlationKey: Option[String]) =
+      rest.post[C8RestModel.MessageCorrelationResult](
+        Seq("messages", "correlation"),
+        Json.obj(
+          "name"      -> messageName.asJson,
+          "variables" -> variables,
+          "tenantId"  -> tenantId.orElse(engineConfig.tenantId).asJson
+        ).deepMerge(correlationKey.fold(Json.obj())(key => Json.obj("correlationKey" -> key.asJson)))
+      )
     for
       _        <- logInfo(s"Send Message $messageName: ${variables.asObject.fold("-")(_.keys.mkString(", "))}")
-      response <- rest
-                    .post[C8RestModel.MessageCorrelationResult](
-                      Seq("messages", "correlation"),
-                      Json.obj(
-                        "name"      -> messageName.asJson, // no correlationKey: start event
-                        "variables" -> variables,
-                        "tenantId"  -> tenantId.orElse(engineConfig.tenantId).asJson
-                      )
-                    )
+      response <- correlate(businessKey)
+                    .catchSome:
+                      case err: EngineError.ServiceRequestError
+                          if businessKey.nonEmpty && C8ProcessInstanceService.isUniqueStartRefused(err) =>
+                        logInfo(
+                          s"Message '$messageName': an instance started with businessKey '${businessKey.mkString}' is running " +
+                            "and waits for no such message - started again without correlation key."
+                        ) *> correlate(None)
                     .mapError(withContext(
                       s"Problem sending message '$messageName' to start process"
                     ))
-      result   <- ZIO
-                    .fromOption(response.processInstanceKey)
-                    .orElseFail(EngineError.ProcessError(
-                      s"Message '$messageName' was correlated, but no process instance key returned."
-                    ))
-                    .map: processInstanceKey =>
-                      MessageCorrelationResult.ProcessInstance(
-                        processInstanceKey,
-                        processInstanceKey,
-                        C8
-                      )
-    yield result
+      processInstanceKey <- ZIO
+                              .fromOption(response.processInstanceKey)
+                              .orElseFail(EngineError.ProcessError(
+                                s"Message '$messageName' was correlated, but no process instance key returned."
+                              ))
+      _                  <- ZIO.unless(C8ProcessInstanceService.startedBy(response.messageKey, processInstanceKey)):
+                              removePending(processInstanceKey) *>
+                                logWarning(
+                                  s"Message '$messageName' was correlated to the running process instance $processInstanceKey - no process started"
+                                ) *>
+                                ZIO.fail(EngineError.ServiceRequestError(
+                                  409,
+                                  s"Message '$messageName' was correlated to a running process instance ($processInstanceKey) - no process was started"
+                                ))
+    yield MessageCorrelationResult.ProcessInstance(processInstanceKey, processInstanceKey, C8)
     end for
   end sendMessageToStartProcess
+
+  /** The message landed in a running instance: its pending marker back to `false` - the instance
+    * has its signed correlation already (C8 cannot delete a variable).
+    */
+  private def clearIdentityPending(processInstanceKey: String): UIO[Unit] =
+    rest
+      .putNoContent(
+        Seq("element-instances", processInstanceKey, "variables"),
+        Json.obj("variables" -> Json.obj(InputParams._identityCorrelationPending.toString -> Json.False))
+      )
+      .catchAll(err => logWarning(s"Problem clearing the pending marker of process $processInstanceKey: ${err.errorMsg}"))
+
+end C8ProcessInstanceService
+
+object C8ProcessInstanceService:
+
+  /** Zeebe refused a message start because an instance started with the same correlation key is
+    * still running (message starts are unique per correlation key).
+    */
+  def isUniqueStartRefused(err: EngineError.ServiceRequestError): Boolean =
+    err.errorCode == 404 && err.errorMsg.contains("Only one active process instance per correlation key")
+
+  /** Did this message start the instance? A key holds its partition in the upper bits and grows
+    * within a partition: an instance the message started is created after it, on its partition. A
+    * running instance it landed in is older - or on another partition.
+    */
+  def startedBy(messageKey: String, processInstanceKey: String): Boolean =
+    (messageKey.toLongOption, processInstanceKey.toLongOption) match
+      case (Some(message), Some(instance)) => partitionOf(instance) == partitionOf(message) && instance > message
+      case _                               => true // not the keys of Zeebe - nothing to compare
+
+  private def partitionOf(key: Long): Long = key >> 51
 
 end C8ProcessInstanceService
