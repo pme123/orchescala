@@ -12,7 +12,7 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Download, FileUp, Pencil, Plus, Puzzle, Trash2, Upload } from 'lucide-react';
 import type { EngineId, Model, PatternDef, PatternParam } from '../types';
-import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, STANDARD_PATTERNS, patternDefs, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
+import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, STANDARD_PATTERNS, isStandardPattern, patternDefs, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
 import { cls, patternTone } from '../ui';
 import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
@@ -29,7 +29,7 @@ type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>
 export function patternState(model: Model): { tone: 'ok' | 'off' | 'warn'; label: string; detail?: string } {
   const own = model.patterns ?? [];
   // the standard ones are always there (and tested) — the state is about the own ones
-  const std = patternDefs(model).filter(p => p.standard);
+  const std = patternDefs(model).filter(isStandardPattern);
   const label = own.length ? `${own.length} eigene + ${std.length} Standard` : `${std.length} Standard`;
   const bad = own.filter(p => Object.values(p.bpmn).every(x => !x) || Object.values(p.bpmn).some(x => x && 'error' in parseFragment(x)));
   return bad.length

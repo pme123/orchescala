@@ -93,7 +93,13 @@ export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, fie
  * (Init Process, identity, passing on mocks …), so every company has them.
  * They are documented with their example processes in democompany-patterns.
  */
-export const STANDARD_PATTERNS: PatternDef[] = Object.freeze(STANDARD_PATTERN_DEFS.map(p => Object.freeze({ ...p, standard: true }))) as PatternDef[];
+export const STANDARD_PATTERNS: PatternDef[] = Object.freeze(STANDARD_PATTERN_DEFS.map(p => Object.freeze({ ...p }))) as PatternDef[];
+
+/**
+ * One of the standard patterns itself — by identity, not by a flag: an own
+ * pattern from a file or the model.json cannot pass itself off as one.
+ */
+export const isStandardPattern = (p: PatternDef): boolean => STANDARD_PATTERNS.includes(p);
 
 const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
 
@@ -119,7 +125,10 @@ export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): 
   return all;
 }
 
-/** The patterns of Orchescala (built in and standard) and those from the admin */
+/**
+ * The patterns of Orchescala (built in and standard) and those from the admin —
+ * a new list on every call, unlike `patternDefs`: not as a React dependency.
+ */
 export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...patternDefs({ patterns: defs })];
 
 /** The patterns on the process — those of Orchescala from the specification, the others from the diagram */
