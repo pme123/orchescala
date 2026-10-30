@@ -226,10 +226,28 @@ case class Rule(
 
 type Rules = Seq[Rule]
 `;
-  const domainTypes = [...scanScala(source, 'GetRules.scala'), ...scanScala(rule, 'schema/Rule.scala')];
+  // a CustomTask of the project (GET and PUT combined) — no REST call of its own
+  const custom = `package acme.crm.domain
+package rule.v1
+
+object UpdateRules
+    extends CompanyBpmnCustomTaskDsl:
+
+  final val topicName = "acme-crm-ruleV1.UpdateRules"
+
+  case class In(
+      clientKey: Long
+  )
+end UpdateRules
+`;
+  const domainTypes = [...scanScala(source, 'GetRules.scala'), ...scanScala(rule, 'schema/Rule.scala'), ...scanScala(custom, 'UpdateRules.scala')];
   assert.equal(domainTypes.find(t => t.name === 'GetRules.In')?.ownerPath, 'GET: /banks/{bankNumber}/clients/{clientKey}/rules');
-  const model = { version: 1, services: [{ id: 'acme-crm-ruleV1.GetRules', name: 'GetRules', kind: 'service', topic: 'acme-crm-ruleV1.GetRules' }], domainTypes } as never;
+  const model = {
+    version: 1, domainTypes,
+    services: ['GetRules', 'UpdateRules'].map(n => ({ id: `acme-crm-ruleV1.${n}`, name: n, kind: 'service', topic: `acme-crm-ruleV1.${n}` })),
+  } as never;
   const p = catalogProjects(model)[0];
+  assert.deepEqual(p.apis[0].services.map(x => x.name), ['GetRules']);
   const c = collectionFromCatalog(p, p.apis, model);
   const svc = c.services[0];
   assert.equal(`${svc.method} ${svc.path}`, 'GET /banks/{bankNumber}/clients/{clientKey}/rules');

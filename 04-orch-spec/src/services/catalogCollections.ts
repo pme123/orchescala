@@ -44,11 +44,25 @@ export interface CatalogProject {
   apis: CatalogApi[];
 }
 
+/**
+ * A worker of the project that wraps no REST call (`UpdateClientsClientKey` — a GET and a
+ * PUT in a CustomTask): the domain knows its object, but it has no `ServiceIn` / `ServiceOut`.
+ * Without a domain — or one that names no request at all — everything counts as a service.
+ */
+function isCustomWorker(s: ServiceDef, model: Model | null, knowsRequests: boolean): boolean {
+  const inDom = domainMember(s, 'In', model) ?? domainMember(s, 'Out', model);
+  if (!inDom) return false;
+  if (inDom.dsl) return inDom.dsl !== 'ServiceTask';
+  return knowsRequests && !inDom.ownerPath && !domainMember(s, 'ServiceIn', model) && !domainMember(s, 'ServiceOut', model);
+}
+
 /** The projects of the catalog with their APIs — the service workers grouped by their topic. */
 export function catalogProjects(model: Model | null): CatalogProject[] {
   const projects = new Map<string, CatalogProject>();
+  const knowsRequests = (model?.domainTypes ?? []).some(t => t.ownerPath || /\.Service(In|Out)$/.test(t.name));
   for (const s of model?.services ?? []) {
     if (s.kind && s.kind !== 'service') continue;
+    if (isCustomWorker(s, model, knowsRequests)) continue;
     const m = TOPIC.exec(s.topic ?? s.id);
     if (!m) continue;
     const [, project, api, version] = m;
