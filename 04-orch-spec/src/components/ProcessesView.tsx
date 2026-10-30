@@ -38,6 +38,7 @@ import { epicsOf } from '../epics';
 import { knownPrefixes, splitPrefix } from '../stepIds';
 import { slugify } from '../util';
 import { findProjectDmns, saveProjectDmns, withDmnFiles, type FoundDmn } from '../dmnProject';
+import { patternDefs } from '../patterns';
 
 /** Bar colour per status — strong, because the bar carries no text. */
 const BAR: Record<Status, string> = {
@@ -137,7 +138,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       // Process ID after the pool (or the process name), before the domain
       // is searched via it and it determines the file name — see poolIds.ts
       const text = alignPoolIds(await file.text()).xml;
-      const { spec, stepCount, unreachable } = importBpmn(text, file.name, { patterns: model?.patterns });
+      const { spec, stepCount, unreachable } = importBpmn(text, file.name, { patterns: patternDefs(model) });
       if (unreachable.length) console.warn('[orch-spec] nicht erreichbare BPMN-Elemente:', unreachable);
       // Search the domain via the process ID: catalog, then remembered folders
       setBusy('Domain wird gesucht …');
@@ -225,7 +226,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
     setError('');
     try {
       const xml = applyTemplate(await loadTemplate(engine), { processId, title: title || processId });
-      const { spec } = importBpmn(xml, `${slugify(processId)}.bpmn`, { patterns: model?.patterns });
+      const { spec } = importBpmn(xml, `${slugify(processId)}.bpmn`, { patterns: patternDefs(model) });
       // The flow comes from the template, but is not implemented yet —
       // on all levels: sub-steps, branches and error paths.
       const neu = { ...withStatus(spec, 'draft'), title: title || processId, engine };
@@ -289,8 +290,8 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             <button onClick={() => setPending(null)} className={`ml-auto ${c.muted}`}><X size={12} /></button>
           </div>
           <div className="mb-1.5">
-            <PatternSummary items={patternSummary(pending.spec)} isDark={isDark} hasDefs={!!model?.patterns?.length}
-              nameOf={id => model?.patterns?.find(d => d.id === id)?.name ?? id} />
+            <PatternSummary items={patternSummary(pending.spec)} isDark={isDark} hasDefs={!!patternDefs(model).length}
+              nameOf={id => patternDefs(model).find(d => d.id === id)?.name ?? id} />
           </div>
           {pending.enriched ? (
             <div className="space-y-1">

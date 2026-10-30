@@ -12,7 +12,7 @@ import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interac
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { EpicChips } from './SpecMeta';
-import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags } from '../patterns';
+import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags, patternDefs } from '../patterns';
 import { GENERAL_VARIABLES, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
@@ -235,7 +235,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // that one reads the In from the process variables and returns the InitIn.
   const initWorker = isInitWorker(step, spec.processId);
   // Step in the block of a pattern (link target → call …): the pattern fills it
-  const ofPattern = step.pattern ? (model?.patterns?.find(d => d.id === step.pattern)?.name ?? step.pattern) : null;
+  const ofPattern = step.pattern ? (patternDefs(model).find(d => d.id === step.pattern)?.name ?? step.pattern) : null;
   const service = initWorker ? null : catalogEntry(step, model);
 
   // What the mapping can be measured against: the class of the interaction, otherwise the
@@ -324,8 +324,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // where the foreign service comes from: its domain object, else the catalog group
   const origin = foreign ? foreignOrigin(step, model) : null;
   // Inputs and outputs contributed by a pattern: implementation — hidden
-  const fromPattern = useMemo(() => patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7'), [model?.patterns, step.patterns, spec.engine]);
-  const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
+  const fromPattern = useMemo(() => patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7'), [patternDefs(model), step.patterns, spec.engine]);
+  const patternName = (id: string) => patternDefs(model).find(d => d.id === id)?.name ?? id;
   // Findings collected — the same list as the triangle in the tree
   // the kinds per timer variable — for the findings on the step and on its boundary timers
   const kinds = useMemo(() => timerKinds(spec.steps), [spec.steps]);
@@ -429,7 +429,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
       {step.kind === 'user' && (() => {
         const filled = ASSIGNMENT_FIELDS.filter(f => step[f.key]?.trim()).length;
         // a pattern that defines the assignment: it is shown here, groups/person are locked
-        const byPattern = (step.patterns ?? []).map(a => model?.patterns?.find(d => d.id === a.id)).filter(d => d?.area === 'assignment');
+        const byPattern = (step.patterns ?? []).map(a => patternDefs(model).find(d => d.id === a.id)).filter(d => d?.area === 'assignment');
         return (
           <Section id="assign" label="Zuständigkeit" isDark={isDark}
             comment={sub(stepTarget(step.id), 'assignment')}
@@ -684,7 +684,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 {e.boundary && e.timer && (
                   <div className="px-2 pb-1.5 space-y-1">
                     <TimerSection timer={e.timer} spec={spec} isDark={isDark} canEdit={canEdit}
-                      lockedBy={e.pattern ? (model?.patterns?.find(d => d.id === e.pattern)?.name ?? e.pattern) : ofPattern ?? undefined}
+                      lockedBy={e.pattern ? (patternDefs(model).find(d => d.id === e.pattern)?.name ?? e.pattern) : ofPattern ?? undefined}
                       onChange={timer => setErr({ timer })} />
                     {[...timerIssues.errors.map(t => [t, err]), ...timerIssues.warnings.map(t => [t, warn])].map(([t, tone], k) => (
                       <p key={k} className={`text-[10px] flex items-start gap-1 ${tone}`}>

@@ -291,6 +291,11 @@ export interface PatternDef {
    * values are in the specification (see ORCHESCALA_PATTERNS).
    */
   builtin?: boolean;
+  /**
+   * Ships with Orchescala as BPMN (see STANDARD_PATTERNS) — every company has it
+   * without maintaining it. A company pattern with the same ID replaces it.
+   */
+  standard?: boolean;
   [key: string]: unknown;
 }
 

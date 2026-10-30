@@ -16,7 +16,7 @@ import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from '.
 import { dmnIssues, packageOf } from './scala';
 import { GENERAL_VARIABLES, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
-import { patternMappings } from './patterns';
+import { patternMappings, patternDefs } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
 
 export interface Finding {
@@ -80,7 +80,7 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
   const kind = ia?.kind ?? interactionKind(step, processId);
   if (readsInDirectly(kind, initWorker)) return [];
-  if (patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7').inputs.size) return [];
+  if (patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7').inputs.size) return [];
   const types = spec.types ?? [];
   const inT = ia?.inTypeId ? types.find(t => t.id === ia.inTypeId) : undefined;
   const refFields = ia?.inTypeId ? (inT ? classFieldsOf(inT) : []) : null;
@@ -121,7 +121,7 @@ export function withServiceRows(spec: ProcessSpec, model: Model | null, opts: { 
     const kind = ia?.kind ?? interactionKind(s, processId);
     const eligible = (s.kind === 'service' || s.kind === 'call' || s.kind === 'send')
       && !isInitWorker(s, processId) && kind !== 'userTask' && kind !== 'customTask'
-      && !patternMappings(model?.patterns, s.patterns, spec.engine ?? 'c7').inputs.size;
+      && !patternMappings(patternDefs(model), s.patterns, spec.engine ?? 'c7').inputs.size;
     if (eligible) {
       const service = catalogEntry(s, model);
       const inConfig = inConfigField(stepDomainMember(s, spec, model, 'In'));
@@ -329,7 +329,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const implicitIn = readsInDirectly(ownKind, initWorker);
   // what a pattern contributes to the element is implementation — not checked,
   // and it does not report missing required fields: the pattern defines the call
-  const fromPattern = patternMappings(model?.patterns, step.patterns, spec.engine ?? 'c7');
+  const fromPattern = patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7');
   const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
     // enum with cases: only the shared fields and those of the chosen variant count
     const variants = variantsOf(step, spec, model, list, service);

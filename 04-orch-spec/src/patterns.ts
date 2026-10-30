@@ -27,7 +27,8 @@
 // A pattern on the **process** (`appliesTo: ['process']`) has no anchor:
 // its content is the blocks and the extensions of the process itself.
 
-import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
+import type { AppliedPattern, EngineId, Field, Model, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
+import { STANDARD_PATTERN_DEFS } from './standardPatterns.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import { uid } from './util.ts';
 import { ORCHESCALA_TYPES } from './orchescalaTypes.ts';
@@ -87,8 +88,34 @@ export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, fie
   return LABEL_FIELDS.some(l => l.name === field.name) ? ORCHESCALA_PATTERNS[0] : null;
 }
 
-/** The patterns of Orchescala and those from the admin */
-export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...(defs ?? [])];
+/**
+ * The standard patterns — BPMN building blocks that come with Orchescala
+ * (Init Process, identity, passing on mocks …), so every company has them.
+ * They are documented with their example processes in democompany-patterns.
+ */
+export const STANDARD_PATTERNS: PatternDef[] = STANDARD_PATTERN_DEFS.map(p => ({ ...p, standard: true }));
+
+const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
+
+/**
+ * The patterns a company can use: the standard patterns plus its own from the
+ * admin — its own replaces a standard pattern with the same ID. The result is
+ * stable per list, so it can be used as a React dependency.
+ */
+export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): PatternDef[] {
+  const own = model?.patterns;
+  if (!own?.length) return STANDARD_PATTERNS;
+  let all = withStandard.get(own);
+  if (!all) {
+    const ids = new Set(own.map(p => p.id));
+    all = [...STANDARD_PATTERNS.filter(p => !ids.has(p.id)), ...own];
+    withStandard.set(own, all);
+  }
+  return all;
+}
+
+/** The patterns of Orchescala (built in and standard) and those from the admin */
+export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...patternDefs({ patterns: defs })];
 
 /** The patterns on the process — those of Orchescala from the specification, the others from the diagram */
 export function processPatterns(spec: ProcessSpec): AppliedPattern[] {

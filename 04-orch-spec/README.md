@@ -742,6 +742,23 @@ und nicht im BPMN — ihre Werte stehen in der Spezifikation:
   Entfernt man das Pattern, gehen die Felder mit. `processFromSpec` setzt die
   `processLabels` in ein Prozess-Objekt, das noch keine hat.
 
+**Standard-Pattern** bringt Orchescala als BPMN mit, für C7 und C8 — jede
+Firma hat sie, ohne sie zu pflegen. Im Admin stehen sie zur Ansicht; ein
+eigenes Pattern mit derselben ID ersetzt eines. Beispielprozesse und Doku
+stehen in `democompany-patterns`:
+
+- **Init Process** (`init-process`, Service-Task): der erste Schritt, Topic =
+  Prozess-ID. Ist der Prozess gemockt, springt `output-mocked` über den Link
+  ans Ende mit `processStatus = output-mocked`.
+- **Identität übernehmen** (`identity-take-over`, leeres Zwischenereignis nach
+  einer Benutzeraufgabe): ab hier arbeitet der Prozess mit der Identität
+  dessen, der die Aufgabe erledigt hat.
+- **Identität zurücksetzen** (`identity-reset`, leeres Zwischenereignis):
+  wieder die Identität vor der Übernahme.
+- **Mocks und Identität weitergeben** (`propagate-mocks`, Call Activity):
+  `_servicesMocked`, `_mockedWorkers` und `_identityCorrelation` gehen an den
+  Teilprozess.
+
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
 
