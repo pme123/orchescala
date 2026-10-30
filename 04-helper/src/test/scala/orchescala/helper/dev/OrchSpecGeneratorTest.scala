@@ -468,15 +468,15 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     val registration = OrchSpecRegistration(
       "ApiProjectCreator",
       "document(",
-      "clientApi",
+      "clientV1Api",
       Seq("GetClient.example"),
       entries =>
-        s"""  private lazy val clientApi =
+        s"""  private lazy val clientV1Api =
            |    import acme.crm.domain.client.v1.*
            |    group("ClientV1")(
            |${entries.map(e => s"      $e,").mkString("\n")}
            |    )
-           |  end clientApi""".stripMargin
+           |  end clientV1Api""".stripMargin
     )
     val creator =
       """object ApiProjectCreator extends CompanyApiCreator:
@@ -489,8 +489,8 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |""".stripMargin
     registration.register(creator) match
       case RegistrationResult.Registered(content, added) =>
-        assertEquals(added, Seq("clientApi"))
-        assert(content.contains("    accountApi,\n    clientApi,"), content)
+        assertEquals(added, Seq("clientV1Api"))
+        assert(content.contains("    accountApi,\n    clientV1Api,"), content)
         assert(content.contains("    group(\"ClientV1\")(\n      GetClient.example,\n    )"), content)
       case other                                         => fail(s"not registered: $other")
     end match

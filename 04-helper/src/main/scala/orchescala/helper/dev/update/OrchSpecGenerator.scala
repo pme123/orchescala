@@ -164,71 +164,80 @@ case class OrchSpecGenerator()(using config: DevConfig):
     )
   end createProcess
 
-  /** A service collection of Orch Spec: in the domain the super trait of the API, one ServiceTask per
-    * service and the types of the API (`schema/`); in the worker module `serviceBasePath` and one
-    * ServiceWorker per service. Existing files are only compared, as for a process. Then the workers
-    * go into the WorkerApp and the services, as a group, into the API documentation.
+  /** A service collection of Orch Spec - one or more APIs of the project (`client.v1`, `crm.v2`).
+    * Per API: in the domain the super trait, one ServiceTask per service and the types of the API
+    * (`schema/`); in the worker module `serviceBasePath` and one ServiceWorker per service. Existing
+    * files are only compared, as for a process. Then the workers of each API go into the WorkerApp
+    * and its services, as a group, into the API documentation.
     */
   def createServices(scalaExport: String): Unit =
-    val files                       = OrchSpecExport.parse(scalaExport)
-    val (workerFiles, domainFiles)  = files.partition(_.path.segments.headOption.exists(_.endsWith("worker")))
+    val files                      = OrchSpecExport.parse(scalaExport)
+    val (workerFiles, domainFiles) = files.partition(_.path.segments.headOption.exists(_.endsWith("worker")))
     if domainFiles.isEmpty then
       throw IllegalArgumentException("No service classes in the export - nothing to create.")
-    val exportDomainDir             = OrchSpecExport.processDir(domainFiles)
-    val (apiName, versionNr)        = processAndVersion(packageOf(exportDomainDir))
-    val version                     = Some(versionNr)
-    val versionPackage              = version.versionPackage
-    val domainDir                   = BpmnGenerator().domainPath(apiName, version)
-    domainFiles.foreach: file =>
-      createOrCompare(domainDir / file.path.relativeTo(exportDomainDir), file.content)()
+    // the directory of an API - its types are one level below, in `schema/`
+    def apiDir(file: OrchSpecFile): os.RelPath =
+      val dir = file.path / os.up
+      if dir.last == "schema" then dir / os.up else dir
+    // `.../client/v1` - the last two directories name the API and its version
+    def apiOfDir(dir: os.RelPath): (String, String) = (dir / os.up).last -> dir.last
+    val workersByApi = workerFiles.groupBy(f => apiOfDir(f.path / os.up))
+    domainFiles.groupBy(apiDir).toSeq.sortBy(_._1.toString).foreach: (exportDomainDir, apiFiles) =>
+      val (apiName, versionNr) = processAndVersion(packageOf(exportDomainDir))
+      val version              = Some(versionNr)
+      val versionPackage       = version.versionPackage
+      val versionTag           = s"V$versionNr"
+      val domainDir            = BpmnGenerator().domainPath(apiName, version)
+      apiFiles.foreach: file =>
+        createOrCompare(domainDir / file.path.relativeTo(exportDomainDir), file.content)()
 
-    val workerDir = config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) /
-      apiName / version.versionPath
-    workerFiles.headOption.map(_.path / os.up).foreach: exportWorkerDir =>
-      val expected = s"${config.projectPackage}.worker.$apiName$versionPackage"
-      if packageOf(exportWorkerDir) != expected then
-        println(
-          s"${Console.YELLOW}WARNING: the workers of the export are in ${packageOf(exportWorkerDir)} - written to $expected.${Console.RESET}"
+      val apiWorkerFiles = workersByApi.getOrElse(apiName -> s"v$versionNr", Seq.empty)
+      val workerDir      = config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) /
+        apiName / version.versionPath
+      apiWorkerFiles.foreach: file =>
+        createOrCompare(workerDir / file.path.last, file.content)()
+
+      val workers  = apiWorkerFiles.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
+      val services = workers.map(_.stripSuffix("Worker"))
+      // the super trait names the block and the group in the API documentation (`clientV1`, `ClientV1`)
+      val block    = s"$apiName$versionTag"
+      val group    = s"${apiName.head.toUpper}${apiName.tail}$versionTag"
+      register(
+        config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) / "WorkerApp.scala",
+        OrchSpecRegistration(
+          "WorkerApp",
+          "workers(",
+          s"${block}Workers",
+          workers.map(w => s"$w()"),
+          entries =>
+            s"""  private lazy val ${block}Workers =
+               |    import ${config.projectPackage}.worker.$apiName$versionPackage.*
+               |    Seq(
+               |${entries.map(e => s"      $e,").mkString("\n")}
+               |    )
+               |  end ${block}Workers""".stripMargin
         )
-      workerFiles.foreach: file =>
-        createOrCompare(workerDir / file.path.relativeTo(exportWorkerDir), file.content)()
-
-    val workers  = workerFiles.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
-    val services = workers.map(_.stripSuffix("Worker"))
-    // the super trait names the group in the API documentation (`ClientV1`)
-    val group    = s"${apiName.head.toUpper}${apiName.tail}V$versionNr"
-    register(
-      config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) / "WorkerApp.scala",
-      OrchSpecRegistration(
-        "WorkerApp",
-        "workers(",
-        s"${apiName}Workers",
-        workers.map(w => s"$w()"),
-        entries =>
-          s"""  private lazy val ${apiName}Workers =
-             |    import ${config.projectPackage}.worker.$apiName$versionPackage.*
-             |    Seq(
-             |${entries.map(e => s"      $e,").mkString("\n")}
-             |    )
-             |  end ${apiName}Workers""".stripMargin
       )
-    )
-    register(
-      config.projectDir / ModuleConfig.apiModule.packagePath(config.projectPath) / "ApiProjectCreator.scala",
-      OrchSpecRegistration(
-        "ApiProjectCreator",
-        "document(",
-        s"${apiName}Api",
-        services.map(s => s"$s.example"),
-        entries =>
-          s"""  private lazy val ${apiName}Api =
-             |    import ${config.projectPackage}.domain.$apiName$versionPackage.*
-             |    group("$group")(
-             |${entries.map(e => s"      $e,").mkString("\n")}
-             |    )
-             |  end ${apiName}Api""".stripMargin
+      register(
+        config.projectDir / ModuleConfig.apiModule.packagePath(config.projectPath) / "ApiProjectCreator.scala",
+        OrchSpecRegistration(
+          "ApiProjectCreator",
+          "document(",
+          s"${block}Api",
+          services.map(s => s"$s.example"),
+          entries =>
+            s"""  private lazy val ${block}Api =
+               |    import ${config.projectPackage}.domain.$apiName$versionPackage.*
+               |    group("$group")(
+               |${entries.map(e => s"      $e,").mkString("\n")}
+               |    )
+               |  end ${block}Api""".stripMargin
+        )
       )
-    )
+    // workers of an API without domain classes in the export - nothing to put them next to
+    val apis = domainFiles.map(f => apiOfDir(apiDir(f))).toSet
+    for (api, version) <- workersByApi.keySet if !apis.contains(api -> version) do
+      println(s"${Console.YELLOW}WARNING: workers of $api.$version without its domain in the export - not created.${Console.RESET}")
   end createServices
 
   /** Creates the file - an existing one is never overwritten, only compared with Orch Spec
