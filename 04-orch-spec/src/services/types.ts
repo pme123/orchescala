@@ -111,6 +111,12 @@ export interface ServiceCollectionSpec {
   apiVersion: number;
   /** the part of the OpenAPI the collection covers — a path prefix like `/clients`; empty: all of it */
   pathPrefix?: string;
+  /**
+   * the start of every path the company puts into `serviceBasePath` already —
+   * `/banks/{bankNumber}` with `serviceBasePath = s"…/crm/api/v2/banks/$bankNumber"`.
+   * Its placeholders are no parameters of the services; the worker adds only the rest.
+   */
+  pathBase?: string;
   /** `serviceLabel` of the super trait — what the description of each service names */
   serviceLabel?: string;
   status: Status;

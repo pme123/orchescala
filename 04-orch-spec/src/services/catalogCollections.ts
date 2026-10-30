@@ -14,12 +14,18 @@
 // in afterwards completes the service (same name or same method and path)
 // instead of adding a second one. Without `val path` (an older catalog) the
 // service has no path yet.
-import { fieldFromScala, resolveType } from '../interactions';
-import { typeShape } from '../scalaTypes';
+//
+// The types of the API (`…crm.v2.schema.ProductGroup`) become types of the
+// collection, as the BPMN import does it for a process. A start all paths share up
+// to a placeholder no `In` has (`/banks/{bankNumber}`) is the base the company puts
+// into `serviceBasePath` — no parameter of the services.
+import { resolveType } from '../interactions';
+import { Converter } from '../projectImport';
+import { isCompoundType, typeShape, type TypeShape } from '../scalaTypes';
 import { domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
-import { apiOf, newCollection, serviceTopic, type ApiRef } from './collection';
+import { apiOf, basePathParams, collectionPackage, newCollection, serviceTopic, suggestPathBase, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
@@ -64,18 +70,14 @@ export function catalogProjects(model: Model | null): CatalogProject[] {
   return [...projects.values()].sort((a, b) => a.project.localeCompare(b.project));
 }
 
-/** In or Out of a catalog service: from the domain catalog, otherwise the names of the entry. */
-function member(svc: ServiceDef, which: 'In' | 'Out', model: Model | null, serviceId: string): TypeDef {
-  const { object, pkg } = objectOf(svc.id, model);
-  const dom = (model?.domainTypes ?? []).find(t => t.id === `${pkg}.${object}.${which}`);
+/** In or Out of a catalog service without a domain: the names of the catalog entry (as `String`). */
+function memberFromEntry(svc: ServiceDef, which: 'In' | 'Out', serviceId: string): TypeDef {
   const params = (which === 'In' ? svc.inputs : svc.outputs) ?? [];
-  const fields: Field[] = dom?.fields?.length
-    ? dom.fields.map(f => fieldFromScala(f, model, dom.pkg))
-    : params.map(p => ({
-        id: uid('f'), name: p.name, type: 'String',
-        ...(p.required ? {} : { optional: true }),
-        ...(p.description ? { description: p.description } : {}),
-      }));
+  const fields: Field[] = params.map(p => ({
+    id: uid('f'), name: p.name, type: 'String',
+    ...(p.required ? {} : { optional: true }),
+    ...(p.description ? { description: p.description } : {}),
+  }));
   return { id: uid('t'), name: which, kind: 'case', status: 'implemented', interactionId: serviceId, fields };
 }
 
@@ -85,16 +87,31 @@ function domainMember(svc: ServiceDef, which: string, model: Model | null): Doma
   return (model?.domainTypes ?? []).find(t => t.id === `${pkg}.${object}.${which}`);
 }
 
-/** `type ServiceOut = Seq[PaymentRule]` → the body; `NoInput` / `NoOutput` → none. */
-function bodyOf(t: DomainType | undefined, model: Model | null): BodyRef | undefined {
+/** `ProductGroups` with `type ProductGroups = Seq[ProductGroup]` → `Seq[ProductGroup]` (the shape across aliases). */
+function unalias(expr: string, pkg: string, model: Model | null): TypeShape {
+  let shape = typeShape(expr);
+  for (let depth = 0; depth < 5; depth++) {
+    if ((SCALA_TYPES as readonly string[]).includes(shape.base)) break;
+    const alias = resolveType(shape.base, model, pkg);
+    if (alias?.kind !== 'alias' || !alias.target || isCompoundType(alias.target)) break;
+    const inner = typeShape(alias.target);
+    shape = { ...inner, collection: shape.collection || inner.collection, optional: shape.optional || inner.optional };
+    pkg = alias.pkg;
+  }
+  return shape;
+}
+
+/**
+ * `type ServiceOut = Seq[PaymentRule]` → the body; `NoInput` / `NoOutput` → none. A type of
+ * the API becomes a type of the collection (see `servicesOf`), others point into the catalog.
+ */
+function bodyOf(t: DomainType | undefined, model: Model | null, conv: Converter): BodyRef | undefined {
   if (!t) return undefined;
   if (t.kind !== 'alias') return { type: domainRef(t.id) };
-  const shape = typeShape(t.target ?? '');
+  const shape = unalias(t.target ?? '', t.pkg, model);
   if (!shape.base || /^No(Input|Output)$/.test(shape.base)) return undefined;
-  const scalar = (SCALA_TYPES as readonly string[]).includes(shape.base);
-  const ref = scalar ? null : resolveType(shape.base, model, t.pkg);
   return {
-    type: scalar ? shape.base : ref ? domainRef(ref.id) : shape.base,
+    type: conv.fieldType(shape.base, t.pkg, 0, t.owner, t.imports).type,
     ...(shape.collection ? { collection: true } : {}),
     ...(shape.optional ? { optional: true } : {}),
   };
@@ -108,15 +125,33 @@ export function parseServicePath(raw: string | undefined): { method: HttpMethod;
   return { method, path: m[2].startsWith('/') ? m[2] : `/${m[2]}` };
 }
 
+/**
+ * The services of an API with their types. What lives in the package of the API
+ * (`…crm.v2.schema.ProductGroup`) becomes a type of the collection — as in the project;
+ * types of other packages point into the catalog.
+ */
 function servicesOf(api: CatalogApi, model: Model | null): { services: CollectionService[]; types: TypeDef[] } {
-  const types: TypeDef[] = [];
+  const conv = new Converter(model?.domainTypes ?? [], collectionPackage(api), model);
+  const extra: TypeDef[] = [];
   const services: CollectionService[] = [];
+  const memberOf = (svc: ServiceDef, which: 'In' | 'Out', serviceId: string): TypeDef => {
+    const dom = domainMember(svc, which, model);
+    if (!dom?.fields?.length) {
+      const t = memberFromEntry(svc, which, serviceId);
+      extra.push(t);
+      return t;
+    }
+    const id = conv.convert(dom, { interactionId: serviceId }, which);
+    const t = conv.types.find(x => x.id === id)!;
+    // In and Out live in the service object — not a class of their own in the domain
+    delete t.domainId;
+    return t;
+  };
   for (const svc of api.services) {
     const name = TOPIC.exec(svc.topic ?? svc.id)![4];
     const id = uid('svc');
-    const inType = member(svc, 'In', model, id);
-    const outType = member(svc, 'Out', model, id);
-    types.push(inType, outType);
+    const inType = memberOf(svc, 'In', id);
+    const outType = memberOf(svc, 'Out', id);
     // the request as far as the ServiceTask says it: method, path, its placeholders, the bodies
     const inDom = domainMember(svc, 'In', model);
     const request = parseServicePath(inDom?.ownerPath);
@@ -126,8 +161,8 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
           return { name: m[1], in: 'path' as const, type: field?.type ?? 'String', required: true, expression: field ? `= ${field.name}` : '' };
         })
       : [];
-    const serviceIn = bodyOf(domainMember(svc, 'ServiceIn', model), model);
-    const serviceOut = bodyOf(domainMember(svc, 'ServiceOut', model), model);
+    const serviceIn = bodyOf(domainMember(svc, 'ServiceIn', model), model, conv);
+    const serviceOut = bodyOf(domainMember(svc, 'ServiceOut', model), model, conv);
     services.push({
       id, name, api: api.api, apiVersion: api.apiVersion, status: 'implemented',
       ...(svc.description ? { description: svc.description } : {}),
@@ -138,7 +173,7 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
       inTypeId: inType.id, outTypeId: outType.id,
     });
   }
-  return { services, types };
+  return { services, types: [...conv.types, ...extra] };
 }
 
 const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
@@ -161,11 +196,23 @@ export function collectionFromCatalog(project: CatalogProject, apis: CatalogApi[
   const first = apis[0] ?? project.apis[0];
   const c = newCollection({ title: title?.trim() || catalogTitle(project, apis), project: project.project, api: first.api, apiVersion: first.apiVersion });
   const parts = apis.map(a => servicesOf(a, model));
-  return {
+  const spec: ServiceCollectionSpec = {
     ...c, status: 'implemented',
     types: parts.flatMap(p => p.types),
     services: parts.flatMap(p => p.services),
     ...(project.group ? { source: { title: project.group } } : {}),
+  };
+  // the start the company puts into serviceBasePath (`/banks/{bankNumber}`): its
+  // placeholders are no parameters of the services
+  const pathBase = suggestPathBase(spec);
+  if (!pathBase) return spec;
+  const withBase = { ...spec, pathBase };
+  return {
+    ...withBase,
+    services: withBase.services.map(s => {
+      const fromBase = basePathParams(withBase, s);
+      return { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) };
+    }),
   };
 }
 

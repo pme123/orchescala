@@ -207,7 +207,7 @@ object GetRules extends RuleV1:
   val path  = "GET: /banks/{bankNumber}/clients/{clientKey}/rules"
 
   type ServiceIn  = NoInput
-  type ServiceOut = Seq[Rule]
+  type ServiceOut = Rules
 
   case class In(
       clientKey: Long
@@ -223,20 +223,70 @@ package rule.v1.schema
 case class Rule(
     name: String
 )
+
+type Rules = Seq[Rule]
 `;
   const domainTypes = [...scanScala(source, 'GetRules.scala'), ...scanScala(rule, 'schema/Rule.scala')];
   assert.equal(domainTypes.find(t => t.name === 'GetRules.In')?.ownerPath, 'GET: /banks/{bankNumber}/clients/{clientKey}/rules');
   const model = { version: 1, services: [{ id: 'acme-crm-ruleV1.GetRules', name: 'GetRules', kind: 'service', topic: 'acme-crm-ruleV1.GetRules' }], domainTypes } as never;
   const p = catalogProjects(model)[0];
-  const svc = collectionFromCatalog(p, p.apis, model).services[0];
+  const c = collectionFromCatalog(p, p.apis, model);
+  const svc = c.services[0];
   assert.equal(`${svc.method} ${svc.path}`, 'GET /banks/{bankNumber}/clients/{clientKey}/rules');
-  assert.deepEqual(svc.params.map(x => `${x.name}:${x.type}=${x.expression}`), ['bankNumber:String=', 'clientKey:Long== clientKey']);
+  // the bank is in no In: the company sets it in serviceBasePath — no parameter of the service
+  assert.equal(c.pathBase, '/banks/{bankNumber}');
+  assert.deepEqual(svc.params.map(x => `${x.name}:${x.type}=${x.expression}`), ['clientKey:Long== clientKey']);
+  assert.deepEqual(serviceIssues(c, svc), []);
   assert.equal(svc.serviceIn, undefined);
-  assert.equal(svc.serviceOut?.collection, true);
-  assert.match(svc.serviceOut?.type ?? '', /^dom:acme\.crm\.domain\.rule\.v1\.schema\.Rule$/);
+  // the types of the API become types of the collection — the alias `Rules` is `Seq[Rule]`
+  const ruleType = c.types.find(t => t.name === 'Rule');
+  assert.ok(ruleType && !ruleType.interactionId);
+  assert.equal(ruleType.domainId, 'acme.crm.domain.rule.v1.schema.Rule');
+  assert.deepEqual(ruleType.fields?.map(f => `${f.name}:${f.type}`), ['name:String']);
+  assert.deepEqual(svc.serviceOut, { type: ruleType.id, collection: true });
+  const out = c.types.find(t => t.id === svc.outTypeId);
+  assert.deepEqual(out?.fields?.map(f => `${f.name}:${f.type}:${!!f.collection}`), [`rules:${ruleType.id}:true`]);
+  assert.equal(out?.domainId, undefined);
   // the request is still not complete — an OpenAPI may complete it
   assert.equal(svc.fromCatalog, true);
   assert.ok(isIncomplete(svc));
   assert.deepEqual(parseServicePath('POST: clients/clientId'), { method: 'POST', path: '/clients/clientId' });
   assert.equal(parseServicePath('nonsense'), null);
+});
+
+test('the base of the company: suggested from the paths, its placeholders are no parameters', async () => {
+  const { suggestPathBase, workerPath, inPathBase } = await import('../src/services/collection');
+  const base = newCollection({ title: 'Acme', project: 'acme-crm', api: 'client', apiVersion: 1 });
+  const api = readApi({
+    openapi: '3.0.1', info: { title: 'x', version: '1' },
+    paths: {
+      '/banks/{bankNumber}/clients/{clientKey}': {
+        get: {
+          operationId: 'getClient',
+          parameters: [
+            { name: 'bankNumber', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'clientKey', in: 'path', required: true, schema: { type: 'integer', format: 'int64' } },
+          ],
+          responses: { 200: { description: 'ok' } },
+        },
+      },
+    },
+  });
+  const keys = api.operations.map(o => o.key);
+  // without a base both are parameters — and fields of the In, so nothing to suggest
+  const plain = addOperations(base, api, keys).spec;
+  assert.deepEqual(plain.services[0].params.map(p => p.name), ['bankNumber', 'clientKey']);
+  assert.equal(suggestPathBase(plain), '');
+  // with the base: the bank comes from serviceBasePath
+  const withBase = addOperations({ ...base, pathBase: '/banks/{bankNumber}' }, api, keys).spec;
+  const s = withBase.services[0];
+  assert.deepEqual(s.params.map(p => p.name), ['clientKey']);
+  assert.deepEqual(withBase.types.find(t => t.id === s.inTypeId)?.fields?.map(f => f.name), ['clientKey']);
+  assert.deepEqual(serviceIssues(withBase, s), []);
+  assert.ok(inPathBase(withBase, s.path));
+  assert.equal(workerPath(withBase, s.path), '/clients/{clientKey}');
+  assert.equal(workerPath(withBase, '/banksX/{bankNumber}/clients'), '/banksX/{bankNumber}/clients');
+  // a leftover parameter of the base is no finding
+  const leftover = { ...s, params: [{ name: 'bankNumber', in: 'path' as const, type: 'String', required: true, expression: '' }, ...s.params] };
+  assert.deepEqual(serviceIssues(withBase, leftover), []);
 });

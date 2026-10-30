@@ -19,6 +19,7 @@
 // `additionalProperties` → Map.
 import type { Field, Mapping, TypeDef } from '../types';
 import { uid } from '../util';
+import { basePathParams } from './collection';
 import type { BodyRef, CollectionService, HttpMethod, ParamIn, RequestParam, ServiceCollectionSpec } from './types';
 
 interface Schema {
@@ -445,7 +446,10 @@ export function addOperations(
     }
     const id = existing?.id ?? uid('svc');
 
+    // the placeholders of the company's base (`/banks/{bankNumber}`) come from serviceBasePath
+    const fromBase = basePathParams(c, op);
     const params: RequestParam[] = op.params
+      .filter(p => !(p.in === 'path' && fromBase.has(p.name)))
       .map(p => {
         const shape = builder.shape(p.schema, `${name}${capitalize(camelName(p.name))}`);
         const field = camelName(p.name);

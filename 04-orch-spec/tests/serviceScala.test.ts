@@ -140,3 +140,26 @@ test('several APIs: one package each, a shared type lives with the first API tha
   assert.match(files.find(f => f.path.endsWith('/CrmV2.scala'))!.content, /final val serviceVersion = "2\.0"/);
   assert.match(files.find(f => f.path.endsWith('GetProductGroupsWorker.scala'))!.content, /^package acme\.crm\.worker\npackage crm\.v2\n/);
 });
+
+test('a base the company sets: serviceBasePath has it, the worker adds the rest', () => {
+  const base = collection();
+  const c: ServiceCollectionSpec = {
+    ...base,
+    pathBase: '/banks/{bankNumber}/',
+    source: { ...base.source, basePath: 'https://api.example.com/v1' },
+    services: base.services.map(s => ({
+      ...s,
+      path: `/banks/{bankNumber}${s.path}`,
+      params: [{ name: 'bankNumber', in: 'path', type: 'String', required: true, expression: '' }, ...s.params],
+    })),
+  };
+  const files = collectionFiles(c);
+  const w = files.find(f => f.path.endsWith('GetClientWorker.scala'))!.content;
+  assert.match(w, /uri"\$serviceBasePath\/clients\/\$\{in\.clientKey\}"/);
+  assert.doesNotMatch(w, /bankNumber/);
+  const exports = files.find(f => f.path.endsWith('/exports.scala'))!.content;
+  assert.match(exports, /s"https:\/\/api\.example\.com\/v1\/banks\/\$\{\?\?\? \/\* TODO bankNumber — wie die Firma ihn setzt \*\/\}"/);
+  // `val path` keeps the whole path — as the API names it
+  const task = files.find(f => f.path.endsWith('/GetClient.scala'))!.content;
+  assert.match(task, /val path = "GET: \/banks\/\{bankNumber\}\/clients\/\{clientKey\}"/);
+});

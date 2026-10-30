@@ -19,7 +19,8 @@ import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Stat
 import { StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
-  API_NAME, apiList, apiOf, apisOf, collectionPackage, collectionStatus, collectionTrait, membersOf, processFrame, sameApi, serviceIssues, serviceTopic, withoutService,
+  API_NAME, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
+  serviceIssues, serviceTopic, suggestPathBase, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import CollectionExport from './CollectionExport';
@@ -253,6 +254,7 @@ function Overview({ spec, canEdit, onChange }: { spec: ServiceCollectionSpec; ca
   const { isDark } = useStore();
   const c = cls(isDark);
   const input = `w-full text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
+  const suggested = useMemo(() => suggestPathBase(spec), [spec]);
   return (
     <div className="p-4 space-y-3 max-w-3xl">
       <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Collection</div>
@@ -271,6 +273,20 @@ function Overview({ spec, canEdit, onChange }: { spec: ServiceCollectionSpec; ca
         <input className={`${input} font-mono`} disabled={!canEdit} value={spec.source?.basePath ?? ''} placeholder="https://api.example.com/v1"
           onChange={e => onChange({ source: { ...(spec.source ?? {}), basePath: e.target.value || undefined } })} />
       </label>
+      <div className="space-y-0.5">
+        <span className={`text-[10px] ${c.muted}`}>
+          Basispfad der Firma — der Anfang jedes Pfads, den die Firma schon im <span className="font-mono">serviceBasePath</span> hat
+          (<span className="font-mono">…/banks/$bankNumber</span>); seine Platzhalter sind keine Parameter der Services
+        </span>
+        <div className="flex items-center gap-2">
+          <input className={`${input} font-mono`} disabled={!canEdit} value={spec.pathBase ?? ''} placeholder={suggested || '/banks/{bankNumber}'}
+            onChange={e => onChange({ pathBase: e.target.value || undefined })} />
+          {canEdit && suggested && suggested !== normalPathBase(spec.pathBase) && (
+            <button onClick={() => onChange({ pathBase: suggested })} title="aus den Pfaden: was alle teilen, bis zum letzten Platzhalter, den kein In hat"
+              className={`text-[10px] px-2 py-1 rounded border whitespace-nowrap ${c.btn}`}>{suggested} übernehmen</button>
+          )}
+        </div>
+      </div>
       <label className="block space-y-0.5">
         <span className={`text-[10px] ${c.muted}`}>Beschreibung</span>
         <textarea className={`${input} resize-y`} rows={4} disabled={!canEdit} value={spec.description ?? ''}
@@ -331,6 +347,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
 
   const bodyType = s.serviceIn && !s.serviceIn.collection ? spec.types.find(t => t.id === s.serviceIn!.type && t.kind === 'case') : undefined;
 
+  const fromBase = basePathParams(spec, s);
   const setParam = (i: number, patch: Partial<RequestParam>) => onPatch({ params: s.params.map((p, k) => (k === i ? { ...p, ...patch } : p)) });
 
   return (
@@ -376,8 +393,21 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
           </select>
           <input value={s.path} disabled={!canEdit} onChange={e => onPatch({ path: e.target.value })} className={`flex-1 font-mono ${input}`} placeholder="/clients/{clientKey}" />
         </div>
+        {inPathBase(spec, s.path) && (
+          <p className={`text-[10px] ${c.muted}`} title="Übersicht der Collection → Basispfad">
+            <span className="font-mono">{normalPathBase(spec.pathBase)}</span> setzt die Firma im <span className="font-mono">serviceBasePath</span> —
+            der Worker hängt nur <span className={`font-mono ${c.text}`}>{workerPath(spec, s.path) || '/'}</span> an.
+          </p>
+        )}
         <div className="space-y-1">
-          {s.params.map((p, i) => (
+          {s.params.map((p, i) => p.in === 'path' && fromBase.has(p.name) ? (
+            <div key={`${p.in}:${i}`} className="flex items-center gap-1.5 opacity-60">
+              <span className={`w-14 text-[9px] uppercase tracking-wider ${c.muted}`}>{PARAM_IN[p.in]}</span>
+              <span className={`w-40 px-2 font-mono text-[11px] ${c.text}`}>{p.name}</span>
+              <span className={`flex-1 text-[10px] ${c.muted}`}>aus dem <span className="font-mono">serviceBasePath</span> (Basispfad der Collection)</span>
+              {canEdit && <button onClick={() => onPatch({ params: s.params.filter((_, k) => k !== i) })} title="Parameter entfernen" className={`p-1 rounded ${c.muted} hover:text-rose-500`}><X size={11} /></button>}
+            </div>
+          ) : (
             <ParamRow key={`${p.in}:${i}`} param={p} spec={spec} vars={inVars} canEdit={canEdit} isDark={isDark}
               onChange={patch => setParam(i, patch)} onRemove={() => onPatch({ params: s.params.filter((_, k) => k !== i) })} />
           ))}

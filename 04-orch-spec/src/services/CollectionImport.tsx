@@ -76,8 +76,9 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
         </div>
         <div className="px-4 py-3 space-y-2 flex-1 min-h-0 flex flex-col">
           <p className={`text-[10px] ${c.muted}`}>
-            Aus dem <b>Katalog</b>: ein Projekt, dessen Services es schon gibt — alle seine APIs oder eine Auswahl, mit In und Out
-            aus der Domain. Methode und Pfad kennt der Katalog nicht: eine danach importierte OpenAPI ergänzt sie (gleicher Name).
+            Aus dem <b>Katalog</b>: ein Projekt, dessen Services es schon gibt — alle seine APIs oder eine Auswahl. Aus dem ServiceTask
+            kommen In, Out, Methode, Pfad, Bodies und die Typen der API; der Basispfad der Firma (<span className="font-mono">/banks/{'{bankNumber}'}</span>)
+            wird erkannt. Query und Header kennt der Katalog nicht: eine danach importierte OpenAPI ergänzt sie (gleicher Name).
           </p>
           <div className="flex items-center gap-2">
             <div className={`flex items-center gap-1 px-2 py-1 rounded border flex-1 ${c.border2}`}>

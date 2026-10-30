@@ -193,7 +193,7 @@ function inProject(t: DomainType, pkg: string): boolean {
  * Translates domain types of the project into types of the specification. What belongs
  * to the project becomes an own type; foreign ones point into the catalog.
  */
-class Converter {
+export class Converter {
   readonly types: TypeDef[] = [];
   readonly unresolved = new Set<string>();
   /** what the import has to say about what was recognized, e.g. recognized shared fields */

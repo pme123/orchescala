@@ -12,7 +12,7 @@
 import { exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala';
 import type { Field, Model, TypeDef } from '../types';
 import {
-  apiOf, apisOf, collectionPackage, collectionTrait, domainDir, membersOf, pathParams, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
+  apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection';
 import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
@@ -167,13 +167,14 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
   const { in: inType, out: outType } = membersOf(c, s);
   const types = c.types;
   const vars = inVars(inType);
-  const params = s.params.filter(p => !p.disabled && p.name);
+  const fromBase = basePathParams(c, s);
+  const params = s.params.filter(p => !p.disabled && p.name && !(p.in === 'path' && fromBase.has(p.name)));
   const translate = (expr: string, target?: Pick<Field, 'type' | 'optional' | 'collection'>) => feelToScala(expr, vars, types, target);
   const hasOut = !!(outType?.fields ?? []).some(f => isFinished(f, idx));
 
-  // the path: `{clientKey}` → `${in.clientKey}`
+  // the path: `{clientKey}` → `${in.clientKey}` — without the base the company's serviceBasePath has
   const byName = new Map(params.filter(p => p.in === 'path').map(p => [p.name, p]));
-  const uriPath = s.path.replace(/\{([^}]+)\}/g, (_, name: string) => {
+  const uriPath = workerPath(c, s.path).replace(/\{([^}]+)\}/g, (_, name: string) => {
     const p = byName.get(name);
     return p ? `\${${sure(translate(p.expression, { type: p.type }), `Pfad-Parameter ${name}`)}}` : `\${??? /* TODO Pfad-Parameter ${name} */}`;
   });
@@ -293,6 +294,18 @@ function reach(id: string | undefined, types: TypeDef[], seen = new Set<string>(
   return seen;
 }
 
+/**
+ * `serviceBasePath` of an API: the URL of the API and the base of the company —
+ * its placeholders are what the company knows (`$bankNumber`), to fill in by hand.
+ */
+function serviceBasePath(c: ServiceCollectionSpec): string {
+  const url = (c.source?.basePath || 'TODO: https://…').replace(/\/+$/, '');
+  const base = normalPathBase(c.pathBase);
+  if (!base) return scalaKey(url);
+  const text = `${url}${base}`.replace(/[\\"]/g, m => `\\${m}`).replace(/\$/g, '$$$$');
+  return `s"${text.replace(/\{([^}]+)\}/g, (_, name: string) => `\${??? /* TODO ${name} — wie die Firma ihn setzt */}`)}"`;
+}
+
 /** The own types a service uses — In, Out, bodies and parameters. */
 function typesOf(s: CollectionService, types: TypeDef[]): Set<string> {
   const seen = new Set<string>();
@@ -341,7 +354,7 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
     }
     out.push({
       path: `${wDir}/exports.scala`,
-      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${scalaKey(c.source?.basePath || 'TODO: https://…')}\n`,
+      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c)}\n`,
     });
     for (const s of own) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types))) });
   }

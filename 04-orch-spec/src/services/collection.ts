@@ -143,6 +143,52 @@ export function processFrame(c: ServiceCollectionSpec): ProcessSpec {
 /** The placeholders in the path: `/clients/{clientKey}` → `clientKey` */
 export const pathParams = (path: string): string[] => [...path.matchAll(/\{([^}]+)\}/g)].map(m => m[1]);
 
+const segmentsOf = (path: string): string[] => path.split('/').filter(Boolean);
+
+/** `/banks/{bankNumber}/` → `/banks/{bankNumber}` — empty: none. */
+export const normalPathBase = (base: string | undefined): string => {
+  const parts = segmentsOf(base ?? '');
+  return parts.length ? `/${parts.join('/')}` : '';
+};
+
+/** Does the path start with the base of the company (whole segments)? */
+export function inPathBase(c: Pick<ServiceCollectionSpec, 'pathBase'>, path: string): boolean {
+  const base = segmentsOf(normalPathBase(c.pathBase));
+  const parts = segmentsOf(path);
+  return base.length > 0 && base.length <= parts.length && base.every((b, i) => b === parts[i]);
+}
+
+/** The part of the path the worker adds to `serviceBasePath` — without the base of the company. */
+export function workerPath(c: Pick<ServiceCollectionSpec, 'pathBase'>, path: string): string {
+  if (!inPathBase(c, path)) return path;
+  const rest = segmentsOf(path).slice(segmentsOf(normalPathBase(c.pathBase)).length);
+  return rest.length ? `/${rest.join('/')}` : '';
+}
+
+/** The placeholders the base of the company fills — no parameters of the service. */
+export function basePathParams(c: Pick<ServiceCollectionSpec, 'pathBase'>, s: Pick<CollectionService, 'path'>): Set<string> {
+  return new Set(inPathBase(c, s.path) ? pathParams(normalPathBase(c.pathBase)) : []);
+}
+
+/**
+ * A base the company sets, read from the services: the segments all paths share, up to
+ * the last placeholder no service has in its `In` (`/banks/{bankNumber}` — the bank comes
+ * from the configuration, the client from the process). Empty if there is none.
+ */
+export function suggestPathBase(c: ServiceCollectionSpec): string {
+  const paths = c.services.map(s => s.path).filter(Boolean).map(segmentsOf);
+  if (!paths.length) return '';
+  const common: string[] = [];
+  for (let i = 0; paths.every(p => i < p.length - 1 && p[i] === paths[0][i]); i++) common.push(paths[0][i]);
+  const inFields = new Set(c.services.flatMap(s => membersOf(c, s).in?.fields ?? []).map(f => f.name));
+  let end = -1;
+  common.forEach((seg, i) => {
+    const m = /^\{([^}]+)\}$/.exec(seg);
+    if (m && !inFields.has(m[1])) end = i;
+  });
+  return end < 0 ? '' : `/${common.slice(0, end + 1).join('/')}`;
+}
+
 /** What does not fit in a service — shown at the service and in the list. */
 export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): string[] {
   const out: string[] = [];
@@ -151,11 +197,15 @@ export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): s
   if (c.services.some(x => x.id !== s.id && x.name === s.name)) out.push(`«${s.name}» gibt es zweimal.`);
   if (!s.path) out.push('Pfad fehlt — der Katalog kennt ihn nicht (Katalog neu aufbauen: er liest jetzt `val path`), aus der OpenAPI ergänzen (gleicher Name) oder von Hand.');
   else if (!s.path.startsWith('/')) out.push('Der Pfad beginnt mit «/».');
+  // the placeholders of the company's base are filled by `serviceBasePath`
+  const fromBase = basePathParams(c, s);
   const declared = new Set(s.params.filter(p => p.in === 'path').map(p => p.name));
-  for (const p of pathParams(s.path)) if (!declared.has(p)) out.push(`Pfad-Parameter «${p}» ist nicht beschrieben.`);
+  for (const p of pathParams(s.path)) if (!declared.has(p) && !fromBase.has(p)) out.push(`Pfad-Parameter «${p}» ist nicht beschrieben.`);
   for (const p of s.params) {
+    if (p.in === 'path' && fromBase.has(p.name)) continue;
     if (p.in === 'path' && !pathParams(s.path).includes(p.name)) out.push(`Pfad-Parameter «${p.name}» kommt im Pfad nicht vor.`);
-    if (!p.disabled && !p.expression.trim() && p.required) out.push(`«${p.name}» ist Pflicht, hat aber keinen Wert.`);
+    if (!p.disabled && !p.expression.trim() && p.required)
+      out.push(`«${p.name}» ist Pflicht, hat aber keinen Wert.${p.in === 'path' ? ' Setzt ihn die Firma (im serviceBasePath), gehört er in den Basispfad (Übersicht der Collection).' : ''}`);
   }
   return out;
 }
