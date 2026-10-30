@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import type { EngineId, PatternDef } from '../src/types';
 
@@ -30,10 +30,10 @@ const diagram = (engine: EngineId, type: string) => `<bpmn:definitions ${NS[engi
 </bpmn:definitions>`;
 
 // a pattern on the process (`appliesTo: ['process']`) goes to the process, not to an element:
-// a plain task stands in for the element, and the hit has no target
-const onProcess = (def: PatternDef) => def.appliesTo[0] === 'process';
-const elementType = (def: PatternDef) => (onProcess(def) ? 'task' : def.appliesTo[0]);
-const targetOf = (def: PatternDef) => (onProcess(def) ? null : 'Target');
+// a plain task stands in for the element, and the hit has no target. The tests run for each
+// type a pattern applies to - not only for the first.
+const elementOf = (type: string) => (type === 'process' ? 'task' : type);
+const targetFor = (type: string) => (type === 'process' ? null : 'Target');
 
 test('the standard patterns are there without a company pattern', () => {
   const ids = patternDefs(null).map(p => p.id);
@@ -68,9 +68,11 @@ for (const std of STANDARD_PATTERNS) {
   test(`an own pattern with the BPMN of «${std.name}» under another ID gets the element (or the process), the standard one does not`, () => {
     const own: PatternDef = { ...std, id: `acme-${std.id}`, name: `Eigenes ${std.name}` };
     for (const engine of ['c7', 'c8'] as const) {
-      const xml = applyPattern(diagram(engine, elementType(std)), std, engine, targetOf(std)).xml;
-      const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
-      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[own.id, targetOf(std)]], engine);
+      for (const type of std.appliesTo) {
+        const xml = applyPattern(diagram(engine, elementOf(type)), std, engine, targetFor(type)).xml;
+        const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
+        assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[own.id, targetFor(type)]], `${engine} ${type}`);
+      }
     }
   });
 }
@@ -144,11 +146,71 @@ for (const def of STANDARD_PATTERNS) {
       const src = def.bpmn[engine];
       assert.ok(src, 'has BPMN');
       assert.ok(!('error' in parseFragment(src!)), 'readable fragment');
-      const res = applyPattern(diagram(engine, elementType(def)), def, engine, targetOf(def));
-      assert.ok(res.changed, `inserted: ${res.issues.join('; ')}`);
-      // exactly this pattern — no other standard pattern claims the element too
-      const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits;
-      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[def.id, targetOf(def)]]);
+      for (const type of def.appliesTo) {
+        const res = applyPattern(diagram(engine, elementOf(type)), def, engine, targetFor(type));
+        assert.ok(res.changed, `inserted on ${type}: ${res.issues.join('; ')}`);
+        // exactly this pattern — no other standard pattern claims the element too
+        const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits;
+        assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[def.id, targetFor(type)]], type);
+      }
     });
   }
 }
+
+// «Einmalige Ausführung» - the pattern on the process: it needs a message start, and in C8 the
+// start message carries the correlation key the event subprocess catches it with
+const unique = STANDARD_PATTERNS.find(p => p.id === 'unique-execution')!;
+const parse = (xml: string) => new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
+const elements = (doc: Document, tag: string) => Array.from(doc.getElementsByTagName(tag));
+/** the start event `Start`, the message it starts with, and all messages of the diagram */
+const startOf = (xml: string) => {
+  const doc = parse(xml);
+  const start = elements(doc, 'bpmn:startEvent').find(e => e.getAttribute('id') === 'Start')!;
+  const ref = elements(start as unknown as Document, 'bpmn:messageEventDefinition')[0]?.getAttribute('messageRef');
+  const messages = elements(doc, 'bpmn:message');
+  return { doc, message: messages.find(m => m.getAttribute('id') === ref), messages };
+};
+const subscriptionOf = (message: Element | undefined) =>
+  message ? elements(message as unknown as Document, 'zeebe:subscription').map(s => s.getAttribute('correlationKey')) : [];
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: a plain start event becomes a message start - message = process ID`, () => {
+    const res = applyPattern(diagram(engine, 'task'), unique, engine, null);
+    assert.ok(res.changed, res.issues.join('; '));
+    const { doc, message, messages } = startOf(res.xml);
+    assert.equal(message?.getAttribute('name'), 'acme-demoV1');
+    assert.equal(messages.length, 1);
+    // the event subprocess catches the same message, not interrupting
+    const esp = elements(doc, 'bpmn:subProcess').find(e => e.getAttribute('triggeredByEvent') === 'true');
+    assert.ok(esp, 'event subprocess');
+    const espStart = elements(esp as unknown as Document, 'bpmn:startEvent')[0];
+    assert.equal(espStart.getAttribute('isInterrupting'), 'false');
+    assert.equal(elements(espStart as unknown as Document, 'bpmn:messageEventDefinition')[0].getAttribute('messageRef'), message?.getAttribute('id'));
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+  });
+
+  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: removed from the process again`, () => {
+    const applied = applyPattern(diagram(engine, 'task'), unique, engine, null).xml;
+    const res = removePattern(applied, unique, engine, null, STANDARD_PATTERNS);
+    assert.ok(res.changed, res.issues.join('; '));
+    assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits, []);
+    assert.ok(!elements(parse(res.xml), 'bpmn:subProcess').length, 'event subprocess gone');
+    // and it can be inserted again
+    const again = applyPattern(res.xml, unique, engine, null);
+    assert.deepEqual(detectPatterns(again.xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]), [['unique-execution', null]]);
+  });
+}
+
+test('«Einmalige Ausführung» on C8: an existing start message gets the correlation key - no second message', () => {
+  const withMessageStart = diagram('c8', 'task')
+    .replace('<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>',
+      '<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing><bpmn:messageEventDefinition id="StartDef" messageRef="Msg" /></bpmn:startEvent>')
+    .replace('<bpmn:process ', '<bpmn:message id="Msg" name="acme-demoV1" />\n  <bpmn:process ');
+  assert.deepEqual(subscriptionOf(startOf(withMessageStart).message), []);
+  const res = applyPattern(withMessageStart, unique, 'c8', null);
+  assert.ok(res.changed, res.issues.join('; '));
+  const { message, messages } = startOf(res.xml);
+  assert.equal(message?.getAttribute('id'), 'Msg');
+  assert.equal(messages.length, 1);
+  assert.deepEqual(subscriptionOf(message), ['=businessKey']);
+});
