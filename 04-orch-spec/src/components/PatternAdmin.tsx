@@ -346,6 +346,9 @@ function PatternEditor({ def, isDark, onSave, onDelete, others }: {
               {!!draft.variants?.[engine]?.length && (
                 <p className={c.muted2}>· erkennt auch {draft.variants[engine]!.length === 1 ? 'eine weitere Schreibweise' : `${draft.variants[engine]!.length} weitere Schreibweisen`} (nur in der Pattern-Datei gepflegt)</p>
               )}
+              {draft.limitations?.[engine] && (
+                <p className={`flex items-start gap-1 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}><AlertTriangle size={10} className="mt-0.5 flex-shrink-0" />{draft.limitations[engine]} (nur in der Pattern-Datei gepflegt)</p>
+              )}
               {frag.warnings.map((w, i) => <p key={`w${i}`} className={`flex items-start gap-1 ${isDark ? 'text-amber-300' : 'text-amber-700'}`}><AlertTriangle size={10} className="mt-0.5 flex-shrink-0" />{w}</p>)}
             </>
           )}
