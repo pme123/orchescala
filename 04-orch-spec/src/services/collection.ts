@@ -8,7 +8,7 @@
 //
 // A collection has one project, its services may belong to several APIs
 // (`client.v1`, `crm.v2`) — each service carries its own.
-import { STATUSES, type ProcessSpec, type Status, type TypeDef } from '../types';
+import { STATUSES, type Field, type Mapping, type ProcessSpec, type Status, type TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify } from '../util';
 import type { CollectionService, ServiceCollectionSpec } from './types';
 
@@ -116,6 +116,49 @@ export function membersOf(c: ServiceCollectionSpec, s: CollectionService): { in?
   return {
     in: c.types.find(t => t.id === s.inTypeId),
     out: c.types.find(t => t.id === s.outTypeId),
+  };
+}
+
+/** Headers of the response an `Out` field of the same name takes over — as the projects do (`headers.etag`). */
+const OUT_HEADERS = ['etag', 'location'];
+
+const sameShape = (f: Pick<Field, 'type' | 'collection'>, g: Pick<Field, 'type' | 'collection'>) => f.type === g.type && !!f.collection === !!g.collection;
+
+/**
+ * The obvious mappings of the `outputMapper` — for the `Out` fields without one: `etag` from
+ * the headers, the whole body where the field has its type, a body field of the same name,
+ * otherwise an `In` field of the same name. With the headers the response needs for it.
+ */
+export function suggestOutMappings(c: Pick<ServiceCollectionSpec, 'types'>, s: CollectionService): { mappings: Mapping[]; headers: string[] } {
+  const { in: inType, out } = membersOf(c as ServiceCollectionSpec, s);
+  const have = new Set((s.outMappings ?? []).map(m => m.name));
+  const body = s.serviceOut;
+  const bodyCase = body && !body.collection ? c.types.find(t => t.id === body.type && t.kind === 'case') : undefined;
+  const mappings: Mapping[] = [];
+  const headers: string[] = [];
+  for (const f of out?.fields ?? []) {
+    if (!f.name || have.has(f.name)) continue;
+    const bodyField = bodyCase?.fields?.find(b => b.name === f.name);
+    const inField = inType?.fields?.find(i => i.name === f.name);
+    const expression = OUT_HEADERS.includes(f.name) ? `= headers.${f.name}`
+      : body && sameShape(f, body) ? '= body'
+        : bodyField ? `= body.${f.name}`
+          : inField && sameShape(f, inField) ? `= ${f.name}` : '';
+    if (!expression) continue;
+    mappings.push({ name: f.name, expression });
+    if (OUT_HEADERS.includes(f.name) && !(s.responseHeaders ?? []).includes(f.name)) headers.push(f.name);
+  }
+  return { mappings, headers };
+}
+
+/** The service with the suggested mappings added (and the response headers they read). */
+export function withSuggestedOutMappings(c: Pick<ServiceCollectionSpec, 'types'>, s: CollectionService): CollectionService {
+  const { mappings, headers } = suggestOutMappings(c, s);
+  if (!mappings.length) return s;
+  return {
+    ...s,
+    outMappings: [...(s.outMappings ?? []), ...mappings],
+    ...(headers.length ? { responseHeaders: [...(s.responseHeaders ?? []), ...headers] } : {}),
   };
 }
 

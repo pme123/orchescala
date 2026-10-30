@@ -529,7 +529,10 @@ export function addOperations(
         ...(serviceOut ? { serviceOut } : {}),
         ...(op.response ? { responseStatus: op.response.status } : {}),
         ...(op.response?.headers.length ? { responseHeaders: op.response.headers } : {}),
-        ...(mapped.length && !existing.outMappings?.length ? { outMappings: mapped } : {}),
+        // the Out fields without a mapping yet — those the collection has stay
+        ...(mapped.some(m => !existing.outMappings?.some(x => x.name === m.name))
+          ? { outMappings: [...(existing.outMappings ?? []), ...mapped.filter(m => !existing.outMappings?.some(x => x.name === m.name))] }
+          : {}),
       });
       continue;
     }

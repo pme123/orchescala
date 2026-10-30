@@ -170,7 +170,8 @@ test('a project of the catalog becomes one collection with its APIs; an OpenAPI 
   assert.equal(done.fromCatalog, undefined);
   assert.equal(`${done.api}.v${done.apiVersion}`, 'client.v1');
   assert.equal(done.outTypeId, get.outTypeId);
-  assert.deepEqual(done.outMappings, [{ name: 'name', expression: '= body.name' }, { name: 'etag', expression: '= headers.etag' }]);
+  assert.deepEqual([...done.outMappings!].sort((a, b) => a.name.localeCompare(b.name)),
+    [{ name: 'etag', expression: '= headers.etag' }, { name: 'name', expression: '= body.name' }]);
 });
 
 test('the API of an operation from its sub path; a collection may cover a sub path only', async () => {
@@ -265,6 +266,8 @@ end UpdateRules
   const out = c.types.find(t => t.id === svc.outTypeId);
   assert.deepEqual(out?.fields?.map(f => `${f.name}:${f.type}:${!!f.collection}`), [`rules:${ruleType.id}:true`]);
   assert.equal(out?.domainId, undefined);
+  // the obvious outputMapper comes pre-filled: the whole body where the field has its type
+  assert.deepEqual(svc.outMappings, [{ name: 'rules', expression: '= body' }]);
   // the request is still not complete — an OpenAPI may complete it
   assert.equal(svc.fromCatalog, true);
   assert.ok(isIncomplete(svc));
@@ -410,4 +413,28 @@ end UpdateRules
   // a second Abgleich has nothing to do
   const again = syncWithCatalog(c, now)!;
   assert.deepEqual([again.added, again.updated, again.removed, again.addedTypes], [[], [], [], []]);
+});
+
+test('the obvious outputMapper: headers, the whole body, a body field, an In field', async () => {
+  const { suggestOutMappings } = await import('../src/services/collection');
+  const types = [
+    { id: 'body', name: 'Client', kind: 'case' as const, fields: [{ id: 'b1', name: 'name', type: 'String' }] },
+    { id: 'in', name: 'In', kind: 'case' as const, interactionId: 's', fields: [{ id: 'i1', name: 'clientKey', type: 'Long' }] },
+    {
+      id: 'out', name: 'Out', kind: 'case' as const, interactionId: 's', fields: [
+        { id: 'o1', name: 'name', type: 'String' }, { id: 'o2', name: 'etag', type: 'String', optional: true },
+        { id: 'o3', name: 'clientKey', type: 'Long' }, { id: 'o4', name: 'other', type: 'Int' }, { id: 'o5', name: 'done', type: 'String' },
+      ],
+    },
+  ];
+  const s = {
+    id: 's', name: 'GetClient', api: 'client', apiVersion: 1, status: 'implemented' as const, method: 'GET' as const, path: '/clients/{clientKey}', params: [],
+    serviceOut: { type: 'body' }, inTypeId: 'in', outTypeId: 'out', outMappings: [{ name: 'done', expression: '= "x"' }],
+  };
+  const r = suggestOutMappings({ types }, s);
+  assert.deepEqual(r.mappings.map(m => `${m.name} ${m.expression}`), ['name = body.name', 'etag = headers.etag', 'clientKey = clientKey']);
+  assert.deepEqual(r.headers, ['etag']);
+  // a field of the body's own type takes it whole
+  const whole = suggestOutMappings({ types: [...types.slice(0, 2), { ...types[2], fields: [{ id: 'w', name: 'client', type: 'body' }] }] }, s);
+  assert.deepEqual(whole.mappings, [{ name: 'client', expression: '= body' }]);
 });

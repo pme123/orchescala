@@ -25,7 +25,7 @@ import { isCompoundType, typeShape, type TypeShape } from '../scalaTypes';
 import { domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
-import { apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, type ApiRef } from './collection';
+import { apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
@@ -187,7 +187,9 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
       inTypeId: inType.id, outTypeId: outType.id,
     });
   }
-  return { services, types: [...conv.types, ...extra] };
+  const types = [...conv.types, ...extra];
+  // the outputMapper is in the worker's code, not in the domain: what is obvious comes pre-filled
+  return { services: services.map(sv => withSuggestedOutMappings({ types }, sv)), types };
 }
 
 const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
@@ -344,8 +346,9 @@ export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): 
     if (!f.path || s.operationId || (s.path && !s.fromCatalog)) delete next.fromCatalog;
     else next.fromCatalog = true;
     if (!f.serviceIn && s.fromCatalog) delete next.serviceIn;
-    services.push(next);
-    if (JSON.stringify([next, types.get(next.inTypeId ?? ''), types.get(next.outTypeId ?? '')]) !== before) updated.push(s.name);
+    const filled = withSuggestedOutMappings({ types: [...types.values()] }, next);
+    services.push(filled);
+    if (JSON.stringify([filled, types.get(next.inTypeId ?? ''), types.get(next.outTypeId ?? '')]) !== before) updated.push(s.name);
   }
   // new services of the APIs
   const have = new Set(c.services.map(keyOf));
