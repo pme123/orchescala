@@ -515,4 +515,23 @@ end MasterCreateOrUpdate
   assert.deepEqual(t.values, ['MasterCreate', 'MasterUpdate']);
   assert.deepEqual(t.cases?.map(c => `${c.name}: ${c.fields?.map(f => f.name).join(', ')}`), ['MasterCreate: advisor, segment', 'MasterUpdate: branch, segment']);
   assert.deepEqual(t.fields?.map(f => `${f.name}:${f.type}`), ['segment:Option[Int]']);
+
+  // every import shares the same way: the `def` fields and those all cases have alike
+  const shared = `${source.replace('end MasterCreateOrUpdate', '').replace(/branch: Int,/, 'branch: Int,\n      comment: Option[String],').replace(/advisor: Option\[String\],/, 'advisor: Option[String],\n      comment: Option[String],')}end MasterCreateOrUpdate
+`;
+  const domainTypes = scanScala(shared, 'MasterCreateOrUpdate.scala');
+  const dom = domainTypes.find(x => x.name === 'MasterCreateOrUpdate')!;
+  const model = { version: 1, services: [], domainTypes } as never;
+  const expectShared = (ty: { fields?: { name: string }[]; values?: { name: string; fields?: { name: string }[] }[] }) => {
+    assert.deepEqual(ty.fields?.map(f => f.name), ['segment', 'comment']);
+    assert.deepEqual(ty.values?.map(v => `${v.name}: ${(v.fields ?? []).map(f => f.name).join(', ')}`), ['MasterCreate: advisor', 'MasterUpdate: branch']);
+  };
+  // the import of the types of an API (catalog import of a collection, BPMN import)
+  const { Converter } = await import('../src/projectImport');
+  const conv = new Converter(domainTypes, 'acme.crm.domain.client.v1', model);
+  const convId = conv.convert(dom, {});
+  expectShared(conv.types.find(x => x.id === convId)!);
+  // an In or Out as a copy of a catalog type
+  const { aliasMemberType } = await import('../src/interactions');
+  expectShared(aliasMemberType({ id: 'ia', name: 'X' } as never, 'In', dom, model));
 });

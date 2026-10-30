@@ -13,6 +13,7 @@
 // The **init worker** is excluded: its topic is the process itself, and
 // its result is the `InitIn` — the generator creates that anyway.
 
+import { shareCaseFields } from './enumCases.ts';
 import type {
   DomainField, DomainType, Field, Interaction, InteractionKind, Mapping, Model,
   ProcessSpec, ServiceDef, ServiceParam, Step, TimerSpec, TypeDef,
@@ -424,10 +425,17 @@ export function aliasMemberType(ia: Interaction, member: 'In' | 'Out', dom: Doma
   const base = { id: uid('t'), name: `${ia.name}.${member}`, interactionId: ia.id, status: 'draft' as const, description: `= ${dom.name}` };
   const fields = (dom.fields ?? []).map(f => fieldFromScala(f, model, dom.pkg));
   if (dom.kind === 'enum' && (dom.cases?.length || dom.values?.length)) {
-    const values = dom.cases?.length
-      ? dom.cases.map(c => ({ name: c.name, fields: (c.fields ?? []).map(f => fieldFromScala(f, model, dom.pkg)) }))
-      : (dom.values ?? []).map(name => ({ name }));
-    return { ...base, kind: 'enum', ...(fields.length ? { fields } : {}), values };
+    if (!dom.cases?.length) return { ...base, kind: 'enum', ...(fields.length ? { fields } : {}), values: (dom.values ?? []).map(name => ({ name })) };
+    // the shared fields as in every import: the `def` ones and those all cases have alike
+    const cases = new Map(dom.cases.map(c => [c.name, c.fields ?? []]));
+    const split = shareCaseFields(fields, (dom.values ?? dom.cases.map(c => c.name)).map(name => ({
+      name, fields: (cases.get(name) ?? []).map(f => fieldFromScala(f, model, dom.pkg)),
+    })));
+    return {
+      ...base, kind: 'enum',
+      ...(split.fields.length ? { fields: split.fields } : {}),
+      values: split.cases.map(c => ({ name: c.name, ...(c.fields.length ? { fields: c.fields } : {}) })),
+    };
   }
   return { ...base, kind: 'case', fields };
 }

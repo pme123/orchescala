@@ -32,6 +32,9 @@ import { domainRef } from './serviceTypes.ts';
 import { enumHasCase, splitEnumCase } from './feel.ts';
 import { handleFor, readSources } from './projects.ts';
 import { uid } from './util.ts';
+import { shareCaseFields, sharedFields } from './enumCases.ts';
+
+export { sharedFields };
 import { catalogIndex } from './orchescalaTypes.ts';
 
 export interface ProjectFile { path: string; text: string }
@@ -427,14 +430,13 @@ export class Converter {
       }));
       // What appears in **all** cases with the same name and the same type is
       // shared as well — even if the domain does not declare it as `def`
-      const shared = sharedFields(perCase.filter(c => c.fields.length).map(c => c.fields));
+      const split = shareCaseFields(common, perCase);
+      const shared = split.shared;
       if (shared.length) {
-        const names = new Set(shared.map(f => f.name));
-        for (const c of perCase) c.fields = c.fields.filter(f => !names.has(f.name));
         this.notes.push(`${name}: ${shared.length} gemeinsame Feld${shared.length === 1 ? '' : 'er'} erkannt (${shared.map(f => f.name).join(', ')}) — stehen in jedem Fall gleich.`);
       }
-      if (common.length || shared.length) t.fields = [...common, ...shared];
-      t.values = perCase.map(c => ({
+      if (split.fields.length) t.fields = split.fields;
+      t.values = split.cases.map(c => ({
         name: c.name,
         ...(c.fields.length ? { fields: c.fields } : {}),
         ...(c.order.length ? { order: c.order } : {}),
@@ -485,29 +487,6 @@ export function referenceExistingClasses(spec: ProcessSpec, model: Model | null)
   }));
   const moved = (spec.types ?? []).filter(t => refs.has(t.id)).map(t => `${t.name} → ${refs.get(t.id)!.pkg}`);
   return { spec: { ...spec, types }, moved };
-}
-
-/**
- * Fields that are the same in all cases: same name, same type and
- * the same wrappers (optional, multiple, map, variant, constraint).
- * Description and default come from the first case that has them. With a
- * single case there is nothing shared to recognize.
- */
-export function sharedFields(cases: Field[][]): Field[] {
-  if (cases.length < 2) return [];
-  const key = (f: Field) => JSON.stringify([f.type, !!f.optional, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '']);
-  return cases[0].flatMap(f => {
-    const k = key(f);
-    const twins = cases.map(c => c.find(x => x.name === f.name && key(x) === k));
-    if (twins.some(x => !x)) return [];
-    const described = twins.find(x => x!.description);
-    const dflt = twins.map(x => x!.default).find(Boolean);
-    return [{
-      ...f,
-      ...(described ? { description: described.description, descriptionExpr: described.descriptionExpr } : {}),
-      ...(dflt ? { default: dflt } : {}),
-    }];
-  });
 }
 
 // ── Enrich the specification ─────────────────────────────────────────────────
