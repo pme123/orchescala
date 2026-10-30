@@ -19,7 +19,7 @@ import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
 import { correlationKeysOf, messageCorrelation, messageRequest } from './messageCall.ts';
-import { patternDefs } from './patterns';
+import { patternDefs } from './patterns.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
