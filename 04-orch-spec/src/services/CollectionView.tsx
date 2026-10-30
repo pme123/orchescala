@@ -111,15 +111,17 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   // Abgleich with the catalog: what changes is shown first, nothing is deleted without asking
   const canSync = catalogProjectNames.has(spec.project);
   const runSync = () => {
+    setSyncNote('');
     const r = latest.current && syncWithCatalog(latest.current, model);
     if (!r) { setSyncNote('Der Katalog kennt das Projekt nicht.'); return; }
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length) { setSyncNote('Abgleich: alles wie im Katalog.'); return; }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length) { setSyncNote('Abgleich: wie im Katalog'); return; }
     setSyncPreview(r);
   };
   const applySync = (r: CatalogSync) => {
     update(() => r.spec);
     setSyncPreview(null);
-    setSyncNote(`Abgleich: ${r.added.length} neu, ${r.updated.length} aktualisiert, ${r.addedTypes.length} neue Typen, ${r.removed.length} entfernt.`);
+    const parts = [[r.added.length, 'neu'], [r.updated.length, 'aktualisiert'], [r.addedTypes.length, 'neue Typen'], [r.removed.length, 'entfernt']] as const;
+    setSyncNote(`Abgleich: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(', ')}`);
   };
 
   return (
@@ -135,7 +137,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
         <SaveBadge state={saveState} message={saveError} isDark={isDark} />
         <StatusChip status={collectionStatus(spec)} isDark={isDark} title="tiefster Status der Services" />
-        {syncNote && <span className={`text-[10px] ${c.muted}`} onClick={() => setSyncNote('')}>{syncNote}</span>}
+        {syncNote && <span className={`text-[10px] whitespace-nowrap cursor-pointer ${c.muted}`} title="ausblenden" onClick={() => setSyncNote('')}>{syncNote}</span>}
         {canEdit && canSync && (
           <button onClick={runSync} title="Services, Anfrage und Typen mit dem Katalog abgleichen — ohne die Collection neu anzulegen"
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
