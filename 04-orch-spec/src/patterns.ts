@@ -93,7 +93,7 @@ export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, fie
  * (Init Process, identity, passing on mocks …), so every company has them.
  * They are documented with their example processes in democompany-patterns.
  */
-export const STANDARD_PATTERNS: PatternDef[] = STANDARD_PATTERN_DEFS.map(p => ({ ...p, standard: true }));
+export const STANDARD_PATTERNS: PatternDef[] = Object.freeze(STANDARD_PATTERN_DEFS.map(p => Object.freeze({ ...p, standard: true }))) as PatternDef[];
 
 const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
 
@@ -104,7 +104,8 @@ const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
  * specific, the recognition gives the element to the own one (what one pattern
  * claims, another cannot have).
  * The result is cached per list, so it can be used as a React dependency —
- * every writer replaces `model.patterns`, none changes it in place.
+ * every writer replaces `model.patterns`, none changes it in place. It is
+ * frozen: it may be the shared STANDARD_PATTERNS.
  */
 export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): PatternDef[] {
   const own = model?.patterns;
@@ -112,7 +113,7 @@ export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): 
   let all = withStandard.get(own);
   if (!all) {
     const ids = new Set(own.map(p => p.id));
-    all = [...own, ...STANDARD_PATTERNS.filter(p => !ids.has(p.id))];
+    all = Object.freeze([...own, ...STANDARD_PATTERNS.filter(p => !ids.has(p.id))]) as PatternDef[];
     withStandard.set(own, all);
   }
   return all;

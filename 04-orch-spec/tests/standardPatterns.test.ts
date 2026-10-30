@@ -55,14 +55,20 @@ test('an own pattern with the same ID replaces the standard one, others are adde
   assert.equal(all.filter(id => id === 'init-process').length, 1);
 });
 
-test('an own pattern with the same BPMN under another ID gets the element, the standard one does not', () => {
-  const std = STANDARD_PATTERNS.find(p => p.id === 'propagate-mocks')!;
-  const own: PatternDef = { ...std, id: 'acme-call-sub', name: 'Teilprozess aufrufen', standard: undefined };
-  for (const engine of ['c7', 'c8'] as const) {
-    const xml = applyPattern(diagram(engine, 'callActivity'), std, engine, 'Target').xml;
-    const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
-    assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [['acme-call-sub', 'Target']], engine);
-  }
+for (const std of STANDARD_PATTERNS) {
+  test(`an own pattern with the BPMN of «${std.name}» under another ID gets the element, the standard one does not`, () => {
+    const own: PatternDef = { ...std, id: `acme-${std.id}`, name: `Eigenes ${std.name}`, standard: undefined };
+    for (const engine of ['c7', 'c8'] as const) {
+      const xml = applyPattern(diagram(engine, std.appliesTo[0]), std, engine, 'Target').xml;
+      const hits = detectPatterns(xml, patternDefs({ patterns: [own] }), engine).hits;
+      assert.deepEqual(hits.map(h => [h.patternId, h.targetId]), [[own.id, 'Target']], engine);
+    }
+  });
+}
+
+test('the standard patterns cannot be changed by a caller', () => {
+  assert.throws(() => (patternDefs(null) as PatternDef[]).push({ id: 'x', name: 'x', appliesTo: [], bpmn: {} }));
+  assert.throws(() => { (STANDARD_PATTERNS[0] as { name: string }).name = 'x'; });
 });
 
 for (const def of STANDARD_PATTERNS) {
