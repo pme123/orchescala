@@ -580,3 +580,20 @@ end ${name}
   const s = r.spec.services.find(x => x.name === 'GetRules')!;
   assert.deepEqual(r.spec.types.find(t => t.id === s.inTypeId)?.fields?.map(f => f.name), ['clientKey', 'limit']);
 });
+
+test('the OpenAPIs of the project folder: the wrapped ones first, the generated documentation last', async () => {
+  const { isGeneratedOpenApi, sortOpenApis } = await import('../src/services/projectOpenApis');
+  const paths = ['03-api/OpenApi.yml', '04-helper/src/main/resources/openApi-crm.v2.json', '03-worker/src/main/resources/OpenApi.yml', '04-helper/src/main/resources/openApi-client.v1.json'];
+  const files = paths.map(path => ({ path, generated: isGeneratedOpenApi(path) }));
+  assert.deepEqual(sortOpenApis(files).map(f => `${f.generated ? 'gen ' : ''}${f.path}`), [
+    '04-helper/src/main/resources/openApi-client.v1.json',
+    '04-helper/src/main/resources/openApi-crm.v2.json',
+    'gen 03-api/OpenApi.yml',
+    'gen 03-worker/src/main/resources/OpenApi.yml',
+  ]);
+  const { ownFolders } = await import('../src/projectImport');
+  const model = { version: 1, services: [], projects: [{ name: 'acme' }, { name: 'acme-crm' }, { name: 'other' }] } as never;
+  assert.deepEqual(ownFolders(model, 'acme-crm').map(p => p.name), ['acme-crm']);
+  assert.deepEqual(ownFolders(model, 'acme-crm-onboarding').map(p => p.name), ['acme-crm']);
+  assert.deepEqual(ownFolders(model, 'acme-x').map(p => p.name), ['acme']);
+});

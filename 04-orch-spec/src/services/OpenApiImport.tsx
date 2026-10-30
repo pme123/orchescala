@@ -14,7 +14,9 @@
 //     service catalog): it exists in a project already
 import { AlertTriangle, Check, FileUp, Search, X } from 'lucide-react';
 import { load } from 'js-yaml';
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ownFolders } from '../projectImport';
+import { projectOpenApis } from './projectOpenApis';
 import type { Model } from '../types';
 import { cls } from '../ui';
 import { API_NAME, apiOf, sameApi, serviceTopic } from './collection';
@@ -50,6 +52,24 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
   /** the API per sub path, as the user changed it */
   const [apis, setApis] = useState<Record<string, ApiChoice>>({});
   const known = useMemo(() => catalogTopics(model), [model]);
+
+  // the OpenAPIs of the project folder — the same folder the Abgleich reads
+  const folders = useMemo(() => ownFolders(model, spec.project).map(p => p.name), [model, spec.project]);
+  const [project, setProject] = useState<Awaited<ReturnType<typeof projectOpenApis>> | undefined>(undefined);
+  const lookInProject = useCallback(async () => {
+    try { setProject(await projectOpenApis(model, spec.project)); } catch { setProject(null); }
+  }, [model, spec.project]);
+  useEffect(() => { if (folders.length) void lookInProject(); }, [folders.length, lookInProject]);
+  /** «Datei wählen» starts in the project folder where there is one — not in Downloads */
+  const pickFile = async () => {
+    const picker = (window as unknown as { showOpenFilePicker?: (o: object) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker;
+    if (!picker || !project) { fileRef.current?.click(); return; }
+    const [h] = await picker({
+      startIn: project.dir,
+      types: [{ description: 'OpenAPI', accept: { 'application/json': ['.json'], 'application/yaml': ['.yml', '.yaml'] } }],
+    }).catch(() => [] as FileSystemFileHandle[]);
+    if (h) await read(await h.getFile());
+  };
 
   const read = async (f: File) => {
     setError(''); setApi(null); setPicked(new Set()); setApis({});
@@ -112,7 +132,8 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
           <div className="flex items-center gap-2">
             <input ref={fileRef} type="file" accept=".yml,.yaml,.json" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) void read(f); e.target.value = ''; }} />
-            <button onClick={() => fileRef.current?.click()} className={`text-[11px] px-2.5 py-1.5 rounded border whitespace-nowrap ${c.btn}`}>
+            <button onClick={() => void pickFile()} title={project ? `startet im Projekt-Ordner «${project.folder}»` : undefined}
+              className={`text-[11px] px-2.5 py-1.5 rounded border whitespace-nowrap ${c.btn}`}>
               {api ? 'Andere Datei …' : 'OpenAPI-Datei wählen (.yml, .yaml, .json) …'}
             </button>
             {api && (
@@ -127,6 +148,33 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
                   <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Pfad, Name, Tag …"
                     className={`flex-1 bg-transparent outline-none text-[11px] ${c.text}`} />
                 </div>
+          {folders.length > 0 && (
+            <div className="space-y-1">
+              {project === undefined && <p className={`text-[10px] ${c.muted}`}>Projekt-Ordner «{folders.join('», «')}» wird gelesen …</p>}
+              {project === null && (
+                <p className={`text-[10px] ${c.muted}`}>
+                  Projekt-Ordner «{folders.join('», «')}» nicht lesbar —{' '}
+                  <button onClick={() => void lookInProject()} className="underline">Zugriff erlauben</button>
+                </p>
+              )}
+              {project && (
+                <>
+                  <div className={`text-[10px] ${c.muted}`}>
+                    {project.files.length ? <>OpenAPIs im Projekt-Ordner «{project.folder}»:</> : <>Keine OpenAPI im Projekt-Ordner «{project.folder}» — «Datei wählen» startet dort.</>}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.files.map(f => (
+                      <button key={f.path} onClick={async () => read(await f.file.getFile())} title={f.path}
+                        className={`text-[10px] font-mono px-2 py-1 rounded border ${file === f.name ? (isDark ? 'border-teal-400/60 bg-teal-400/10' : 'border-teal-600/60 bg-teal-600/10') : c.btn} ${f.generated ? 'opacity-60' : ''}`}>
+                        {f.name}
+                        <span className={`ml-1.5 ${c.muted}`}>{f.path.split('/').slice(0, f.generated ? 2 : 1).join('/')}{f.generated ? ' · generiert' : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
               </>
             )}
           </div>
