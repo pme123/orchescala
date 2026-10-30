@@ -6,8 +6,8 @@ import { AlertTriangle, Boxes, ChevronDown, ChevronRight, FileJson, Library, Sea
 import { useMemo, useRef, useState } from 'react';
 import type { Model } from '../types';
 import { cls } from '../ui';
-import { collectionPackage, serviceTopic } from './collection';
-import { catalogProjects, collectionFromCatalog, describedTopics, type CatalogApi, type CatalogProject } from './catalogCollections';
+import { collectionPackage, collectionSlug, serviceTopic } from './collection';
+import { catalogProjects, catalogTitle, collectionFromCatalog, describedTopics, type CatalogApi, type CatalogProject } from './catalogCollections';
 import { serviceProblem } from './store';
 import type { ServiceCollectionSpec } from './types';
 
@@ -29,6 +29,9 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
   /** per project the chosen APIs (prefix) — without a choice: all not yet described */
   const [chosen, setChosen] = useState<Record<string, Set<string>>>({});
   const [error, setError] = useState('');
+  /** per project the name as the user changed it — otherwise from the chosen APIs */
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const slugs = useMemo(() => new Set(existing.map(e => e.slug)), [existing]);
   const [busy, setBusy] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -46,6 +49,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
 
   const create = async (spec: ServiceCollectionSpec, key: string) => {
     setBusy(key); setError('');
+    if (slugs.has(spec.slug)) { setError(`services/${spec.slug}.json gibt es schon — einen anderen Namen wählen.`); setBusy(''); return; }
     try {
       const r = await onCreate(spec);
       if (!r.ok) setError(r.message);
@@ -97,6 +101,10 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
               const choice = choiceOf(p);
               const picked = p.apis.filter(a => choice.has(a.prefix));
               const n = picked.reduce((sum, a) => sum + a.services.length, 0);
+              // the name follows the choice: the project for all APIs, otherwise project and APIs
+              const title = titles[p.project] ?? catalogTitle(p, picked);
+              const slug = collectionSlug({ project: p.project, title });
+              const taken = slugs.has(slug);
               return (
                 <div key={p.project} className={`border-b last:border-b-0 ${c.border}`}>
                   <div className="flex items-center gap-2 px-3 py-1.5">
@@ -110,9 +118,11 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                         {p.apis.length} API{p.apis.length === 1 ? '' : 's'}: {p.apis.map(a => `${a.api} v${a.apiVersion}`).join(', ')}
                       </div>
                     </div>
-                    <button disabled={!!busy || !picked.length}
-                      title={picked.length ? `${picked.length} API(s), ${n} Services als eine Collection` : 'keine API gewählt'}
-                      onClick={() => void create(collectionFromCatalog(p, picked, model), p.project)}
+                    <button disabled={!!busy || !picked.length || !title.trim() || taken}
+                      title={!picked.length ? 'keine API gewählt'
+                        : taken ? `services/${slug}.json gibt es schon — einen anderen Namen wählen`
+                          : `«${title}» — ${picked.length} API(s), ${n} Services als eine Collection (services/${slug}.json)`}
+                      onClick={() => void create(collectionFromCatalog(p, picked, model, title), p.project)}
                       className={`text-[11px] px-2.5 py-1 rounded border border-transparent whitespace-nowrap disabled:opacity-40 ${c.btnPrimary}`}>
                       {busy === p.project ? '…' : `${n} übernehmen`}
                     </button>
@@ -133,6 +143,18 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                           </label>
                         );
                       })}
+                      <div className="flex items-center gap-2 pt-1.5 pl-1">
+                        <span className={`text-[10px] ${c.muted}`}>Name</span>
+                        <input value={title} onChange={e => setTitles(t => ({ ...t, [p.project]: e.target.value }))}
+                          className={`w-72 px-1.5 py-0.5 rounded border text-[11px] outline-none ${c.input}`} />
+                        {titles[p.project] !== undefined && (
+                          <button onClick={() => setTitles(({ [p.project]: _drop, ...rest }) => rest)} title="wieder aus den gewählten APIs"
+                            className={`text-[10px] hover:underline ${c.muted}`}>zurücksetzen</button>
+                        )}
+                        <span className={`text-[10px] font-mono truncate ${taken ? 'text-rose-500' : c.muted}`}>
+                          services/{slug}.json{taken ? ' gibt es schon' : ''}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>

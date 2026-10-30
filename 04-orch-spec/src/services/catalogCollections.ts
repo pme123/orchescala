@@ -92,10 +92,25 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
   return { services, types };
 }
 
+const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
+
+/**
+ * The name of a collection from a project: the project for all its APIs, otherwise
+ * the project and the chosen APIs — «Acme CRM PaymentRule», «Acme CRM Client + Crm».
+ * The version only where the project has the same API in two versions.
+ */
+export function catalogTitle(project: CatalogProject, apis: CatalogApi[]): string {
+  const base = project.group || project.project;
+  if (!apis.length || apis.length === project.apis.length) return base;
+  const name = (a: CatalogApi) =>
+    `${capitalize(a.api)}${project.apis.filter(x => x.api === a.api).length > 1 ? ` V${a.apiVersion}` : ''}`;
+  return `${base} ${apis.map(name).join(' + ')}`;
+}
+
 /** A collection from the chosen APIs of a project — its services exist, so they are «Umgesetzt». */
 export function collectionFromCatalog(project: CatalogProject, apis: CatalogApi[], model: Model | null, title?: string): ServiceCollectionSpec {
   const first = apis[0] ?? project.apis[0];
-  const c = newCollection({ title: title || project.group || project.project, project: project.project, api: first.api, apiVersion: first.apiVersion });
+  const c = newCollection({ title: title?.trim() || catalogTitle(project, apis), project: project.project, api: first.api, apiVersion: first.apiVersion });
   const parts = apis.map(a => servicesOf(a, model));
   return {
     ...c, status: 'implemented',

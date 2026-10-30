@@ -145,8 +145,15 @@ test('a project of the catalog becomes one collection with its APIs; an OpenAPI 
   const c = collectionFromCatalog(projects[0], projects[0].apis, model);
   assert.equal(c.slug, 'acme-crm');
   assert.deepEqual(c.services.map(s => `${s.api}.v${s.apiVersion}.${s.name}`), ['client.v1.GetClientKey', 'client.v1.PutClientKey', 'crm.v2.GetProductGroups']);
-  // only some APIs: a sub set of the project
-  assert.deepEqual(collectionFromCatalog(projects[0], [projects[0].apis[1]], model).services.map(s => s.name), ['GetProductGroups']);
+  // only some APIs: a sub set of the project — named after them
+  const crmOnly = collectionFromCatalog(projects[0], [projects[0].apis[1]], model);
+  assert.deepEqual(crmOnly.services.map(s => s.name), ['GetProductGroups']);
+  assert.equal(crmOnly.title, 'Acme CRM Crm');
+  assert.equal(crmOnly.slug, 'acme-crm-crm');
+  assert.equal(collectionFromCatalog(projects[0], projects[0].apis, model, 'Kunden').slug, 'acme-crm-kunden');
+  const { catalogTitle } = await import('../src/services/catalogCollections');
+  assert.equal(catalogTitle(projects[0], projects[0].apis), 'Acme CRM');
+  assert.equal(catalogTitle({ ...projects[0], apis: [...projects[0].apis, { ...projects[0].apis[0], apiVersion: 2, prefix: 'acme-crm-clientV2' }] }, [projects[0].apis[0]]), 'Acme CRM Client V1');
   const get = c.services.find(s => s.name === 'GetClientKey')!;
   assert.equal(get.path, '');
   assert.deepEqual(c.types.find(t => t.id === get.outTypeId)!.fields!.map(f => `${f.name}:${f.type}${f.optional ? '?' : ''}`), ['name:String', 'etag:String?']);
