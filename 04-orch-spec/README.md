@@ -1768,15 +1768,32 @@ Projekt acme-crm · API client · Version 1
   wenn die API es sendet) — mit den Mappings `= name`.
 - **In und Out ergänzen** mit dem Klassenbauer — zusätzliche Variablen, andere
   Typen, Beschreibungen.
-- **Mappings** in FEEL, geprüft wie im Prozess: die Parameter und Felder des Body
-  aus dem `In`, das `Out` aus `body`, `headers` und dem `In`.
+- **Der Service** ist gegliedert wie die `ServiceWorkerDsl`, in der Reihenfolge, in
+  der der Worker läuft: `In` → `apiUri(in)` (Methode, Pfad, Pfad-Parameter) →
+  `querySegments(in)` → `inputHeaders(in)` → `inputMapper(in): ServiceIn` (der
+  Body der Anfrage) → `ServiceOut` (Body, Status und Header der Antwort) →
+  `outputMapper(serviceOut, in): Out` → `Out`. Die Mappings sind FEEL, geprüft wie
+  im Prozess: Parameter und `ServiceIn` aus dem `In`, das `Out` aus `body`,
+  `headers` und dem `In`.
+- **Basispfad der Firma** (Übersicht): der Anfang jedes Pfads, den die Firma schon
+  im `serviceBasePath` hat (`/banks/{bankNumber}` mit
+  `serviceBasePath = s"…/banks/$bankNumber"`). Seine Platzhalter sind keine
+  Parameter der Services, `apiUri` hängt nur den Rest an.
 - **Bestehende importieren** übernimmt ein Projekt, dessen Services es schon gibt:
   aus dem Katalog mit allen oder einzelnen seiner APIs (die Service-Worker nach
   ihrem Topic `projekt-apiVn.Name`, `In`/`Out` aus dem Domain-Katalog) — APIs, die
   schon in einer Collection beschrieben sind, sind markiert —, oder als Datei aus
   einem anderen Ordner.
-  Methode und Pfad kennt der Katalog nicht — eine danach importierte OpenAPI
-  **ergänzt** den Service gleichen Namens, statt einen zweiten anzulegen.
+  Aus dem ServiceTask kommen Methode und Pfad (`val path`), die Bodies (`type
+  ServiceIn`/`ServiceOut`) und die Typen der API (ihr Paket, z. B. `crm.v2.schema`);
+  der Basispfad der Firma wird erkannt, CustomWorker ohne eigenen REST-Aufruf
+  bleiben weg. Query und Header kennt der Katalog nicht — eine danach importierte
+  OpenAPI **ergänzt** den Service gleichen Namens, statt einen zweiten anzulegen.
+- **Abgleich mit Katalog** bringt eine Collection auf den Stand des Katalogs, ohne
+  sie neu anzulegen: Was die Domain kennt, gilt (Anfrage, Bodies, Felder von In und
+  Out, Typen der API); Mappings, eigene Felder, Query und Header, Status und
+  Beschreibung bleiben. Ein Dialog zeigt vorher, was neu dazukommt, sich ändert
+  oder wegfällt.
 - **Export**: der Scala-Code im Hausstil von `./helper.scala serviceTask` —
   Super-Trait, je Service der ServiceTask (Topic, Pfad, In/Out, ServiceIn/Out,
   Mock, Beispiele) und der ServiceWorker (Methode, `apiUri`, Query, Header,

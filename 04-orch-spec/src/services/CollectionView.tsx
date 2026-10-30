@@ -130,14 +130,14 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       <div className={`flex items-center gap-3 px-3 py-2 border-b ${c.border}`}>
         <button onClick={onBack} title="Zurück zu den Services" className={`p-1 rounded ${c.muted} ${c.hover}`}><ArrowLeft size={14} /></button>
         <Boxes size={14} className={isDark ? 'text-teal-300' : 'text-teal-700'} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[10rem] flex-1">
           <input value={spec.title} disabled={!canEdit} onChange={e => update(s => ({ ...s, title: e.target.value }))}
             className={`w-full bg-transparent outline-none text-sm font-semibold ${c.text}`} />
           <div className={`text-[10px] font-mono truncate ${c.muted}`}>{spec.project}{spec.pathPrefix ? ` · ${spec.pathPrefix}` : ''}{spec.services.length ? ` · ${apiList(spec)}` : ''}</div>
         </div>
         <SaveBadge state={saveState} message={saveError} isDark={isDark} />
         <StatusChip status={collectionStatus(spec)} isDark={isDark} title="tiefster Status der Services" />
-        {syncNote && <span className={`text-[10px] whitespace-nowrap cursor-pointer ${c.muted}`} title="ausblenden" onClick={() => setSyncNote('')}>{syncNote}</span>}
+        {syncNote && <span className={`text-[10px] truncate max-w-[14rem] cursor-pointer ${c.muted}`} title={`${syncNote} — ausblenden`} onClick={() => setSyncNote('')}>{syncNote}</span>}
         {canEdit && canSync && (
           <button onClick={runSync} title="Services, Anfrage und Typen mit dem Katalog abgleichen — ohne die Collection neu anzulegen"
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
@@ -412,6 +412,31 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
   const bodyType = s.serviceIn && !s.serviceIn.collection ? spec.types.find(t => t.id === s.serviceIn!.type && t.kind === 'case') : undefined;
 
   const fromBase = basePathParams(spec, s);
+  /** the parameters of one kind — with their place in `params`, and a button for another one */
+  const params = (where: ParamIn, none?: string) => {
+    const rows = s.params.map((p, i) => [p, i] as const).filter(([p]) => p.in === where);
+    const remove = (i: number) => onPatch({ params: s.params.filter((_, k) => k !== i) });
+    return (
+      <div className="space-y-1">
+        {rows.map(([p, i]) => where === 'path' && fromBase.has(p.name) ? (
+          <div key={i} className="flex items-center gap-1.5 opacity-60">
+            <span className={`w-14 text-[9px] uppercase tracking-wider ${c.muted}`}>{PARAM_IN[p.in]}</span>
+            <span className={`w-40 px-2 font-mono text-[11px] ${c.text}`}>{p.name}</span>
+            <span className={`flex-1 text-[10px] ${c.muted}`}>aus dem <span className="font-mono">serviceBasePath</span> (Basispfad der Collection)</span>
+            {canEdit && <button onClick={() => remove(i)} title="Parameter entfernen" className={`p-1 rounded ${c.muted} hover:text-rose-500`}><X size={11} /></button>}
+          </div>
+        ) : (
+          <ParamRow key={i} param={p} spec={spec} vars={inVars} canEdit={canEdit} isDark={isDark}
+            onChange={patch => setParam(i, patch)} onRemove={() => remove(i)} />
+        ))}
+        {!rows.length && none && <p className={`text-[10px] font-mono ${c.muted}`}>{none}</p>}
+        {canEdit && (
+          <button onClick={() => onPatch({ params: [...s.params, { name: '', in: where, type: 'String', expression: '', ...(where === 'path' ? { required: true } : {}) }] })}
+            className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}><Plus size={10} /> {PARAM_IN[where]}</button>
+        )}
+      </div>
+    );
+  };
   const setParam = (i: number, patch: Partial<RequestParam>) => onPatch({ params: s.params.map((p, k) => (k === i ? { ...p, ...patch } : p)) });
 
   return (
@@ -449,8 +474,14 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         onChange={e => onPatch({ description: e.target.value || undefined })}
         className={`w-full resize-y ${input}`} />
 
-      {/* request */}
-      <Section title="Anfrage" hint="wie der Worker die Anfrage aus dem In baut" isDark={isDark}>
+      {/* the ServiceWorkerDsl in the order the worker runs: In → request → ServiceIn … ServiceOut → Out */}
+      <Section title="In" hint="case class In — was der Prozess dem Service gibt; die Variablen dazu ergänzen" isDark={isDark}>
+        {inType
+          ? <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
+          : <p className={`text-[11px] ${c.muted}`}>kein In</p>}
+      </Section>
+
+      <Section title="apiUri(in)" hint="method und Pfad — die Pfad-Parameter aus dem In" isDark={isDark}>
         <div className="flex items-center gap-2">
           <select value={s.method} disabled={!canEdit} onChange={e => onPatch({ method: e.target.value as HttpMethod })} className={`${input} font-mono`}>
             {HTTP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
@@ -463,32 +494,23 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
             der Worker hängt nur <span className={`font-mono ${c.text}`}>{workerPath(spec, s.path) || '/'}</span> an.
           </p>
         )}
-        <div className="space-y-1">
-          {s.params.map((p, i) => p.in === 'path' && fromBase.has(p.name) ? (
-            <div key={`${p.in}:${i}`} className="flex items-center gap-1.5 opacity-60">
-              <span className={`w-14 text-[9px] uppercase tracking-wider ${c.muted}`}>{PARAM_IN[p.in]}</span>
-              <span className={`w-40 px-2 font-mono text-[11px] ${c.text}`}>{p.name}</span>
-              <span className={`flex-1 text-[10px] ${c.muted}`}>aus dem <span className="font-mono">serviceBasePath</span> (Basispfad der Collection)</span>
-              {canEdit && <button onClick={() => onPatch({ params: s.params.filter((_, k) => k !== i) })} title="Parameter entfernen" className={`p-1 rounded ${c.muted} hover:text-rose-500`}><X size={11} /></button>}
-            </div>
-          ) : (
-            <ParamRow key={`${p.in}:${i}`} param={p} spec={spec} vars={inVars} canEdit={canEdit} isDark={isDark}
-              onChange={patch => setParam(i, patch)} onRemove={() => onPatch({ params: s.params.filter((_, k) => k !== i) })} />
-          ))}
-          {canEdit && (
-            <div className="flex gap-1.5">
-              {(['path', 'query', 'header'] as const).map(where => (
-                <button key={where} onClick={() => onPatch({ params: [...s.params, { name: '', in: where, type: 'String', expression: '', ...(where === 'path' ? { required: true } : {}) }] })}
-                  className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}><Plus size={10} /> {PARAM_IN[where]}</button>
-              ))}
-            </div>
-          )}
-        </div>
-        <BodyPicker label="Body (ServiceIn)" none="kein Body — NoInput" value={s.serviceIn} spec={spec} canEdit={canEdit} isDark={isDark}
+        {params('path')}
+      </Section>
+
+      <Section title="querySegments(in)" hint="Query-Parameter aus dem In" isDark={isDark}>
+        {params('query', 'keine — Seq.empty')}
+      </Section>
+
+      <Section title="inputHeaders(in)" hint="Header der Anfrage aus dem In" isDark={isDark}>
+        {params('header', 'keine — Map.empty')}
+      </Section>
+
+      <Section title="inputMapper(in): ServiceIn" hint="der Body der Anfrage aus dem In" isDark={isDark}>
+        <BodyPicker label="type ServiceIn" none="kein Body — NoInput" value={s.serviceIn} spec={spec} canEdit={canEdit} isDark={isDark}
           onChange={serviceIn => onPatch({ serviceIn })} onOpenType={onOpenType} />
         {bodyType && (
           <div className="space-y-1 pl-3">
-            <div className={`text-[10px] ${c.muted}`}>Felder des Body — Wert aus dem In (FEEL); leer heisst: das gleichnamige Feld des In</div>
+            <div className={`text-[10px] ${c.muted}`}>Felder des ServiceIn — Wert aus dem In (FEEL); leer heisst: das gleichnamige Feld des In</div>
             {(bodyType.fields ?? []).filter(f => f.name).map(f => {
               const m = (s.bodyMappings ?? []).find(x => x.name === f.name);
               return (
@@ -501,15 +523,9 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         )}
       </Section>
 
-      {/* In */}
-      <Section title="In" hint="was der Prozess dem Service gibt — die Variablen dazu ergänzen" isDark={isDark}>
-        {inType
-          ? <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
-          : <p className={`text-[11px] ${c.muted}`}>kein In</p>}
-      </Section>
-
-      {/* response */}
-      <Section title="Antwort" hint="was die API zurückgibt" isDark={isDark}>
+      <Section title="ServiceOut" hint="die Antwort der API — Body, Status und Header (ServiceResponse)" isDark={isDark}>
+        <BodyPicker label="type ServiceOut" none="kein Body — NoOutput" value={s.serviceOut} spec={spec} canEdit={canEdit} isDark={isDark} allowOptional
+          onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType} />
         <div className="flex items-center gap-2 text-[11px]">
           <span className={c.muted}>Status</span>
           <input type="number" value={s.responseStatus ?? 200} disabled={!canEdit} onChange={e => onPatch({ responseStatus: Number(e.target.value) || undefined })}
@@ -519,29 +535,25 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
             onChange={e => onPatch({ responseHeaders: e.target.value.split(',').map(h => h.trim().toLowerCase()).filter(Boolean) })}
             className={`flex-1 font-mono ${input}`} />
         </div>
-        <BodyPicker label="Body (ServiceOut)" none="kein Body — NoOutput" value={s.serviceOut} spec={spec} canEdit={canEdit} isDark={isDark} allowOptional
-          onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType} />
       </Section>
 
-      {/* Out */}
-      <Section title="Out" hint="was der Prozess vom Service bekommt — je Feld, woher es kommt" isDark={isDark}>
-        {outType ? (
-          <>
-            <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
-            <div className="space-y-1">
-              <div className={`text-[10px] ${c.muted}`}>Mapping — FEEL auf <span className="font-mono">body</span>, <span className="font-mono">headers</span> und die Felder des In</div>
-              {(outType.fields ?? []).filter(f => f.name).map(f => {
-                const m = (s.outMappings ?? []).find(x => x.name === f.name);
-                return (
-                  <MappingRow key={f.id} target={f} types={spec.types} value={m?.expression ?? ''} placeholder="= body.…"
-                    vars={outVars} canEdit={canEdit} isDark={isDark} required
-                    onChange={expression => onPatch({ outMappings: upsert(s.outMappings, f.name, expression) })} />
-                );
-              })}
-              {!(outType.fields ?? []).some(f => f.name) && <p className={`text-[10px] ${c.muted}`}>Ohne Felder ist das Out <span className="font-mono">NoOutput</span>.</p>}
-            </div>
-          </>
-        ) : <p className={`text-[11px] ${c.muted}`}>kein Out</p>}
+      <Section title="outputMapper(serviceOut, in): Out" hint="je Feld des Out, woher es kommt — FEEL auf body, headers und das In" isDark={isDark}>
+        {outType && (outType.fields ?? []).some(f => f.name)
+          ? (outType.fields ?? []).filter(f => f.name).map(f => {
+              const m = (s.outMappings ?? []).find(x => x.name === f.name);
+              return (
+                <MappingRow key={f.id} target={f} types={spec.types} value={m?.expression ?? ''} placeholder="= body.…"
+                  vars={outVars} canEdit={canEdit} isDark={isDark} required
+                  onChange={expression => onPatch({ outMappings: upsert(s.outMappings, f.name, expression) })} />
+              );
+            })
+          : <p className={`text-[10px] ${c.muted}`}>Das Out hat keine Felder — <span className="font-mono">NoOutput</span>, kein outputMapper.</p>}
+      </Section>
+
+      <Section title="Out" hint="case class Out — was der Prozess vom Service bekommt" isDark={isDark}>
+        {outType
+          ? <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
+          : <p className={`text-[11px] ${c.muted}`}>kein Out</p>}
       </Section>
     </div>
   );
@@ -559,7 +571,7 @@ function Section({ title, hint, isDark, children }: { title: string; hint: strin
   return (
     <div className={`rounded border ${c.border2}`}>
       <div className={`px-3 py-1.5 border-b ${c.border} flex items-baseline gap-2`}>
-        <span className={`text-[10px] uppercase tracking-widest font-semibold ${c.muted2}`}>{title}</span>
+        <span className={`text-[11px] font-mono font-semibold whitespace-nowrap ${c.text}`}>{title}</span>
         <span className={`text-[10px] ${c.muted}`}>{hint}</span>
       </div>
       <div className="p-3 space-y-2">{children}</div>
