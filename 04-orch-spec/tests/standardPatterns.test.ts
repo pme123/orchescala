@@ -33,7 +33,12 @@ const diagram = (engine: EngineId, type: string, startDef = '', roots = '') => `
 // a pattern on the process (`appliesTo: ['process']`) goes to the process, not to an element:
 // a plain task stands in for the element, and the hit has no target. The tests run for each
 // type a pattern applies to - not only for the first.
-const elementOf = (type: string) => (type === 'process' ? 'task' : type);
+const elementOf = (type: string) => {
+  if (type === 'process') return 'task';
+  // a flow node the test diagram can hold - anything else (a pool, a lane) needs its own test
+  if (!/^(task|subProcess|callActivity|[a-z][A-Za-z]*(Task|Event|Gateway))$/.test(type)) throw new Error(`no test diagram for «${type}»`);
+  return type;
+};
 const targetFor = (type: string) => (type === 'process' ? null : 'Target');
 
 test('the standard patterns are there without a company pattern', () => {
@@ -185,7 +190,7 @@ const subscriptionOf = (message: Element) => elements(message, 'zeebe:subscripti
 /** what the end of the event subprocess sets: C7 an execution listener, C8 an output mapping */
 const alreadyRunningSet = (end: Element, engine: EngineId) =>
   engine === 'c7'
-    ? elements(end, 'camunda:executionListener').some(l => /setVariable\(("|&#34;)alreadyRunning("|&#34;), true\)/.test(l.getAttribute('expression') ?? ''))
+    ? elements(end, 'camunda:executionListener').some(l => (l.getAttribute('expression') ?? '').includes('setVariable("alreadyRunning", true)'))
     : elements(end, 'zeebe:output').some(o => o.getAttribute('target') === 'alreadyRunning' && o.getAttribute('source') === '=true');
 
 /** the test diagram with a message start `Msg` (name = process ID) - `ext` are its extensions */
@@ -265,6 +270,16 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.ok(res.issues.some(i => i.includes('Nachrichten-Startereignis')), res.issues.join('; '));
   });
 }
+
+test('«Einmalige Ausführung»: the limitation on C8 is said when it is inserted - not on C7', () => {
+  assert.ok(unique.limitations?.c8, 'has a limitation on C8');
+  const c8 = applyPattern(diagram('c8', 'task'), unique, 'c8', null);
+  assert.ok(c8.changed);
+  assert.ok(c8.issues.includes(`«${unique.name}»: ${unique.limitations!.c8}`), c8.issues.join('; '));
+  const c7 = applyPattern(diagram('c7', 'task'), unique, 'c7', null);
+  assert.ok(c7.changed);
+  assert.ok(!c7.issues.some(i => i.startsWith(`«${unique.name}»:`)), c7.issues.join('; '));
+});
 
 test('«Einmalige Ausführung» on C8: a start message with another correlation key keeps it - the pattern says so', () => {
   const own = withMessageStart('c8', '<zeebe:subscription correlationKey="=clientKey" />');

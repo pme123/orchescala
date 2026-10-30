@@ -1655,6 +1655,8 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
   if (!plane && (fr.attached.length || missing.length)) w.issues.push('Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.');
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
+  const limitation = def.limitations?.[engine];
+  if (limitation) w.issues.push(`«${def.name}»: ${limitation}`);
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
 }
 
