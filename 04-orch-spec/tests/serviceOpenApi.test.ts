@@ -535,3 +535,48 @@ end MasterCreateOrUpdate
   const { aliasMemberType } = await import('../src/interactions');
   expectShared(aliasMemberType({ id: 'ia', name: 'X' } as never, 'In', dom, model));
 });
+
+test('Abgleich from the project folder: its domain wins over the catalog, its ServiceTasks are the services', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const { catalogProjects, collectionFromCatalog, syncWithCatalog, withProjectDomain } = await import('../src/services/catalogCollections');
+  const { serviceProjectTarget, processTarget } = await import('../src/projectImport');
+  const task = (name: string, field: string) => `package acme.crm.domain
+package rule.v1
+
+object ${name} extends RuleV1:
+
+  final val topicName = "acme-crm-ruleV1.${name}"
+  val descr = "Reads the rules"
+  val path  = "GET: /rules"
+
+  type ServiceIn  = NoInput
+  type ServiceOut = NoOutput
+
+  case class In(
+      ${field}
+  )
+  type Out = NoOutput
+end ${name}
+`;
+  // the catalog: an older build — GetRules with one field, from the catalog its group
+  const catalog = {
+    version: 1, domainTypes: scanScala(task('GetRules', 'clientKey: Long'), 'GetRules.scala'),
+    services: [{ id: 'acme-crm-ruleV1.GetRules', name: 'GetRules', kind: 'service', group: 'Acme CRM', topic: 'acme-crm-ruleV1.GetRules', description: 'old' }],
+  } as never;
+  const p = catalogProjects(catalog)[0];
+  const c = collectionFromCatalog(p, p.apis, catalog);
+  // the project: GetRules has a second field, GetOther is new — neither is in the catalog yet
+  const project = [...scanScala(task('GetRules', 'clientKey: Long,\n      limit: Option[Int]'), 'GetRules.scala'), ...scanScala(task('GetOther', 'id: Long'), 'GetOther.scala')];
+  const target = serviceProjectTarget('acme-crm');
+  assert.equal(target.id, 'acme-crm');
+  assert.ok(target.has(project));
+  assert.ok(!serviceProjectTarget('acme-other').has(project));
+  assert.ok(!processTarget('acme-crm').has(project));
+  const m = withProjectDomain(catalog, project);
+  assert.deepEqual(m.services.map(s => `${s.name}:${s.group}:${s.description}`), ['GetRules:Acme CRM:Reads the rules', 'GetOther:undefined:Reads the rules']);
+  const r = syncWithCatalog(c, m)!;
+  assert.deepEqual(r.added, ['GetOther']);
+  assert.deepEqual(r.updated, ['GetRules']);
+  const s = r.spec.services.find(x => x.name === 'GetRules')!;
+  assert.deepEqual(r.spec.types.find(t => t.id === s.inTypeId)?.fields?.map(f => f.name), ['clientKey', 'limit']);
+});

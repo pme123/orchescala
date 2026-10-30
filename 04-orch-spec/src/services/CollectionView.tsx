@@ -6,7 +6,7 @@
 //
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
-import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, ListOrdered, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, FolderOpen, ListOrdered, Loader2, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -23,7 +23,8 @@ import {
   serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
-import { catalogProjects, syncWithCatalog, type CatalogSync } from './catalogCollections';
+import { syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
+import { findSyncDomainFor, readProjectDir, readProjectZip, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
 import { useServices } from './store';
@@ -44,7 +45,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   /** the Abgleich to look at before it applies */
-  const [syncPreview, setSyncPreview] = useState<CatalogSync | null>(null);
+  const [syncPreview, setSyncPreview] = useState<(CatalogSync & { source: string; note?: string }) | null>(null);
+  /** while the domain is searched or read */
+  const [syncBusy, setSyncBusy] = useState('');
+  /** the own project folder is remembered but not readable — the Abgleich asks for it instead of taking the catalog */
+  const [syncBlocked, setSyncBlocked] = useState<string[] | null>(null);
   // the part of the service in view — marked in the outline on the left
   const pane = useRef<HTMLDivElement>(null);
   const [activePart, setActivePart] = useState<ServicePart | null>(null);
@@ -60,7 +65,6 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     document.getElementById(partAnchor(part))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
   useEffect(() => { setActivePart('in'); pane.current?.scrollTo({ top: 0 }); }, [selection]);
-  const catalogProjectNames = useMemo(() => new Set(catalogProjects(model).map(p => p.project)), [model]);
   /** what the last Abgleich did (or that there was nothing to do) */
   const [syncNote, setSyncNote] = useState('');
   const version = useRef<string | null>(null);
@@ -124,13 +128,41 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     update(s => ({ ...s, services: s.services.map(x => (x.id === id ? { ...x, ...patch } : x)) }));
 
   // Abgleich with the catalog: what changes is shown first, nothing is deleted without asking
-  const canSync = catalogProjectNames.has(spec.project);
-  const runSync = () => {
-    setSyncNote('');
-    const r = latest.current && syncWithCatalog(latest.current, model);
-    if (!r) { setSyncNote('Der Katalog kennt das Projekt nicht.'); return; }
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length) { setSyncNote('Abgleich: wie im Katalog'); return; }
-    setSyncPreview(r);
+  // as the process sync: the own project folder first (it has the current state), the catalog otherwise
+  const syncFrom = (hit: DomainHit | null) => {
+    const cur = latest.current;
+    if (!cur) return;
+    const source = hit?.source ?? 'Katalog';
+    const r = syncWithCatalog(cur, hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model);
+    if (!r) { setSyncNote(hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt'); return; }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length) { setSyncNote(`Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`}`); return; }
+    setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}) });
+  };
+  const runSync = async () => {
+    const cur = latest.current;
+    if (!cur) return;
+    setSyncNote(''); setSyncBlocked(null); setSyncBusy('Domain wird gesucht …');
+    try {
+      const hit = await findSyncDomainFor(serviceProjectTarget(cur.project), model, setSyncBusy);
+      if (hit && 'blocked' in hit) { setSyncBlocked(hit.unreadable); return; }
+      syncFrom(hit);
+    } catch (e) {
+      setSyncNote(e instanceof Error ? e.message : String(e));
+    } finally { setSyncBusy(''); }
+  };
+  /** the domain from a chosen folder or ZIP — when the remembered one is not readable */
+  const syncFromFiles = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string) => {
+    const cur = latest.current;
+    if (!cur) return;
+    setSyncBusy(`${source} wird gelesen …`);
+    try {
+      const domain = scanDomain(await read());
+      if (!serviceProjectTarget(cur.project).has(domain)) { setSyncNote(`In ${source} gibt es keine Services von ${cur.project}`); return; }
+      setSyncBlocked(null);
+      syncFrom({ domain, source });
+    } catch (e) {
+      if (!(e instanceof Error && e.name === 'AbortError')) setSyncNote(e instanceof Error ? e.message : String(e));
+    } finally { setSyncBusy(''); }
   };
   const applySync = (r: CatalogSync) => {
     update(() => r.spec);
@@ -153,10 +185,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         <SaveBadge state={saveState} message={saveError} isDark={isDark} />
         <StatusChip status={collectionStatus(spec)} isDark={isDark} title="tiefster Status der Services" />
         {syncNote && <span className={`text-[10px] truncate max-w-[14rem] cursor-pointer ${c.muted}`} title={`${syncNote} — ausblenden`} onClick={() => setSyncNote('')}>{syncNote}</span>}
-        {canEdit && canSync && (
-          <button onClick={runSync} title="Services, Anfrage und Typen mit dem Katalog abgleichen — ohne die Collection neu anzulegen"
-            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
-            <RefreshCw size={12} /> Abgleich mit Katalog
+        {canEdit && (
+          <button onClick={() => void runSync()} disabled={!!syncBusy}
+            title="Services, Anfrage und Typen mit der Domain abgleichen — aus dem Projekt-Ordner (Admin → Katalog → Projekt-Ordner), sonst aus dem Katalog; ohne die Collection neu anzulegen"
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-60 ${c.btn}`}>
+            {syncBusy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {syncBusy || 'Abgleich'}
           </button>
         )}
         {canEdit && (
@@ -177,6 +210,15 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
       )}
 
+      {syncBlocked && (
+        <SyncBlocked unreadable={syncBlocked} busy={!!syncBusy} isDark={isDark} onCancel={() => setSyncBlocked(null)}
+          onFolder={async () => {
+            if (!('showDirectoryPicker' in window)) { setSyncNote('Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.'); return; }
+            const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
+            if (dir) await syncFromFiles(() => readProjectDir(dir), `Ordner ${dir.name}`);
+          }}
+          onZip={f => void syncFromFiles(async () => readProjectZip(new Uint8Array(await f.arrayBuffer())), f.name)} />
+      )}
       {syncPreview && <SyncPreview sync={syncPreview} isDark={isDark} onCancel={() => setSyncPreview(null)} onApply={() => applySync(syncPreview)} />}
       {exportOpen && <CollectionExport spec={spec} model={model} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
@@ -348,7 +390,38 @@ function Overview({ spec, canEdit, onChange }: { spec: ServiceCollectionSpec; ca
 }
 
 /** What the Abgleich with the catalog changes — before it applies. */
-function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync; isDark: boolean; onCancel: () => void; onApply: () => void }) {
+/** The own project folder is remembered but not readable — as in the process sync: choose it, or a ZIP. */
+function SyncBlocked({ unreadable, busy, isDark, onCancel, onFolder, onZip }: {
+  unreadable: string[]; busy: boolean; isDark: boolean; onCancel: () => void; onFolder: () => void; onZip: (f: File) => void;
+}) {
+  const c = cls(isDark);
+  const zip = useRef<HTMLInputElement>(null);
+  return (
+    <div className="fixed inset-0 z-40 bg-black/40 flex items-start justify-center pt-24" onClick={onCancel}>
+      <div onClick={e => e.stopPropagation()} className={`w-[36rem] max-w-[95vw] rounded-lg border shadow-xl p-4 space-y-3 ${c.border2} ${c.panelStrong}`}>
+        <div className={`flex items-center gap-2 text-xs font-semibold ${c.text}`}><RefreshCw size={13} /> Abgleich</div>
+        <p className={`text-[11px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+          <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />
+          Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich den Zugriff je
+          Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt — Projekt-Ordner oder ZIP wählen.
+        </p>
+        <div className="flex items-center gap-2">
+          <button onClick={onFolder} disabled={busy} className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
+            <FolderOpen size={12} /> Projekt-Ordner wählen
+          </button>
+          <input ref={zip} type="file" accept=".zip" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) onZip(f); e.target.value = ''; }} />
+          <button onClick={() => zip.current?.click()} disabled={busy} className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
+            <Upload size={12} /> ZIP wählen
+          </button>
+          <button onClick={onCancel} className={`ml-auto text-[11px] px-3 py-1 rounded border ${c.btn}`}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & { source: string; note?: string }; isDark: boolean; onCancel: () => void; onApply: () => void }) {
   const c = cls(isDark);
   const groups: [string, string[], string][] = [
     ['Neue Services', sync.added, isDark ? 'text-emerald-300' : 'text-emerald-700'],
@@ -359,7 +432,10 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync; i
   return (
     <div className="fixed inset-0 z-40 bg-black/40 flex items-start justify-center pt-24" onClick={onCancel}>
       <div onClick={e => e.stopPropagation()} className={`w-[36rem] max-w-[95vw] rounded-lg border shadow-xl p-4 space-y-3 ${c.border2} ${c.panelStrong}`}>
-        <div className={`flex items-center gap-2 text-xs font-semibold ${c.text}`}><RefreshCw size={13} /> Mit dem Katalog abgleichen</div>
+        <div className={`flex items-center gap-2 text-xs font-semibold ${c.text}`}>
+          <RefreshCw size={13} /> Abgleich <span className={`font-normal font-mono text-[10px] ${c.muted}`}>aus {sync.source}</span>
+        </div>
+        {sync.note && <p className={`text-[10px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>{sync.note}</p>}
         <div className="space-y-2 max-h-[50vh] overflow-y-auto">
           {groups.filter(([, names]) => names.length).map(([label, names, tone]) => (
             <div key={label}>

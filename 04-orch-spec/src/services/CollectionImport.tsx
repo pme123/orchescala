@@ -7,7 +7,8 @@ import { useMemo, useRef, useState } from 'react';
 import type { Model } from '../types';
 import { cls } from '../ui';
 import { collectionPackage, collectionSlug, serviceTopic } from './collection';
-import { catalogProjects, catalogTitle, collectionFromCatalog, describedTopics, type CatalogApi, type CatalogProject } from './catalogCollections';
+import { catalogProjects, catalogTitle, collectionFromCatalog, describedTopics, withProjectDomain, type CatalogApi, type CatalogProject } from './catalogCollections';
+import { findDomainFor, serviceProjectTarget } from '../projectImport';
 import { serviceProblem } from './store';
 import type { ServiceCollectionSpec } from './types';
 
@@ -33,6 +34,10 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
   const [titles, setTitles] = useState<Record<string, string>>({});
   const slugs = useMemo(() => new Set(existing.map(e => e.slug)), [existing]);
   const [busy, setBusy] = useState('');
+  /** what the search does right now — `Ordner acme-crm wird gelesen …` */
+  const [busyText, setBusyText] = useState('');
+  /** where the last import took the domain from */
+  const [source, setSource] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const visible = projects.filter(p => words.every(w =>
@@ -56,6 +61,25 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
     } finally { setBusy(''); }
   };
 
+  /**
+   * As «Aus BPMN» for a process: the domain from the own project folder (current), otherwise
+   * the catalog — the list itself shows what the catalog knows.
+   */
+  const fromDomain = async (p: CatalogProject, picked: CatalogApi[], title: string) => {
+    setBusy(p.project); setError('');
+    try {
+      const hit = await findDomainFor(serviceProjectTarget(p.project), model, setBusyText);
+      const m = hit && hit.source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model;
+      const fresh = catalogProjects(m).find(x => x.project === p.project) ?? p;
+      const apis = fresh.apis.filter(a => picked.some(x => x.prefix === a.prefix));
+      setSource(hit?.source ?? 'Katalog');
+      await create(collectionFromCatalog(fresh, apis.length ? apis : picked, m, title), p.project);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy('');
+    } finally { setBusyText(''); }
+  };
+
   const fromFile = async (f: File) => {
     let data: unknown;
     try { data = JSON.parse(await f.text()); }
@@ -76,7 +100,8 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
         </div>
         <div className="px-4 py-3 space-y-2 flex-1 min-h-0 flex flex-col">
           <p className={`text-[10px] ${c.muted}`}>
-            Aus dem <b>Katalog</b>: ein Projekt, dessen Services es schon gibt — alle seine APIs oder eine Auswahl. Aus dem ServiceTask
+            Ein Projekt, dessen Services es schon gibt — alle seine APIs oder eine Auswahl. Gelesen wird wie bei «Aus BPMN»: der
+            Projekt-Ordner (Admin → Katalog → Projekt-Ordner), sonst der <b>Katalog</b>. Aus dem ServiceTask
             kommen In, Out, Methode, Pfad, Bodies und die Typen der API; der Basispfad der Firma (<span className="font-mono">/banks/{'{bankNumber}'}</span>)
             wird erkannt. Query und Header kennt der Katalog nicht: eine danach importierte OpenAPI ergänzt sie (gleicher Name).
           </p>
@@ -94,6 +119,8 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
             </button>
           </div>
           {error && <p className="text-[11px] text-rose-500 flex items-center gap-1.5"><AlertTriangle size={11} /> {error}</p>}
+          {busyText && <p className={`text-[10px] ${c.muted}`}>{busyText}</p>}
+          {source && !busy && !error && <p className={`text-[10px] ${c.muted}`}>Domain aus {source}</p>}
           <div className={`flex-1 min-h-0 overflow-y-auto rounded border ${c.border2}`}>
             {!projects.length && <p className={`p-3 text-[11px] ${c.muted}`}>Der Katalog kennt keine Service-Worker (Topic <span className="font-mono">projekt-apiV1.Name</span>) — Admin → Katalog.</p>}
             {projects.length > 0 && !visible.length && <p className={`p-3 text-[11px] ${c.muted}`}>Kein Projekt passt zur Suche.</p>}
@@ -123,7 +150,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                       title={!picked.length ? 'keine API gewählt'
                         : taken ? `services/${slug}.json gibt es schon — einen anderen Namen wählen`
                           : `«${title}» — ${picked.length} API(s), ${n} Services als eine Collection (services/${slug}.json)`}
-                      onClick={() => void create(collectionFromCatalog(p, picked, model, title), p.project)}
+                      onClick={() => void fromDomain(p, picked, title)}
                       className={`text-[11px] px-2.5 py-1 rounded border border-transparent whitespace-nowrap disabled:opacity-40 ${c.btnPrimary}`}>
                       {busy === p.project ? '…' : `${n} übernehmen`}
                     </button>

@@ -1791,8 +1791,12 @@ Projekt acme-crm · API client · Version 1
   der Basispfad der Firma wird erkannt, CustomWorker ohne eigenen REST-Aufruf
   bleiben weg. Query und Header kennt der Katalog nicht — eine danach importierte
   OpenAPI **ergänzt** den Service gleichen Namens, statt einen zweiten anzulegen.
-- **Abgleich mit Katalog** bringt eine Collection auf den Stand des Katalogs, ohne
-  sie neu anzulegen: Was die Domain kennt, gilt (Anfrage, Bodies, Felder von In und
+- **Abgleich** bringt eine Collection auf den Stand der Domain, ohne sie neu
+  anzulegen. Gelesen wird wie beim Abgleich eines Prozesses: zuerst der eigene
+  Projekt-Ordner (Admin → Katalog → Projekt-Ordner — er hat den aktuellen Stand),
+  sonst der Katalog; ist der Ordner gemerkt, aber nicht lesbar, fragt der Abgleich
+  nach Ordner oder ZIP, statt still den Katalog zu nehmen. «Bestehende importieren»
+  liest ebenso zuerst den Projekt-Ordner. Was die Domain kennt, gilt (Anfrage, Bodies, Felder von In und
   Out, Typen der API); Mappings, eigene Felder, Query und Header, Status und
   Beschreibung bleiben. Ein Dialog zeigt vorher, was neu dazukommt, sich ändert
   oder wegfällt.

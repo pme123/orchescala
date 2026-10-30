@@ -244,6 +244,35 @@ export function collectionFromCatalog(project: CatalogProject, apis: CatalogApi[
   };
 }
 
+/**
+ * The model with a domain read from the project folder: its types win over those of the
+ * catalog (same id), its ServiceTasks are the services (`val topicName`, `val descr`) —
+ * with the group the catalog gives them, if it knows them. As the process sync does it:
+ * the folder has the current state, the catalog the one of its last build.
+ */
+export function withProjectDomain(model: Model | null, domain: DomainType[]): Model {
+  const ids = new Set(domain.map(t => t.id));
+  const known = new Map((model?.services ?? []).map(s => [s.topic ?? s.id, s]));
+  const services: ServiceDef[] = [];
+  const seen = new Set<string>();
+  for (const t of domain) {
+    if (!t.owner || !t.topicName || t.name !== `${t.owner}.In` || seen.has(t.topicName) || !TOPIC.test(t.topicName)) continue;
+    seen.add(t.topicName);
+    const cat = known.get(t.topicName);
+    services.push({
+      id: t.topicName, name: t.owner, kind: 'service', topic: t.topicName,
+      ...(cat?.group ? { group: cat.group } : {}),
+      ...(t.ownerDescr?.trim() ? { description: t.ownerDescr.trim() } : cat?.description ? { description: cat.description } : {}),
+    });
+  }
+  const projectTopics = new Set(services.map(s => s.id));
+  return {
+    ...(model ?? { version: 1, services: [] }),
+    services: [...services, ...(model?.services ?? []).filter(s => !projectTopics.has(s.topic ?? s.id))],
+    domainTypes: [...domain, ...(model?.domainTypes ?? []).filter(t => !ids.has(t.id))],
+  };
+}
+
 /** Where a service of the catalog is described already: topic → title of the collection. */
 export function describedTopics(collections: ServiceCollectionSpec[]): Map<string, string> {
   const out = new Map<string, string>();

@@ -105,8 +105,37 @@ const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || 
  * per folder); otherwise an older catalog with a caveat. `null` = nothing.
  */
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
-  const r = await searchDomain(processId, model, onProgress, false);
+  const r = await searchDomain(processTarget(processId), model, onProgress, false);
   return r && 'blocked' in r ? null : r;
+}
+
+/**
+ * What the search looks for: the ID that names the own project folder (a folder
+ * `acme-crm` for `acme-crm` or `acme-crm-…`) and how to tell that a domain has it.
+ */
+export interface DomainTarget {
+  id: string;
+  has: (domain: DomainType[]) => boolean;
+}
+
+/** A process — via `val processName`. */
+export const processTarget = (processId: string): DomainTarget => ({ id: processId, has: d => hasProcess(d, processId) });
+
+/** The services of a project — via their `topicName` (`acme-crm-clientV1.GetClient`). */
+export const serviceProjectTarget = (project: string): DomainTarget => ({
+  id: project,
+  has: d => d.some(t => !!t.owner && !!t.topicName?.startsWith(`${project}-`)),
+});
+
+/** The same search for anything a domain holds — the services of a project, see `findSyncDomain`. */
+export async function findDomainFor(target: DomainTarget, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
+  const r = await searchDomain(target, model, onProgress, false);
+  return r && 'blocked' in r ? null : r;
+}
+
+/** `findSyncDomain` for anything a domain holds. */
+export function findSyncDomainFor(target: DomainTarget, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
+  return searchDomain(target, model, onProgress, true);
 }
 
 /**
@@ -117,14 +146,14 @@ export async function findDomain(processId: string, model: Model | null, onProgr
  * renamed) is no question of access: the search goes on, the catalog included.
  */
 export function findSyncDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
-  return searchDomain(processId, model, onProgress, true);
+  return searchDomain(processTarget(processId), model, onProgress, true);
 }
 
 async function searchDomain(
-  processId: string, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
+  target: DomainTarget, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
 ): Promise<DomainHit | DomainBlocked | null> {
   const catalog = model?.domainTypes ?? [];
-  const inCatalog = hasProcess(catalog, processId);
+  const inCatalog = target.has(catalog);
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
   const unreadable: string[] = [];
   const fromFolder = async (p: ProjectFolder, own = false): Promise<DomainHit | null> => {
@@ -148,7 +177,7 @@ async function searchDomain(
       return null;
     }
     const domain = scanDomain(files);
-    return hasProcess(domain, processId) ? { domain, source: `Ordner ${p.name}` } : null;
+    return target.has(domain) ? { domain, source: `Ordner ${p.name}` } : null;
   };
   // First the own project folder: it holds the current state — the
   // catalog is as old as its last build (Admin → Katalog, prepareDocs),
@@ -156,7 +185,7 @@ async function searchDomain(
   const folders = model?.projects ?? [];
   // the project whose name is the longest prefix — `acme` is not the project of
   // `acme-bpmn-…` when `acme-bpmn` is listed too (folders of the same name all count)
-  const matching = folders.filter(p => processId.startsWith(`${p.name}-`));
+  const matching = folders.filter(p => target.id === p.name || target.id.startsWith(`${p.name}-`));
   const longest = Math.max(0, ...matching.map(p => p.name.length));
   const own = matching.filter(p => p.name.length === longest);
   for (const p of own) {
