@@ -441,3 +441,49 @@ test('the obvious outputMapper: headers, the whole body, a body field, an In fie
   const adt = { id: 'body', name: 'Client', kind: 'enum' as const, fields: [{ id: 'b1', name: 'name', type: 'String' }], values: [{ name: 'a' }, { name: 'b' }] };
   assert.deepEqual(suggestOutMappings({ types: [adt, ...types.slice(1)] }, s).mappings[0], { name: 'name', expression: '= body.name' });
 });
+
+test('NoInput / NoOutput: from the domain, from an OpenAPI, kept by the Abgleich', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const { catalogProjects, collectionFromCatalog, syncWithCatalog } = await import('../src/services/catalogCollections');
+  const { collectionFiles } = await import('../src/services/scalaCollection');
+  const source = `package acme.crm.domain
+package rule.v1
+
+object PostCheck extends RuleV1:
+
+  final val topicName = "acme-crm-ruleV1.PostCheck"
+  val path  = "POST: /checks"
+
+  type ServiceIn  = NoInput
+  type ServiceOut = NoOutput
+
+  type In = NoInput
+  type Out = NoOutput
+end PostCheck
+`;
+  const model = {
+    version: 1, domainTypes: scanScala(source, 'PostCheck.scala'),
+    services: [{ id: 'acme-crm-ruleV1.PostCheck', name: 'PostCheck', kind: 'service', topic: 'acme-crm-ruleV1.PostCheck' }],
+  } as never;
+  const p = catalogProjects(model)[0];
+  const c = collectionFromCatalog(p, p.apis, model);
+  const s = c.services[0];
+  assert.equal(s.noIn, true);
+  assert.equal(s.noOut, true);
+  assert.deepEqual(s.outMappings, undefined);
+  // the generator writes the aliases — also when the In still has a field
+  const withField = { ...c, types: c.types.map(t => (t.id === s.inTypeId ? { ...t, fields: [{ id: 'x', name: 'old', type: 'String' }] } : t)) };
+  const task = collectionFiles(withField).find(f => f.path.endsWith('/PostCheck.scala'))!.content;
+  assert.match(task, /type In = NoInput/);
+  assert.match(task, /type Out = NoOutput/);
+  assert.match(task, /in = NoInput\(\),\n {6}out = NoOutput\(\),/);
+  // the Abgleich keeps what the domain says, even when the collection said otherwise
+  const changed = { ...c, services: [{ ...s, noIn: undefined, noOut: undefined }] };
+  assert.equal(syncWithCatalog(changed, model)!.spec.services[0].noIn, true);
+
+  // an OpenAPI operation without parameters, body or response: nothing to give, nothing to get back
+  const api = readApi({ openapi: '3.0.1', info: { title: 'x', version: '1' }, paths: { '/ping': { post: { operationId: 'ping', responses: { 204: { description: 'ok' } } } } } });
+  const fromApi = addOperations(newCollection({ title: 'A', project: 'acme-crm', api: 'rule', apiVersion: 1 }), api, api.operations.map(o => o.key)).spec.services[0];
+  assert.equal(fromApi.noIn, true);
+  assert.equal(fromApi.noOut, true);
+});

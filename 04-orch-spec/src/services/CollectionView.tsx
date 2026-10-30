@@ -413,7 +413,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
 
   // what the mappings of the request read: the fields of the In
-  const inVars = useMemo(() => fieldVariables(inType?.fields ?? [], 'In', spec.types, model), [inType, spec.types, model]);
+  const inVars = useMemo(() => (s.noIn ? [] : fieldVariables(inType?.fields ?? [], 'In', spec.types, model)), [s.noIn, inType, spec.types, model]);
   // what the Out mappings read: the body of the response, its headers, the In
   const outVars = useMemo((): VarNode[] => {
     const vars: VarNode[] = [];
@@ -493,8 +493,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         className={`w-full resize-y ${input}`} />
 
       {/* the ServiceWorkerDsl in the order the worker runs: In → request → ServiceIn … ServiceOut → Out */}
-      <Section id="in" title="In" hint="case class In — was der Prozess dem Service gibt; die Variablen dazu ergänzen" isDark={isDark}>
-        {inType
+      <Section id="in" title="In" hint="was der Prozess dem Service gibt — die Variablen dazu ergänzen" isDark={isDark}>
+        <NothingChoice nothing={!!s.noIn} cls="case class In" none="type In = NoInput" noneHint="der Service braucht nichts vom Prozess"
+          canEdit={canEdit} isDark={isDark} onChange={noIn => onPatch({ noIn: noIn || undefined })} />
+        {s.noIn ? null : inType
           ? <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
           : <p className={`text-[11px] ${c.muted}`}>kein In</p>}
       </Section>
@@ -556,7 +558,9 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
       </Section>
 
       <Section id="outputMapper" title="outputMapper(serviceOut, in): Out" hint="je Feld des Out, woher es kommt — FEEL auf body, headers und das In" isDark={isDark}>
-        {outType && (outType.fields ?? []).some(f => f.name)
+        {s.noOut
+          ? <p className={`text-[10px] ${c.muted}`}>Das Out ist <span className="font-mono">NoOutput</span> — {s.serviceOut ? <>der Worker gibt <span className="font-mono">NoOutput()</span> zurück, was die API auch antwortet.</> : 'kein outputMapper.'}</p>
+          : outType && (outType.fields ?? []).some(f => f.name)
           ? (outType.fields ?? []).filter(f => f.name).map(f => {
               const m = (s.outMappings ?? []).find(x => x.name === f.name);
               return (
@@ -568,8 +572,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
           : <p className={`text-[10px] ${c.muted}`}>Das Out hat keine Felder — <span className="font-mono">NoOutput</span>, kein outputMapper.</p>}
       </Section>
 
-      <Section id="out" title="Out" hint="case class Out — was der Prozess vom Service bekommt" isDark={isDark}>
-        {outType
+      <Section id="out" title="Out" hint="was der Prozess vom Service bekommt" isDark={isDark}>
+        <NothingChoice nothing={!!s.noOut} cls="case class Out" none="type Out = NoOutput" noneHint="der Prozess bekommt nichts zurück"
+          canEdit={canEdit} isDark={isDark} onChange={noOut => onPatch({ noOut: noOut || undefined })} />
+        {s.noOut ? null : outType
           ? <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
           : <p className={`text-[11px] ${c.muted}`}>kein Out</p>}
       </Section>
@@ -608,16 +614,16 @@ function ServiceOutline({ spec, service: s, active, isDark, onJump }: {
   const mapped = outFields.filter(f => (s.outMappings ?? []).some(m => m.name === f.name && m.expression.trim())).length;
   const n = (k: number, one: string, many: string) => (k ? `${k} ${k === 1 ? one : many}` : '—');
   const detail: Record<ServicePart, string> = {
-    in: n((inType?.fields ?? []).filter(f => f.name).length, 'Feld', 'Felder'),
+    in: s.noIn ? 'NoInput' : n((inType?.fields ?? []).filter(f => f.name).length, 'Feld', 'Felder'),
     apiUri: `${s.method} · ${n(count('path'), 'Parameter', 'Parameter')}`,
     query: n(count('query'), 'Parameter', 'Parameter'),
     headers: n(count('header'), 'Header', 'Header'),
     inputMapper: body(s.serviceIn, 'NoInput'),
     serviceOut: body(s.serviceOut, 'NoOutput'),
-    outputMapper: outFields.length ? `${mapped}/${outFields.length}` : '—',
-    out: n(outFields.length, 'Feld', 'Felder'),
+    outputMapper: !s.noOut && outFields.length ? `${mapped}/${outFields.length}` : '—',
+    out: s.noOut ? 'NoOutput' : n(outFields.length, 'Feld', 'Felder'),
   };
-  const open = outFields.length - mapped;
+  const open = s.noOut ? 0 : outFields.length - mapped;
   return (
     <div className={`ml-5 mt-0.5 mb-1 pl-2 border-l ${c.border2}`}>
       {SERVICE_PARTS.map(part => (
@@ -637,6 +643,25 @@ function upsert(list: Mapping[] | undefined, name: string, expression: string): 
   const rest = (list ?? []).filter(m => m.name !== name);
   const next = expression.trim() ? [...rest, { name, expression }] : rest;
   return next.length ? next : undefined;
+}
+
+/** `case class In` or `type In = NoInput` — the same for Out. */
+function NothingChoice({ nothing, cls: klass, none, noneHint, canEdit, isDark, onChange }: {
+  nothing: boolean; cls: string; none: string; noneHint: string; canEdit: boolean; isDark: boolean; onChange: (nothing: boolean) => void;
+}) {
+  const c = cls(isDark);
+  const option = (value: boolean, label: string) => (
+    <label className={`flex items-center gap-1.5 text-[11px] font-mono ${canEdit ? 'cursor-pointer' : ''} ${nothing === value ? c.text : c.muted}`}>
+      <input type="radio" checked={nothing === value} disabled={!canEdit} onChange={() => onChange(value)} /> {label}
+    </label>
+  );
+  return (
+    <div className="flex items-center gap-4">
+      {option(false, klass)}
+      {option(true, none)}
+      {nothing && <span className={`text-[10px] ${c.muted}`}>— {noneHint}</span>}
+    </div>
+  );
 }
 
 function Section({ id, title, hint, isDark, children }: { id: ServicePart; title: string; hint: string; isDark: boolean; children: React.ReactNode }) {

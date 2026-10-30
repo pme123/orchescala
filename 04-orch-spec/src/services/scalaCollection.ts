@@ -74,7 +74,7 @@ function domainObject(c: ServiceCollectionSpec, s: CollectionService, idx: TypeI
 
   const member = (t: TypeDef | undefined, name: 'In' | 'Out'): boolean => {
     const fields = (t?.fields ?? []).filter(f => isFinished(f, idx));
-    if (!t || !fields.length) {
+    if (!t || !fields.length || (name === 'In' ? s.noIn : s.noOut)) {
       lines.push(`  type ${name} = ${name === 'In' ? 'NoInput' : 'NoOutput'}`, '');
       return false;
     }
@@ -164,7 +164,10 @@ function sure(t: Translated, what: string): string {
 function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
   const ref = apiOf(c, s);
   const pkg = collectionPackage(ref);
-  const { in: inType, out: outType } = membersOf(c, s);
+  const members = membersOf(c, s);
+  // `NoInput` / `NoOutput`: their types are not written, nothing reads them
+  const inType = s.noIn ? undefined : members.in;
+  const outType = s.noOut ? undefined : members.out;
   const types = c.types;
   const vars = inVars(inType);
   const fromBase = basePathParams(c, s);
@@ -309,7 +312,7 @@ function serviceBasePath(c: ServiceCollectionSpec): string {
 /** The own types a service uses — In, Out, bodies and parameters. */
 function typesOf(s: CollectionService, types: TypeDef[]): Set<string> {
   const seen = new Set<string>();
-  for (const id of [s.inTypeId, s.outTypeId, s.serviceIn?.type, s.serviceOut?.type, ...s.params.map(p => p.type)]) reach(id, types, seen);
+  for (const id of [s.noIn ? undefined : s.inTypeId, s.noOut ? undefined : s.outTypeId, s.serviceIn?.type, s.serviceOut?.type, ...s.params.map(p => p.type)]) reach(id, types, seen);
   return seen;
 }
 

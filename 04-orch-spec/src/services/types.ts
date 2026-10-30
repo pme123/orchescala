@@ -86,6 +86,10 @@ export interface CollectionService {
   responseStatus?: number;
   /** headers of the response the API names (`etag`, `location`) */
   responseHeaders?: string[];
+  /** `type In = NoInput` — the service needs nothing from the process (its In type is not written) */
+  noIn?: boolean;
+  /** `type Out = NoOutput` — the process gets nothing back (no outputMapper) */
+  noOut?: boolean;
   /** ids of the TypeDefs for `In` and `Out` (with `interactionId` = this id) */
   inTypeId?: string;
   outTypeId?: string;

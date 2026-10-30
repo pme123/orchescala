@@ -552,6 +552,9 @@ export function addOperations(
       ...(op.response ? { responseStatus: op.response.status } : {}),
       ...(op.response?.headers.length ? { responseHeaders: op.response.headers } : {}),
       inTypeId: inType.id, outTypeId: outType.id,
+      // nothing to give or to get back: `type In = NoInput` / `type Out = NoOutput`
+      ...(!inFields.length ? { noIn: true } : {}),
+      ...(!outFields.length ? { noOut: true } : {}),
       ...(outMappings.length ? { outMappings } : {}),
     });
   }

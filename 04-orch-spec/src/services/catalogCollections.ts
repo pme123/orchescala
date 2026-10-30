@@ -131,6 +131,10 @@ function bodyOf(t: DomainType | undefined, model: Model | null, conv: Converter)
   };
 }
 
+/** `type In = NoInput` / `type Out = NoOutput` in the service object. */
+const isNothing = (t: DomainType | undefined): boolean =>
+  t?.kind === 'alias' && /^No(Input|Output)$/.test(typeShape(t.target ?? '').base);
+
 /** `GET: clients/{clientKey}` → method and path (always with a leading `/`). */
 export function parseServicePath(raw: string | undefined): { method: HttpMethod; path: string } | null {
   const m = /^\s*([A-Za-z]+)\s*:\s*(\S*)\s*$/.exec(raw ?? '');
@@ -150,6 +154,12 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
   const services: CollectionService[] = [];
   const memberOf = (svc: ServiceDef, which: 'In' | 'Out', serviceId: string): TypeDef => {
     const dom = domainMember(svc, which, model);
+    // `type In = NoInput`: an empty class, the service says `noIn` (see below)
+    if (isNothing(dom)) {
+      const t: TypeDef = { id: uid('t'), name: which, kind: 'case', status: 'implemented', interactionId: serviceId, fields: [] };
+      extra.push(t);
+      return t;
+    }
     if (!dom?.fields?.length) {
       const t = memberFromEntry(svc, which, serviceId);
       extra.push(t);
@@ -184,6 +194,8 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
       ...(serviceIn ? { serviceIn } : {}),
       ...(serviceOut ? { serviceOut } : {}),
       ...(request ? { fromCatalog: true } : {}),
+      ...(isNothing(inDom) ? { noIn: true } : {}),
+      ...(isNothing(domainMember(svc, 'Out', model)) ? { noOut: true } : {}),
       inTypeId: inType.id, outTypeId: outType.id,
     });
   }
@@ -342,6 +354,11 @@ export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): 
       ...(f.serviceOut ? { serviceOut: mapBody(f.serviceOut) } : {}),
       ...(!s.description && f.description ? { description: f.description } : {}),
     };
+    // `NoInput` / `NoOutput` as the domain says it — where it knows the member
+    for (const [flag, theirs] of [['noIn', f.inTypeId], ['noOut', f.outTypeId]] as const) {
+      if (f[flag]) next[flag] = true;
+      else if ((fresh.types.find(t => t.id === theirs)?.fields ?? []).length) delete next[flag];
+    }
     // still to complete by an OpenAPI — unless one did it already
     if (!f.path || s.operationId || (s.path && !s.fromCatalog)) delete next.fromCatalog;
     else next.fromCatalog = true;
