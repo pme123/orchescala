@@ -64,7 +64,9 @@ trait DevHelper:
           case arguments if arguments.exists(_.trim.startsWith(OrchSpecInput.commandPrefix)) =>
             val argument             = arguments.find(_.trim.startsWith(OrchSpecInput.commandPrefix)).get
             val spec     = OrchSpecInput.fromCommand(argument.trim)
-            createProcessFromSpec(spec.bpmn, spec.scala, spec.dmns)
+            spec.kind match
+              case OrchSpecKind.Process           => createProcessFromSpec(spec.bpmn, spec.scala, spec.dmns)
+              case OrchSpecKind.ServiceCollection => OrchSpecGenerator().createServices(spec.scala)
           case Seq(bpmnExport, scalaExport) =>
             createProcessFromSpec(Some(readFile(bpmnExport)), readFile(scalaExport))
           case Seq(file) if file.endsWith(".bpmn")     =>

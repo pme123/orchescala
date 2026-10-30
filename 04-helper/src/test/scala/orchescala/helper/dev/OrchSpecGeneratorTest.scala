@@ -453,7 +453,47 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(OrchSpecInput.fromCommand(command("""{"v":1,"scala":"x"}""")), OrchSpecCommand(None, "x"))
 
   test("fromCommand - unknown version"):
-    intercept[IllegalArgumentException](OrchSpecInput.fromCommand(command("""{"v":2,"scala":"x"}""")))
+    intercept[IllegalArgumentException](OrchSpecInput.fromCommand(command("""{"v":3,"scala":"x"}""")))
+
+  test("fromCommand - a service collection (version 2)"):
+    assertEquals(
+      OrchSpecInput.fromCommand(command("""{"v":2,"kind":"serviceCollection","scala":"x"}""")),
+      OrchSpecCommand(None, "x", kind = OrchSpecKind.ServiceCollection)
+    )
+
+  test("fromCommand - version 2 of an unknown kind"):
+    intercept[IllegalArgumentException](OrchSpecInput.fromCommand(command("""{"v":2,"kind":"other","scala":"x"}""")))
+
+  test("services - the group of the API documentation is registered like a process"):
+    val registration = OrchSpecRegistration(
+      "ApiProjectCreator",
+      "document(",
+      "clientApi",
+      Seq("GetClient.example"),
+      entries =>
+        s"""  private lazy val clientApi =
+           |    import acme.crm.domain.client.v1.*
+           |    group("ClientV1")(
+           |${entries.map(e => s"      $e,").mkString("\n")}
+           |    )
+           |  end clientApi""".stripMargin
+    )
+    val creator =
+      """object ApiProjectCreator extends CompanyApiCreator:
+        |
+        |  document(
+        |    accountApi,
+        |  )
+        |
+        |end ApiProjectCreator
+        |""".stripMargin
+    registration.register(creator) match
+      case RegistrationResult.Registered(content, added) =>
+        assertEquals(added, Seq("clientApi"))
+        assert(content.contains("    accountApi,\n    clientApi,"), content)
+        assert(content.contains("    group(\"ClientV1\")(\n      GetClient.example,\n    )"), content)
+      case other                                         => fail(s"not registered: $other")
+    end match
 
   test("fromCommand - not readable"):
     intercept[IllegalArgumentException](OrchSpecInput.fromCommand("orchspec:no-gzip"))

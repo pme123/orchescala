@@ -164,6 +164,73 @@ case class OrchSpecGenerator()(using config: DevConfig):
     )
   end createProcess
 
+  /** A service collection of Orch Spec: in the domain the super trait of the API, one ServiceTask per
+    * service and the types of the API (`schema/`); in the worker module `serviceBasePath` and one
+    * ServiceWorker per service. Existing files are only compared, as for a process. Then the workers
+    * go into the WorkerApp and the services, as a group, into the API documentation.
+    */
+  def createServices(scalaExport: String): Unit =
+    val files                       = OrchSpecExport.parse(scalaExport)
+    val (workerFiles, domainFiles)  = files.partition(_.path.segments.headOption.exists(_.endsWith("worker")))
+    if domainFiles.isEmpty then
+      throw IllegalArgumentException("No service classes in the export - nothing to create.")
+    val exportDomainDir             = OrchSpecExport.processDir(domainFiles)
+    val (apiName, versionNr)        = processAndVersion(packageOf(exportDomainDir))
+    val version                     = Some(versionNr)
+    val versionPackage              = version.versionPackage
+    val domainDir                   = BpmnGenerator().domainPath(apiName, version)
+    domainFiles.foreach: file =>
+      createOrCompare(domainDir / file.path.relativeTo(exportDomainDir), file.content)()
+
+    val workerDir = config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) /
+      apiName / version.versionPath
+    workerFiles.headOption.map(_.path / os.up).foreach: exportWorkerDir =>
+      val expected = s"${config.projectPackage}.worker.$apiName$versionPackage"
+      if packageOf(exportWorkerDir) != expected then
+        println(
+          s"${Console.YELLOW}WARNING: the workers of the export are in ${packageOf(exportWorkerDir)} - written to $expected.${Console.RESET}"
+        )
+      workerFiles.foreach: file =>
+        createOrCompare(workerDir / file.path.relativeTo(exportWorkerDir), file.content)()
+
+    val workers  = workerFiles.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
+    val services = workers.map(_.stripSuffix("Worker"))
+    // the super trait names the group in the API documentation (`ClientV1`)
+    val group    = s"${apiName.head.toUpper}${apiName.tail}V$versionNr"
+    register(
+      config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) / "WorkerApp.scala",
+      OrchSpecRegistration(
+        "WorkerApp",
+        "workers(",
+        s"${apiName}Workers",
+        workers.map(w => s"$w()"),
+        entries =>
+          s"""  private lazy val ${apiName}Workers =
+             |    import ${config.projectPackage}.worker.$apiName$versionPackage.*
+             |    Seq(
+             |${entries.map(e => s"      $e,").mkString("\n")}
+             |    )
+             |  end ${apiName}Workers""".stripMargin
+      )
+    )
+    register(
+      config.projectDir / ModuleConfig.apiModule.packagePath(config.projectPath) / "ApiProjectCreator.scala",
+      OrchSpecRegistration(
+        "ApiProjectCreator",
+        "document(",
+        s"${apiName}Api",
+        services.map(s => s"$s.example"),
+        entries =>
+          s"""  private lazy val ${apiName}Api =
+             |    import ${config.projectPackage}.domain.$apiName$versionPackage.*
+             |    group("$group")(
+             |${entries.map(e => s"      $e,").mkString("\n")}
+             |    )
+             |  end ${apiName}Api""".stripMargin
+      )
+    )
+  end createServices
+
   /** Creates the file - an existing one is never overwritten, only compared with Orch Spec
     * (`differences`: what differs, empty if nothing).
     */
