@@ -18,10 +18,11 @@ const NS: Record<EngineId, string> = {
   c8: `${BPMN} xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" xmlns:modeler="http://camunda.org/schema/modeler/1.0" modeler:executionPlatform="Camunda Cloud"`,
 };
 
-/** start → the element the pattern fits → end */
-const diagram = (engine: EngineId, type: string) => `<bpmn:definitions ${NS[engine]} id="d">
-  <bpmn:process id="acme-demoV1" isExecutable="true">
-    <bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+/** start → the element the pattern fits → end; `startDef` goes into the start event (e.g. a
+ * message or timer definition), `roots` before the process (e.g. the message it refers to) */
+const diagram = (engine: EngineId, type: string, startDef = '', roots = '') => `<bpmn:definitions ${NS[engine]} id="d">
+  ${roots}<bpmn:process id="acme-demoV1" isExecutable="true">
+    <bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing>${startDef}</bpmn:startEvent>
     <bpmn:${type} id="Target" name="Target"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:${type}>
     <bpmn:endEvent id="End"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
     <bpmn:sequenceFlow id="f1" sourceRef="Start" targetRef="Target" />
@@ -187,15 +188,10 @@ const alreadyRunningSet = (end: Element, engine: EngineId) =>
     ? elements(end, 'camunda:executionListener').some(l => /setVariable\(("|&#34;)alreadyRunning("|&#34;), true\)/.test(l.getAttribute('expression') ?? ''))
     : elements(end, 'zeebe:output').some(o => o.getAttribute('target') === 'alreadyRunning' && o.getAttribute('source') === '=true');
 
-/** the test diagram with a message start `Msg` (name = process ID, no subscription) */
-const withMessageStart = (engine: EngineId) => {
-  const plain = diagram(engine, 'task');
-  const startTag = '<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>';
-  assert.ok(plain.includes(startTag) && plain.includes('<bpmn:process '), 'the test diagram has the plain start');
-  return plain
-    .replace(startTag, '<bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing><bpmn:messageEventDefinition id="StartDef" messageRef="Msg" /></bpmn:startEvent>')
-    .replace('<bpmn:process ', '<bpmn:message id="Msg" name="acme-demoV1" />\n  <bpmn:process ');
-};
+/** the test diagram with a message start `Msg` (name = process ID) - `ext` are its extensions */
+const withMessageStart = (engine: EngineId, ext = '') =>
+  diagram(engine, 'task', '<bpmn:messageEventDefinition id="StartDef" messageRef="Msg" />',
+    `<bpmn:message id="Msg" name="acme-demoV1">${ext ? `<bpmn:extensionElements>${ext}</bpmn:extensionElements>` : ''}</bpmn:message>\n  `);
 
 /** the event subprocess: starts not interrupting on the start message and sets alreadyRunning at its end */
 const assertEventSubprocess = (doc: Document, message: Element, engine: EngineId) => {
@@ -233,14 +229,52 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
   });
 
-  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: removed from the process again`, () => {
+  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: removed from the process again - the message start stays`, () => {
     const applied = applyPattern(diagram(engine, 'task'), unique, engine, null).xml;
     const res = removePattern(applied, unique, engine, null, STANDARD_PATTERNS);
     assert.ok(res.changed, res.issues.join('; '));
     assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits, []);
     assert.equal(elements(parse(res.xml), 'bpmn:subProcess').length, 0, 'event subprocess gone');
+    // the start message is shared with the rest of the diagram (the start event refers to it):
+    // it stays a message start, with its correlation key in C8
+    const { message, messages } = startOf(res.xml);
+    assert.equal(messages.length, 1);
+    assert.equal(message.getAttribute('name'), 'acme-demoV1');
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
     // and it can be inserted again
     const again = applyPattern(res.xml, unique, engine, null);
     assert.deepEqual(detectPatterns(again.xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]), [['unique-execution', null]]);
+    assert.equal(startOf(again.xml).messages.length, 1, 'no second message');
+  });
+
+  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: applied twice - still one event subprocess and one message`, () => {
+    const once = applyPattern(diagram(engine, 'task'), unique, engine, null).xml;
+    const twice = applyPattern(once, unique, engine, null);
+    const { doc, message, messages } = startOf(twice.xml);
+    assert.equal(messages.length, 1);
+    assertEventSubprocess(doc, message, engine);
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+    assert.deepEqual(detectPatterns(twice.xml, STANDARD_PATTERNS, engine).hits.map(h => h.patternId), ['unique-execution']);
+  });
+
+  test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: a timer start is not changed - the pattern says why`, () => {
+    const timer = diagram(engine, 'task', '<bpmn:timerEventDefinition id="StartTimer"><bpmn:timeDuration>PT1H</bpmn:timeDuration></bpmn:timerEventDefinition>');
+    const res = applyPattern(timer, unique, engine, null);
+    assert.equal(res.changed, false);
+    assert.equal(res.xml, timer);
+    assert.ok(res.issues.some(i => i.includes('Nachrichten-Startereignis')), res.issues.join('; '));
   });
 }
+
+test('«Einmalige Ausführung» on C8: a start message with another correlation key keeps it - the pattern says so', () => {
+  const own = withMessageStart('c8', '<zeebe:subscription correlationKey="=clientKey" />');
+  assert.deepEqual(subscriptionOf(startOf(own).message), ['=clientKey']);
+  const res = applyPattern(own, unique, 'c8', null);
+  assert.ok(res.changed, res.issues.join('; '));
+  const { doc, message, messages } = startOf(res.xml);
+  assert.equal(messages.length, 1);
+  assertEventSubprocess(doc, message, 'c8');
+  // not overwritten, not added a second time
+  assert.deepEqual(subscriptionOf(message), ['=clientKey']);
+  assert.ok(res.issues.some(i => i.includes('=clientKey') && i.includes('=businessKey')), res.issues.join('; '));
+});
