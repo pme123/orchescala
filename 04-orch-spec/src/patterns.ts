@@ -93,7 +93,15 @@ export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, fie
  * (Init Process, identity, passing on mocks …), so every company has them.
  * They are documented with their example processes in democompany-patterns.
  */
-export const STANDARD_PATTERNS: PatternDef[] = Object.freeze(STANDARD_PATTERN_DEFS.map(p => Object.freeze({ ...p }))) as PatternDef[];
+const deepFreeze = <T>(x: T): T => {
+  if (x && typeof x === 'object' && !Object.isFrozen(x)) {
+    for (const v of Object.values(x)) deepFreeze(v);
+    Object.freeze(x);
+  }
+  return x;
+};
+/** frozen through and through — shared by every model, so nobody may change them */
+export const STANDARD_PATTERNS: PatternDef[] = deepFreeze(STANDARD_PATTERN_DEFS.map(p => structuredClone(p)));
 
 /**
  * One of the standard patterns itself — by identity, not by a flag: an own
