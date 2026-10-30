@@ -290,7 +290,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
             <button onClick={() => setPending(null)} className={`ml-auto ${c.muted}`}><X size={12} /></button>
           </div>
           <div className="mb-1.5">
-            <PatternSummary items={patternSummary(pending.spec)} isDark={isDark} hasDefs={!!patternDefs(model).length}
+            <PatternSummary items={patternSummary(pending.spec)} isDark={isDark}
               nameOf={id => patternDefs(model).find(d => d.id === id)?.name ?? id} />
           </div>
           {pending.enriched ? (

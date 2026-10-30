@@ -210,7 +210,6 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                 <Lines isDark={isDark} items={patternLines} />
               </>
             )}
-            {!patternDefs(model).length && <p className={`text-[10px] pt-1 ${c.muted}`}>Pattern: keine definiert (Admin → Pattern) — nichts erkannt.</p>}
           </div>}
 
           {/* Data model */}

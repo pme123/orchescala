@@ -27,12 +27,14 @@ type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>
 
 /** State for status bar and card header */
 export function patternState(model: Model): { tone: 'ok' | 'off' | 'warn'; label: string; detail?: string } {
-  const all = patternDefs(model);
-  if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Pattern definiert' };
-  const bad = all.filter(p => Object.values(p.bpmn).every(x => !x) || Object.values(p.bpmn).some(x => x && 'error' in parseFragment(x)));
+  const own = model.patterns ?? [];
+  // the standard ones are always there (and tested) — the state is about the own ones
+  const std = patternDefs(model).filter(p => p.standard);
+  const label = own.length ? `${own.length} eigene + ${std.length} Standard` : `${std.length} Standard`;
+  const bad = own.filter(p => Object.values(p.bpmn).every(x => !x) || Object.values(p.bpmn).some(x => x && 'error' in parseFragment(x)));
   return bad.length
-    ? { tone: 'warn', label: `${all.length} Pattern`, detail: `${bad.length} ohne lesbares BPMN` }
-    : { tone: 'ok', label: `${all.length} Pattern`, detail: all.map(p => p.name).join(', ') };
+    ? { tone: 'warn', label, detail: `${bad.length} eigene ohne lesbares BPMN` }
+    : { tone: 'ok', label, detail: patternDefs(model).map(p => p.name).join(', ') };
 }
 
 export default function PatternAdmin({ model, isDark, onSave, state }: { model: Model; isDark: boolean; onSave: Save; state: React.ReactNode }) {
