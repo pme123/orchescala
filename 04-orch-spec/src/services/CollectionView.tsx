@@ -6,7 +6,7 @@
 //
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
-import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, ListOrdered, Loader2, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, ListOrdered, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -23,6 +23,7 @@ import {
   serviceIssues, serviceTopic, suggestPathBase, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
+import { catalogProjects, syncWithCatalog, type CatalogSync } from './catalogCollections';
 import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
 import { useServices } from './store';
@@ -42,6 +43,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [selection, setSelection] = useState<Selection>({ kind: 'overview' });
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  /** the Abgleich to look at before it applies */
+  const [syncPreview, setSyncPreview] = useState<CatalogSync | null>(null);
+  const catalogProjectNames = useMemo(() => new Set(catalogProjects(model).map(p => p.project)), [model]);
+  /** what the last Abgleich did (or that there was nothing to do) */
+  const [syncNote, setSyncNote] = useState('');
   const version = useRef<string | null>(null);
   // the last state set — several changes in one event build on each other
   const latest = useRef<ServiceCollectionSpec | null>(null);
@@ -102,6 +108,20 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const patchService = (id: string, patch: Partial<CollectionService>) =>
     update(s => ({ ...s, services: s.services.map(x => (x.id === id ? { ...x, ...patch } : x)) }));
 
+  // Abgleich with the catalog: what changes is shown first, nothing is deleted without asking
+  const canSync = catalogProjectNames.has(spec.project);
+  const runSync = () => {
+    const r = latest.current && syncWithCatalog(latest.current, model);
+    if (!r) { setSyncNote('Der Katalog kennt das Projekt nicht.'); return; }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length) { setSyncNote('Abgleich: alles wie im Katalog.'); return; }
+    setSyncPreview(r);
+  };
+  const applySync = (r: CatalogSync) => {
+    update(() => r.spec);
+    setSyncPreview(null);
+    setSyncNote(`Abgleich: ${r.added.length} neu, ${r.updated.length} aktualisiert, ${r.addedTypes.length} neue Typen, ${r.removed.length} entfernt.`);
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* head */}
@@ -115,6 +135,13 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
         <SaveBadge state={saveState} message={saveError} isDark={isDark} />
         <StatusChip status={collectionStatus(spec)} isDark={isDark} title="tiefster Status der Services" />
+        {syncNote && <span className={`text-[10px] ${c.muted}`} onClick={() => setSyncNote('')}>{syncNote}</span>}
+        {canEdit && canSync && (
+          <button onClick={runSync} title="Services, Anfrage und Typen mit dem Katalog abgleichen — ohne die Collection neu anzulegen"
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+            <RefreshCw size={12} /> Abgleich mit Katalog
+          </button>
+        )}
         {canEdit && (
           <button onClick={() => setImportOpen(true)}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
@@ -133,6 +160,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
       )}
 
+      {syncPreview && <SyncPreview sync={syncPreview} isDark={isDark} onCancel={() => setSyncPreview(null)} onApply={() => applySync(syncPreview)} />}
       {exportOpen && <CollectionExport spec={spec} model={model} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
         <OpenApiImport spec={spec} model={model} isDark={isDark} onClose={() => setImportOpen(false)}
@@ -295,6 +323,40 @@ function Overview({ spec, canEdit, onChange }: { spec: ServiceCollectionSpec; ca
       {spec.source?.file && (
         <p className={`text-[10px] ${c.muted}`}>Zuletzt importiert: <span className="font-mono">{spec.source.file}</span>{spec.source.title ? ` — ${spec.source.title}` : ''}{spec.source.version ? ` ${spec.source.version}` : ''}</p>
       )}
+    </div>
+  );
+}
+
+/** What the Abgleich with the catalog changes — before it applies. */
+function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync; isDark: boolean; onCancel: () => void; onApply: () => void }) {
+  const c = cls(isDark);
+  const groups: [string, string[], string][] = [
+    ['Neue Services', sync.added, isDark ? 'text-emerald-300' : 'text-emerald-700'],
+    ['Aktualisiert', sync.updated, isDark ? 'text-sky-300' : 'text-sky-700'],
+    ['Neue Typen der API', sync.addedTypes, isDark ? 'text-emerald-300' : 'text-emerald-700'],
+    ['Entfernt — CustomWorker, kein REST-Service', sync.removed, 'text-rose-500'],
+  ];
+  return (
+    <div className="fixed inset-0 z-40 bg-black/40 flex items-start justify-center pt-24" onClick={onCancel}>
+      <div onClick={e => e.stopPropagation()} className={`w-[36rem] max-w-[95vw] rounded-lg border shadow-xl p-4 space-y-3 ${c.border2} ${c.panelStrong}`}>
+        <div className={`flex items-center gap-2 text-xs font-semibold ${c.text}`}><RefreshCw size={13} /> Mit dem Katalog abgleichen</div>
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          {groups.filter(([, names]) => names.length).map(([label, names, tone]) => (
+            <div key={label}>
+              <div className={`text-[10px] uppercase tracking-widest ${tone}`}>{label} · {names.length}</div>
+              <div className={`text-[11px] font-mono ${c.text}`}>{names.join(', ')}</div>
+            </div>
+          ))}
+        </div>
+        <p className={`text-[10px] ${c.muted}`}>
+          Was die Domain kennt, gilt: Methode, Pfad, Bodies, die Felder von In und Out, die Typen der API. Was nur die Collection hat,
+          bleibt: Mappings, eigene Felder, Query und Header aus einer OpenAPI, Status und Beschreibung.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} className={`text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
+          <button onClick={onApply} autoFocus className={`text-[11px] px-3 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>Abgleichen</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -308,3 +308,106 @@ test('the base of the company: suggested from the paths, its placeholders are no
   const leftover = { ...s, params: [{ name: 'bankNumber', in: 'path' as const, type: 'String', required: true, expression: '' }, ...s.params] };
   assert.deepEqual(serviceIssues(withBase, leftover), []);
 });
+
+test('Abgleich with the catalog: the domain wins where it knows, the collection keeps its own', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const { catalogProjects, collectionFromCatalog, syncWithCatalog } = await import('../src/services/catalogCollections');
+  const task = (name: string, extra = '') => `package acme.crm.domain
+package rule.v1
+
+import acme.crm.domain.rule.v1.schema.*
+
+object ${name} extends RuleV1:
+
+  final val topicName = "acme-crm-ruleV1.${name}"
+  val path  = "GET: /banks/{bankNumber}/clients/{clientKey}/${name.toLowerCase()}"
+
+  type ServiceIn  = NoInput
+  type ServiceOut = Seq[Rule]
+
+  case class In(
+      clientKey: Long${extra}
+  )
+  case class Out(
+      rules: Seq[Rule]
+  )
+end ${name}
+`;
+  const rule = `package acme.crm.domain
+package rule.v1.schema
+
+case class Rule(
+    name: String,
+    active: Boolean
+)
+`;
+  const custom = `package acme.crm.domain
+package rule.v1
+
+object UpdateRules
+    extends CompanyBpmnCustomTaskDsl:
+
+  final val topicName = "acme-crm-ruleV1.UpdateRules"
+
+  case class In(
+      clientKey: Long
+  )
+end UpdateRules
+`;
+  const modelOf = (sources: string[], names: string[]) => ({
+    version: 1,
+    domainTypes: sources.flatMap((src, i) => scanScala(src, `F${i}.scala`)),
+    services: names.map(n => ({ id: `acme-crm-ruleV1.${n}`, name: n, kind: 'service', topic: `acme-crm-ruleV1.${n}` })),
+  }) as never;
+  const now = modelOf([task('GetRules', ',\n      limit: Option[Int]'), task('GetOldRules'), rule, custom], ['GetRules', 'GetOldRules', 'UpdateRules']);
+
+  // an older import: no path, the body as a reference into the catalog, the custom worker taken over
+  const p = catalogProjects(now)[0];
+  const base = collectionFromCatalog(p, p.apis, now);
+  const getRules = base.services.find(s => s.name === 'GetRules')!;
+  const inType = base.types.find(t => t.id === getRules.inTypeId)!;
+  const older = {
+    ...base,
+    pathBase: undefined,
+    types: [
+      ...base.types.filter(t => !t.domainId).map(t => t.id === inType.id
+        ? { ...t, fields: [...t.fields!.filter(f => f.name !== 'limit'), { id: 'mine', name: 'reason', type: 'String', optional: true }] }
+        : t),
+      { id: 'u1', name: 'In', kind: 'case' as const, interactionId: 'custom', fields: [] },
+    ],
+    services: [
+      ...base.services.filter(s => s.name === 'GetRules').map(s => ({
+        ...s, path: '', params: [], fromCatalog: undefined,
+        serviceOut: { type: 'dom:acme.crm.domain.rule.v1.schema.Rule', collection: true },
+        outMappings: [{ name: 'rules', expression: '= body' }],
+        status: 'draft' as const,
+      })),
+      { id: 'custom', name: 'UpdateRules', api: 'rule', apiVersion: 1, status: 'implemented' as const, method: 'GET' as const, path: '', params: [], inTypeId: 'u1' },
+    ],
+  };
+  const r = syncWithCatalog(older, now)!;
+  assert.deepEqual(r.added, ['GetOldRules']);
+  assert.deepEqual(r.updated, ['GetRules']);
+  assert.deepEqual(r.removed, ['UpdateRules']);
+  assert.deepEqual(r.addedTypes, ['Rule']);
+  const c = r.spec;
+  assert.equal(c.pathBase, '/banks/{bankNumber}');
+  const s = c.services.find(x => x.name === 'GetRules')!;
+  assert.equal(s.id, getRules.id);
+  assert.equal(`${s.method} ${s.path}`, 'GET /banks/{bankNumber}/clients/{clientKey}/getrules');
+  assert.deepEqual(s.params.map(x => `${x.name}=${x.expression}`), ['clientKey== clientKey']);
+  // the reference into the catalog is now the type of the collection
+  const ruleType = c.types.find(t => t.name === 'Rule')!;
+  assert.deepEqual(s.serviceOut, { type: ruleType.id, collection: true });
+  assert.deepEqual(ruleType.fields?.map(f => f.name), ['name', 'active']);
+  // In: the fields of the domain, then the own one; mappings and status stay
+  assert.deepEqual(c.types.find(t => t.id === s.inTypeId)?.fields?.map(f => f.name), ['clientKey', 'limit', 'reason']);
+  assert.deepEqual(s.outMappings, [{ name: 'rules', expression: '= body' }]);
+  assert.equal(s.status, 'draft');
+  assert.ok(!c.types.some(t => t.id === 'u1'));
+  assert.deepEqual(serviceIssues(c, s), []);
+
+  // a second Abgleich has nothing to do
+  const again = syncWithCatalog(c, now)!;
+  assert.deepEqual([again.added, again.updated, again.removed, again.addedTypes], [[], [], [], []]);
+});

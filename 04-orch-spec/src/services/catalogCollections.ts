@@ -25,7 +25,7 @@ import { isCompoundType, typeShape, type TypeShape } from '../scalaTypes';
 import { domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
-import { apiOf, basePathParams, collectionPackage, newCollection, serviceTopic, suggestPathBase, type ApiRef } from './collection';
+import { apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
@@ -235,4 +235,141 @@ export function describedTopics(collections: ServiceCollectionSpec[]): Map<strin
   const out = new Map<string, string>();
   for (const c of collections) for (const s of c.services) out.set(serviceTopic(apiOf(c, s), s), c.title || c.slug);
   return out;
+}
+
+// ── Abgleich: a collection against the catalog ─────────────────────────────
+
+export interface CatalogSync {
+  spec: ServiceCollectionSpec;
+  /** new services of its APIs */
+  added: string[];
+  /** services whose request, In/Out or types changed */
+  updated: string[];
+  /** workers that are no REST service (a CustomTask) — taken over by an older import */
+  removed: string[];
+  /** types of the API new in the collection */
+  addedTypes: string[];
+}
+
+const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
+  ...t,
+  ...(t.fields ? { fields: t.fields.map(f => ({ ...f, type: map(f.type) })) } : {}),
+  ...(t.values ? { values: t.values.map(v => (v.fields ? { ...v, fields: v.fields.map(f => ({ ...f, type: map(f.type) })) } : v)) } : {}),
+});
+
+/**
+ * Compare a collection with the catalog of its project — without starting anew. What the
+ * domain knows wins (request, bodies, the fields of In and Out, the types of the API); what
+ * only the collection has stays: its mappings, further In/Out fields, query and headers of
+ * an OpenAPI, status and description. Services of its APIs the collection lacks are added,
+ * custom workers an older import took over are removed. `null`: the catalog does not know the project.
+ */
+export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): CatalogSync | null {
+  const project = catalogProjects(model).find(p => p.project === c.project);
+  if (!project) return null;
+  const apis = project.apis.filter(a => apisOf(c).some(x => sameApi(x, a)));
+  if (!apis.length) return null;
+  const fresh = collectionFromCatalog(project, apis, model, c.title);
+  const keyOf = (s: CollectionService) => serviceTopic(apiOf(c, s), s);
+  const freshByKey = new Map(fresh.services.map(s => [keyOf(s), s]));
+  const known = new Set((model?.services ?? []).map(s => s.topic ?? s.id));
+  const pathBase = c.pathBase ?? fresh.pathBase;
+
+  // fresh type id → the id it has in the collection (In/Out of a service, a type of the same domain class or name)
+  const ids = new Map<string, string>();
+  for (const s of c.services) {
+    const f = freshByKey.get(keyOf(s));
+    if (!f) continue;
+    if (f.inTypeId && s.inTypeId) ids.set(f.inTypeId, s.inTypeId);
+    if (f.outTypeId && s.outTypeId) ids.set(f.outTypeId, s.outTypeId);
+  }
+  const own = c.types.filter(t => !t.interactionId);
+  for (const t of fresh.types.filter(x => !x.interactionId)) {
+    const hit = own.find(x => t.domainId && x.domainId === t.domainId) ?? own.find(x => !x.domainId && x.name === t.name);
+    if (hit) ids.set(t.id, hit.id);
+  }
+  const byDomain = new Map<string, string>();
+  for (const t of fresh.types) if (t.domainId) byDomain.set(t.domainId, ids.get(t.id) ?? t.id);
+  // a fresh id to the collection's; a reference into the catalog to the type the collection has now
+  const mapType = (type: string): string => {
+    const dom = type.startsWith('dom:') ? byDomain.get(type.slice(4)) : undefined;
+    return ids.get(type) ?? dom ?? type;
+  };
+  const mapBody = (b: BodyRef | undefined) => (b ? { ...b, type: mapType(b.type) } : b);
+
+  const removed: string[] = [];
+  const updated: string[] = [];
+  const types = new Map(c.types.map(t => [t.id, fieldTypes(t, mapType)]));
+  const services: CollectionService[] = [];
+  for (const s of c.services) {
+    const f = freshByKey.get(keyOf(s));
+    if (!f) {
+      // the catalog knows it, but not as a service: a custom worker — otherwise the collection's own one
+      if (known.has(keyOf(s)) && !s.operationId) { removed.push(s.name); for (const id of [s.inTypeId, s.outTypeId]) if (id) types.delete(id); continue; }
+      services.push(s);
+      continue;
+    }
+    const before = JSON.stringify([s, types.get(s.inTypeId ?? ''), types.get(s.outTypeId ?? '')]);
+    // In and Out: the fields of the domain, then those only the collection has
+    for (const [mine, theirs] of [[s.inTypeId, f.inTypeId], [s.outTypeId, f.outTypeId]] as const) {
+      const cur = mine ? types.get(mine) : undefined;
+      const dom = fresh.types.find(t => t.id === theirs);
+      if (!cur || !dom) continue;
+      const domFields = (dom.fields ?? []).map(df => {
+        const old = cur.fields?.find(x => x.name === df.name);
+        return { ...df, ...(old ? { id: old.id } : {}), type: mapType(df.type) };
+      });
+      const extra = (cur.fields ?? []).filter(x => !domFields.some(d => d.name === x.name));
+      types.set(cur.id, { ...cur, fields: [...domFields, ...extra] });
+    }
+    // the request: path parameters from the domain (with the value the collection gave), query and headers stay
+    const params = f.path
+      ? [
+          ...f.params.map(p => {
+            const old = s.params.find(x => x.in === p.in && x.name === p.name);
+            return { ...p, type: mapType(p.type), ...(old?.expression.trim() ? { expression: old.expression } : {}) };
+          }),
+          ...s.params.filter(p => p.in !== 'path'),
+        ]
+      : s.params;
+    const next: CollectionService = {
+      ...s,
+      ...(f.path ? { method: f.method, path: f.path } : {}),
+      params,
+      ...(f.serviceIn ? { serviceIn: mapBody(f.serviceIn) } : {}),
+      ...(f.serviceOut ? { serviceOut: mapBody(f.serviceOut) } : {}),
+      ...(!s.description && f.description ? { description: f.description } : {}),
+    };
+    // still to complete by an OpenAPI — unless one did it already
+    if (!f.path || s.operationId || (s.path && !s.fromCatalog)) delete next.fromCatalog;
+    else next.fromCatalog = true;
+    if (!f.serviceIn && s.fromCatalog) delete next.serviceIn;
+    services.push(next);
+    if (JSON.stringify([next, types.get(next.inTypeId ?? ''), types.get(next.outTypeId ?? '')]) !== before) updated.push(s.name);
+  }
+  // new services of the APIs
+  const have = new Set(c.services.map(keyOf));
+  const added = fresh.services.filter(f => !have.has(keyOf(f)));
+  for (const f of added) {
+    services.push({ ...f, params: f.params.map(p => ({ ...p, type: mapType(p.type) })), serviceIn: mapBody(f.serviceIn), serviceOut: mapBody(f.serviceOut) });
+    for (const id of [f.inTypeId, f.outTypeId]) {
+      const t = fresh.types.find(x => x.id === id);
+      if (t) types.set(t.id, fieldTypes(t, mapType));
+    }
+  }
+  // the types of the API: the domain's version, under the id the collection gives it
+  const addedTypes: string[] = [];
+  for (const t of fresh.types.filter(x => !x.interactionId)) {
+    const id = ids.get(t.id) ?? t.id;
+    const cur = types.get(id);
+    if (!cur) addedTypes.push(t.name);
+    types.set(id, { ...fieldTypes({ ...t, id }, mapType), ...(cur?.description && !t.description ? { description: cur.description } : {}) });
+  }
+  // the base the company sets: no parameter of a service
+  const spec: ServiceCollectionSpec = { ...c, ...(pathBase ? { pathBase } : {}), services, types: [...types.values()] };
+  spec.services = spec.services.map(s => {
+    const fromBase = basePathParams(spec, s);
+    return fromBase.size ? { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) } : s;
+  });
+  return { spec, added: added.map(s => s.name), updated, removed, addedTypes };
 }
