@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings } from '../src/patterns';
+import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import type { EngineId, PatternDef } from '../src/types';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -101,6 +102,34 @@ test('Init Process: the topic is the process ID - another topic is not the patte
 test('the standard patterns cannot be changed by a caller', () => {
   assert.throws(() => (patternDefs(null) as PatternDef[]).push({ id: 'x', name: 'x', appliesTo: [], bpmn: {} }));
   assert.throws(() => { (STANDARD_PATTERNS[0] as { name: string }).name = 'x'; });
+  // also deep down: the BPMN and the element types
+  assert.throws(() => { (STANDARD_PATTERNS[0].bpmn as Record<string, string>).c7 = 'x'; });
+  assert.throws(() => { STANDARD_PATTERNS[0].appliesTo.push('userTask'); });
+});
+
+test('an existing process without own patterns: import and sync find the standard pattern, once', () => {
+  const std = STANDARD_PATTERNS.find(p => p.id === 'propagate-mocks')!;
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = applyPattern(diagram(engine, 'callActivity'), std, engine, 'Target').xml;
+    const target = (s: { steps?: Parameters<typeof allSteps>[0] }) => allSteps(s.steps).find(x => x.id === 'Target');
+    // before: nothing recognised; now: the chip on the call activity
+    const before = importBpmn(xml, 'demo.bpmn', { patterns: undefined }).spec;
+    assert.equal(target(before)?.patterns, undefined, engine);
+    const fresh = importBpmn(xml, 'demo.bpmn', { patterns: patternDefs(null) }).spec;
+    assert.deepEqual(target(fresh)?.patterns?.map(a => a.id), ['propagate-mocks'], engine);
+    // on load, the spec from before gets it once — the next sync changes nothing more
+    const synced = syncPatterns(before, fresh);
+    assert.ok(synced, engine);
+    assert.deepEqual(target(synced!)?.patterns?.map(a => a.id), ['propagate-mocks'], engine);
+    assert.equal(syncPatterns(synced!, fresh), null, engine);
+  }
+});
+
+test('the findings leave out the inputs a standard pattern brings', () => {
+  const m = patternMappings(patternDefs(null), [{ id: 'propagate-mocks', params: {} }], 'c8');
+  assert.deepEqual([...m.inputs.keys()].sort(), ['_identityCorrelation', '_mockedWorkers', '_servicesMocked']);
+  // without the standard patterns there was nothing to leave out
+  assert.equal(patternMappings([], [{ id: 'propagate-mocks', params: {} }], 'c8').inputs.size, 0);
 });
 
 for (const def of STANDARD_PATTERNS) {
