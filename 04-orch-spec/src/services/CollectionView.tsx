@@ -7,7 +7,7 @@
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
 import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, ListOrdered, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
 import FeelInput from '../components/FeelInput';
@@ -45,6 +45,21 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [exportOpen, setExportOpen] = useState(false);
   /** the Abgleich to look at before it applies */
   const [syncPreview, setSyncPreview] = useState<CatalogSync | null>(null);
+  // the part of the service in view — marked in the outline on the left
+  const pane = useRef<HTMLDivElement>(null);
+  const [activePart, setActivePart] = useState<ServicePart | null>(null);
+  const spy = useCallback(() => {
+    const el = pane.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + 24;
+    let current: ServicePart | null = null;
+    for (const node of el.querySelectorAll<HTMLElement>('[data-part]')) if (node.getBoundingClientRect().top <= top) current = node.dataset.part as ServicePart;
+    setActivePart(current ?? 'in');
+  }, []);
+  const jumpTo = useCallback((part: ServicePart) => {
+    document.getElementById(partAnchor(part))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+  useEffect(() => { setActivePart('in'); pane.current?.scrollTo({ top: 0 }); }, [selection]);
   const catalogProjectNames = useMemo(() => new Set(catalogProjects(model).map(p => p.project)), [model]);
   /** what the last Abgleich did (or that there was nothing to do) */
   const [syncNote, setSyncNote] = useState('');
@@ -201,7 +216,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
             {spec.services.filter(s => sameApi(apiOf(spec, s), a)).map(s => {
               const issues = serviceIssues(spec, s);
               return (
-                <button key={s.id} onClick={() => setSelection({ kind: 'service', id: s.id })}
+                <Fragment key={s.id}>
+                <button onClick={() => setSelection({ kind: 'service', id: s.id })}
                   className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${service?.id === s.id ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
                   <MethodChip method={s.method} isDark={isDark} />
                   <span className="min-w-0 flex-1">
@@ -211,6 +227,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
                   {issues.length > 0 && <span title={issues.join('\n')}><AlertTriangle size={10} className={isDark ? 'text-amber-300' : 'text-amber-600'} /></span>}
                   <StatusChip status={s.status} isDark={isDark} muted={s.status === 'implemented'} />
                 </button>
+                {service?.id === s.id && <ServiceOutline spec={spec} service={s} active={activePart} isDark={isDark} onJump={jumpTo} />}
+                </Fragment>
               );
             })}
               </div>
@@ -239,7 +257,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
 
         {/* the chosen service, type or the overview */}
-        <div className="flex-1 min-w-0 overflow-y-auto">
+        <div ref={pane} onScroll={spy} className="flex-1 min-w-0 overflow-y-auto">
           {service ? (
             <ServiceEditor key={service.id} spec={spec} service={service} canEdit={canEdit}
               onPatch={patch => patchService(service.id, patch)}
@@ -475,13 +493,13 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         className={`w-full resize-y ${input}`} />
 
       {/* the ServiceWorkerDsl in the order the worker runs: In → request → ServiceIn … ServiceOut → Out */}
-      <Section title="In" hint="case class In — was der Prozess dem Service gibt; die Variablen dazu ergänzen" isDark={isDark}>
+      <Section id="in" title="In" hint="case class In — was der Prozess dem Service gibt; die Variablen dazu ergänzen" isDark={isDark}>
         {inType
           ? <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
           : <p className={`text-[11px] ${c.muted}`}>kein In</p>}
       </Section>
 
-      <Section title="apiUri(in)" hint="method und Pfad — die Pfad-Parameter aus dem In" isDark={isDark}>
+      <Section id="apiUri" title="apiUri(in)" hint="method und Pfad — die Pfad-Parameter aus dem In" isDark={isDark}>
         <div className="flex items-center gap-2">
           <select value={s.method} disabled={!canEdit} onChange={e => onPatch({ method: e.target.value as HttpMethod })} className={`${input} font-mono`}>
             {HTTP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
@@ -497,15 +515,15 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         {params('path')}
       </Section>
 
-      <Section title="querySegments(in)" hint="Query-Parameter aus dem In" isDark={isDark}>
+      <Section id="query" title="querySegments(in)" hint="Query-Parameter aus dem In" isDark={isDark}>
         {params('query', 'keine — Seq.empty')}
       </Section>
 
-      <Section title="inputHeaders(in)" hint="Header der Anfrage aus dem In" isDark={isDark}>
+      <Section id="headers" title="inputHeaders(in)" hint="Header der Anfrage aus dem In" isDark={isDark}>
         {params('header', 'keine — Map.empty')}
       </Section>
 
-      <Section title="inputMapper(in): ServiceIn" hint="der Body der Anfrage aus dem In" isDark={isDark}>
+      <Section id="inputMapper" title="inputMapper(in): ServiceIn" hint="der Body der Anfrage aus dem In" isDark={isDark}>
         <BodyPicker label="type ServiceIn" none="kein Body — NoInput" value={s.serviceIn} spec={spec} canEdit={canEdit} isDark={isDark}
           onChange={serviceIn => onPatch({ serviceIn })} onOpenType={onOpenType} />
         {bodyType && (
@@ -523,7 +541,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         )}
       </Section>
 
-      <Section title="ServiceOut" hint="die Antwort der API — Body, Status und Header (ServiceResponse)" isDark={isDark}>
+      <Section id="serviceOut" title="ServiceOut" hint="die Antwort der API — Body, Status und Header (ServiceResponse)" isDark={isDark}>
         <BodyPicker label="type ServiceOut" none="kein Body — NoOutput" value={s.serviceOut} spec={spec} canEdit={canEdit} isDark={isDark} allowOptional
           onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType} />
         <div className="flex items-center gap-2 text-[11px]">
@@ -537,7 +555,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         </div>
       </Section>
 
-      <Section title="outputMapper(serviceOut, in): Out" hint="je Feld des Out, woher es kommt — FEEL auf body, headers und das In" isDark={isDark}>
+      <Section id="outputMapper" title="outputMapper(serviceOut, in): Out" hint="je Feld des Out, woher es kommt — FEEL auf body, headers und das In" isDark={isDark}>
         {outType && (outType.fields ?? []).some(f => f.name)
           ? (outType.fields ?? []).filter(f => f.name).map(f => {
               const m = (s.outMappings ?? []).find(x => x.name === f.name);
@@ -550,11 +568,66 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
           : <p className={`text-[10px] ${c.muted}`}>Das Out hat keine Felder — <span className="font-mono">NoOutput</span>, kein outputMapper.</p>}
       </Section>
 
-      <Section title="Out" hint="case class Out — was der Prozess vom Service bekommt" isDark={isDark}>
+      <Section id="out" title="Out" hint="case class Out — was der Prozess vom Service bekommt" isDark={isDark}>
         {outType
           ? <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
           : <p className={`text-[11px] ${c.muted}`}>kein Out</p>}
       </Section>
+    </div>
+  );
+}
+
+// ── the parts of a service — as the ServiceWorkerDsl runs ─────────────────────
+
+const SERVICE_PARTS = ['in', 'apiUri', 'query', 'headers', 'inputMapper', 'serviceOut', 'outputMapper', 'out'] as const;
+type ServicePart = (typeof SERVICE_PARTS)[number];
+const PART_LABEL: Record<ServicePart, string> = {
+  in: 'In', apiUri: 'apiUri', query: 'querySegments', headers: 'inputHeaders',
+  inputMapper: 'inputMapper → ServiceIn', serviceOut: 'ServiceOut', outputMapper: 'outputMapper → Out', out: 'Out',
+};
+const partAnchor = (part: ServicePart) => `service-part-${part}`;
+
+/** Name of a body or field type: an own type, a type of the domain or a scalar. */
+function typeLabel(spec: ServiceCollectionSpec, type: string, model: ReturnType<typeof useStore>['model']): string {
+  const dom = parseDomainRef(type);
+  if (dom) return model?.domainTypes?.find(t => t.id === dom)?.name ?? dom.split('.').pop() ?? dom;
+  return spec.types.find(t => t.id === type)?.name ?? type;
+}
+
+/** The parts of the selected service in the sidebar — what each holds, a click jumps there. */
+function ServiceOutline({ spec, service: s, active, isDark, onJump }: {
+  spec: ServiceCollectionSpec; service: CollectionService; active: ServicePart | null; isDark: boolean; onJump: (part: ServicePart) => void;
+}) {
+  const { model } = useStore();
+  const c = cls(isDark);
+  const { in: inType, out: outType } = membersOf(spec, s);
+  const fromBase = basePathParams(spec, s);
+  const count = (where: 'path' | 'query' | 'header') => s.params.filter(p => p.in === where && !(where === 'path' && fromBase.has(p.name))).length;
+  const body = (b: BodyRef | undefined, none: string) => (b ? `${b.collection ? 'Seq[' : ''}${typeLabel(spec, b.type, model)}${b.collection ? ']' : ''}${b.optional ? '?' : ''}` : none);
+  const outFields = (outType?.fields ?? []).filter(f => f.name);
+  const mapped = outFields.filter(f => (s.outMappings ?? []).some(m => m.name === f.name && m.expression.trim())).length;
+  const n = (k: number, one: string, many: string) => (k ? `${k} ${k === 1 ? one : many}` : '—');
+  const detail: Record<ServicePart, string> = {
+    in: n((inType?.fields ?? []).filter(f => f.name).length, 'Feld', 'Felder'),
+    apiUri: `${s.method} · ${n(count('path'), 'Parameter', 'Parameter')}`,
+    query: n(count('query'), 'Parameter', 'Parameter'),
+    headers: n(count('header'), 'Header', 'Header'),
+    inputMapper: body(s.serviceIn, 'NoInput'),
+    serviceOut: body(s.serviceOut, 'NoOutput'),
+    outputMapper: outFields.length ? `${mapped}/${outFields.length}` : '—',
+    out: n(outFields.length, 'Feld', 'Felder'),
+  };
+  const open = outFields.length - mapped;
+  return (
+    <div className={`ml-5 mt-0.5 mb-1 pl-2 border-l ${c.border2}`}>
+      {SERVICE_PARTS.map(part => (
+        <button key={part} onClick={() => onJump(part)}
+          className={`w-full flex items-center gap-2 px-1.5 py-0.5 rounded text-left ${c.hover} ${active === part ? (isDark ? 'bg-white/10' : 'bg-black/5') : ''}`}>
+          <span className={`flex-1 truncate text-[10px] font-mono ${active === part ? c.text : c.muted2}`}>{PART_LABEL[part]}</span>
+          <span className={`truncate max-w-[9rem] text-[9px] font-mono ${part === 'outputMapper' && open > 0 ? (isDark ? 'text-amber-300' : 'text-amber-700') : c.muted}`}
+            title={part === 'outputMapper' && open > 0 ? `${open} Feld(er) des Out ohne Mapping` : detail[part]}>{detail[part]}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -566,10 +639,10 @@ function upsert(list: Mapping[] | undefined, name: string, expression: string): 
   return next.length ? next : undefined;
 }
 
-function Section({ title, hint, isDark, children }: { title: string; hint: string; isDark: boolean; children: React.ReactNode }) {
+function Section({ id, title, hint, isDark, children }: { id: ServicePart; title: string; hint: string; isDark: boolean; children: React.ReactNode }) {
   const c = cls(isDark);
   return (
-    <div className={`rounded border ${c.border2}`}>
+    <div id={partAnchor(id)} data-part={id} className={`rounded border scroll-mt-3 ${c.border2}`}>
       <div className={`px-3 py-1.5 border-b ${c.border} flex items-baseline gap-2`}>
         <span className={`text-[11px] font-mono font-semibold whitespace-nowrap ${c.text}`}>{title}</span>
         <span className={`text-[10px] ${c.muted}`}>{hint}</span>
