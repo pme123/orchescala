@@ -12,7 +12,7 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Download, FileUp, Pencil, Plus, Puzzle, Trash2, Upload } from 'lucide-react';
 import type { EngineId, Model, PatternDef, PatternParam } from '../types';
-import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
+import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, STANDARD_PATTERNS, isStandardPattern, patternDefs, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
 import { cls, patternTone } from '../ui';
 import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
@@ -27,12 +27,14 @@ type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>
 
 /** State for status bar and card header */
 export function patternState(model: Model): { tone: 'ok' | 'off' | 'warn'; label: string; detail?: string } {
-  const all = model.patterns ?? [];
-  if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Pattern definiert' };
-  const bad = all.filter(p => Object.values(p.bpmn).every(x => !x) || Object.values(p.bpmn).some(x => x && 'error' in parseFragment(x)));
+  const own = model.patterns ?? [];
+  // the standard ones are always there (and tested) — the state is about the own ones
+  const std = patternDefs(model).filter(isStandardPattern);
+  const label = own.length ? `${own.length} eigene + ${std.length} Standard` : `${std.length} Standard`;
+  const bad = own.filter(p => Object.values(p.bpmn).every(x => !x) || Object.values(p.bpmn).some(x => x && 'error' in parseFragment(x)));
   return bad.length
-    ? { tone: 'warn', label: `${all.length} Pattern`, detail: `${bad.length} ohne lesbares BPMN` }
-    : { tone: 'ok', label: `${all.length} Pattern`, detail: all.map(p => p.name).join(', ') };
+    ? { tone: 'warn', label, detail: `${bad.length} eigene ohne lesbares BPMN` }
+    : { tone: 'ok', label, detail: patternDefs(model).map(p => p.name).join(', ') };
 }
 
 export default function PatternAdmin({ model, isDark, onSave, state }: { model: Model; isDark: boolean; onSave: Save; state: React.ReactNode }) {
@@ -110,6 +112,26 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
             </span>
           </div>
         ))}
+        {/* standard patterns of Orchescala — as BPMN, not editable; an own one with the same ID replaces it */}
+        {STANDARD_PATTERNS.map(p => {
+          const replaced = patterns.some(x => x.id === p.id);
+          return (
+            <div key={p.id} title={p.description}
+              className={`rounded-lg border flex items-center gap-2 px-3 py-2 ${c.border2} ${replaced ? 'opacity-50' : ''}`}>
+              <span className="w-3" />
+              <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-semibold ${patternTone(isDark)}`}>
+                <Puzzle size={10} />{p.name}
+              </span>
+              <span className={`text-[10px] font-mono ${c.muted}`}>{p.id}</span>
+              <span className={`text-[10px] truncate ${c.muted}`}>— {replaced ? 'Standard, ersetzt durch das eigene Pattern unten' : 'Standard in Orchescala'}</span>
+              {p.docUrl && <a href={p.docUrl} target="_blank" rel="noreferrer" className={`text-[10px] underline ${c.muted}`}>Doku</a>}
+              <span className="ml-auto flex items-center gap-1">
+                {appliesTo(p).map(t => <span key={t} className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted2}`}>{targetLabel(t)}</span>)}
+                <span className={`text-[9px] font-mono ${c.muted}`}>{(['c7', 'c8'] as const).filter(e => p.bpmn[e]).map(e => e.toUpperCase()).join(' ')}</span>
+              </span>
+            </div>
+          );
+        })}
         {patterns.map(p => (
           <PatternRow key={p.id} def={p} isDark={isDark} open={open === p.id}
             onToggle={() => setOpen(open === p.id ? null : p.id)}
@@ -121,7 +143,7 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
             }}
             onDelete={() => { void speichern(patterns.filter(x => x.id !== p.id), 'Gelöscht'); setOpen(null); }} />
         ))}
-        {!patterns.length && <p className={`text-[11px] ${c.muted}`}>Noch keine Pattern. Neu anlegen oder eine Pattern-Datei importieren.</p>}
+        {!patterns.length && <p className={`text-[11px] ${c.muted}`}>Noch keine eigenen Pattern. Neu anlegen oder eine Pattern-Datei importieren — gleiche ID ersetzt ein Standard-Pattern.</p>}
         <SaveRow onSave={neu} flash={flash} isDark={isDark} label="Neues Pattern">
           <button onClick={() => fileRef.current?.click()} title="Pattern-Datei importieren — gleiche ID wird ersetzt, die übrigen bleiben"
             className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
