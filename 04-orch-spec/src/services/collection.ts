@@ -133,7 +133,8 @@ export function suggestOutMappings(c: Pick<ServiceCollectionSpec, 'types'>, s: C
   const { in: inType, out } = membersOf(c as ServiceCollectionSpec, s);
   const have = new Set((s.outMappings ?? []).map(m => m.name));
   const body = s.serviceOut;
-  const bodyCase = body && !body.collection ? c.types.find(t => t.id === body.type && t.kind === 'case') : undefined;
+  // a class, or an ADT with the fields all its cases share (`ClientRead.master`)
+  const bodyCase = body && !body.collection ? c.types.find(t => t.id === body.type) : undefined;
   const mappings: Mapping[] = [];
   const headers: string[] = [];
   for (const f of out?.fields ?? []) {

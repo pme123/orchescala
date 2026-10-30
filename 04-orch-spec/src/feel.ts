@@ -81,6 +81,10 @@ export const conditionExpected = (_engine?: EngineId): ExpectedType =>
 export interface FeelIssue {
   level: 'error' | 'warn';
   text: string;
+  /** `optional`: an optional value on a required field — where a step guards it, only a note */
+  code?: 'optional';
+  /** the optional path, for `optional` */
+  path?: string;
 }
 
 const isScalar = (t: string): boolean => (SCALA_TYPES as readonly string[]).includes(t);
@@ -888,7 +892,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
     const opt = optionalOnPath(body, vars);
     if (opt) {
       issues.push({
-        level: 'warn',
+        level: 'warn', code: 'optional', path: opt.path,
         text: `«${opt.path}» ist optional (${opt.label}) — «${expected.label}» verlangt aber einen Wert. Vorgabe setzen oder absichern (\`if … != null then … else …\`).`,
       });
     }

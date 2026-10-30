@@ -437,4 +437,7 @@ test('the obvious outputMapper: headers, the whole body, a body field, an In fie
   // a field of the body's own type takes it whole
   const whole = suggestOutMappings({ types: [...types.slice(0, 2), { ...types[2], fields: [{ id: 'w', name: 'client', type: 'body' }] }] }, s);
   assert.deepEqual(whole.mappings, [{ name: 'client', expression: '= body' }]);
+  // an ADT as body: the fields all its cases share
+  const adt = { id: 'body', name: 'Client', kind: 'enum' as const, fields: [{ id: 'b1', name: 'name', type: 'String' }], values: [{ name: 'a' }, { name: 'b' }] };
+  assert.deepEqual(suggestOutMappings({ types: [adt, ...types.slice(1)] }, s).mappings[0], { name: 'name', expression: '= body.name' });
 });
