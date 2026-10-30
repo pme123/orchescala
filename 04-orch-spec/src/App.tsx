@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow, Sparkles } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow, Sparkles, Boxes } from 'lucide-react';
 import { SettingsDialog } from './ai/SettingsDialog';
 import { aiEnabled, useAiKey } from './ai/key';
 import { useStore } from './store';
@@ -17,11 +17,15 @@ import FeelCheatSheet from './components/FeelCheatSheet';
 const AdminView = lazy(() => import('./components/AdminView'));
 const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
+// the services (collections) — like the pages a chunk of their own
+const ServicesView = lazy(() => import('./services/ServicesView'));
+const CollectionView = lazy(() => import('./services/CollectionView'));
 import { cls } from './ui';
 import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
-  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string };
+  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string }
+  | { kind: 'services' } | { kind: 'service'; slug: string };
 
 // Deep link (?spec=<slug>&comment=<id> or ?page=<slug>&comment=<id> for a page, see util.deepLink): on start take it from
 // the URL and remember it in the tab — so it survives the login redirect — and
@@ -183,7 +187,7 @@ export default function App() {
   const textBase = isDark ? 'text-white' : 'text-black';
   const textMuted = isDark ? 'text-white/40' : 'text-black/40';
   // the process view and the page editor use the whole width — no margins, no scrollbar track
-  const fullWidth = view.kind === 'spec' || view.kind === 'page';
+  const fullWidth = view.kind === 'spec' || view.kind === 'page' || view.kind === 'service';
   // the navigation (and the word mark as a link to the list) only once a folder is open and access is granted
   const navOn = !gated && !denied && !!dirHandle && !!model;
 
@@ -233,6 +237,10 @@ export default function App() {
                     active={view.kind === 'list' || view.kind === 'spec'}
                     title="Prozesse — alle Prozess-Spezifikationen"
                     onClick={() => setView({ kind: 'list' })} />
+                  <HeaderButton isDark={isDark} icon={<Boxes size={12} />} label="Services"
+                    active={view.kind === 'services' || view.kind === 'service'}
+                    title="Services — Collections von REST-Services aus einer OpenAPI (services/*.json)"
+                    onClick={() => setView({ kind: 'services' })} />
                   <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
                     title="Seiten der App - öffentlich oder mit Login, mit Live-Vorschau (pages/*.json)"
                     onClick={() => setView({ kind: 'pages' })} />
@@ -424,6 +432,14 @@ export default function App() {
           <StartCard isDark={isDark} icon={<FolderOpen size={20} />} title="Ordner wird gelesen" lead="model.json und processes/ …" />
         ) : view.kind === 'list' ? (
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
+        ) : view.kind === 'services' ? (
+          <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
+            <ServicesView onOpen={slug => setView({ kind: 'service', slug })} />
+          </Suspense>
+        ) : view.kind === 'service' ? (
+          <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
+            <CollectionView key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'services' })} />
+          </Suspense>
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
             <PagesView onOpen={(slug, aiPrompt, notice) => setView({ kind: 'page', slug, aiPrompt, notice })}

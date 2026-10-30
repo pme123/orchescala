@@ -150,6 +150,8 @@ interface StoreCtx {
   knownUsers: DirectoryUser[];
   searchDirectory: (query: string) => Promise<DirectorySearchResult>;
   requestDirectoryConsent: () => Promise<void>;
+  /** the backend of the open folder — for the other kinds of files (services/, see services/store.tsx) */
+  getBackend: () => StorageBackend | null;
 }
 
 // The chosen data folder is remembered as a handle (see `handles.ts`).
@@ -933,6 +935,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const mergedModel = useMemo(() => (model ? mergeGeneratedCatalog(model, generatedCatalog) : model), [model, generatedCatalog]);
 
   const toggleTheme = () => setIsDark(d => !d);
+  const getBackend = useCallback(() => backendRef.current, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
@@ -949,7 +952,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       modelPath, legacyModelLeftover,
       specs, specsLoading, refreshSpecs, loadSpec, saveSpec, loadAudit, createSpec, deleteSpec, loadBpmn, saveBpmn, loadDmn, saveDmn,
       pages, pagesApp, pagesUnreadable, savePage, loadPageAudit, createPage, deletePage, savePagesApp,
-      knownUsers, searchDirectory, requestDirectoryConsent,
+      knownUsers, searchDirectory, requestDirectoryConsent, getBackend,
     }}>
       {children}
     </Ctx.Provider>

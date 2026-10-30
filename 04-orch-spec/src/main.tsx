@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import { StoreProvider } from './store';
+import { ServicesProvider } from './services/store';
 import { AuthProvider } from './auth';
 import { ConfirmProvider } from './components/Confirm';
 
@@ -14,9 +15,11 @@ if (window.self !== window.top) {
   <React.StrictMode>
     <AuthProvider>
       <StoreProvider>
-        <ConfirmProvider>
-          <App />
-        </ConfirmProvider>
+        <ServicesProvider>
+          <ConfirmProvider>
+            <App />
+          </ConfirmProvider>
+        </ServicesProvider>
       </StoreProvider>
     </AuthProvider>
   </React.StrictMode>

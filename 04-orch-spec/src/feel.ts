@@ -211,6 +211,15 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
  * its required twin with a default there), then the `InConfig` (always with
  * default), then the `In`, the process variables and the outputs.
  */
+/**
+ * Variables from the fields of a type — for the services: the `In`, the body of
+ * the response and its headers are what a mapping there can read.
+ */
+export function fieldVariables(fields: Field[], source: string, types: TypeDef[], model: Model | null): VarNode[] {
+  const b: Builder = { idx: indexTypes(types, model), model };
+  return fields.filter(f => f.name).map(f => nodeOfField(f, source, b, 0, new Set()));
+}
+
 export function processVariables(spec: ProcessSpec, model: Model | null): VarNode[] {
   const types = spec.types ?? [];
   const b: Builder = { idx: indexTypes(types, model), model };
