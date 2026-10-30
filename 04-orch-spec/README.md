@@ -742,6 +742,25 @@ und nicht im BPMN — ihre Werte stehen in der Spezifikation:
   Entfernt man das Pattern, gehen die Felder mit. `processFromSpec` setzt die
   `processLabels` in ein Prozess-Objekt, das noch keine hat.
 
+**Standard-Pattern** bringt Orchescala als BPMN mit, für C7 und C8 — jede
+Firma hat sie, ohne sie zu pflegen. Im Admin stehen sie zur Ansicht; ein
+eigenes Pattern mit derselben ID ersetzt eines. Passt ein eigenes Pattern
+unter anderer ID an dieselbe Stelle, bekommt das spezifischere sie — bei
+gleichem BPMN das eigene; erkannt wird je Stelle nur eines. Beispielprozesse
+und Doku stehen in `democompany-patterns`:
+
+- **Init Process** (`init-process`, Service-Task): der erste Schritt, Topic =
+  Prozess-ID. Ist der Prozess gemockt, springt `output-mocked` über den Link
+  ans Ende mit `processStatus = output-mocked`.
+- **Identität übernehmen** (`identity-take-over`, leeres Zwischenereignis nach
+  einer Benutzeraufgabe): ab hier arbeitet der Prozess mit der Identität
+  dessen, der die Aufgabe erledigt hat.
+- **Identität zurücksetzen** (`identity-reset`, leeres Zwischenereignis):
+  wieder die Identität vor der Übernahme.
+- **Mocks und Identität weitergeben** (`propagate-mocks`, Call Activity):
+  `_servicesMocked`, `_mockedWorkers` und `_identityCorrelation` gehen an den
+  Teilprozess.
+
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
 
@@ -824,7 +843,10 @@ Prozesse dasselbe anders aus, trägt die Pattern-Datei weitere
 **Schreibweisen** (`variants`, je Engine eine Liste von Pattern-BPMN): die
 Erkennung nimmt sie auch an, entfernen nimmt heraus, was erkannt wurde —
 eingefügt wird immer das Pattern-BPMN selbst (so bringt «Werte ändern» ein
-altes Element auf die aktuelle Schreibweise).
+altes Element auf die aktuelle Schreibweise). Was ein Pattern auf einer Engine noch
+nicht leistet, steht unter **Einschränkungen** (`limitations`, je Engine ein
+Text): die Orch Spec sagt es beim Einfügen und in der Pattern-Verwaltung – nicht
+nur in der Beschreibung.
 
 Im **Baum** steht ein Pattern als Chip am Schritt; was es ins Diagramm bringt
 — Timer, Link, gemeinsamer Block — ist Verdrahtung und steht als **eine**

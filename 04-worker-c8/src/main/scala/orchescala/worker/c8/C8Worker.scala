@@ -1,6 +1,8 @@
 package orchescala.worker.c8
 
+import com.github.blemale.scaffeine.Scaffeine
 import io.camunda.client.CamundaClient
+import io.camunda.client.api.command.ClientHttpException
 import io.camunda.client.api.response.ActivatedJob
 import io.camunda.client.api.worker.{JobClient, JobHandler}
 import orchescala.domain.*
@@ -13,6 +15,7 @@ import zio.ZIO.*
 
 import java.time
 import java.util.Date
+import java.util.concurrent.TimeUnit
 import scala.jdk.CollectionConverters.*
 
 trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
@@ -182,10 +185,13 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       ZIO.attempt(EngineRunContext(
         c8Context,
         generalVariables,
-        // C8 delivers the root with the job - no lookup
         Some(JobProcessInstance(
           job.getProcessInstanceKey.toString,
-          ZIO.succeed(Option(job.getRootProcessInstanceKey).map(_.toString))
+          C8Worker.rootProcessInstanceId(
+            Option(job.getRootProcessInstanceKey).map(_.longValue),
+            job.getProcessInstanceKey,
+            camundaClient.map(C8Worker.fetchRootProcessInstanceKey)
+          )
         )),
         workerTimeoutForContext
       )).mapError(ex =>
@@ -429,6 +435,80 @@ object C8Worker:
           .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
           .filter(id => id.nonEmpty && id != processInstanceKey.toString)
       case _                      => None
+
+  // the process instance of a job -> its root; a root never changes - bounded, so a long-running
+  // worker app does not grow without end
+  private lazy val rootProcessInstances =
+    Scaffeine().maximumSize(10_000).expireAfterWrite(scala.concurrent.duration.FiniteDuration(1, "hour")).build[Long, String]()
+
+  // a sub process just started may not be in the engine's search data yet - wait a moment
+  private val rootLookupRetry: Schedule[Any, Any, Any] =
+    Schedule.spaced(500.millis) && Schedule.recurs(10)
+
+  // one lookup must not block the identity check for long
+  private val rootLookupTimeout = 10.seconds
+
+  /** The engine does not know the process instance (404) - a sub process just started may not be
+    * in its search data yet. The only error of the lookup that is tried again.
+    */
+  final case class ProcessInstanceNotFound(processInstanceKey: Long)
+      extends RuntimeException(s"process instance '$processInstanceKey' not found (404)")
+
+  /** The root process instance of a job - only needed for jobs in call activities, whose
+    * IdentityCorrelation is bound to the root (see `IdentityVerification.verifyBinding`).
+    *
+    * The REST job activation delivers it with the job. The gRPC one (the default) does not - the
+    * client sets it to null - so it is looked up in the engine (`lookup`), tried again on a 404
+    * and cached. Without `lookup` (no CamundaClient) there is no root.
+    */
+  def rootProcessInstanceId(
+      jobRoot: Option[Long],
+      processInstanceKey: Long,
+      lookup: Option[Long => Task[Option[Long]]],
+      retry: Schedule[Any, Any, Any] = rootLookupRetry
+  ): IO[String, Option[String]] =
+    (jobRoot, lookup) match
+      case (Some(root), _)    => ZIO.some(root.toString)
+      case (None, None)       => ZIO.none
+      case (None, Some(find)) =>
+        rootProcessInstances.getIfPresent(processInstanceKey) match
+          case Some(root) => ZIO.some(root)
+          case None       =>
+            find(processInstanceKey)
+              // only a 404 - any other error (auth, connection, timeout) is reported at once
+              .retry(retry && Schedule.recurWhile[Throwable](_.isInstanceOf[ProcessInstanceNotFound]))
+              .tap:
+                case Some(root) => ZIO.succeed(rootProcessInstances.put(processInstanceKey, root.toString))
+                case None       =>
+                  ZIO.logWarning(
+                    s"The engine knows no root of process instance '$processInstanceKey' - an IdentityCorrelation " +
+                      "is then accepted only for the job's own process instance."
+                  )
+              .map(_.map(_.toString))
+              .mapError:
+                case _: ProcessInstanceNotFound =>
+                  s"Root process instance of '$processInstanceKey' not found - the engine does not know the process instance (tried again)."
+                case err                        =>
+                  s"Root process instance of '$processInstanceKey' could not be looked up: ${err.getClass.getSimpleName}: ${err.getMessage}"
+  end rootProcessInstanceId
+
+  /** The root of a process instance from the engine (`GET /v2/process-instances/{key}`) - a 404 as
+    * `ProcessInstanceNotFound`, waiting at most `rootLookupTimeout`.
+    */
+  def fetchRootProcessInstanceKey(client: CamundaClient)(processInstanceKey: Long): Task[Option[Long]] =
+    attemptBlocking:
+      Option(
+        client.newProcessInstanceGetRequest(processInstanceKey).send()
+          .join(rootLookupTimeout.toMillis, TimeUnit.MILLISECONDS)
+          .getRootProcessInstanceKey
+      ).map(_.longValue)
+    .mapError(notFoundAs(processInstanceKey))
+
+  /** A 404 of the engine as `ProcessInstanceNotFound` - any other error stays as it is. */
+  def notFoundAs(processInstanceKey: Long)(err: Throwable): Throwable =
+    err match
+      case e: ClientHttpException if e.code == 404 => ProcessInstanceNotFound(processInstanceKey)
+      case e                                       => e
 
   /** The variables of a BPMN error as engine values - a circe `Json` (e.g. a mocked output) too. */
   def bpmnErrorVariables(variables: Map[String, Any]): Map[String, Any] =

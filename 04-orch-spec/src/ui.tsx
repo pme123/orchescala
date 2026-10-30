@@ -124,11 +124,10 @@ export function PatternChip({ name, params, isDark, title }: { name: string; par
  * tooltip the places. Without definitions in the admin nothing is recognized —
  * that is then stated, instead of an empty line.
  */
-export function PatternSummary({ items, nameOf, hasDefs, isDark }: {
-  items: Array<{ id: string; where: string[] }>; nameOf: (id: string) => string; hasDefs: boolean; isDark: boolean;
+export function PatternSummary({ items, nameOf, isDark }: {
+  items: Array<{ id: string; where: string[] }>; nameOf: (id: string) => string; isDark: boolean;
 }) {
   const muted = isDark ? 'text-white/40' : 'text-black/40';
-  if (!hasDefs) return <p className={`text-[10px] ${muted}`}>Pattern: keine definiert (Admin → Pattern) — nichts erkannt.</p>;
   if (!items.length) return <p className={`text-[10px] ${muted}`}>Pattern: keine erkannt.</p>;
   return (
     <div className="flex flex-wrap items-center gap-1">

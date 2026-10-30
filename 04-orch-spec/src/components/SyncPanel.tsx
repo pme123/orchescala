@@ -27,6 +27,7 @@ import { mergeDomain, type DomainMergeReport } from '../domainMerge';
 import { enrichSpec, findSyncDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type DomainHit } from '../projectImport';
 import { STATUSES, STATUS_META, type Model, type ProcessSpec, type Status } from '../types';
 import { cls } from '../ui';
+import { patternDefs } from '../patterns';
 
 export interface SyncPlan {
   spec: ProcessSpec;
@@ -160,7 +161,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   const steps = r?.plan.report;
   const dom = r?.dom?.report;
   const pd = r?.patterns;
-  const patternName = (id: string) => model?.patterns?.find(d => d.id === id)?.name ?? id;
+  const patternName = (id: string) => patternDefs(model).find(d => d.id === id)?.name ?? id;
   const params = (ps: Record<string, string>) => Object.entries(ps).filter(([, v]) => v !== '').map(([k, v]) => `${k}=${v}`).join(', ');
   const patternLines = pd ? [
     ...pd.added.map(u => `+ ${patternName(u.id)} «${u.where}»${params(u.params) ? ` (${params(u.params)})` : ''}`),
@@ -209,7 +210,6 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                 <Lines isDark={isDark} items={patternLines} />
               </>
             )}
-            {!model?.patterns?.length && <p className={`text-[10px] pt-1 ${c.muted}`}>Pattern: keine definiert (Admin → Pattern) — nichts erkannt.</p>}
           </div>}
 
           {/* Data model */}

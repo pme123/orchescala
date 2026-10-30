@@ -27,7 +27,8 @@
 // A pattern on the **process** (`appliesTo: ['process']`) has no anchor:
 // its content is the blocks and the extensions of the process itself.
 
-import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
+import type { AppliedPattern, EngineId, Field, Model, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
+import { STANDARD_PATTERN_DEFS } from './standardPatterns.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import { uid } from './util.ts';
 import { ORCHESCALA_TYPES } from './orchescalaTypes.ts';
@@ -87,8 +88,56 @@ export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, fie
   return LABEL_FIELDS.some(l => l.name === field.name) ? ORCHESCALA_PATTERNS[0] : null;
 }
 
-/** The patterns of Orchescala and those from the admin */
-export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...(defs ?? [])];
+/**
+ * The standard patterns — BPMN building blocks that come with Orchescala
+ * (Init Process, identity, passing on mocks …), so every company has them.
+ * They are documented with their example processes in democompany-patterns.
+ */
+const deepFreeze = <T>(x: T): T => {
+  if (x && typeof x === 'object' && !Object.isFrozen(x)) {
+    for (const v of Object.values(x)) deepFreeze(v);
+    Object.freeze(x);
+  }
+  return x;
+};
+/** frozen through and through — shared by every model, so nobody may change them */
+export const STANDARD_PATTERNS: PatternDef[] = deepFreeze(STANDARD_PATTERN_DEFS.map(p => structuredClone(p)));
+
+/**
+ * One of the standard patterns itself — by identity, not by a flag: an own
+ * pattern from a file or the model.json cannot pass itself off as one.
+ */
+export const isStandardPattern = (p: PatternDef): boolean => STANDARD_PATTERNS.includes(p);
+
+const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
+
+/**
+ * The patterns a company can use: its own from the admin, then the standard
+ * patterns — its own replaces a standard pattern with the same ID. Own patterns
+ * come first: if one matches the same element as a standard pattern and is as
+ * specific, the recognition gives the element to the own one (what one pattern
+ * claims, another cannot have).
+ * The result is cached per list, so it can be used as a React dependency —
+ * every writer replaces `model.patterns`, none changes it in place. It is
+ * frozen: it may be the shared STANDARD_PATTERNS.
+ */
+export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): PatternDef[] {
+  const own = model?.patterns;
+  if (!own?.length) return STANDARD_PATTERNS;
+  let all = withStandard.get(own);
+  if (!all) {
+    const ids = new Set(own.map(p => p.id));
+    all = Object.freeze([...own, ...STANDARD_PATTERNS.filter(p => !ids.has(p.id))]) as PatternDef[];
+    withStandard.set(own, all);
+  }
+  return all;
+}
+
+/**
+ * The patterns of Orchescala (built in and standard) and those from the admin —
+ * a new list on every call, unlike `patternDefs`: not as a React dependency.
+ */
+export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...patternDefs({ patterns: defs })];
 
 /** The patterns on the process — those of Orchescala from the specification, the others from the diagram */
 export function processPatterns(spec: ProcessSpec): AppliedPattern[] {
@@ -1606,6 +1655,8 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
   if (!plane && (fr.attached.length || missing.length)) w.issues.push('Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.');
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
+  const limitation = def.limitations?.[engine];
+  if (limitation) w.issues.push(`«${def.name}»: ${limitation}`);
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
 }
 
