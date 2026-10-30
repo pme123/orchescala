@@ -1739,6 +1739,57 @@ weg), Formate `|date`, `|time`, `|datetime`, `|day`, `|label:<name>` (Texte aus 
 Bedingungen (`visible`): `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, mit `&&` und `||`.
 Fehlertexte nach HTTP-Status – der Gateway gibt Anonymen nur den Status weiter.
 
+### Services — Collections von REST-Services
+
+Neben **Prozesse** und **Seiten** steht **Services**. Eine **Service Collection**
+ist eine REST-API eines Service-Projekts, so wie Orchescala sie einpackt: je
+Operation ein ServiceTask mit `In`/`Out` für den Prozess und `ServiceIn`/`ServiceOut`
+für den HTTP-Aufruf, dazu ein ServiceWorker. Projekt, API und Version ergeben die
+Namen:
+
+```
+Projekt acme-crm · API client · Version 1
+  → Paket        acme.crm.domain.client.v1
+  → Super-Trait  ClientV1 (extends CompanyBpmnServiceTaskDsl)
+  → Topics       acme-crm-clientV1.GetClient   (auch die Kennung im Service-Katalog)
+```
+
+- **OpenAPI importieren** liest eine OpenAPI 3 (YAML oder JSON) und listet alle
+  Operationen zum Ankreuzen. Was schon in der Collection ist, ist markiert und
+  bleibt, wie es ist; was der Katalog schon kennt (gleiches Topic), steht als
+  «⌁ Katalog» da. Je gewählter Operation entsteht ein Service: Pfad-, Query- und
+  Header-Parameter mit Typen, Body von Anfrage und Antwort mit den Typen aus den
+  Schemas (unter «Typen der API», einmal je Schema), ein erstes `In` (die Parameter
+  und die Felder des Body) und `Out` (der Body unter eigenem Namen, das `etag`,
+  wenn die API es sendet) — mit den Mappings `= name`.
+- **In und Out ergänzen** mit dem Klassenbauer — zusätzliche Variablen, andere
+  Typen, Beschreibungen.
+- **Mappings** in FEEL, geprüft wie im Prozess: die Parameter und Felder des Body
+  aus dem `In`, das `Out` aus `body`, `headers` und dem `In`.
+- **Bestehende importieren** übernimmt eine API, deren Services es in einem Projekt
+  schon gibt: aus dem Katalog (die Service-Worker nach dem Präfix ihres Topics,
+  `In`/`Out` aus dem Domain-Katalog) oder als Datei aus einem anderen Ordner.
+  Methode und Pfad kennt der Katalog nicht — eine danach importierte OpenAPI
+  **ergänzt** den Service gleichen Namens, statt einen zweiten anzulegen.
+- **Export**: der Scala-Code im Hausstil von `./helper.scala serviceTask` —
+  Super-Trait, je Service der ServiceTask (Topic, Pfad, In/Out, ServiceIn/Out,
+  Mock, Beispiele) und der ServiceWorker (Methode, `apiUri`, Query, Header,
+  `inputMapper`, `outputMapper`), die Typen unter `schema/`, `serviceBasePath`
+  aus `servers` der OpenAPI. Die FEEL-Mappings werden Scala: Pfade mit `Option`
+  unterwegs (`body.address.flatMap(_.city)`), `headers.etag` →
+  `headers.get("etag")`, Literale nach dem Zieltyp. Ein Pflichtfeld des `Out` aus
+  einem optionalen Wert wird ein Schritt, der mit `ServiceMappingError` scheitert.
+  Was sich nicht übersetzen lässt, steht als `???` mit dem FEEL im Kommentar —
+  der Dialog nennt die Stellen. **Services from Spec** kopiert
+  `./helper.scala processFromSpec orchspec:…` (Format v2, `kind:
+  serviceCollection`): der Helper legt an, was fehlt, vergleicht Bestehendes
+  (überschreibt nie) und registriert die Worker in der `WorkerApp` und die
+  Services als Gruppe in der API-Doku.
+
+Ablage: `services/<projekt>-<api>v<n>.json`, gespeichert wie ein Prozess
+(automatisch, mit Konflikterkennung). Die **Service-Orchestrierung** (ein BPMN
+nur mit Service- und Script-Tasks, daraus ein Worker) folgt.
+
 ### KI-Modus – Seiten und Prozesse mit Claude
 
 Mit einem persönlichen Key der Claude API (Symbol ✦ oben rechts, nur in diesem Browser gespeichert)
@@ -1756,6 +1807,8 @@ Schalter, welche Daten an Anthropic gehen und die gemessenen Kosten: [docs/KI-MO
 ├── pages/
 │   ├── app.json              Titel, Startseite und Texte für Werte der App
 │   └── <slug>.json           eine Seite (siehe «Seiten der App»)
+├── services/
+│   └── <slug>.json           eine Service Collection (siehe «Services»)
 └── processes/
     ├── <slug>.json           die Spezifikation
     ├── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)
