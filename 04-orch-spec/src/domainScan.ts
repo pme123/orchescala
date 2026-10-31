@@ -522,6 +522,19 @@ export function scanScala(source: string, path = ''): DomainType[] {
       continue;
     }
 
+    // `def serviceBasePath: String = s"…"` — where the API of a worker package runs; the
+    // expression may follow on the next lines (indented)
+    const base = !owner ? /^def\s+serviceBasePath\s*:\s*String\s*=\s*(.*)$/.exec(line) : null;
+    if (base) {
+      let expression = withoutComment(base[1]).trim();
+      while (!expression && i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) {
+        i++;
+        expression = withoutComment(lines[i]).trim();
+      }
+      if (expression) add('serviceBasePath', 'def', { expression });
+      continue;
+    }
+
     // `type AddressType = Int :| …` — a top-level alias, with a target;
     // the target can span several lines (`any.In[(\n 11,\n 15 )]`)
     const tt = !owner ? TYPE_TOP.exec(line) : null;

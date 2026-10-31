@@ -6,13 +6,15 @@
 //
 //   = clientKey            → in.clientKey
 //   = body.address.city    → body.address.flatMap(_.city)     (address optional)
-//   = headers.etag         → headers.get("etag")
+//   = headers.etag         → headers.find(_._1.equalsIgnoreCase("etag")).map(_._2)
+//                            (the server decides the case: `ETag`, `X-Finnova-Transaction-Id`)
 //   = "CH" · = 3 · = true  → "CH" · 3L (for a Long) · true
 //   = "Account"            → ProductType.Account (for an enum field, as the process writes it)
 //
 // Everything else stays FEEL for a human: `??? /* TODO FEEL: … */` — the project
 // compiles and the place is easy to find.
 import type { Field, TypeDef } from '../types';
+import { headerVar } from './names';
 
 /** A variable a mapping can read — its Scala expression and its shape. */
 export interface ScalaVar {
@@ -22,8 +24,12 @@ export interface ScalaVar {
   type?: string;
   optional?: boolean;
   collection?: boolean;
-  /** the headers: a `Map[String, String]` — `headers.etag` is `headers.get("etag")` */
-  headers?: boolean;
+  /**
+   * the headers: a `Map[String, String]` with the names as the server sends them — the
+   * headers of the response by their real name (`X-Finnova-Transaction-Id`, read in FEEL
+   * as `headers.xFinnovaTransactionId`)
+   */
+  headers?: string[];
 }
 
 export interface Translated {
@@ -60,7 +66,9 @@ export function feelToScala(expression: string, vars: Map<string, ScalaVar>, typ
 
   if (root.headers) {
     if (parts.length !== 2) return todo(body);
-    return { scala: `${root.scala}.get(${JSON.stringify(bare(parts[1]).toLowerCase())})`, optional: true };
+    const name = bare(parts[1]);
+    const real = root.headers.find(h => headerVar(h) === name || h.toLowerCase() === name.toLowerCase()) ?? name;
+    return { scala: `${root.scala}.find(_._1.equalsIgnoreCase(${JSON.stringify(real)})).map(_._2)`, optional: true };
   }
 
   let scala = root.scala;

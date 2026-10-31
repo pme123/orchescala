@@ -762,7 +762,7 @@ export interface DomainType {
   name: string;
   pkg: string;
   /** `member` = In/Out of a service (comes from the trait), `alias` = `type X = …` */
-  kind: 'case' | 'enum' | 'member' | 'alias';
+  kind: 'case' | 'enum' | 'member' | 'alias' | 'def';
   /** enclosing object for `In` / `Out` */
   owner?: string;
   /** what has to be imported (for members the object) */
@@ -797,6 +797,8 @@ export interface DomainType {
   decisionResult?: DecisionResult;
   /** `val descr` of the enclosing object */
   ownerDescr?: string;
+  /** `def`: the expression of a top-level definition — `def serviceBasePath: String = s"…/banks/$bankNumber"` in a worker package */
+  expression?: string;
   /** `val path` of a ServiceTask object: method and path of the wrapped service — `GET: /clients/{clientKey}` */
   ownerPath?: string;
   /** `val descr` as a Scala expression, if it is not plain text (`s"…${X}…"`) */

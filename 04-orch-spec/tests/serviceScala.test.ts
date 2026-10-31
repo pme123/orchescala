@@ -18,14 +18,16 @@ test('FEEL paths become Scala — with Option along the way', () => {
   const vars = new Map<string, ScalaVar>([
     ['clientKey', { scala: 'in.clientKey', type: 'Long' }],
     ['body', { scala: 'body', type: 't-client' }],
-    ['headers', { scala: 'headers', headers: true }],
+    ['headers', { scala: 'headers', headers: ['ETag', 'X-Finnova-Transaction-Id'] }],
   ]);
   const types = [client, address];
   assert.deepEqual(feelToScala('= clientKey', vars, types), { scala: 'in.clientKey', optional: false });
   assert.deepEqual(feelToScala('= body.name', vars, types), { scala: 'body.name', optional: false });
   assert.deepEqual(feelToScala('= body.address', vars, types), { scala: 'body.address', optional: true });
   assert.deepEqual(feelToScala('= body.address.city', vars, types), { scala: 'body.address.flatMap(_.city)', optional: true });
-  assert.deepEqual(feelToScala('= headers.ETag', vars, types), { scala: 'headers.get("etag")', optional: true });
+  // a header by its real name, whatever the case the server sends
+  assert.deepEqual(feelToScala('= headers.etag', vars, types), { scala: 'headers.find(_._1.equalsIgnoreCase("ETag")).map(_._2)', optional: true });
+  assert.equal(feelToScala('= headers.xFinnovaTransactionId', vars, types).scala, 'headers.find(_._1.equalsIgnoreCase("X-Finnova-Transaction-Id")).map(_._2)');
   assert.deepEqual(feelToScala('= 3', vars, types, { type: 'Long' }), { scala: '3L', optional: false });
   assert.deepEqual(feelToScala('= "CH"', vars, types), { scala: '"CH"', optional: false });
   assert.deepEqual(feelToScala('fix', vars, types), { scala: '"fix"', optional: false });
@@ -99,7 +101,7 @@ test('the worker: uri, headers and an output mapper that fails on a missing requ
   assert.match(w, /in\.requestId\.map\(v => "request-id" -> v\)\.toMap/);
   // city is required in the Out, but optional on the way — a step that names what is missing
   assert.match(w, /city <- body\.address\.flatMap\(_\.city\)\.toRight\(ServiceMappingError\("GetClient: city fehlt in der Antwort"\)\)/);
-  assert.match(w, /yield Out\(\n {6}name = body\.name,\n {6}city = city,\n {6}etag = headers\.get\("etag"\)\n {4}\)/);
+  assert.match(w, /yield Out\(\n {6}name = body\.name,\n {6}city = city,\n {6}etag = headers\.find\(_\._1\.equalsIgnoreCase\("etag"\)\)\.map\(_\._2\)\n {4}\)/);
   assert.doesNotMatch(w, /inputMapper/);
 });
 
@@ -191,4 +193,33 @@ test('enums as in the process: a case from a text, the shared fields of an ADT, 
   assert.equal(packageOf(processFrame(c, typeHome(c, 't-pt'))), 'acme.crm.domain.client.v1');
   const model = { version: 1, services: [], domainTypes: [{ id: 'acme.crm.domain.client.v1.schema.ProductType', name: 'ProductType', pkg: 'acme.crm.domain.client.v1.schema', kind: 'enum', importPath: 'x', values: ['Account'] }] } as never;
   assert.deepEqual(referencedClass(c.types.find(t => t.id === 't-pt')!, model, typeHome(c, 't-pt')), {});
+});
+
+test('serviceBasePath as the project has it — read from the worker exports, written by the export', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const exportsSource = `package acme.crm.worker
+package client.v1
+
+import acme.crm.domain.client.v1.schema.Client
+
+def serviceBasePath: String =
+  s"$crmBasePath/clientadministration/api/v1/banks/$bankNumber"
+
+private[v1] def helper(c: Client): Client = c
+`;
+  const def = scanScala(exportsSource, 'exports.scala').find(t => t.kind === 'def');
+  assert.deepEqual([def?.id, def?.expression], ['acme.crm.worker.client.v1.serviceBasePath', 's"$crmBasePath/clientadministration/api/v1/banks/$bankNumber"']);
+  const c = { ...collection(), serviceBasePaths: { 'client.v1': def!.expression! } };
+  const exports = collectionFiles(c).find(f => f.path.endsWith('/exports.scala'))!.content;
+  assert.match(exports, /def serviceBasePath: String =\n {2}s"\$crmBasePath\/clientadministration\/api\/v1\/banks\/\$bankNumber"\n/);
+  assert.doesNotMatch(exports, /\?\?\?/);
+});
+
+test('a header of the response maps to the Out field it ends with', async () => {
+  const { suggestOutMappings } = await import('../src/services/collection');
+  const c = collection();
+  const s = { ...c.services[0], outMappings: [], responseHeaders: ['X-Finnova-Transaction-Id'] };
+  const out = c.types.find(t => t.id === s.outTypeId)!;
+  const types = c.types.map(t => (t.id === out.id ? { ...t, fields: [{ id: 'x', name: 'transactionId', type: 'String' }] } : t));
+  assert.deepEqual(suggestOutMappings({ types }, s), { mappings: [{ name: 'transactionId', expression: '= headers.xFinnovaTransactionId' }], headers: [] });
 });

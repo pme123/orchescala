@@ -25,7 +25,7 @@ import { isCompoundType, typeShape, type TypeShape } from '../scalaTypes';
 import { domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
-import { apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, type ApiRef } from './collection';
+import { apiKey, apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, workerPackage, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
@@ -230,6 +230,8 @@ export function collectionFromCatalog(project: CatalogProject, apis: CatalogApi[
     services: parts.flatMap(p => p.services),
     ...(project.group ? { source: { title: project.group } } : {}),
   };
+  const basePaths = serviceBasePathsOf(apis, model);
+  if (Object.keys(basePaths).length) spec.serviceBasePaths = basePaths;
   // the start the company puts into serviceBasePath (`/banks/{bankNumber}`): its
   // placeholders are no parameters of the services
   const pathBase = suggestPathBase(spec);
@@ -271,6 +273,16 @@ export function withProjectDomain(model: Model | null, domain: DomainType[]): Mo
     services: [...services, ...(model?.services ?? []).filter(s => !projectTopics.has(s.topic ?? s.id))],
     domainTypes: [...domain, ...(model?.domainTypes ?? []).filter(t => !ids.has(t.id))],
   };
+}
+
+/** `def serviceBasePath` of the worker package of each API, as the domain has it (from the project's `exports.scala`). */
+function serviceBasePathsOf(apis: ApiRef[], model: Model | null): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const a of apis) {
+    const def = (model?.domainTypes ?? []).find(t => t.kind === 'def' && t.name === 'serviceBasePath' && t.pkg === workerPackage(a));
+    if (def?.expression) out[apiKey(a)] = def.expression;
+  }
+  return out;
 }
 
 /** Where a service of the catalog is described already: topic → title of the collection. */
@@ -414,8 +426,12 @@ export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): 
     if (!cur) addedTypes.push(t.name);
     types.set(id, { ...fieldTypes({ ...t, id }, mapType), ...(cur?.description && !t.description ? { description: cur.description } : {}) });
   }
-  // the base the company sets: no parameter of a service
-  const spec: ServiceCollectionSpec = { ...c, ...(pathBase ? { pathBase } : {}), services, types: [...types.values()] };
+  // the base the company sets: no parameter of a service; `serviceBasePath` as the project has it
+  const basePaths = { ...(c.serviceBasePaths ?? {}), ...(fresh.serviceBasePaths ?? {}) };
+  const spec: ServiceCollectionSpec = {
+    ...c, ...(pathBase ? { pathBase } : {}), services, types: [...types.values()],
+    ...(Object.keys(basePaths).length ? { serviceBasePaths: basePaths } : {}),
+  };
   spec.services = spec.services.map(s => {
     const fromBase = basePathParams(spec, s);
     return fromBase.size ? { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) } : s;

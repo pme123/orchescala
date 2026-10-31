@@ -12,7 +12,7 @@
 import { exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala';
 import type { Field, Model, TypeDef } from '../types';
 import {
-  apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
+  apiKey, apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection';
 import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
@@ -243,7 +243,7 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
   if (hasOut || s.serviceOut) {
     const outVars = new Map(vars);
     if (s.serviceOut) outVars.set('body', { scala: 'body', type: s.serviceOut.type, optional: !!s.serviceOut.optional, collection: !!s.serviceOut.collection });
-    outVars.set('headers', { scala: 'headers', headers: true });
+    outVars.set('headers', { scala: 'headers', headers: s.responseHeaders ?? [] });
     const steps: string[] = [];
     const args: string[] = [];
     for (const f of (outType?.fields ?? []).filter(x => isFinished(x, idx))) {
@@ -301,7 +301,10 @@ function reach(id: string | undefined, types: TypeDef[], seen = new Set<string>(
  * `serviceBasePath` of an API: the URL of the API and the base of the company —
  * its placeholders are what the company knows (`$bankNumber`), to fill in by hand.
  */
-function serviceBasePath(c: ServiceCollectionSpec): string {
+function serviceBasePath(c: ServiceCollectionSpec, a: ApiRef): string {
+  // as the project has it (`s"$filIsBasePath/…/banks/$bankNumber"`) — the Abgleich takes it over
+  const own = c.serviceBasePaths?.[apiKey(a)]?.trim();
+  if (own) return own;
   const url = (c.source?.basePath || 'TODO: https://…').replace(/\/+$/, '');
   const base = normalPathBase(c.pathBase);
   if (!base) return scalaKey(url);
@@ -357,7 +360,7 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
     }
     out.push({
       path: `${wDir}/exports.scala`,
-      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c)}\n`,
+      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c, a)}\n`,
     });
     for (const s of own) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types))) });
   }

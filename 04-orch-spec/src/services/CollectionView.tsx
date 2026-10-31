@@ -19,7 +19,7 @@ import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Stat
 import { StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
-  API_NAME, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
+  API_NAME, apiKey, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
   serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
@@ -27,6 +27,7 @@ import { syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogC
 import { findSyncDomainFor, readProjectDir, readProjectZip, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
+import { headerVar } from './names';
 import { useServices } from './store';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
 
@@ -363,6 +364,26 @@ function Overview({ spec, canEdit, onChange }: { spec: ServiceCollectionSpec; ca
         <input className={`${input} font-mono`} disabled={!canEdit} value={spec.source?.basePath ?? ''} placeholder="https://api.example.com/v1"
           onChange={e => onChange({ source: { ...(spec.source ?? {}), basePath: e.target.value || undefined } })} />
       </label>
+      {apisOf(spec).length > 0 && (
+        <div className="space-y-1">
+          <span className={`text-[10px] ${c.muted}`}>
+            <span className="font-mono">def serviceBasePath</span> je API — der Ausdruck im <span className="font-mono">exports.scala</span> des
+            Workers; der Abgleich übernimmt ihn aus dem Projekt. Leer: aus Basis-URL und Basispfad.
+          </span>
+          {apisOf(spec).map(a => (
+            <label key={apiKey(a)} className="flex items-center gap-2">
+              <span className={`w-28 text-[10px] font-mono ${c.muted}`}>{collectionTrait(a)}</span>
+              <input className={`${input} font-mono`} disabled={!canEdit} value={spec.serviceBasePaths?.[apiKey(a)] ?? ''}
+                placeholder={'s"$basePath/…"'}
+                onChange={e => {
+                  const next = { ...(spec.serviceBasePaths ?? {}) };
+                  if (e.target.value.trim()) next[apiKey(a)] = e.target.value; else delete next[apiKey(a)];
+                  onChange({ serviceBasePaths: Object.keys(next).length ? next : undefined });
+                }} />
+            </label>
+          ))}
+        </div>
+      )}
       <div className="space-y-0.5">
         <span className={`text-[10px] ${c.muted}`}>
           Basispfad der Firma — der Anfang jedes Pfads, den die Firma schon im <span className="font-mono">serviceBasePath</span> hat
@@ -497,8 +518,8 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
       vars.push(...fieldVariables([{ id: 'body', name: 'body', type: s.serviceOut.type, collection: s.serviceOut.collection, optional: s.serviceOut.optional, description: 'Body der Antwort (ServiceOut)' }], 'Antwort', spec.types, model));
     }
     vars.push({
-      name: 'headers', type: 'context', label: 'Headers', source: 'Antwort', description: 'Header der Antwort (Namen klein)',
-      children: (s.responseHeaders ?? []).map(h => ({ name: h, type: 'string' as const, label: 'String', source: 'Header', optional: true })),
+      name: 'headers', type: 'context', label: 'Headers', source: 'Antwort', description: 'Header der Antwort — Gross/Klein egal',
+      children: (s.responseHeaders ?? []).map(h => ({ name: headerVar(h), type: 'string' as const, label: 'String', source: 'Header', optional: true, description: h })),
     });
     return [...vars, ...inVars];
   }, [s.serviceOut, s.responseHeaders, spec.types, model, inVars]);
@@ -628,7 +649,8 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
             className={`w-20 font-mono ${input}`} />
           <span className={c.muted}>Header</span>
           <input value={(s.responseHeaders ?? []).join(', ')} disabled={!canEdit} placeholder="etag, location"
-            onChange={e => onPatch({ responseHeaders: e.target.value.split(',').map(h => h.trim().toLowerCase()).filter(Boolean) })}
+            title="wie die API sie nennt — in FEEL camelCase: X-Finnova-Transaction-Id → headers.xFinnovaTransactionId"
+            onChange={e => onPatch({ responseHeaders: e.target.value.split(',').map(h => h.trim()).filter(Boolean) })}
             className={`flex-1 font-mono ${input}`} />
         </div>
       </Section>

@@ -10,6 +10,7 @@
 // (`client.v1`, `crm.v2`) — each service carries its own.
 import { STATUSES, type Field, type Mapping, type ProcessSpec, type Status, type TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify } from '../util';
+import { capitalize, headerVar } from './names';
 import type { CollectionService, ServiceCollectionSpec } from './types';
 
 /** One API of a project — what package, trait and topics are derived from. */
@@ -41,7 +42,6 @@ export function withServiceApis(c: ServiceCollectionSpec): ServiceCollectionSpec
   return { ...c, services: c.services.map(s => ({ ...s, api: s.api || c.api, apiVersion: s.apiVersion || c.apiVersion })) };
 }
 
-const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
 
 /** `acme.crm.domain.client.v1` */
 export const collectionPackage = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>): string =>
@@ -142,13 +142,17 @@ export function suggestOutMappings(c: Pick<ServiceCollectionSpec, 'types'>, s: C
     if (!f.name || have.has(f.name)) continue;
     const bodyField = bodyCase?.fields?.find(b => b.name === f.name);
     const inField = inType?.fields?.find(i => i.name === f.name);
-    const expression = OUT_HEADERS.includes(f.name) ? `= headers.${f.name}`
+    // a header of the response named like the field — or ending with it (`X-Finnova-Transaction-Id` → transactionId)
+    const header = (s.responseHeaders ?? []).find(h => headerVar(h) === f.name)
+      ?? (s.responseHeaders ?? []).find(h => headerVar(h).endsWith(capitalize(f.name)));
+    const expression = header ? `= headers.${headerVar(header)}`
+      : OUT_HEADERS.includes(f.name) ? `= headers.${f.name}`
       : body && sameShape(f, body) ? '= body'
         : bodyField ? `= body.${f.name}`
           : inField && sameShape(f, inField) ? `= ${f.name}` : '';
     if (!expression) continue;
     mappings.push({ name: f.name, expression });
-    if (OUT_HEADERS.includes(f.name) && !(s.responseHeaders ?? []).includes(f.name)) headers.push(f.name);
+    if (!header && OUT_HEADERS.includes(f.name)) headers.push(f.name);
   }
   return { mappings, headers };
 }
@@ -208,6 +212,9 @@ export const normalPathBase = (base: string | undefined): string => {
   const parts = segmentsOf(base ?? '');
   return parts.length ? `/${parts.join('/')}` : '';
 };
+
+/** The key of an API in `serviceBasePaths`: `client.v1` */
+export const apiKey = (a: Pick<ApiRef, 'api' | 'apiVersion'>): string => `${a.api}.v${a.apiVersion}`;
 
 /** Does the path start with the base of the company (whole segments)? */
 export function inPathBase(c: Pick<ServiceCollectionSpec, 'pathBase'>, path: string): boolean {

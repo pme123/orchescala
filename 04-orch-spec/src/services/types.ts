@@ -121,6 +121,11 @@ export interface ServiceCollectionSpec {
    * Its placeholders are no parameters of the services; the worker adds only the rest.
    */
   pathBase?: string;
+  /**
+   * `def serviceBasePath` per API (`client.v1` → `s"$filIsBasePath/…/banks/$bankNumber"`) — the
+   * Scala expression the project has in the worker's `exports.scala`; the Abgleich takes it over
+   */
+  serviceBasePaths?: Record<string, string>;
   /** `serviceLabel` of the super trait — what the description of each service names */
   serviceLabel?: string;
   status: Status;

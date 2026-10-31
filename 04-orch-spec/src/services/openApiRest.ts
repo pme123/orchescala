@@ -20,6 +20,7 @@
 import type { Field, Mapping, TypeDef } from '../types';
 import { uid } from '../util';
 import { basePathParams } from './collection';
+import { camelName, capitalize, lowerFirst } from './names';
 import type { BodyRef, CollectionService, HttpMethod, ParamIn, RequestParam, ServiceCollectionSpec } from './types';
 
 interface Schema {
@@ -133,17 +134,7 @@ const jsonOf = (content: Record<string, Content> | undefined): Schema | undefine
   return key ? content[key]?.schema : undefined;
 };
 
-const capitalize = (s: string) => s.replace(/^(.)/, c => c.toUpperCase());
-const lowerFirst = (s: string) => s.replace(/^(.)/, c => c.toLowerCase());
-
-/** `request-id` → `requestId`, `X-Client_Key` → `xClientKey` */
-export function camelName(raw: string): string {
-  const parts = raw.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  if (!parts.length) return 'value';
-  const s = parts.map((p, i) => (i ? capitalize(p) : p)).join('');
-  // a name that starts with a digit is no Scala identifier
-  return /^[0-9]/.test(s) ? `v${s}` : lowerFirst(s);
-}
+export { camelName };
 
 /** `client.AddressDto_v2` → `AddressDtoV2` */
 export function typeName(raw: string): string {

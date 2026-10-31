@@ -1803,6 +1803,14 @@ Projekt acme-crm · API client · Version 1
   im `serviceBasePath` hat (`/banks/{bankNumber}` mit
   `serviceBasePath = s"…/banks/$bankNumber"`). Seine Platzhalter sind keine
   Parameter der Services, `apiUri` hängt nur den Rest an.
+- **`def serviceBasePath` je API** (Übersicht): der Ausdruck aus dem `exports.scala`
+  des Workers (`s"$filIsBasePath/…/banks/$bankNumber"`) — der Abgleich aus dem
+  Projekt-Ordner übernimmt ihn, der Export schreibt ihn so. Leer: aus Basis-URL und
+  Basispfad, mit `???` für die Platzhalter.
+- **Header der Antwort** stehen unter `ServiceResponse` mit ihrem echten Namen; in
+  FEEL heissen sie camelCase (`X-Finnova-Transaction-Id` → `headers.xFinnovaTransactionId`),
+  der Worker findet sie unabhängig von Gross/Klein. Ein Out-Feld, dessen Name ein
+  Header ist oder auf den er endet (`transactionId`), ist vorbelegt.
 - **Bestehende importieren** übernimmt ein Projekt, dessen Services es schon gibt:
   aus dem Katalog mit allen oder einzelnen seiner APIs (die Service-Worker nach
   ihrem Topic `projekt-apiVn.Name`, `In`/`Out` aus dem Domain-Katalog) — APIs, die
