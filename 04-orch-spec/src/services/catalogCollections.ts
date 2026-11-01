@@ -119,9 +119,15 @@ function unalias(expr: string, pkg: string, model: Model | null): TypeShape {
  * `type ServiceOut = Seq[PaymentRule]` → the body; `NoInput` / `NoOutput` → none. A type of
  * the API becomes a type of the collection (see `servicesOf`), others point into the catalog.
  */
-function bodyOf(t: DomainType | undefined, model: Model | null, conv: Converter): BodyRef | undefined {
+function bodyOf(t: DomainType | undefined, model: Model | null, conv: Converter, own: { In: string; Out: string }): BodyRef | undefined {
   if (!t) return undefined;
   if (t.kind !== 'alias') return { type: domainRef(t.id) };
+  // `type ServiceIn = In` — the request sends the In of the service as it is (the same for Out)
+  const self = /^(?:\w+\.)?(In|Out)$/.exec(typeShape(t.target ?? '').base);
+  if (self && (!t.owner || !typeShape(t.target ?? '').base.includes('.') || typeShape(t.target ?? '').base.startsWith(`${t.owner}.`))) {
+    const shape = typeShape(t.target ?? '');
+    return { type: own[self[1] as 'In' | 'Out'], ...(shape.collection ? { collection: true } : {}), ...(shape.optional ? { optional: true } : {}) };
+  }
   const shape = unalias(t.target ?? '', t.pkg, model);
   if (!shape.base || /^No(Input|Output)$/.test(shape.base)) return undefined;
   return {
@@ -185,8 +191,9 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
           return { name: m[1], in: 'path' as const, type: field?.type ?? 'String', required: true, expression: field ? `= ${field.name}` : '' };
         })
       : [];
-    const serviceIn = bodyOf(domainMember(svc, 'ServiceIn', model), model, conv);
-    const serviceOut = bodyOf(domainMember(svc, 'ServiceOut', model), model, conv);
+    const own = { In: inType.id, Out: outType.id };
+    const serviceIn = bodyOf(domainMember(svc, 'ServiceIn', model), model, conv, own);
+    const serviceOut = bodyOf(domainMember(svc, 'ServiceOut', model), model, conv, own);
     services.push({
       id, name, api: api.api, apiVersion: api.apiVersion, status: 'implemented',
       ...(svc.description ? { description: svc.description } : {}),

@@ -524,7 +524,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
     return [...vars, ...inVars];
   }, [s.serviceOut, s.responseHeaders, spec.types, model, inVars]);
 
-  const bodyType = s.serviceIn && !s.serviceIn.collection ? spec.types.find(t => t.id === s.serviceIn!.type && t.kind === 'case') : undefined;
+  // `type ServiceIn = In` / `type ServiceOut = Out`: the body is the In or Out as it is — no mapping per field
+  const inIsBody = !!s.serviceIn && !s.serviceIn.collection && s.serviceIn.type === s.inTypeId;
+  const outIsBody = !!s.serviceOut && !s.serviceOut.collection && s.serviceOut.type === s.outTypeId && !s.noOut;
+  const bodyType = s.serviceIn && !s.serviceIn.collection && !inIsBody ? spec.types.find(t => t.id === s.serviceIn!.type && t.kind === 'case') : undefined;
 
   const fromBase = basePathParams(spec, s);
   /** the parameters of one kind — with their place in `params`, and a button for another one */
@@ -624,7 +627,9 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
 
       <Section id="inputMapper" title="inputMapper(in): ServiceIn" hint="der Body der Anfrage aus dem In" isDark={isDark}>
         <BodyPicker label="type ServiceIn" none="kein Body — NoInput" value={s.serviceIn} spec={spec} canEdit={canEdit} isDark={isDark}
+          self={s.inTypeId && !s.noIn ? { id: s.inTypeId, label: 'In — das In, wie es ist' } : undefined}
           onChange={serviceIn => onPatch({ serviceIn })} onOpenType={onOpenType} />
+        {inIsBody && <p className={`text-[10px] ${c.muted}`}>Der Body ist das In, wie es ist — <span className="font-mono">inputMapper = Some(in)</span>.</p>}
         {bodyType && (
           <div className="space-y-1 pl-3">
             <div className={`text-[10px] ${c.muted}`}>Felder des ServiceIn — Wert aus dem In (FEEL); leer heisst: das gleichnamige Feld des In</div>
@@ -642,6 +647,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
 
       <Section id="serviceOut" title="ServiceResponse[ServiceOut]" hint="die Antwort der API — der Body (ServiceOut), Status und Header" isDark={isDark}>
         <BodyPicker label="type ServiceOut" none="kein Body — NoOutput" value={s.serviceOut} spec={spec} canEdit={canEdit} isDark={isDark} allowOptional
+          self={s.outTypeId && !s.noOut ? { id: s.outTypeId, label: 'Out — die Antwort ist das Out' } : undefined}
           onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType} />
         <div className="flex items-center gap-2 text-[11px]">
           <span className={c.muted}>Status</span>
@@ -656,7 +662,9 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
       </Section>
 
       <Section id="outputMapper" title="outputMapper(serviceOut, in): Out" hint="je Feld des Out, woher es kommt — FEEL auf body, headers und das In" isDark={isDark}>
-        {s.noOut
+        {outIsBody
+          ? <p className={`text-[10px] ${c.muted}`}>Die Antwort ist das Out, wie es ist — <span className="font-mono">Right(out.outputBody)</span>.</p>
+          : s.noOut
           ? <p className={`text-[10px] ${c.muted}`}>Das Out ist <span className="font-mono">NoOutput</span> — {s.serviceOut ? <>der Worker gibt <span className="font-mono">NoOutput()</span> zurück, was die API auch antwortet.</> : 'kein outputMapper.'}</p>
           : outType && (outType.fields ?? []).some(f => f.name)
           ? (outType.fields ?? []).filter(f => f.name).map(f => {
@@ -707,9 +715,10 @@ function ServiceOutline({ spec, service: s, active, isDark, onJump }: {
   const { in: inType, out: outType } = membersOf(spec, s);
   const fromBase = basePathParams(spec, s);
   const count = (where: 'path' | 'query' | 'header') => s.params.filter(p => p.in === where && !(where === 'path' && fromBase.has(p.name))).length;
-  const body = (b: BodyRef | undefined, none: string) => (b ? `${b.collection ? 'Seq[' : ''}${typeLabel(spec, b.type, model)}${b.collection ? ']' : ''}${b.optional ? '?' : ''}` : none);
+  const body = (b: BodyRef | undefined, none: string) => (b ? `${b.collection ? 'Seq[' : ''}${b.type === s.inTypeId ? 'In' : b.type === s.outTypeId ? 'Out' : typeLabel(spec, b.type, model)}${b.collection ? ']' : ''}${b.optional ? '?' : ''}` : none);
   const outFields = (outType?.fields ?? []).filter(f => f.name);
   const mapped = outFields.filter(f => (s.outMappings ?? []).some(m => m.name === f.name && m.expression.trim())).length;
+  const outAsBody = !!s.serviceOut && !s.serviceOut.collection && s.serviceOut.type === s.outTypeId && !s.noOut;
   const n = (k: number, one: string, many: string) => (k ? `${k} ${k === 1 ? one : many}` : '—');
   const detail: Record<ServicePart, string> = {
     in: s.noIn ? 'NoInput' : n((inType?.fields ?? []).filter(f => f.name).length, 'Feld', 'Felder'),
@@ -718,10 +727,10 @@ function ServiceOutline({ spec, service: s, active, isDark, onJump }: {
     headers: n(count('header'), 'Header', 'Header'),
     inputMapper: body(s.serviceIn, 'NoInput'),
     serviceOut: body(s.serviceOut, 'NoOutput'),
-    outputMapper: !s.noOut && outFields.length ? `${mapped}/${outFields.length}` : '—',
+    outputMapper: outAsBody ? 'body' : !s.noOut && outFields.length ? `${mapped}/${outFields.length}` : '—',
     out: s.noOut ? 'NoOutput' : n(outFields.length, 'Feld', 'Felder'),
   };
-  const open = s.noOut ? 0 : outFields.length - mapped;
+  const open = s.noOut || outAsBody ? 0 : outFields.length - mapped;
   return (
     <div className={`ml-5 mt-0.5 mb-1 pl-2 border-l ${c.border2}`}>
       {SERVICE_PARTS.map(part => (
@@ -776,32 +785,37 @@ function Section({ id, title, hint, isDark, children }: { id: ServicePart; title
 }
 
 /** the choices for a type: the scalars and the own types of the API */
-function TypeSelect({ value, spec, disabled, className, onChange }: {
+function TypeSelect({ value, spec, disabled, className, onChange, self }: {
   value: string; spec: ServiceCollectionSpec; disabled?: boolean; className: string; onChange: (v: string) => void;
+  /** the In / Out of the service itself — `type ServiceIn = In` */
+  self?: Array<{ id: string; label: string }>;
 }) {
   const { model } = useStore();
   const own = spec.types.filter(t => !t.interactionId);
-  const known = (SCALA_TYPES as readonly string[]).includes(value) || own.some(t => t.id === value);
+  const known = (SCALA_TYPES as readonly string[]).includes(value) || own.some(t => t.id === value) || !!self?.some(x => x.id === value);
   // a type of the domain (`dom:<id>`, from the catalog): its name — the project has it already
   const dom = parseDomainRef(value);
   const label = dom ? `${model?.domainTypes?.find(t => t.id === dom)?.name ?? dom.split('.').pop()} (Domain)` : value;
   return (
     <select value={value} disabled={disabled} onChange={e => onChange(e.target.value)} className={className} title={dom ?? undefined}>
       {!known && <option value={value}>{label}</option>}
+      {self?.length ? <optgroup label="der Service selbst">{self.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</optgroup> : null}
       <optgroup label="einfach">{SCALA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</optgroup>
       {own.length > 0 && <optgroup label="Typen der API">{own.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</optgroup>}
     </select>
   );
 }
 
-function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, onChange, onOpenType }: {
+function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, self, onChange, onOpenType }: {
   label: string; none: string; value: BodyRef | undefined; spec: ServiceCollectionSpec; canEdit: boolean; isDark: boolean;
   allowOptional?: boolean;
+  /** the In or Out of the service — the body as it is */
+  self?: { id: string; label: string };
   onChange: (v: BodyRef | undefined) => void; onOpenType: (id: string) => void;
 }) {
   const c = cls(isDark);
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
-  const own = value ? spec.types.find(t => t.id === value.type) : undefined;
+  const own = value && value.type !== self?.id ? spec.types.find(t => t.id === value.type) : undefined;
   return (
     <div className="flex items-center gap-2 text-[11px] flex-wrap">
       <span className={`w-28 ${c.muted}`}>{label}</span>
@@ -812,7 +826,8 @@ function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, 
       </select>
       {value && (
         <>
-          <TypeSelect value={value.type} spec={spec} disabled={!canEdit} className={`font-mono ${input}`} onChange={type => onChange({ ...value, type })} />
+          <TypeSelect value={value.type} spec={spec} disabled={!canEdit} className={`font-mono ${input}`} onChange={type => onChange({ ...value, type })}
+            self={self ? [self] : undefined} />
           <label className={`flex items-center gap-1 ${c.muted2}`}>
             <input type="checkbox" checked={!!value.collection} disabled={!canEdit} onChange={e => onChange({ ...value, collection: e.target.checked || undefined })} /> Liste
           </label>

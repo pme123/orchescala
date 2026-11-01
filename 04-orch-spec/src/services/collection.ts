@@ -131,7 +131,8 @@ const sameShape = (f: Pick<Field, 'type' | 'collection'>, g: Pick<Field, 'type' 
  */
 export function suggestOutMappings(c: Pick<ServiceCollectionSpec, 'types'>, s: CollectionService): { mappings: Mapping[]; headers: string[] } {
   const { in: inType, out } = membersOf(c as ServiceCollectionSpec, s);
-  if (s.noOut) return { mappings: [], headers: [] };
+  // NoOutput, or the response is the Out as it is (`type ServiceOut = Out`) — nothing to map
+  if (s.noOut || (s.serviceOut && !s.serviceOut.collection && s.serviceOut.type === s.outTypeId)) return { mappings: [], headers: [] };
   const have = new Set((s.outMappings ?? []).map(m => m.name));
   const body = s.serviceOut;
   // a class, or an ADT with the fields all its cases share (`ClientRead.master`)

@@ -221,20 +221,28 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
 
   // the body of the request
   if (s.serviceIn) {
-    const bodyType = !s.serviceIn.collection ? types.find(t => t.id === s.serviceIn!.type && t.kind === 'case') : undefined;
+    // `type ServiceIn = In` — the request sends the In as it is
+    const isIn = !s.serviceIn.collection && !!s.inTypeId && s.serviceIn.type === s.inTypeId;
+    const bodyType = !s.serviceIn.collection && !isIn ? types.find(t => t.id === s.serviceIn!.type && t.kind === 'case') : undefined;
     let value: string;
-    if (bodyType) {
+    if (isIn) value = 'in';
+    else if (bodyType) {
       const args = (bodyType.fields ?? []).filter(f => isFinished(f, idx)).map(f => {
         const m = (s.bodyMappings ?? []).find(x => x.name === f.name)?.expression
           ?? (vars.has(f.name) ? `= ${f.name}` : '');
-        if (!m) return `${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping */`}`;
+        if (!m) return `${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — kein Feld gleichen Namens im In */`}`;
         const v = forTarget(translate(m, f), !!f.optional);
         return `${scalaName(f.name)} = ${v.needed ? `${v.scala}.getOrElse(??? /* TODO ${f.name} ist im In optional */)` : v.scala}`;
       });
       value = `${bodyType.name}(\n${indent(args.join(',\n'), '        ')}\n      )`;
     } else {
-      const t = translate((s.bodyMappings ?? []).find(x => x.name === 'body')?.expression ?? '= body', bodyField(s.serviceIn));
-      value = forTarget(t, !!s.serviceIn.optional).scala;
+      const own = (s.bodyMappings ?? []).find(x => x.name === 'body')?.expression;
+      if (own?.trim()) value = forTarget(translate(own, bodyField(s.serviceIn)), !!s.serviceIn.optional).scala;
+      else {
+        // a list or an ADT: how it comes from the In is no field-by-field mapping
+        const what = s.serviceIn.collection ? 'eine Liste' : types.find(t => t.id === s.serviceIn!.type)?.kind === 'enum' ? 'ein ADT' : 'kein Typ der API';
+        value = `??? /* TODO ServiceIn aus dem In bauen — ${what} */`;
+      }
     }
     body.push('  override def inputMapper(in: In): Option[ServiceIn] =', `    Some(\n      ${value}\n    )`, '');
   }
@@ -248,15 +256,21 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     const args: string[] = [];
     for (const f of (outType?.fields ?? []).filter(x => isFinished(x, idx))) {
       const m = (s.outMappings ?? []).find(x => x.name === f.name)?.expression ?? '';
-      if (!m.trim()) { args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping */`}`); continue; }
+      if (!m.trim()) { args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — aus body, headers oder dem In */`}`); continue; }
       const v = forTarget(feelToScala(m, outVars, types, f), !!f.optional);
       if (v.needed) {
         steps.push(`${scalaName(f.name)} <- ${v.scala}.toRight(ServiceMappingError(${JSON.stringify(`${s.name}: ${f.name} fehlt in der Antwort`)}))`);
         args.push(`${scalaName(f.name)} = ${scalaName(f.name)}`);
       } else args.push(`${scalaName(f.name)} = ${v.scala}`);
     }
+    // `type ServiceOut = Out` — the response is the Out as it is
+    const isOut = !!s.serviceOut && !s.serviceOut.collection && !!s.outTypeId && s.serviceOut.type === s.outTypeId && !s.noOut;
     const out = hasOut ? `Out(\n${indent(args.join(',\n'), '        ')}\n      )` : 'NoOutput()';
     const lines = ['  override def outputMapper(', '      out: ServiceResponse[ServiceOut],', '      in: In', '  ): Either[ServiceMappingError, Out] ='];
+    if (isOut) {
+      lines.push('    Right(out.outputBody)', '  end outputMapper', '');
+      body.push(...lines);
+    } else {
     const uses = (name: string) => args.some(a => new RegExp(`\\b${name}\\b`).test(a.split(' = ').slice(1).join(' = '))) || steps.some(st => new RegExp(`\\b${name}\\b`).test(st));
     if (uses('body')) lines.push('    val body = out.outputBody');
     if (uses('headers')) lines.push('    val headers = out.headers');
@@ -264,6 +278,7 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     else lines.push(`    Right(\n      ${out}\n    )`);
     lines.push('  end outputMapper', '');
     body.push(...lines);
+    }
   }
 
   const imports = [

@@ -597,3 +597,49 @@ test('the OpenAPIs of the project folder: the wrapped ones first, the generated 
   assert.deepEqual(ownFolders(model, 'acme-crm-onboarding').map(p => p.name), ['acme-crm']);
   assert.deepEqual(ownFolders(model, 'acme-x').map(p => p.name), ['acme']);
 });
+
+test('`type ServiceIn = In` / `type ServiceOut = Out`: the body as it is — Some(in), Right(out.outputBody)', async () => {
+  const { scanScala } = await import('../src/domainScan');
+  const { catalogProjects, collectionFromCatalog } = await import('../src/services/catalogCollections');
+  const { collectionFiles } = await import('../src/services/scalaCollection');
+  const source = `package acme.crm.domain
+package client.v1
+
+object PostClients extends ClientV1:
+
+  final val topicName = "acme-crm-clientV1.PostClients"
+  val path  = "POST: /clients"
+
+  case class In(
+      name: String
+  )
+  case class Out(
+      clientKey: Long
+  )
+
+  type ServiceIn  = In
+  type ServiceOut = Out
+end PostClients
+`;
+  const model = { version: 1, domainTypes: scanScala(source, 'PostClients.scala'),
+    services: [{ id: 'acme-crm-clientV1.PostClients', name: 'PostClients', kind: 'service', topic: 'acme-crm-clientV1.PostClients' }] } as never;
+  const p = catalogProjects(model)[0];
+  const c = collectionFromCatalog(p, p.apis, model);
+  const s = c.services[0];
+  assert.deepEqual(s.serviceIn, { type: s.inTypeId });
+  assert.deepEqual(s.serviceOut, { type: s.outTypeId });
+  assert.equal(s.outMappings, undefined);
+  const files = collectionFiles(c, model);
+  const task = files.find(f => f.path.endsWith('/PostClients.scala'))!.content;
+  assert.match(task, /type ServiceIn = In\n {2}type ServiceOut = Out/);
+  const worker = files.find(f => f.path.endsWith('PostClientsWorker.scala'))!.content;
+  assert.match(worker, /override def inputMapper\(in: In\): Option\[ServiceIn\] =\n {4}Some\(\n {6}in\n {4}\)/);
+  assert.match(worker, /\): Either\[ServiceMappingError, Out\] =\n {4}Right\(out\.outputBody\)\n {2}end outputMapper/);
+  assert.doesNotMatch(worker, /\?\?\?/);
+
+  // an ADT as ServiceIn: a TODO that says what to do
+  const adt = { id: 'adt', name: 'Request', kind: 'enum' as const, values: [{ name: 'A', fields: [{ id: 'a', name: 'x', type: 'String' }] }] };
+  const withAdt = { ...c, types: [...c.types, adt], services: [{ ...s, serviceIn: { type: 'adt' } }] };
+  const w2 = collectionFiles(withAdt, model).find(f => f.path.endsWith('PostClientsWorker.scala'))!.content;
+  assert.match(w2, /\?\?\? \/\* TODO ServiceIn aus dem In bauen — ein ADT \*\//);
+});
