@@ -50,6 +50,19 @@ class ModelerTemplUpdaterTest extends munit.FunSuite:
       .replace("""bpmnElement="InitProcessTask" />""", """bpmnElement="InitProcessTask" color:background-color="#ffffcc" />""")
     assertEquals(colorOf(written(own), "InitProcessTask"), Some("#ffffcc"))
 
+  test("the colour goes after the other attributes - as the Camunda Modeler writes it"):
+    val out = written(generated)
+    assert(out.contains("""<bpmndi:BPMNShape id="InitProcessTask_di" bpmnElement="InitProcessTask" color:background-color="#D5D5D5" />"""), out)
+
+  test("a colour set again: at the end, also where an older api/run had put it first - the rest stays"):
+    val shape = XML.loadString(
+      """<bpmndi:BPMNShape xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:color="http://www.omg.org/spec/BPMN/non-normative/color/1.0" color:background-color="#000000" id="a_di" bpmnElement="a" isExpanded="true" />"""
+    )
+    val coloured = ModelerTemplUpdater.withColor(shape, "#ffffcc")
+    assertEquals(coloured.attributes.toList.map(_.key), List("id", "bpmnElement", "isExpanded", "background-color"))
+    assertEquals(coloured \@ "{http://www.omg.org/spec/BPMN/non-normative/color/1.0}background-color", "#ffffcc")
+    assertEquals(ModelerTemplUpdater.withColor(coloured, "#ffffcc"), coloured)
+
   test("the file: the XML declaration, xmlns:color once - and it is valid XML"):
     val out = written(generated)
     assert(out.startsWith("""<?xml version="1.0" encoding="UTF-8"?>""" + "\n"), out)
