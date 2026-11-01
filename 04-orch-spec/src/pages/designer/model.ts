@@ -1,10 +1,10 @@
 // The designer of the pages (E15) - what a page can call, example data for the preview, the
 // tree of the building blocks and the findings. Without React, tested like the rest (tests/pagesDesigner.test.ts).
 import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from '../../types';
-import { uid } from '../../util';
-import { conditionProblem } from '../runtime/expr';
+import { uid } from '../../util.ts';
+import { conditionProblem } from '../runtime/expr.ts';
 import type { Action, Component, Page } from '../runtime/spec';
-import { actionsOf, type BlockKey, flatten } from '../pageActions';
+import { actionsOf, type BlockKey, flatten } from '../pageActions.ts';
 
 // the traversal lives in a light module (the task links use it too) - re-exported for the designer
 export { actionsOf, flatten, type BlockKey };
