@@ -18,6 +18,8 @@ export interface SpecFolder {
   read(path: string): string | null;
   /** the names of the files in the folder (not the subfolders) - empty if it is missing */
   list(dir: string): string[];
+  /** the names of the subfolders - only who walks the whole folder needs it (specDiff) */
+  dirs?(dir: string): string[];
 }
 
 /** One process - the payload of «Process from Spec» (v1) and where it comes from. */

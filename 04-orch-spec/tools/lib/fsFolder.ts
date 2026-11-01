@@ -14,5 +14,10 @@ export function fsFolder(root: string): SpecFolder {
       if (!existsSync(p) || !statSync(p).isDirectory()) return [];
       return readdirSync(p).filter(n => !n.startsWith('.') && statSync(join(p, n)).isFile()).sort();
     },
+    dirs(dir) {
+      const p = join(root, dir);
+      if (!existsSync(p) || !statSync(p).isDirectory()) return [];
+      return readdirSync(p).filter(n => !n.startsWith('.') && statSync(join(p, n)).isDirectory()).sort();
+    },
   };
 }
