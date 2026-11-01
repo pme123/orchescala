@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "slug": "order",
+  "name": "orderV1",
+  "title": "Order",
+  "processId": "acme-demo-orderV1",
+  "project": "acme-demo",
+  "engine": "c7",
+  "status": "implemented",
+  "description": "",
+  "createdAt": "2026-11-01",
+  "updatedAt": "2026-11-01T09:14:00+01:00",
+  "variables": [],
+  "timeToLive": "180",
+  "steps": [
+    {
+      "id": "StartEvent",
+      "kind": "start",
+      "name": "start",
+      "status": "implemented"
+    },
+    {
+      "id": "CheckOrderTask",
+      "kind": "service",
+      "name": "check order",
+      "status": "implemented",
+      "topic": "acme-demo-orderV1-checkOrder",
+      "manualOutMapping": false
+    },
+    {
+      "id": "ApproveOrderUT",
+      "kind": "user",
+      "name": "approve order",
+      "status": "implemented"
+    },
+    {
+      "id": "EndEvent",
+      "kind": "end",
+      "name": "end",
+      "status": "implemented"
+    }
+  ],
+  "types": [
+    {
+      "id": "t-in",
+      "name": "In",
+      "kind": "case",
+      "root": true,
+      "fields": [
+        {
+          "id": "f-orderId",
+          "name": "orderId",
+          "type": "Long",
+          "description": "The order"
+        },
+        {
+          "id": "f-amount",
+          "name": "amount",
+          "type": "Double",
+          "optional": true
+        },
+        {
+          "id": "f-customer",
+          "name": "customer",
+          "type": "t-customer"
+        }
+      ]
+    },
+    {
+      "id": "t-out",
+      "name": "Out",
+      "kind": "case",
+      "processOut": true,
+      "fields": [
+        {
+          "id": "f-approved",
+          "name": "approved",
+          "type": "Boolean"
+        }
+      ]
+    },
+    {
+      "id": "t-customer",
+      "name": "Customer",
+      "kind": "case",
+      "fields": [
+        {
+          "id": "f-name",
+          "name": "name",
+          "type": "String"
+        },
+        {
+          "id": "f-segment",
+          "name": "segment",
+          "type": "t-segment"
+        }
+      ]
+    },
+    {
+      "id": "t-segment",
+      "name": "Segment",
+      "kind": "enum",
+      "values": [
+        {
+          "name": "Retail"
+        },
+        {
+          "name": "Private"
+        }
+      ]
+    },
+    {
+      "id": "t-check-in",
+      "name": "In",
+      "kind": "case",
+      "interactionId": "ia-check",
+      "fields": [
+        {
+          "id": "f-c-orderId",
+          "name": "orderId",
+          "type": "Long"
+        }
+      ]
+    },
+    {
+      "id": "t-check-out",
+      "name": "Out",
+      "kind": "case",
+      "interactionId": "ia-check",
+      "fields": [
+        {
+          "id": "f-c-ok",
+          "name": "ok",
+          "type": "Boolean"
+        }
+      ]
+    },
+    {
+      "id": "t-approve-in",
+      "name": "In",
+      "kind": "case",
+      "interactionId": "ia-approve",
+      "fields": [
+        {
+          "id": "f-a-orderId",
+          "name": "orderId",
+          "type": "Long"
+        }
+      ]
+    },
+    {
+      "id": "t-approve-out",
+      "name": "Out",
+      "kind": "case",
+      "interactionId": "ia-approve",
+      "fields": [
+        {
+          "id": "f-a-approved",
+          "name": "approved",
+          "type": "Boolean"
+        }
+      ]
+    }
+  ],
+  "interactions": [
+    {
+      "id": "ia-check",
+      "stepId": "CheckOrderTask",
+      "kind": "customTask",
+      "name": "CheckOrder",
+      "key": "acme-demo-orderV1-checkOrder",
+      "inTypeId": "t-check-in",
+      "outTypeId": "t-check-out"
+    },
+    {
+      "id": "ia-approve",
+      "stepId": "ApproveOrderUT",
+      "kind": "userTask",
+      "name": "ApproveOrderUT",
+      "key": "ApproveOrderUT",
+      "inTypeId": "t-approve-in",
+      "outTypeId": "t-approve-out"
+    }
+  ]
+}

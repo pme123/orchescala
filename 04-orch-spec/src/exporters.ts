@@ -419,6 +419,30 @@ export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | n
 /** A table of a DMN decision for the helper */
 export interface HelperDmn { file: string; xml: string }
 
+/** The DMN decisions of the process whose tables go along: file name in the project and the key of the table in the spec folder (`processes/<slug>/<key>.dmn`). */
+export function helperDmnRefs(spec: ProcessSpec): Array<{ file: string; key: string }> {
+  return (spec.interactions ?? [])
+    .filter(i => i.kind === 'decision' && i.dmnFile && i.key)
+    .map(i => ({ file: String(i.dmnFile), key: String(i.key) }));
+}
+
+/** What «Process from Spec» brings to the helper (version 1): the BPMN, the Scala classes, the DMN tables. */
+export interface HelperPayload { v: 1; bpmn?: string; scala: string; dmns?: HelperDmn[] }
+
+/**
+ * The content of «Process from Spec» - the same for the command (`helperCommand`) and the
+ * export of a whole spec folder (`specExport.ts`, `tools/spec2export.ts`). The BPMN is the same as
+ * in the BPMN export for the chosen engine.
+ */
+export function helperPayload(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId, dmns: HelperDmn[] = []): HelperPayload {
+  return {
+    v: 1,
+    ...(bpmn ? { bpmn: exportBpmnFor(spec, bpmn, engine, model).xml } : {}),
+    scala: scalaBundle(spec, model),
+    ...(dmns.length ? { dmns } : {}),
+  };
+}
+
 /**
  * The command that creates the process in the project — BPMN and Scala classes in
  * **one** argument: `orchspec:` + base64url(gzip(JSON)). That way the
@@ -430,12 +454,7 @@ export interface HelperDmn { file: string; xml: string }
  * helper puts them next to the BPMN (`src/main/resources/camunda[8]`).
  */
 export function helperCommand(spec: ProcessSpec, model: Model | null, bpmn = '', engine?: EngineId, dmns: HelperDmn[] = []): string {
-  const payload = JSON.stringify({
-    v: 1,
-    ...(bpmn ? { bpmn: exportBpmnFor(spec, bpmn, engine, model).xml } : {}),
-    scala: scalaBundle(spec, model),
-    ...(dmns.length ? { dmns } : {}),
-  });
+  const payload = JSON.stringify(helperPayload(spec, model, bpmn, engine, dmns));
   const zipped = gzipSync(strToU8(payload), { level: 9 });
   let binary = '';
   for (let i = 0; i < zipped.length; i += 0x8000) binary += String.fromCharCode(...zipped.subarray(i, i + 0x8000));

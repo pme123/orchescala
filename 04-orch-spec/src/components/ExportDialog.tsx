@@ -1,7 +1,7 @@
 // Export dialog: choose the audience, check the result, copy or save.
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Copy, Download, Terminal, X } from 'lucide-react';
-import { EXPORT_META, exportBpmnFor, exportFileName, exportSpec, helperCommand, type ExportKind, type HelperDmn } from '../exporters';
+import { EXPORT_META, exportBpmnFor, exportFileName, exportSpec, helperCommand, helperDmnRefs, type ExportKind, type HelperDmn } from '../exporters';
 import { useStore } from '../store';
 import { ENGINES } from '../template';
 import type { EngineId, Model, ProcessSpec } from '../types';
@@ -19,8 +19,7 @@ export default function ExportDialog({ spec, model, bpmn, isDark, onClose }: {
   const [dmns, setDmns] = useState<HelperDmn[]>([]);
   useEffect(() => {
     let alive = true;
-    const own = (spec.interactions ?? []).filter(i => i.kind === 'decision' && i.dmnFile && i.key);
-    void Promise.all(own.map(async i => ({ file: String(i.dmnFile), xml: await loadDmn(spec.slug, i.key) })))
+    void Promise.all(helperDmnRefs(spec).map(async r => ({ file: r.file, xml: await loadDmn(spec.slug, r.key) })))
       .then(list => { if (alive) setDmns(list.filter((d): d is HelperDmn => !!d.xml)); });
     return () => { alive = false; };
   }, [spec.interactions, spec.slug, loadDmn]);
