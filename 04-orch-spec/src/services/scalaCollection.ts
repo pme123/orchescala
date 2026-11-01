@@ -9,12 +9,12 @@
 //
 // The mappings come from FEEL (feelScala.ts); what does not translate is a
 // `???` with the FEEL in a comment — the project compiles once it is filled.
-import { exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala';
+import { exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, TypeDef } from '../types';
 import {
   apiKey, apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
-} from './collection';
-import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala';
+} from './collection.ts';
+import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
 
 export const indent = (text: string, by = '  ') => text.split('\n').map(l => (l ? by + l : l)).join('\n');

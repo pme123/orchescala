@@ -8,11 +8,11 @@
 //
 // In Orchescala this is a CustomTask (`CompanyBpmnCustomTaskDsl`) and its CustomWorker —
 // see scalaOrchestration.ts.
-import { importBpmn } from '../bpmn';
+import { importBpmn } from '../bpmn.ts';
 import type { Branch, Field, Step, TypeDef } from '../types';
-import { nowIsoWithTimezone, slugify, uid } from '../util';
-import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection';
-import { lowerFirst } from './names';
+import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
+import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
+import { lowerFirst } from './names.ts';
 import type { CollectionService, OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
 
 /** In and Out belong to the orchestration — not to the types of the API. */

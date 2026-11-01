@@ -11,6 +11,8 @@ import { normalizeModel, withoutRetiredFields } from './specLoad.ts';
 import { mergeGeneratedCatalog } from './catalogMerge.ts';
 import { readCatalogFile, type CatalogFile } from './catalogImport.ts';
 import { dmnPath } from './dmn.ts';
+import type { ServiceSpec } from './services/types.ts';
+import { migrateService, SERVICES_DIR, servicePayload } from './services/servicePayload.ts';
 
 /** Read access to a spec folder - paths relative to it (`processes/a.json`). */
 export interface SpecFolder {
@@ -35,12 +37,20 @@ export interface ProcessExport {
   dmns: HelperDmn[];
 }
 
+/** A service collection or orchestration - the payload of «Process from Spec» of services (v2). */
+export interface ServiceExport {
+  kind: ServiceSpec['kind'];
+  /** the file in the spec folder: `services/<slug>.json` */
+  slug: string;
+  project: string;
+  scala: string;
+}
+
 /**
- * An entry of the export. Extension point: the service collections (`services/*.json`, payload v2
- * `kind: 'serviceCollection'`, branch feature/orch-spec-services) come in as a second kind - an
- * own exporter in `EXPORTERS` and a member of this union. A reader skips a kind it does not know.
+ * An entry of the export - a new kind comes in with an own exporter in `EXPORTERS` and a member of
+ * this union. A reader skips a kind it does not know.
  */
-export type SpecExportEntry = ProcessExport;
+export type SpecExportEntry = ProcessExport | ServiceExport;
 
 export interface SpecExportIssue { file: string; text: string }
 
@@ -119,8 +129,39 @@ const processExports: Exporter = (folder, model, issues) =>
     };
   });
 
-/** One exporter per kind of entry - service collections plug in here (see `SpecExportEntry`). */
-const EXPORTERS: Exporter[] = [processExports];
+const SERVICE_KINDS: ReadonlyArray<ServiceSpec['kind']> = ['serviceCollection', 'serviceOrchestration'];
+
+/** The services of the folder, by file name - unreadable ones and unknown kinds as issues. */
+export function loadServices(folder: SpecFolder, issues: SpecExportIssue[] = []): Array<{ slug: string; spec: ServiceSpec }> {
+  const out: Array<{ slug: string; spec: ServiceSpec }> = [];
+  for (const name of [...folder.list(SERVICES_DIR)].filter(n => n.endsWith('.json')).sort()) {
+    const file = `${SERVICES_DIR}/${name}`;
+    let raw: unknown;
+    try { raw = JSON.parse(folder.read(file) ?? ''); }
+    catch (e) { issues.push({ file, text: `kein gültiges JSON: ${e instanceof Error ? e.message : String(e)}` }); continue; }
+    const kind = (raw as { kind?: unknown } | null)?.kind;
+    if (!SERVICE_KINDS.includes(kind as ServiceSpec['kind'])) { issues.push({ file, text: `unbekannte Art ${String(kind)}` }); continue; }
+    out.push({ slug: name.replace(/\.json$/, ''), spec: migrateService(raw as ServiceSpec) });
+  }
+  return out;
+}
+
+/** «Process from Spec» for each service collection and orchestration - an orchestration calls the services of the collections. */
+const serviceExports: Exporter = (folder, model, issues) => {
+  const services = loadServices(folder, issues);
+  const all = services.map(s => s.spec);
+  return services.flatMap(({ slug, spec }) => {
+    try {
+      return [{ kind: spec.kind, slug, project: spec.project ?? '', scala: servicePayload(spec, all, model).scala }];
+    } catch (e) {
+      issues.push({ file: `${SERVICES_DIR}/${slug}.json`, text: `nicht exportierbar: ${e instanceof Error ? e.message : String(e)}` });
+      return [];
+    }
+  });
+};
+
+/** One exporter per kind of entry (see `SpecExportEntry`). */
+const EXPORTERS: Exporter[] = [processExports, serviceExports];
 
 /** The export of the spec folder - `catalog` overrides the one in the folder. */
 export function exportSpecFolder(folder: SpecFolder, opts: { catalog?: CatalogFile | null } = {}): SpecExport {

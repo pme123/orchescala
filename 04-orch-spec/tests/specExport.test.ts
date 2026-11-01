@@ -84,3 +84,40 @@ test('the tool: the same JSON on stdout, twice the same bytes', () => {
   assert.equal(a.stdout, specExportJson(exportSpecFolder(fsFolder(fixture))));
   assert.equal(JSON.parse(readFileSync(join(fixture, 'processes/order.json'), 'utf8')).processId, JSON.parse(a.stdout).entries[0].processId);
 });
+
+test('the services of the folder: a collection and an orchestration as «Process from Spec» v2 gives them', async () => {
+  const { newCollection } = await import('../src/services/collection');
+  const { newOrchestration } = await import('../src/services/orchestration');
+  const { servicePayload } = await import('../src/services/servicePayload');
+  const collection = {
+    ...newCollection({ title: 'Client', project: 'acme-demo', api: 'client', apiVersion: 1 }),
+    types: [
+      { id: 'get-in', name: 'In', kind: 'case' as const, interactionId: 'get', fields: [{ id: 'k', name: 'clientKey', type: 'Long' }] },
+      { id: 'get-out', name: 'Out', kind: 'case' as const, interactionId: 'get', fields: [{ id: 'n', name: 'name', type: 'String' }] },
+    ],
+    services: [{ id: 'get', name: 'GetClient', api: 'client', apiVersion: 1, status: 'implemented' as const, method: 'GET' as const, path: '/clients/{clientKey}', params: [], inTypeId: 'get-in', outTypeId: 'get-out' }],
+  };
+  const orchestration = newOrchestration({ title: 'Kunde ändern', project: 'acme-demo', api: 'client', apiVersion: 1, name: 'UpdateClient' });
+  const files: Record<string, string> = {
+    'services/client.json': JSON.stringify(collection),
+    'services/update-client.json': JSON.stringify(orchestration),
+    'services/broken.json': '{',
+    'services/other.json': JSON.stringify({ kind: 'somethingElse' }),
+  };
+  const base = fsFolder(fixture);
+  const folder: SpecFolder = {
+    read: p => files[p] ?? base.read(p),
+    list: d => (d === 'services' ? Object.keys(files).map(f => f.split('/')[1]) : base.list(d)),
+  };
+  const e = exportSpecFolder(folder);
+  const services = e.entries.filter(x => x.kind !== 'process');
+  assert.deepEqual(services.map(x => [x.kind, x.slug, x.project]), [
+    ['serviceCollection', 'client', 'acme-demo'],
+    ['serviceOrchestration', 'update-client', 'acme-demo'],
+  ]);
+  const all = [JSON.parse(files['services/client.json']), JSON.parse(files['services/update-client.json'])];
+  assert.equal(services[0].scala, servicePayload(all[0], all, null).scala);
+  assert.match(services[0].scala, /GetClientWorker\.scala/);
+  assert.match(services[1].scala, /UpdateClientWorker\.scala/);
+  assert.deepEqual(e.issues.map(i => i.file), ['services/broken.json', 'services/other.json']);
+});

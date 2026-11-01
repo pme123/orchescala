@@ -1,4 +1,4 @@
-// CLI: spec folder → the export of all its processes, without a browser.
+// CLI: spec folder → the export of all its processes and services, without a browser.
 //
 //   node tools/spec2export.ts <spez-ordner> [--out export.json] [--catalog catalog.generated.json]
 //
@@ -6,7 +6,9 @@
 // of the process, the Scala classes, the DMN tables) - the same code (src/specExport.ts). As JSON:
 //
 //   { "v": 1, "entries": [{ "kind": "process", "slug", "processId", "project", "engine",
-//                           "bpmn"?, "scala", "dmns": [{ "file", "xml" }] }], "issues": [...] }
+//                           "bpmn"?, "scala", "dmns": [{ "file", "xml" }] },
+//                         { "kind": "serviceCollection" | "serviceOrchestration", "slug", "project", "scala" }],
+//     "issues": [...] }
 //
 // Deterministic: the same folder gives the same bytes. Orchescala's merge runs it on the spec
 // before and after a change (checkMerge). Without --out the JSON goes to stdout.

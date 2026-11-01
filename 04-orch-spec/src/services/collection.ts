@@ -8,9 +8,9 @@
 //
 // A collection has one project, its services may belong to several APIs
 // (`client.v1`, `crm.v2`) — each service carries its own.
-import { STATUSES, type Field, type Mapping, type ProcessSpec, type Status, type TypeDef } from '../types';
-import { nowIsoWithTimezone, slugify } from '../util';
-import { capitalize, headerVar } from './names';
+import { STATUSES, type Field, type Mapping, type ProcessSpec, type Status, type TypeDef } from '../types.ts';
+import { nowIsoWithTimezone, slugify } from '../util.ts';
+import { capitalize, headerVar } from './names.ts';
 import type { CollectionService, ServiceCollectionSpec } from './types';
 
 /** One API of a project — what package, trait and topics are derived from. */

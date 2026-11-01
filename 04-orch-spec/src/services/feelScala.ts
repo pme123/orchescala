@@ -14,7 +14,7 @@
 // Everything else stays FEEL for a human: `??? /* TODO FEEL: … */` — the project
 // compiles and the place is easy to find.
 import type { Field, TypeDef } from '../types';
-import { headerVar } from './names';
+import { headerVar } from './names.ts';
 
 /** A variable a mapping can read — its Scala expression and its shape. */
 export interface ScalaVar {

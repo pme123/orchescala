@@ -12,16 +12,16 @@
 //   exclusive      if … then … else …               (what a branch produces is an Option afterwards)
 //   end            yield Out(…)
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
-import { importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala';
+import { importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, Step, TypeDef } from '../types';
-import { collectionPackage, domainDir, typeHome, workerDir } from './collection';
-import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala';
+import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
+import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala.ts';
 import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
-} from './orchestration';
-import { descr, indent, workerPackageClause } from './scalaCollection';
-import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types';
+} from './orchestration.ts';
+import { descr, indent, workerPackageClause } from './scalaCollection.ts';
+import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
 const scalaVars = (vars: OrchVar[]): Map<string, ScalaVar> =>
