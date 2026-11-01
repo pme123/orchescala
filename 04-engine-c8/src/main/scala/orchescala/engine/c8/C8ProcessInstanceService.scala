@@ -5,6 +5,7 @@ import orchescala.engine.*
 import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
+import orchescala.engine.c8.C8ProcessInstanceService.PendingMarker
 import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{durationInt, Duration, IO, UIO, ZIO}
 
@@ -223,7 +224,7 @@ class C8ProcessInstanceService(
                              businessKey,
                              tenantId,
                              variables,
-                             removePending = None // no pending marker sent
+                             pendingMarker = PendingMarker.NotSent
                            )
       processInstanceId  = correlationResult.processInstanceId
       _                 <- logInfo(
@@ -255,8 +256,7 @@ class C8ProcessInstanceService(
                              businessKey,
                              tenantId,
                              Some(withIdentityPending(variables.getOrElse(JsonObject.empty))),
-                             // landed in a running instance: the marker must not stay there
-                             removePending = Some(clearIdentityPending)
+                             pendingMarker = PendingMarker.Sent
                            )
       processInstanceId  = correlationResult.processInstanceId
       signedCorrelation <- signCorrelation(correlation, processInstanceId)
@@ -278,7 +278,7 @@ class C8ProcessInstanceService(
     *
     * With a `businessKey` it is the correlation key, like in C7: a running instance waiting for
     * this message with that key gets it (e.g. the event subprocess of «Einmalige Ausführung») -
-    * that is no start, answered with 409 (see `onlyStarted`). A process without such a waiting
+    * that is no start, answered with 409 (see `ensureStarted`). A process without such a waiting
     * event starts a new instance - as before, and as in C7 (see `correlateWithBusinessKey`).
     *
     * Landed in a running instance, the message's variables are merged into it - as in C7 with the
@@ -290,7 +290,7 @@ class C8ProcessInstanceService(
       businessKey: Option[String],
       tenantId: Option[String],
       processVariables: Option[JsonObject],
-      removePending: Option[String => IO[EngineError, Unit]]
+      pendingMarker: PendingMarker
   ): IO[EngineError, MessageCorrelationResult] =
     // the businessKey also as variable - also without other variables: the instance correlates its
     // waiting messages with it (`=businessKey`)
@@ -314,7 +314,7 @@ class C8ProcessInstanceService(
                               .orElseFail(EngineError.ProcessError(
                                 s"Message '$messageName' was correlated, but no process instance key returned."
                               ))
-      _                  <- onlyStarted(messageName, response.messageKey, processInstanceKey, removePending)
+      _                  <- ensureStarted(messageName, response.messageKey, processInstanceKey, pendingMarker)
     yield MessageCorrelationResult.ProcessInstance(processInstanceKey, processInstanceKey, C8)
     end for
   end sendMessageToStartProcess
@@ -351,7 +351,7 @@ class C8ProcessInstanceService(
           .catchSome { case err if refused(err) => withKey.delay(timings.subscriptionWait) }
           .catchSome:
             case err if refused(err) =>
-              logInfo(
+              logWarning(
                 s"Message '$messageName' with correlation key '$key' refused - an instance with it runs and waits for " +
                   "no such message (or none starts with it): sent again without key."
               ) *> correlate(None).mapError(withContext(
@@ -362,11 +362,11 @@ class C8ProcessInstanceService(
   /** The message started the instance - or landed in a running one: then no process was started,
     * answered with 409, and the pending identity marker the message set there is removed.
     */
-  private def onlyStarted(
+  private def ensureStarted(
       messageName: String,
       messageKey: String,
       processInstanceKey: String,
-      removePending: Option[String => IO[EngineError, Unit]]
+      pendingMarker: PendingMarker
   ): IO[EngineError, Unit] =
     C8ProcessInstanceService.startedBy(messageKey, processInstanceKey) match
       case Some(true)  => ZIO.unit
@@ -377,7 +377,10 @@ class C8ProcessInstanceService(
         )
       case Some(false) =>
         for
-          cleared <- ZIO.foreach(removePending)(_(processInstanceKey)).either
+          cleared <- (pendingMarker match
+                       case PendingMarker.Sent    => clearIdentityPending(processInstanceKey)
+                       case PendingMarker.NotSent => ZIO.unit
+                     ).either
           notCleared = cleared.left.toOption.fold(""): err =>
                          s" - its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
           _       <- cleared.fold(_ => ZIO.logError(s"Process $processInstanceKey$notCleared"), _ => ZIO.unit)
@@ -389,7 +392,7 @@ class C8ProcessInstanceService(
                        s"Message '$messageName' was correlated to a running process instance ($processInstanceKey) - no process was started$notCleared"
                      ))
         yield ()
-  end onlyStarted
+  end ensureStarted
 
   /** The message landed in a running instance and set its pending marker (C8 cannot delete a
     * variable). Its workers would wait for a correlation that never comes - unless the instance has
@@ -401,6 +404,12 @@ class C8ProcessInstanceService(
     * correlation follows within milliseconds (signed locally, one request). It is waited for up to
     * ~750 ms - clearing the marker before it would let a worker run without the identity of the
     * first start. This delays only the 409 of such a start.
+    *
+    * The search is eventually consistent: a correlation that is set but not found yet only leads to
+    * a cleared marker it makes harmless anyway. Clearing is wrong only if the first start has not
+    * set its correlation after the wait - it hangs or failed; then its workers run without
+    * identity instead of ending in an incident. A failing search clears nothing (fail closed) and
+    * is said in the 409.
     */
   private def clearIdentityPending(processInstanceKey: String): IO[EngineError, Unit] =
     val correlationSet =
@@ -423,6 +432,12 @@ class C8ProcessInstanceService(
 end C8ProcessInstanceService
 
 object C8ProcessInstanceService:
+
+  /** Did the start message carry the pending identity marker (`_identityCorrelationPending`)? If it
+    * landed in a running instance, the marker is there now - and must be removed.
+    */
+  enum PendingMarker:
+    case Sent, NotSent
 
   /** The waits of a start by message.
     *

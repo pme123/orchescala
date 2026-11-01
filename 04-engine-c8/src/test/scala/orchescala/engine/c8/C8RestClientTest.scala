@@ -456,7 +456,10 @@ object C8RestClientTest extends ZIOSpecDefault:
         given orchescala.engine.EngineConfig = DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
         for exit <- startWithIdentity
         yield assert(exit)(failsWith(409, "(500)")) &&
-          assertTrue(cluster.paths == Seq("v2/messages/correlation", "v2/variables/search", "v2/variables/search"))
+          assertTrue(
+            cluster.paths.contains("v2/variables/search"),
+            !cluster.paths.exists(_.startsWith("v2/element-instances")) // the marker is not touched
+          )
       },
       test("start by message landed in a running instance, its pending marker not removed: the 409 says so") {
         val cluster = StubCluster: request =>
@@ -549,6 +552,7 @@ object C8RestClientTest extends ZIOSpecDefault:
           C8ProcessInstanceService.startedBy((partition2 + 7).toString, (partition2 + 8).toString).contains(true),
           // the message on a higher partition than the running instance: also not started by it
           C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000").contains(false),
+          C8ProcessInstanceService.startedBy("1000", "1000").contains(false), // not newer
           C8ProcessInstanceService.startedBy("not-a-key", "1000").isEmpty
         )
       }

@@ -222,12 +222,17 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         first     <- eventually(service.startProcessByMessage(uniqueMessageName, businessKey = Some(uniqueBk)))(_ => true)
         second    <- service.startProcessByMessage(
                        uniqueMessageName,
+                       variables = Some(JsonObject("fromSecondStart" -> Json.True)),
                        businessKey = Some(uniqueBk),
                        identityCorrelation = Some(orchescala.domain.IdentityCorrelation("bob", None))
                      ).exit
         pending   <- eventually(
                        engine.historicVariableService.getVariables(None, Some(first.processInstanceId), Some(Seq("_identityCorrelationPending")))
                      )(_.exists(_.value.contains(Json.False)))
+        // the variables of the refused start are set in the running instance - as in C7
+        merged    <- eventually(
+                       engine.historicVariableService.getVariables(None, Some(first.processInstanceId), Some(Seq("fromSecondStart")))
+                     )(_.nonEmpty)
         // with the pattern: two at the same time - one starts
         parallelBk = bk
         parallel  <- ZIO.collectAllPar(
@@ -240,6 +245,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
       yield assertTrue(
         conflict(second),
         pending.nonEmpty,
+        merged.exists(_.value.contains(Json.True)),
         parallel.count(_.isSuccess) == 1,
         parallel.count(conflict) == 1,
         plain1.processInstanceId != plain2.processInstanceId
