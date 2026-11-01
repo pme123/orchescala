@@ -433,7 +433,7 @@ object C8RestClientTest extends ZIOSpecDefault:
         for exit <- startWithIdentity
         yield
           val cleared = cluster.jsonBodies.last.hcursor.downField("variables")
-          assert(exit)(failsWith(409, "(500) - no process was started")) &&
+          assert(exit)(failsWith(409, "(500) - no process was started, its variables are set there")) &&
           assertTrue(
             cluster.paths == Seq("v2/messages/correlation") ++
               Seq.fill(fastTimings.correlationChecks)("v2/variables/search") ++

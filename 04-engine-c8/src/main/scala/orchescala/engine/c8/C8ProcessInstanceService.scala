@@ -340,7 +340,7 @@ class C8ProcessInstanceService(
       businessKey: Option[String],
       correlate: Option[String] => IO[EngineError, C8RestModel.MessageCorrelationResult]
   ): IO[EngineError, C8RestModel.MessageCorrelationResult] =
-    def refused(err: EngineError) = err match
+    def notFound(err: EngineError) = err match
       case EngineError.ServiceRequestError(404, _) => true
       case _                                       => false
     businessKey match
@@ -348,9 +348,9 @@ class C8ProcessInstanceService(
       case Some(key) =>
         val withKey = correlate(Some(key))
         withKey
-          .catchSome { case err if refused(err) => withKey.delay(timings.subscriptionWait) }
+          .catchSome { case err if notFound(err) => withKey.delay(timings.subscriptionWait) }
           .catchSome:
-            case err if refused(err) =>
+            case err if notFound(err) =>
               logWarning(
                 s"Message '$messageName' with correlation key '$key' refused - an instance with it runs and waits for " +
                   "no such message (or none starts with it): sent again without key."
@@ -376,7 +376,9 @@ class C8ProcessInstanceService(
             "cannot tell a start from a running instance, taken as started (no unique execution)."
         )
       case Some(false) =>
-        val conflict     = s"Message '$messageName' was correlated to a running process instance ($processInstanceKey) - no process was started"
+        val conflict     =
+          s"Message '$messageName' was correlated to a running process instance ($processInstanceKey) - no process was started, " +
+            "its variables are set there"
         val removeMarker = pendingMarker match
           case PendingMarker.Sent    => clearIdentityPending(processInstanceKey)
           case PendingMarker.NotSent => ZIO.unit
