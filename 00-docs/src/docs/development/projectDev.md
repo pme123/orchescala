@@ -222,6 +222,36 @@ Paste it in the terminal of your project and press Enter:
 ```
 No files and no SharePoint login needed - the command contains everything.
 
+#### Merge from Orch Spec: `--check` and `--merge`
+When the spec lives in the project (`spec/`, written by _Orch Spec_), the helper brings all its
+changes into the code - without losing the implementation:
+```
+./helper.scala processFromSpec --check                      # the plan: HEAD:spec -> spec/
+./helper.scala processFromSpec --check --from <dir>         # the plan for another spec folder
+./helper.scala processFromSpec --check --json plan.json     # ... and the plan as JSON
+./helper.scala processFromSpec --merge [--from <dir>] [--markers] [--yes]
+```
+The base is the export of the spec in the last commit (`HEAD:spec`), the new one the export of
+`spec/` (or `--from`); both are made with _Orch Spec_'s own tool (needs Node.js). Per file of the
+project:
+
+| Orch Spec (base -> new) | Code                      | Action                                  |
+|-------------------------|---------------------------|-----------------------------------------|
+| added                   | missing                   | create                                  |
+| added                   | exists, different         | conflict (a worker that exists stays)   |
+| changed                 | = base                    | update                                  |
+| changed                 | changed elsewhere         | merged                                  |
+| changed                 | changed at the same place | conflict                                |
+| unchanged               | any                       | unchanged - your change stays           |
+| removed                 | = base                    | delete                                  |
+| removed                 | changed                   | conflict                                |
+
+`spec/` is taken over as it is; the registrations in the `WorkerApp` and the `ApiProjectCreator`
+are added and removed. `--check` first shows what changed in the spec (processes, steps, the data
+model down to the fields, pages), then the plan - it writes nothing. `--merge` asks and executes
+exactly that plan: a file with conflicts stays as it is - with `--markers` it gets conflict markers
+like `git merge`, to resolve in the IDE.
+
 Without arguments, the helper asks for the exports - copy them in _Orch Spec_ (_Export_ > _BPMN_ / _Scala_ > _Kopieren_):
 ```
 ./helper.scala processFromSpec
