@@ -1848,8 +1848,29 @@ Projekt acme-crm · API client · Version 1
   (`clientV1Workers`) und die Services als Gruppe in der API-Doku (`clientV1Api`).
 
 Ablage: `services/<projekt>[-<titel>].json`, gespeichert wie ein Prozess
-(automatisch, mit Konflikterkennung). Die **Service-Orchestrierung** (ein BPMN
-nur mit Service- und Script-Tasks, daraus ein Worker) folgt.
+(automatisch, mit Konflikterkennung).
+
+**Service-Orchestrierung** («Neue Orchestrierung»): ein Worker, der Services der
+Collections aufruft — modelliert wie ein Prozess, mit demselben BPMN-Modeler, aber
+nur mit Service- und Script-Tasks, parallelen und exklusiven Gateways (anderes
+meldet die Übersicht).
+
+- **Service-Task:** der Service (aus den Collections), je Feld seines `In` ein
+  FEEL-Mapping auf das In und die Ergebnisse davor, der Name seines Ergebnisses
+  (ohne Angabe: der Service-Name, `getClient`).
+- **Script-Task:** Zuweisungen in FEEL — danach unter ihrem Namen bekannt.
+- **Exklusives Gateway:** je Zweig eine Bedingung in FEEL; der Standardfluss oder der
+  eine Zweig ohne Bedingung ist das `else`. Was ein Zweig liefert, ist danach optional.
+- **Übersicht:** Name (das Objekt des CustomTasks), `descr`, `In` und `Out` (auch
+  `NoInput`/`NoOutput`), je Out-Feld sein Mapping, und was noch fehlt.
+- **Export:** ein CustomTask (`CompanyBpmnCustomTaskDsl`) und sein CustomWorker im
+  Paket der API. `runWorkZIO` ist ein `for`: ein Service-Aufruf
+  `XWorker().runWorkFromWorkerUnsafe(X.In(…)).mapError(…)`, parallele Zweige mit
+  `fork`/`join`, ein exklusives Gateway als `if … then … else …`, am Ende `yield Out(…)`.
+  Bedingungen werden Scala (Vergleiche, `null`, `and`/`or`/`not`, mit `Option`:
+  `segment = 3` → `segment.contains(3)`); ein Pflichtwert, der unterwegs optional ist,
+  wird ein Schritt, der mit `CustomError` scheitert. Der Helper schreibt und registriert
+  ihn wie eine Collection (`processFromSpec`, Format v2, `kind: serviceOrchestration`).
 
 ### KI-Modus – Seiten und Prozesse mit Claude
 
