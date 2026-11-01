@@ -376,22 +376,18 @@ class C8ProcessInstanceService(
             "cannot tell a start from a running instance, taken as started (no unique execution)."
         )
       case Some(false) =>
-        for
-          cleared <- (pendingMarker match
-                       case PendingMarker.Sent    => clearIdentityPending(processInstanceKey)
-                       case PendingMarker.NotSent => ZIO.unit
-                     ).either
-          notCleared = cleared.left.toOption.fold(""): err =>
-                         s" - its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
-          _       <- cleared.fold(_ => ZIO.logError(s"Process $processInstanceKey$notCleared"), _ => ZIO.unit)
-          _       <- logWarning(
-                       s"Message '$messageName' was correlated to the running process instance $processInstanceKey - no process started"
-                     )
-          _       <- ZIO.fail(EngineError.ServiceRequestError(
-                       409,
-                       s"Message '$messageName' was correlated to a running process instance ($processInstanceKey) - no process was started$notCleared"
-                     ))
-        yield ()
+        val conflict     = s"Message '$messageName' was correlated to a running process instance ($processInstanceKey) - no process was started"
+        val removeMarker = pendingMarker match
+          case PendingMarker.Sent    => clearIdentityPending(processInstanceKey)
+          case PendingMarker.NotSent => ZIO.unit
+        logWarning(conflict) *>
+          removeMarker
+            .as("")
+            .catchAll: err =>
+              val notRemoved = s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
+              ZIO.logError(s"Process $processInstanceKey: $notRemoved").as(s" - $notRemoved")
+            .flatMap: notRemoved =>
+              ZIO.fail(EngineError.ServiceRequestError(409, conflict + notRemoved))
   end ensureStarted
 
   /** The message landed in a running instance and set its pending marker (C8 cannot delete a
@@ -439,7 +435,8 @@ object C8ProcessInstanceService:
   enum PendingMarker:
     case Sent, NotSent
 
-  /** The waits of a start by message.
+  /** The waits of a start by message - the defaults are used in production (`C8ProcessEngine`),
+    * the tests shorten them.
     *
     * @param correlationChecks
     *   how often a running instance is checked for its correlation before its pending marker is
