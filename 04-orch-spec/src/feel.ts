@@ -19,18 +19,18 @@
 // for them the check stays silent instead of warning wrongly.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
-import { C7_LABEL } from './engineLabels';
+import { C7_LABEL } from './engineLabels.ts';
 import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
-import { FEEL_DOCS, type FeelDoc } from './feelDocs';
-import { SCALA_TYPES, isAdt } from './types';
-import { indexTypes, type TypeIndex } from './scala';
-import { typeShape } from './scalaTypes';
-import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
-import { packageOf } from './scala';
-import { catalogObject, domainRef, parseDomainRef } from './serviceTypes';
-import { allSteps, isInitWorker } from './bpmn';
+import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
+import { SCALA_TYPES, isAdt } from './types.ts';
+import { indexTypes, type TypeIndex } from './scala.ts';
+import { typeShape } from './scalaTypes.ts';
+import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions.ts';
+import { packageOf } from './scala.ts';
+import { catalogObject, domainRef, parseDomainRef } from './serviceTypes.ts';
+import { allSteps, isInitWorker } from './bpmn.ts';
 import type { JuelOptions } from './feelJuel';
-import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants.ts';
 
 export type FeelType =
   | 'string' | 'number' | 'boolean' | 'date' | 'date time' | 'time' | 'duration'
@@ -109,8 +109,8 @@ const SCALAR_ACCEPTS: Record<string, FeelType[]> = {
 
 const MAX_DEPTH = 6;
 
-export { enumHasCase, splitEnumCase } from './scalaTypes';
-import { enumHasCase, splitEnumCase } from './scalaTypes';
+export { enumHasCase, splitEnumCase } from './scalaTypes.ts';
+import { enumHasCase, splitEnumCase } from './scalaTypes.ts';
 
 interface Builder { idx: TypeIndex; model: Model | null }
 

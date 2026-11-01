@@ -5,17 +5,21 @@ import orchescala.domain.BpmnProcessType
 case class BpmnProcessGenerator(processType: BpmnProcessType)(using config: DevConfig):
 
   def createBpmn(setupElement: SetupElement): Unit =
-    val name = s"${setupElement.identifierShort}.bpmn"
     if !os.exists(os.pwd / processType.diagramPath) then
        os.makeDir.all(os.pwd / processType.diagramPath)
-    createIfNotExists(
-      os.pwd / processType.diagramPath / name,
-      processType match
-        case _ : BpmnProcessType.C7 => bpmnC7(setupElement)
-        case _ : BpmnProcessType.C8 => bpmnC8(setupElement)
-        case _ : BpmnProcessType.Op => bpmnC7(setupElement)
-    )
+    createIfNotExists(os.pwd / bpmnRel(setupElement), bpmn(setupElement))
   end createBpmn
+
+  /** The template diagram of the process, relative to the project. */
+  private[update] def bpmnRel(setupElement: SetupElement): os.RelPath =
+    processType.diagramPath / s"${setupElement.identifierShort}.bpmn"
+
+  /** The template diagram of the process - for the engine. */
+  private[update] def bpmn(setupElement: SetupElement): String =
+    processType match
+      case _ : BpmnProcessType.C7 => bpmnC7(setupElement)
+      case _ : BpmnProcessType.C8 => bpmnC8(setupElement)
+      case _ : BpmnProcessType.Op => bpmnC7(setupElement)
 
   private def bpmnC7(setupElement: SetupElement) =
     val processId = setupElement.identifier

@@ -73,6 +73,7 @@ object Dependencies {
   val testcontainersVersion = "1.20.4"
   // 06-gateway
   val oauth2Version = "4.5.0"
+  val jgitVersion   = "7.6.0.202603022253-r"
 
   // examples
   val h2Version             = "2.3.232"
@@ -86,6 +87,8 @@ object Dependencies {
 
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
   lazy val coursierDependency = "io.get-coursier" % "interface" % coursierVersion
+  // the 3-way merge of the helper's merge from Orch Spec (MergeAlgorithm, MergeFormatter)
+  lazy val jgitDependency     = "org.eclipse.jgit" % "org.eclipse.jgit" % jgitVersion
   lazy val scaffeineDependency = // token caching
     "com.github.blemale" %% "scaffeine" % scaffeineV // caching
 

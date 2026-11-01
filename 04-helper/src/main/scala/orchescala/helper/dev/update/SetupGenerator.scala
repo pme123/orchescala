@@ -21,6 +21,7 @@ case class SetupGenerator()(using config: DevConfig):
   end generate
 
   def createProcess(setupElement: SetupElement): Unit =
+    println(setupElement.description)
     BpmnGenerator().createProcess(setupElement)
     BpmnProcessGenerator(config.projectBpmnProcessType).createBpmn(setupElement)
     // a Camunda 8 project: the simulation per engine (see SimulationGenerator)
@@ -32,16 +33,20 @@ case class SetupGenerator()(using config: DevConfig):
   end createProcess
 
   def createProcessElement(setupObject: SetupElement): Unit =
+    println(setupObject.description)
     BpmnGenerator().createProcessElement(setupObject)
     WorkerGenerator().createWorker(setupObject)
 
   def createUserTask(setupObject: SetupElement): Unit =
+    println(setupObject.description)
     BpmnGenerator().createProcessElement(setupObject)
 
   def createDecision(setupObject: SetupElement): Unit =
+    println(setupObject.description)
     BpmnGenerator().createProcessElement(setupObject)
 
   def createEvent(setupElement: SetupElement, withWorker: Boolean = true): Unit =
+    println(setupElement.description)
     BpmnGenerator().createEvent(setupElement)
     if withWorker then WorkerGenerator().createEventWorker(setupElement)
 

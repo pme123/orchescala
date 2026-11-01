@@ -39,11 +39,7 @@ export const STEP_ICON: Record<StepKind, typeof Cog> = {
 export const stepIcon = (step: Pick<Step, 'kind' | 'eventSubprocess'>): typeof Cog =>
   step.kind === 'subprocess' && step.eventSubprocess ? SquareDashed : STEP_ICON[step.kind];
 
-export const KIND_LABEL: Record<StepKind, string> = {
-  start: 'Start', end: 'Ende', service: 'Service', user: 'Benutzeraufgabe', call: 'Teilprozess',
-  send: 'Senden', receive: 'Empfangen', rule: 'Entscheidung', script: 'Skript', manual: 'Manuell',
-  subprocess: 'Subprozess', gateway: 'Verzweigung', event: 'Ereignis', goto: 'Verweis',
-};
+export { KIND_LABEL } from './kindLabels';
 
 export function StatusChip({ status, isDark, onClick, title, muted }: {
   status: Status; isDark: boolean; onClick?: () => void; title?: string;

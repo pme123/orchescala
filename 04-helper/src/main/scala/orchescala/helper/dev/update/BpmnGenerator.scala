@@ -162,14 +162,17 @@ case class BpmnGenerator()(using config: DevConfig):
   end eventDefinition
 
   private[update] def domainPath(processName: String, version: Option[Int]) =
-    val subProject = config.subProjects.find(_ == processName)
-    val dir        = config.projectDir / ModuleConfig.domainModule.packagePath(
-      config.projectPath,
-      subProject = subProject
-    ) / subProject.map(_ => os.rel).getOrElse(os.rel / processName) / version.versionPath
+    val dir = config.projectDir / domainRel(processName, version)
     os.makeDir.all(dir)
     dir
   end domainPath
+
+  /** The folder of the process's domain classes, relative to the project - nothing is created. */
+  private[update] def domainRel(processName: String, version: Option[Int]): os.RelPath =
+    val subProject = config.subProjects.find(_ == processName)
+    ModuleConfig.domainModule.packagePath(config.projectPath, subProject = subProject) /
+      subProject.map(_ => os.rel).getOrElse(os.rel / processName) / version.versionPath
+  end domainRel
 
   private def inOutDefinitions(isProcess: Boolean = false) =
     s"""${inClass}

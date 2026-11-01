@@ -2,10 +2,10 @@
 // building block, a panel with the thread. The threads live in the spec part of the page
 // (`page.spec.comments`), never in the bundle of the app. A building block is found by its ID,
 // not by its key - the key changes with every move.
-import { baseOf, type CommentTargetInfo } from '../../comments';
+import { baseOf, type CommentTargetInfo } from '../../comments.ts';
 import type { CommentThread } from '../../types';
 import type { Page, PageSpec } from '../runtime/spec';
-import { blockName, flatten } from './model';
+import { blockName, flatten } from './model.ts';
 
 /** The places of a page: the page itself and its building blocks. */
 export const pageTarget = 'page';
