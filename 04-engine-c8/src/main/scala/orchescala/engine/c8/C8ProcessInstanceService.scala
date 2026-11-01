@@ -6,7 +6,7 @@ import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo, logWarning}
-import zio.{IO, UIO, ZIO}
+import zio.{durationInt, IO, UIO, ZIO}
 
 class C8ProcessInstanceService(using
     rest: C8RestClient,
@@ -216,7 +216,13 @@ class C8ProcessInstanceService(using
   ): IO[EngineError, ProcessInfo] =
     for
       _                 <- logInfo(s"Starting process by message '$messageName'")
-      correlationResult <- sendMessageToStartProcess(messageName, businessKey, tenantId, variables)
+      correlationResult <- sendMessageToStartProcess(
+                             messageName,
+                             businessKey,
+                             tenantId,
+                             variables,
+                             removePending = _ => ZIO.unit // no pending marker sent
+                           )
       processInstanceId  = correlationResult.processInstanceId
       _                 <- logInfo(
                              s"Process started by message '$messageName' with processInstanceId: $processInstanceId"
@@ -273,13 +279,17 @@ class C8ProcessInstanceService(using
     * that is no start, answered with 409. Zeebe also keeps a message start unique per correlation
     * key: a process without such a waiting event refuses a second start with the same key. Then
     * the message is sent again without key and starts a new instance - as before, and as in C7.
+    *
+    * Landed in a running instance, the message's variables are merged into it - as in C7 with the
+    * variables of a correlated message. A process with the pattern can restrict that with output
+    * mappings on the start event of its event subprocess.
     */
   private def sendMessageToStartProcess(
       messageName: String,
       businessKey: Option[String],
       tenantId: Option[String],
       processVariables: Option[JsonObject],
-      removePending: String => UIO[Unit] = _ => ZIO.unit
+      removePending: String => UIO[Unit]
   ): IO[EngineError, MessageCorrelationResult] =
     // the businessKey also as variable - also without other variables: the instance correlates its
     // waiting messages with it (`=businessKey`)
@@ -303,7 +313,9 @@ class C8ProcessInstanceService(using
                         logInfo(
                           s"Message '$messageName': an instance started with businessKey '${businessKey.mkString}' is running " +
                             "and waits for no such message - started again without correlation key."
-                        ) *> correlate(None)
+                        ) *> correlate(None).mapError(withContext(
+                          s"Refused with correlation key '${businessKey.mkString}' (${err.errorMsg}), then sent again without key"
+                        ))
                     .mapError(withContext(
                       s"Problem sending message '$messageName' to start process"
                     ))
@@ -312,7 +324,15 @@ class C8ProcessInstanceService(using
                               .orElseFail(EngineError.ProcessError(
                                 s"Message '$messageName' was correlated, but no process instance key returned."
                               ))
-      _                  <- ZIO.unless(C8ProcessInstanceService.startedBy(response.messageKey, processInstanceKey)):
+      startedBy          <- ZIO
+                              .fromOption(C8ProcessInstanceService.startedBy(response.messageKey, processInstanceKey))
+                              .orElse(
+                                logWarning(
+                                  s"Message '$messageName': the keys (message ${response.messageKey}, instance $processInstanceKey) " +
+                                    "are not Zeebe keys - cannot tell a start from a running instance, taken as started."
+                                ).as(true)
+                              )
+      _                  <- ZIO.unless(startedBy):
                               removePending(processInstanceKey) *>
                                 logWarning(
                                   s"Message '$messageName' was correlated to the running process instance $processInstanceKey - no process started"
@@ -325,35 +345,64 @@ class C8ProcessInstanceService(using
     end for
   end sendMessageToStartProcess
 
-  /** The message landed in a running instance: its pending marker back to `false` - the instance
-    * has its signed correlation already (C8 cannot delete a variable).
+  /** The message landed in a running instance and set its pending marker (C8 cannot delete a
+    * variable). Its workers would wait for a correlation that never comes - unless the instance has
+    * one: then the marker is ignored. So the marker is cleared only if no correlation shows up.
+    *
+    * The instance's own start may still be signing (a second start right after the first): its
+    * correlation follows within milliseconds. It is waited for a moment - clearing the marker before
+    * it would let a worker run without the identity of the first start.
     */
   private def clearIdentityPending(processInstanceKey: String): UIO[Unit] =
-    rest
-      .putNoContent(
-        Seq("element-instances", processInstanceKey, "variables"),
-        Json.obj("variables" -> Json.obj(InputParams._identityCorrelationPending.toString -> Json.False))
-      )
+    val correlationSet =
+      searchVariables(Some(processInstanceKey), Seq(InputParams._identityCorrelation.toString)).map(_.nonEmpty)
+    def awaitCorrelation(checks: Int): IO[EngineError, Boolean] =
+      correlationSet.flatMap:
+        case false if checks > 1 =>
+          awaitCorrelation(checks - 1).delay(C8ProcessInstanceService.correlationCheckInterval)
+        case found               => ZIO.succeed(found)
+    awaitCorrelation(C8ProcessInstanceService.correlationChecks)
+      .flatMap:
+        case true  => logDebug(s"Process $processInstanceKey has its correlation - its pending marker is ignored.")
+        case false =>
+          rest.putNoContent(
+            Seq("element-instances", processInstanceKey, "variables"),
+            Json.obj("variables" -> Json.obj(InputParams._identityCorrelationPending.toString -> Json.False))
+          )
       .catchAll(err => logWarning(s"Problem clearing the pending marker of process $processInstanceKey: ${err.errorMsg}"))
+  end clearIdentityPending
 
 end C8ProcessInstanceService
 
 object C8ProcessInstanceService:
 
+  /** How often, and how far apart, a running instance is checked for its correlation before its
+    * pending marker is cleared - see `clearIdentityPending`.
+    */
+  private[c8] val correlationChecks        = 4
+  private[c8] val correlationCheckInterval = 250.millis
+
   /** Zeebe refused a message start because an instance started with the same correlation key is
-    * still running (message starts are unique per correlation key).
+    * still running (message starts are unique per correlation key). Zeebe has no error code for
+    * this - it is a NOT_FOUND with this text (checked with c8run 8.9): "… A process instance with
+    * this correlation key is already active … Only one active process instance per correlation key
+    * is allowed for message start events." Matched loosely, in case the wording changes a little.
     */
   def isUniqueStartRefused(err: EngineError.ServiceRequestError): Boolean =
-    err.errorCode == 404 && err.errorMsg.contains("Only one active process instance per correlation key")
+    val msg = err.errorMsg.toLowerCase
+    err.errorCode == 404 && msg.contains("correlation key") &&
+    (msg.contains("only one active") || msg.contains("already active"))
 
   /** Did this message start the instance? A key holds its partition in the upper bits and grows
     * within a partition: an instance the message started is created after it, on its partition. A
-    * running instance it landed in is older - or on another partition.
+    * running instance it landed in is older - or on another partition. This is Zeebe's key layout
+    * (`Protocol.encodePartitionId`), not a documented contract. None if they are no Zeebe keys.
     */
-  def startedBy(messageKey: String, processInstanceKey: String): Boolean =
-    (messageKey.toLongOption, processInstanceKey.toLongOption) match
-      case (Some(message), Some(instance)) => partitionOf(instance) == partitionOf(message) && instance > message
-      case _                               => true // not the keys of Zeebe - nothing to compare
+  def startedBy(messageKey: String, processInstanceKey: String): Option[Boolean] =
+    for
+      message  <- messageKey.toLongOption
+      instance <- processInstanceKey.toLongOption
+    yield partitionOf(instance) == partitionOf(message) && instance > message
 
   private def partitionOf(key: Long): Long = key >> 51
 

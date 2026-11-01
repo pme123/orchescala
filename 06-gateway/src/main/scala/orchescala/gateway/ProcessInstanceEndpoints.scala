@@ -69,6 +69,7 @@ object ProcessInstanceEndpoints:
           |Note: with a `businessKey`, a running process instance waiting for this message gets it
           |first (Camunda 7: message names are engine wide; Camunda 8: the `businessKey` is the
           |correlation key). Then no process is started - answered with 409.
+          |The variables of the message are set in that running instance.
           |""".stripMargin
       )
       .tag(apiGroup)
