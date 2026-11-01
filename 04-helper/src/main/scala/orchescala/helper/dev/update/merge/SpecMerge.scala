@@ -29,7 +29,8 @@ import scala.util.{Failure, Success, Try}
   * Exceptions: the files of `spec/` are taken over 1:1 (deleted too); the registrations are added
   * and removed in the `WorkerApp` and the `ApiProjectCreator`; a skeleton (worker, template BPMN)
   * that exists without a base stays; the process object without a base gets the types of Orch
-  * Spec merged by structure (as `processFromSpec` always did).
+  * Spec merged by structure (as `processFromSpec` always did). BPMN and DMN are brought into one
+  * form first (Orch Spec's `formatXml`) - indentation and the order of attributes are no change.
   */
 object SpecMerge:
 
@@ -40,7 +41,8 @@ object SpecMerge:
       project: os.Path,
       before: SpecSource,
       after: SpecSource,
-      exporter: SpecExporter = NodeSpecExporter
+      exporter: SpecExporter = NodeSpecExporter,
+      formatter: XmlFormatter = XmlFormatter.default
   )(using DevConfig): MergePlan =
     val beforeDir = SpecSources.folder(project, before)
     val afterDir  = SpecSources.folder(project, after)
@@ -52,7 +54,7 @@ object SpecMerge:
     notes ++= neu.issues
     // the spec in the project is taken over as Orch Spec sent it - not if it is the project's own
     val specFiles = afterDir.map(SpecSources.files)
-    try plan(project, base.processes, neu.processes, specFiles, notes.result())
+    try plan(project, base.processes, neu.processes, specFiles, notes.result(), formatter = formatter)
     finally
       // a commit was extracted into a temporary folder
       if before.isInstanceOf[SpecSource.GitRev] then beforeDir.foreach(os.remove.all)
@@ -63,6 +65,9 @@ object SpecMerge:
     * @param specFiles the files of the new spec folder (relative to it) - None: `spec/` stays as it is
     * @param strict    a process that cannot be planned is an error (one process from `orchspec:`) -
     *                  otherwise a note and the process is left out
+    * @param formatter brings the BPMN and DMN of base, new and code into one form before they are
+    *                  compared - a file that differs only in its form is unchanged; what is written
+    *                  is formatted
     */
   def plan(
       project: os.Path,
@@ -70,7 +75,8 @@ object SpecMerge:
       after: Seq[ProcessExport],
       specFiles: Option[Map[os.RelPath, Array[Byte]]] = None,
       notes: Seq[String] = Seq.empty,
-      strict: Boolean = false
+      strict: Boolean = false,
+      formatter: XmlFormatter = XmlFormatter.default
   )(using config: DevConfig): MergePlan =
     val planner  = ProcessPlanner(project)
     val messages = Seq.newBuilder[String] ++= notes
@@ -91,8 +97,22 @@ object SpecMerge:
       files.flatMap(_.files).groupBy(_.rel).view.mapValues(_.head).toMap
     val baseFiles = byPath(base)
     val newFiles  = byPath(neu)
-    val generated = (baseFiles.keySet ++ newFiles.keySet).toSeq.sortBy(_.toString).flatMap: rel =>
-      decide(rel, baseFiles.get(rel), newFiles.get(rel), read(project / rel), hashOf(project / rel))
+    val rels      = (baseFiles.keySet ++ newFiles.keySet).toSeq.sortBy(_.toString)
+    // BPMN and DMN: the three sides in one form - in one run of the formatter
+    val xml       = rels.filter(isXml).flatMap: rel =>
+      baseFiles.get(rel).map(f => s"base:$rel" -> f.content) ++
+        newFiles.get(rel).map(f => s"new:$rel" -> f.content) ++
+        read(project / rel).map(c => s"code:$rel" -> c)
+    val formatted = if xml.isEmpty then Map.empty[String, String] else formatter.format(xml.toMap)
+    def form(side: String, rel: os.RelPath)(text: String) = formatted.getOrElse(s"$side:$rel", text)
+    val generated = rels.flatMap: rel =>
+      decide(
+        rel,
+        baseFiles.get(rel).map(f => f.copy(content = form("base", rel)(f.content))),
+        newFiles.get(rel).map(f => f.copy(content = form("new", rel)(f.content))),
+        read(project / rel).map(form("code", rel)),
+        hashOf(project / rel)
+      )
 
     val registrations = (base ++ neu).flatMap(_.registrations).map(_.file).distinct.sortBy(_.toString).flatMap: file =>
       register(
@@ -251,6 +271,8 @@ object SpecMerge:
   // ── helpers ───────────────────────────────────────────────────────────────────────────────
 
   private def read(file: os.Path): Option[String] = Option.when(os.isFile(file))(os.read(file))
+
+  private def isXml(rel: os.RelPath): Boolean = Seq("bpmn", "dmn").contains(rel.ext)
 
   /** Equal if they differ only in blanks at the line ends and empty lines at the end. */
   private def same(a: String, b: String): Boolean =

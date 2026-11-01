@@ -68,8 +68,14 @@ class SpecMergeTest extends FunSuite:
   private def path(project: os.Path, name: String): String =
     file(project, name).relativeTo(project).toString
 
-  private def run(project: os.Path, before: Seq[ProcessExport], after: Seq[ProcessExport], onConflict: OnConflict = OnConflict.KeepCode)(using DevConfig): (MergePlan, MergeResult) =
-    val plan = SpecMerge.plan(project, before, after)
+  private def run(
+      project: os.Path,
+      before: Seq[ProcessExport],
+      after: Seq[ProcessExport],
+      onConflict: OnConflict = OnConflict.KeepCode,
+      formatter: XmlFormatter = XmlFormatter.default
+  )(using DevConfig): (MergePlan, MergeResult) =
+    val plan = SpecMerge.plan(project, before, after, formatter = formatter)
     plan -> SpecMerge.merge(project, plan, onConflict)
 
   private def actionOf(plan: MergePlan, project: os.Path, name: String): Action =
@@ -229,6 +235,27 @@ class SpecMergeTest extends FunSuite:
       assertEquals(actionOf(plan, project, "demo-orderV1.bpmn"), Action.merged)
       val bpmn      = os.read(file(project, "demo-orderV1.bpmn"))
       assert(bpmn.contains("approve the order") && bpmn.contains("""x="120""""), bpmn)
+
+  /** A formatter for the test: the lines without their indentation. */
+  private object Unindent extends XmlFormatter:
+    def format(texts: Map[String, String]): Map[String, String] =
+      texts.view.mapValues(_.linesIterator.map(_.trim).mkString("", "\n", "\n")).toMap
+
+  test("a BPMN in another form in the code: formatted before the comparison - no conflict, written formatted"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order), formatter = Unindent)
+      // the Modeler indents differently
+      editFile(project, "demo-orderV1.bpmn")(_.linesIterator.map("    " + _).mkString("\n"))
+      val layout    = order.copy(bpmn = order.bpmn.map(_.replace("""<dc:Bounds x="100" y="100"""", """<dc:Bounds x="120" y="100"""")))
+      val unformed  = SpecMerge.plan(project, Seq(order), Seq(layout), formatter = NoXmlFormatter)
+      assertEquals(actionOf(unformed, project, "demo-orderV1.bpmn"), Action.conflict)
+      val (plan, _) = run(project, Seq(order), Seq(layout), formatter = Unindent)
+      assertEquals(actionOf(plan, project, "demo-orderV1.bpmn"), Action.update)
+      val bpmn      = os.read(file(project, "demo-orderV1.bpmn"))
+      assert(bpmn.contains("""x="120"""") && !bpmn.contains("    <"), bpmn)
+      // only the form differs: unchanged, the file is not touched
+      editFile(project, "demo-orderV1.bpmn")(_.linesIterator.map("  " + _).mkString("\n"))
+      assertEquals(actionOf(SpecMerge.plan(project, Seq(order), Seq(layout), formatter = Unindent), project, "demo-orderV1.bpmn"), Action.unchanged)
 
   test("a file changed between check and merge: the merge aborts, nothing is written"):
     inProject: project =>

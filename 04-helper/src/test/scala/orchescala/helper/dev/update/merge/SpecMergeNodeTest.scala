@@ -57,4 +57,23 @@ class SpecMergeNodeTest extends FunSuite:
       val merged     = os.read(checkOrder)
       assert(merged.contains("ok: String") && merged.contains("lazy val own = 1"), merged)
 
+  test("Orch Spec's formatter: a BPMN of the Modeler (other indentation, attribute order, <a></a>) is no change"):
+    inGitProject: project =>
+      assume(NodeXmlFormatter.available, "no xmlformat.js")
+      val order    = SpecExport.fromJson(os.read(os.resource / "orch-spec" / "order-export.json")).processes.head
+      SpecMerge.merge(project, SpecMerge.plan(project, Seq.empty, Seq(order)), OnConflict.KeepCode)
+      val bpmn     = os.walk(project).find(_.last == "demo-orderV1.bpmn").get
+      val modeler  = os.read(bpmn)
+        .replace("""<bpmn:sequenceFlow id="F1" sourceRef="StartEvent" targetRef="CheckOrderTask" />""",
+          """<bpmn:sequenceFlow targetRef="CheckOrderTask" sourceRef="StartEvent" id="F1"></bpmn:sequenceFlow>""")
+        .linesIterator.map("\t" + _).mkString("\r\n")
+      os.write.over(bpmn, modeler)
+      val same     = SpecMerge.plan(project, Seq(order), Seq(order))
+      assertEquals(same.files.find(_.path.endsWith(".bpmn")).map(_.action), Some(Action.unchanged))
+      val layout   = order.copy(bpmn = order.bpmn.map(_.replace("""<dc:Bounds x="100" y="100"""", """<dc:Bounds x="120" y="100"""")))
+      val plan     = SpecMerge.plan(project, Seq(order), Seq(layout))
+      assertEquals(plan.files.find(_.path.endsWith(".bpmn")).map(_.action), Some(Action.update))
+      SpecMerge.merge(project, plan, OnConflict.KeepCode)
+      assertEquals(os.read(bpmn), NodeXmlFormatter.format(Map("x" -> layout.bpmn.get))("x"))
+
 end SpecMergeNodeTest

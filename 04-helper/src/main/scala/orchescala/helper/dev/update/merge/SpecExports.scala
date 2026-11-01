@@ -111,3 +111,41 @@ object SpecSources:
         .toMap
 
 end SpecSources
+
+/** Brings BPMN and DMN into one form before they are compared - the texts by a key. */
+trait XmlFormatter:
+  def format(texts: Map[String, String]): Map[String, String]
+
+object XmlFormatter:
+  /** Orch Spec's `formatXml` with Node.js - without Node.js (or the tool) the texts stay as they are. */
+  def default: XmlFormatter =
+    if NodeXmlFormatter.available then NodeXmlFormatter else NoXmlFormatter
+
+/** The texts as they are. */
+object NoXmlFormatter extends XmlFormatter:
+  def format(texts: Map[String, String]): Map[String, String] = texts
+
+/** Orch Spec's own formatter (`xmlformat.js`, `formatXml` in src/xmlFormat.ts) - all texts in one run. */
+object NodeXmlFormatter extends XmlFormatter:
+
+  val tool = "xmlformat.js"
+
+  lazy val available: Boolean =
+    NodeSpecExporter.hasNode && Try(os.read.bytes(os.resource / "orch-doc-tools" / tool)).isSuccess
+
+  def format(texts: Map[String, String]): Map[String, String] =
+    if texts.isEmpty then texts
+    else
+      val dir    = os.temp.dir(prefix = "orch-spec-tools")
+      val script = dir / tool
+      os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / tool))
+      try
+        import io.circe.syntax.*
+        val r = os.proc("node", script.toString, "--json")
+          .call(stdin = texts.asJson.noSpaces, check = false, stderr = os.Pipe)
+        if r.exitCode != 0 then
+          throw IllegalStateException(s"$tool failed (exit code ${r.exitCode}): ${r.err.text().trim}")
+        io.circe.parser.decode[Map[String, String]](r.out.text()).fold(e => throw IllegalStateException(e.getMessage), identity)
+      finally os.remove.all(dir)
+  end format
+end NodeXmlFormatter

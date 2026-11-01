@@ -247,7 +247,9 @@ project:
 | removed                 | changed                   | conflict                                |
 
 `spec/` is taken over as it is; the registrations in the `WorkerApp` and the `ApiProjectCreator`
-are added and removed. `--check` first shows what changed in the spec (processes, steps, the data
+are added and removed. BPMN and DMN are formatted the same way on all three sides first (_Orch
+Spec_'s formatter): indentation or the order of attributes is no change, and what the merge writes
+is in that form. `--check` first shows what changed in the spec (processes, steps, the data
 model down to the fields, pages), then the plan - it writes nothing. `--merge` asks and executes
 exactly that plan: a file with conflicts stays as it is - with `--markers` it gets conflict markers
 like `git merge`, to resolve in the IDE.
