@@ -877,10 +877,12 @@ function ParamRow({ param: p, spec, vars, canEdit, isDark, onChange, onRemove }:
   );
 }
 
-export function MappingRow({ target, types, value, placeholder, vars, canEdit, isDark, required, onChange }: {
+export function MappingRow({ target, types, value, placeholder, vars, canEdit, isDark, required, missingText, onChange }: {
   target: Field; types: TypeDef[]; value: string; placeholder: string; vars: VarNode[]; canEdit: boolean; isDark: boolean;
   /** the field needs a value (an Out field) — empty is a finding */
   required?: boolean;
+  /** what an empty required field means here — default: for an Out */
+  missingText?: string;
   onChange: (v: string) => void;
 }) {
   const { model } = useStore();
@@ -898,7 +900,7 @@ export function MappingRow({ target, types, value, placeholder, vars, canEdit, i
         <FeelInput value={value} onChange={onChange} variables={vars} isDark={isDark} disabled={!canEdit} placeholder={placeholder} size="md" />
         {err && <div className={`text-[10px] ${err.level === 'error' ? 'text-rose-500' : (isDark ? 'text-amber-300' : 'text-amber-700')}`}>{err.text}</div>}
         {guarded && <div className={`text-[10px] ${c.muted}`}>Fehlt «{first?.path}» in der Antwort, scheitert der Worker mit <span className="font-mono">ServiceMappingError</span>.</div>}
-        {missing && <div className={`text-[10px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Pflichtfeld ohne Wert — der Worker kann das Out nicht bauen.</div>}
+        {missing && <div className={`text-[10px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>{missingText ?? 'Pflichtfeld ohne Wert — der Worker kann das Out nicht bauen.'}</div>}
       </div>
     </div>
   );

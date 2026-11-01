@@ -19,11 +19,13 @@ case class OrchSpecCommand(
     kind: OrchSpecKind = OrchSpecKind.Process
 )
 
-/** What the export of Orch Spec is: a process (version 1), or a service collection (version 2 with
-  * `kind: "serviceCollection"`) - its ServiceTasks and ServiceWorkers, without a BPMN.
+/** What the export of Orch Spec is: a process (version 1), a service collection (version 2 with
+  * `kind: "serviceCollection"`) - its ServiceTasks and ServiceWorkers, without a BPMN - or a service
+  * orchestration (`kind: "serviceOrchestration"`) - a CustomTask and its CustomWorker that calls
+  * service workers. Both are written per API, the same way.
   */
 enum OrchSpecKind:
-  case Process, ServiceCollection
+  case Process, ServiceCollection, ServiceOrchestration
 
 object OrchSpecInput:
 
@@ -31,7 +33,7 @@ object OrchSpecInput:
 
   /** The argument of «Process from Spec» in Orch Spec: `orchspec:` + base64url(gzip(JSON)) with
     * `{ v: 1, bpmn?: String, scala: String, dmns?: [{ file: String, xml: String }] }` - or, for a
-    * service collection, `{ v: 2, kind: "serviceCollection", scala: String }`.
+    * service collection or orchestration, `{ v: 2, kind: "serviceCollection" | "serviceOrchestration", scala: String }`.
     */
   def fromCommand(argument: String): OrchSpecCommand =
     val json = Try:
@@ -57,9 +59,11 @@ object OrchSpecInput:
         )
       case Right(2) =>
         cursor.get[String]("kind") match
-          case Right("serviceCollection") =>
+          case Right("serviceCollection")    =>
             OrchSpecCommand(None, cursor.get[String]("scala").getOrElse(""), kind = OrchSpecKind.ServiceCollection)
-          case kind                       =>
+          case Right("serviceOrchestration") =>
+            OrchSpecCommand(None, cursor.get[String]("scala").getOrElse(""), kind = OrchSpecKind.ServiceOrchestration)
+          case kind                          =>
             throw IllegalArgumentException(
               s"Kind ${kind.getOrElse("?")} of the Orch Spec export is not known - update the orchescala helper."
             )

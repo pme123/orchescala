@@ -66,7 +66,8 @@ trait DevHelper:
             val spec     = OrchSpecInput.fromCommand(argument.trim)
             spec.kind match
               case OrchSpecKind.Process           => createProcessFromSpec(spec.bpmn, spec.scala, spec.dmns)
-              case OrchSpecKind.ServiceCollection => OrchSpecGenerator().createServices(spec.scala)
+              case OrchSpecKind.ServiceCollection | OrchSpecKind.ServiceOrchestration =>
+                OrchSpecGenerator().createServices(spec.scala)
           case Seq(bpmnExport, scalaExport) =>
             createProcessFromSpec(Some(readFile(bpmnExport)), readFile(scalaExport))
           case Seq(file) if file.endsWith(".bpmn")     =>

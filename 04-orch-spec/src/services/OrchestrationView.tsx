@@ -280,6 +280,7 @@ function ServiceTaskPanel({ step, spec, refs, types, steps, canEdit, isDark, onP
                   return (
                     <MappingRow key={f.id} target={f} types={types} value={m?.expression ?? ''} placeholder={same ? `= ${f.name}` : '= …'}
                       vars={vars} canEdit={canEdit} isDark={isDark} required={!f.optional && !same}
+                      missingText={`Pflichtfeld ohne Wert — ${ref.service.name} braucht es (im Export ein TODO).`}
                       onChange={expression => onPatch({ inputs: upsert(task?.inputs, f.name, expression) })} />
                   );
                 })}

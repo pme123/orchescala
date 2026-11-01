@@ -461,6 +461,12 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       OrchSpecCommand(None, "x", kind = OrchSpecKind.ServiceCollection)
     )
 
+  test("fromCommand - version 2 for a service orchestration"):
+    assertEquals(
+      OrchSpecInput.fromCommand(command("""{"v":2,"kind":"serviceOrchestration","scala":"x"}""")),
+      OrchSpecCommand(None, "x", kind = OrchSpecKind.ServiceOrchestration)
+    )
+
   test("fromCommand - version 2 of an unknown kind"):
     intercept[IllegalArgumentException](OrchSpecInput.fromCommand(command("""{"v":2,"kind":"other","scala":"x"}""")))
 
