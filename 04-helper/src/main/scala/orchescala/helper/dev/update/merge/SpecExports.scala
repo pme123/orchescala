@@ -88,17 +88,29 @@ object SpecSources:
       case SpecSource.Dir(path)   => Option.when(os.isDir(path))(path)
       case SpecSource.GitRev(rev) => fromGit(project, rev)
 
-  /** `spec/` of the project in a commit - `git archive <rev>:./spec`, relative to the project
-    * (it may be a folder in the repository). None if the commit has no spec.
+  /** `spec/` of the project in a commit - `git archive <rev>:<path of the project>/spec`, run in
+    * the root of the repository (in a subfolder git archive keeps only what lies below that
+    * folder). None if the commit has no spec.
     */
   private def fromGit(project: os.Path, rev: String): Option[os.Path] =
-    val archive = os.proc("git", "archive", "--format=tar", s"$rev:./${specDir}")
-      .call(cwd = project, check = false, stderr = os.Pipe)
-    if archive.exitCode != 0 then None
+    def git(args: String*) = os.proc("git", args).call(cwd = project, check = false, stderr = os.Pipe)
+    // the path of the project in the repository (`projects/my-project/` - empty in its root)
+    val root    = git("rev-parse", "--show-toplevel")
+    val prefix  = git("rev-parse", "--show-prefix")
+    if root.exitCode != 0 || prefix.exitCode != 0 then None
     else
-      val dir = os.temp.dir(prefix = "orch-spec-")
-      os.proc("tar", "-x", "-C", dir.toString).call(stdin = archive.out.bytes, stderr = os.Pipe)
-      Some(dir)
+      val top     = os.Path(root.out.trim())
+      val archive = os.proc("git", "archive", "--format=tar", s"$rev:${prefix.out.trim()}$specDir")
+        .call(cwd = top, check = false, stderr = os.Pipe)
+      if archive.exitCode != 0 then None
+      else
+        val dir = os.temp.dir(prefix = "orch-spec-")
+        os.proc("tar", "-x", "-C", dir.toString).call(stdin = archive.out.bytes, stderr = os.Pipe)
+        if os.list(dir).isEmpty then
+          os.remove.all(dir)
+          None
+        else Some(dir)
+    end if
   end fromGit
 
   /** The files of a folder, relative to it - without hidden files. */

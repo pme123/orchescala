@@ -358,6 +358,23 @@ class SpecMergeTest extends FunSuite:
       assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
       os.remove.all(sent)
 
+  test("checkMerge: the project in a subfolder of the repository - its spec in HEAD is the base"):
+    inProject: project =>
+      // the repository one folder above the project (projects/<name>, as in a company repository)
+      val repo = project / os.up
+      def git(args: String*) = os.proc("git", "-c", "user.name=t", "-c", "user.email=t@example.com", args).call(cwd = repo, stderr = os.Pipe)
+      os.write(project / "spec" / "export.json", exportJson(order), createFolders = true)
+      git("init", "-q")
+      git("add", "-A")
+      git("commit", "-q", "-m", "spec")
+      SpecMerge.merge(project, SpecMerge.checkMerge(project, SpecSource.Empty, SpecSource.GitRev("HEAD"), FileExporter), OnConflict.KeepCode)
+      git("add", "-A")
+      git("commit", "-q", "-m", "code")
+      val same = SpecMerge.checkMerge(project, SpecSource.GitRev("HEAD"), SpecSource.Dir(project / "spec"), FileExporter)
+      assertEquals(same.files.filterNot(_.action == Action.unchanged), Seq.empty)
+      assertEquals(SpecSources.folder(project, SpecSource.GitRev("HEAD~1")).map(d => os.exists(d / "export.json")), Some(true))
+      assertEquals(SpecSources.folder(repo, SpecSource.GitRev("HEAD")), None) // no spec/ in the root
+
   test("ThreeWay - like git merge"):
     val base = "a\nb\nc\nd\ne\n"
     assertEquals(ThreeWay.merge(base, "A\nb\nc\nd\ne\n", "a\nb\nc\nd\nE\n").text, "A\nb\nc\nd\nE\n")
