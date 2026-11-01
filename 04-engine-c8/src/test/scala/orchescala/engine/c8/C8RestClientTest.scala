@@ -45,6 +45,27 @@ object C8RestClientTest extends ZIOSpecDefault:
 
   private val emptySearch = """{"items":[],"page":{"totalItems":0}}"""
 
+  // Zeebe refuses a second message start with a correlation key while its instance runs (c8run 8.9)
+  private val uniqueStartRefused =
+    404 -> """{"title":"NOT_FOUND","detail":"Command 'CORRELATE' rejected with code 'NOT_FOUND': Expected to find subscription for message with name 'start-msg' and correlation key 'bk-1', but no active subscription was found. A process instance with this correlation key is already active for a message start event with this message name in process IDs [p]. Only one active process instance per correlation key is allowed for message start events."}"""
+
+  private def failsWith(code: Int, msgPart: String) =
+    Assertion.fails(
+      Assertion.isSubtype[EngineError.ServiceRequestError](
+        Assertion.hasField("errorCode", (_: EngineError.ServiceRequestError).errorCode, Assertion.equalTo(code)) &&
+          Assertion.hasField("errorMsg", (_: EngineError.ServiceRequestError).errorMsg, Assertion.containsString(msgPart))
+      )
+    )
+
+  private def startWithIdentity(using C8RestClient, orchescala.engine.EngineConfig) =
+    C8ProcessInstanceService()
+      .startProcessByMessage(
+        "start-msg",
+        businessKey = Some("bk-1"),
+        identityCorrelation = Some(orchescala.domain.IdentityCorrelation("alice", Some("alice@example.com")))
+      )
+      .exit
+
   def spec = suite("C8RestClient")(
     suite("authentication")(
       test("passes the caller's token through - per request, no client per token") {
@@ -406,20 +427,11 @@ object C8RestClientTest extends ZIOSpecDefault:
             case _                         => 204 -> ""
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
-        val correlation = orchescala.domain.IdentityCorrelation("alice", Some("alice@example.com"))
-        for exit <- C8ProcessInstanceService()
-                      .startProcessByMessage("start-msg", businessKey = Some("bk-1"), identityCorrelation = Some(correlation))
-                      .exit
+        for exit <- startWithIdentity
         yield
-          val cleared  = cluster.jsonBodies.last.hcursor.downField("variables")
-          val conflict = exit match
-            case Exit.Failure(cause) =>
-              cause.failureOption.exists:
-                case EngineError.ServiceRequestError(409, msg) => msg.contains("(500)")
-                case _                                         => false
-            case _                   => false
+          val cleared = cluster.jsonBodies.last.hcursor.downField("variables")
+          assert(exit)(failsWith(409, "(500) - no process was started")) &&
           assertTrue(
-            conflict,
             cluster.paths == Seq("v2/messages/correlation") ++
               Seq.fill(C8ProcessInstanceService.correlationChecks)("v2/variables/search") ++
               Seq("v2/element-instances/500/variables"),
@@ -432,26 +444,31 @@ object C8RestClientTest extends ZIOSpecDefault:
         val searches = java.util.concurrent.atomic.AtomicInteger()
         val cluster  = StubCluster: request =>
           request.uri.path.mkString("/") match
-            case "v2/messages/correlation"                          => 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
+            case "v2/messages/correlation"                              => 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
             case "v2/variables/search" if searches.incrementAndGet() < 2 => 200 -> emptySearch
-            case "v2/variables/search"                              =>
+            case "v2/variables/search"                                  =>
               200 -> """{"items":[{"variableKey":"1","name":"_identityCorrelation","value":"{}","processInstanceKey":"500"}],"page":{"totalItems":1}}"""
-            case _                                                  => 204 -> ""
+            case _                                                      => 204 -> ""
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
-        val correlation = orchescala.domain.IdentityCorrelation("alice", Some("alice@example.com"))
-        for exit <- C8ProcessInstanceService()
-                      .startProcessByMessage("start-msg", businessKey = Some("bk-1"), identityCorrelation = Some(correlation))
-                      .exit
-        yield assertTrue(
-          exit.isFailure,
-          cluster.paths == Seq("v2/messages/correlation", "v2/variables/search", "v2/variables/search")
-        )
+        for exit <- startWithIdentity
+        yield assert(exit)(failsWith(409, "(500)")) &&
+          assertTrue(cluster.paths == Seq("v2/messages/correlation", "v2/variables/search", "v2/variables/search"))
       },
-      test("start by message refused by Zeebe (an instance with this key runs, waits for no such message): sent again without key") {
+      test("start by message landed in a running instance, its pending marker not removed: the 409 says so") {
         val cluster = StubCluster: request =>
-          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then
-            404 -> """{"title":"NOT_FOUND","detail":"Command 'CORRELATE' rejected with code 'NOT_FOUND': Expected to find subscription for message with name 'start-msg' and correlation key 'bk-1', but no active subscription was found. A process instance with this correlation key is already active for a message start event with this message name in process IDs [p]. Only one active process instance per correlation key is allowed for message start events."}"""
+          request.uri.path.mkString("/") match
+            case "v2/messages/correlation" => 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
+            case "v2/variables/search"     => 200 -> emptySearch
+            case _                         => 500 -> """{"title":"INTERNAL","detail":"broken"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig(identitySigningKey = Some("test-signing-key"))
+        for exit <- startWithIdentity
+        yield assert(exit)(failsWith(409, "its pending identity marker could not be removed"))
+      },
+      test("start by message refused (an instance with this key runs, waits for no such message): again with key, then without") {
+        val cluster = StubCluster: request =>
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
           else 200 -> """{"messageKey":"999","processInstanceKey":"1000"}"""
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
@@ -460,69 +477,63 @@ object C8RestClientTest extends ZIOSpecDefault:
           val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
           assertTrue(
             info.processInstanceId == "1000",
-            keys == Seq(Some("bk-1"), None),
+            keys == Seq(Some("bk-1"), Some("bk-1"), None),
             // the businessKey stays a variable of the new instance
             cluster.jsonBodies.last.hcursor.downField("variables").get[String]("businessKey").contains("bk-1")
           )
       },
-      test("start by message: another 404 is not sent again") {
-        val noSubscription = Seq(
-          """{"title":"NOT_FOUND","detail":"Expected to find subscription for message with name 'start-msg', but none was found."}""",
-          """{"title":"NOT_FOUND","detail":"Expected to find subscription for message with name 'start-msg' and correlation key 'bk-1', but none was found."}"""
-        )
-        ZIO
-          .foreach(noSubscription): detail =>
-            val cluster = StubCluster(_ => 404 -> detail)
-            given C8RestClient = cluster.client()
-            given orchescala.engine.EngineConfig = DefaultEngineConfig()
-            for exit <- C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
-            yield assertTrue(exit.isFailure, cluster.paths == Seq("v2/messages/correlation"))
-          .map(_.reduce(_ && _))
-      },
-      test("start by message refused by Zeebe, sent again without key, fails: the error names both") {
-        val cluster = StubCluster: request =>
-          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then 404 -> """{"title":"NOT_FOUND","detail":"Command 'CORRELATE' rejected with code 'NOT_FOUND': Expected to find subscription for message with name 'start-msg' and correlation key 'bk-1', but no active subscription was found. A process instance with this correlation key is already active for a message start event with this message name in process IDs [p]. Only one active process instance per correlation key is allowed for message start events."}"""
-          else 403 -> """{"title":"FORBIDDEN","detail":"no access to process p"}"""
+      test("start by message refused while the running instance starts up: again with key - it lands there, 409") {
+        // the instance 500 has opened its subscription of the event subprocess in the meantime
+        val sent    = java.util.concurrent.atomic.AtomicInteger()
+        val cluster = StubCluster: _ =>
+          if sent.incrementAndGet() == 1 then uniqueStartRefused
+          else 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
         for exit <- C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
         yield
-          val error = exit match
-            case Exit.Failure(cause) => cause.failureOption
-            case _                   => None
-          assertTrue(
-            cluster.paths == Seq("v2/messages/correlation", "v2/messages/correlation"),
-            error.exists:
-              case EngineError.ServiceRequestError(403, msg) =>
-                msg.contains("Refused with correlation key 'bk-1'") && msg.contains("Only one active") &&
-                msg.contains("no access to process p")
-              case _                                         => false
-          )
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(keys == Seq(Some("bk-1"), Some("bk-1")))
+      },
+      test("start by message without a process for it (404 with any text): sent without key too - the error names both") {
+        val cluster = StubCluster(_ =>
+          404 -> """{"title":"NOT_FOUND","detail":"Expected to find subscription for message with name 'start-msg', but none was found."}"""
+        )
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield assert(exit)(failsWith(404, "Refused with correlation key 'bk-1'") && failsWith(404, "but none was found")) &&
+          assertTrue(cluster.paths == Seq.fill(3)("v2/messages/correlation"))
+      },
+      test("start by message: another error is not sent again") {
+        val cluster = StubCluster(_ => 403 -> """{"title":"FORBIDDEN","detail":"no access to process p"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield assert(exit)(failsWith(403, "no access to process p")) &&
+          assertTrue(cluster.paths == Seq("v2/messages/correlation"))
+      },
+      test("start by message refused, sent again without key, fails: the error names both") {
+        val cluster = StubCluster: request =>
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
+          else 403 -> """{"title":"FORBIDDEN","detail":"no access to process p"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield assert(exit)(
+          failsWith(403, "Refused with correlation key 'bk-1'") &&
+            failsWith(403, "Only one active") && failsWith(403, "no access to process p")
+        ) && assertTrue(cluster.paths == Seq.fill(3)("v2/messages/correlation"))
       },
       test("start by message sent again without key, landed on another partition: 409") {
         val otherPartition = ((2L << 51) + 5).toString
         val cluster        = StubCluster: request =>
-          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then 404 -> """{"title":"NOT_FOUND","detail":"Command 'CORRELATE' rejected with code 'NOT_FOUND': Expected to find subscription for message with name 'start-msg' and correlation key 'bk-1', but no active subscription was found. A process instance with this correlation key is already active for a message start event with this message name in process IDs [p]. Only one active process instance per correlation key is allowed for message start events."}"""
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
           else 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}"""
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
-        for exit <- C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
-        yield assertTrue(
-          exit match
-            case Exit.Failure(cause) =>
-              cause.failureOption.exists:
-                case EngineError.ServiceRequestError(409, _) => true
-                case _                                       => false
-            case _                   => false
-        )
-      },
-      test("isUniqueStartRefused: matched loosely - not any other 404") {
-        def err(code: Int, msg: String) = EngineError.ServiceRequestError(code, msg)
-        assertTrue(
-          C8ProcessInstanceService.isUniqueStartRefused(err(404, "Only one active process instance per correlation key is allowed")),
-          C8ProcessInstanceService.isUniqueStartRefused(err(404, "a process instance with this CORRELATION KEY is already active")),
-          !C8ProcessInstanceService.isUniqueStartRefused(err(409, "Only one active process instance per correlation key")),
-          !C8ProcessInstanceService.isUniqueStartRefused(err(404, "subscription with correlation key 'x', but none was found"))
+        assertZIO(C8ProcessInstanceService().startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit)(
+          failsWith(409, s"($otherPartition)")
         )
       },
       test("startedBy: an instance the message started is newer, on its partition") {
