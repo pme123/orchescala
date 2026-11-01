@@ -30,7 +30,8 @@ import scala.util.{Failure, Success, Try}
   * and removed in the `WorkerApp` and the `ApiProjectCreator`; a skeleton (worker, template BPMN)
   * that exists without a base stays; the process object without a base gets the types of Orch
   * Spec merged by structure (as `processFromSpec` always did). BPMN and DMN are brought into one
-  * form first (Orch Spec's `formatXml`) - indentation and the order of attributes are no change -
+  * form first: as the Camunda Modeler writes them (Orch Spec's `modelerXml`) - indentation and the
+  * order of attributes are no change, and a file the Modeler saved stays as it is -
   * and their diagram (coordinates) is merged apart from the logic (`DiagramMerge`).
   */
 object SpecMerge:
@@ -66,7 +67,7 @@ object SpecMerge:
     * @param specFiles the files of the new spec folder (relative to it) - None: `spec/` stays as it is
     * @param strict    a process that cannot be planned is an error (one process from `orchspec:`) -
     *                  otherwise a note and the process is left out
-    * @param formatter brings the BPMN and DMN of base, new and code into one form before they are
+    * @param formatter brings the BPMN and DMN of base, new and code into the Modeler's form before they are
     *                  compared - a file that differs only in its form is unchanged; what is written
     *                  is formatted
     */
@@ -99,7 +100,7 @@ object SpecMerge:
     val baseFiles = byPath(base)
     val newFiles  = byPath(neu)
     val rels      = (baseFiles.keySet ++ newFiles.keySet).toSeq.sortBy(_.toString)
-    // BPMN and DMN: the three sides in one form - in one run of the formatter
+    // BPMN and DMN: the three sides in the Modeler's form - in one run of the formatter
     val xml       = rels.filter(isXml).flatMap: rel =>
       baseFiles.get(rel).map(f => s"base:$rel" -> f.content) ++
         newFiles.get(rel).map(f => s"new:$rel" -> f.content) ++

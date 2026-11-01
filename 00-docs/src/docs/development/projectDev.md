@@ -247,9 +247,10 @@ project:
 | removed                 | changed                   | conflict                                |
 
 `spec/` is taken over as it is; the registrations in the `WorkerApp` and the `ApiProjectCreator`
-are added and removed. BPMN and DMN are formatted the same way on all three sides first (_Orch
-Spec_'s formatter): indentation or the order of attributes is no change, and what the merge writes
-is in that form. Their diagram is merged apart from the logic: a shape or edge moved on one
+are added and removed. BPMN and DMN are brought into the form of the Camunda Modeler on all three
+sides first (with its own serializer): indentation or the order of attributes is no change, and
+what the merge writes is what the Modeler would write - re-saving in the Modeler gives no diff.
+Their diagram is merged apart from the logic: a shape or edge moved on one
 side gets that move, one moved on both sides keeps the code's layout (with a note - no conflict),
 and a shape whose element is gone goes with it. `--check` first shows what changed in the spec (processes, steps, the data
 model down to the fields, pages), then the plan - it writes nothing. `--merge` asks and executes

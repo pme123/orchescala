@@ -11,7 +11,7 @@ import scala.collection.mutable
   *   - new entries go after their neighbour in the new diagram.
   *
   * So a moved shape never conflicts with a changed mapping, nor two moved shapes with each other.
-  * Works line by line on the form of `formatXml` (and of the Modeler): each shape or edge starts
+  * Works line by line on the form of the Camunda Modeler (`modelerXml`): each shape or edge starts
   * on a line of its own. A document where the diagram cannot be read that way: `None` - then the
   * whole file is merged as text.
   */

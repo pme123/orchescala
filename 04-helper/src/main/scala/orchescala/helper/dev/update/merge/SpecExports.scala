@@ -124,12 +124,12 @@ object SpecSources:
 
 end SpecSources
 
-/** Brings BPMN and DMN into one form before they are compared - the texts by a key. */
+/** Brings BPMN and DMN into the form of the Camunda Modeler before they are compared - the texts by a key. */
 trait XmlFormatter:
   def format(texts: Map[String, String]): Map[String, String]
 
 object XmlFormatter:
-  /** Orch Spec's `formatXml` with Node.js - without Node.js (or the tool) the texts stay as they are. */
+  /** Orch Spec's `modelerXml` with Node.js - without Node.js (or the tool) the texts stay as they are. */
   def default: XmlFormatter =
     if NodeXmlFormatter.available then NodeXmlFormatter else NoXmlFormatter
 
@@ -137,7 +137,9 @@ object XmlFormatter:
 object NoXmlFormatter extends XmlFormatter:
   def format(texts: Map[String, String]): Map[String, String] = texts
 
-/** Orch Spec's own formatter (`xmlformat.js`, `formatXml` in src/xmlFormat.ts) - all texts in one run. */
+/** Orch Spec's own formatter (`xmlformat.js`, `modelerXml` in src/modelerXml.ts: the serializer of the
+  * Camunda Modeler, bpmn-moddle / dmn-moddle) - all texts in one run.
+  */
 object NodeXmlFormatter extends XmlFormatter:
 
   val tool = "xmlformat.js"
