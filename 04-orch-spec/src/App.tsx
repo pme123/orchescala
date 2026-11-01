@@ -19,7 +19,7 @@ const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 // the services (collections) — like the pages a chunk of their own
 const ServicesView = lazy(() => import('./services/ServicesView'));
-const CollectionView = lazy(() => import('./services/CollectionView'));
+const ServiceView = lazy(() => import('./services/ServiceView'));
 import { cls } from './ui';
 import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
@@ -438,7 +438,7 @@ export default function App() {
           </Suspense>
         ) : view.kind === 'service' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <CollectionView key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'services' })} />
+            <ServiceView key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'services' })} />
           </Suspense>
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>

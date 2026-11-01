@@ -29,7 +29,7 @@ import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
 import { headerVar } from './names';
 import { useServices } from './store';
-import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
+import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
 
@@ -78,6 +78,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       .then(r => {
         if (gone) return;
         if (!r) { setError(`services/${slug}.json gibt es nicht (mehr).`); return; }
+        if (!isCollection(r.data)) { setError(`services/${slug}.json ist keine Collection.`); return; }
         version.current = r.version;
         latest.current = r.data;
         setSpec(r.data);
@@ -320,7 +321,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   );
 }
 
-function SaveBadge({ state, message, isDark }: { state: string; message: string; isDark: boolean }) {
+export function SaveBadge({ state, message, isDark }: { state: string; message: string; isDark: boolean }) {
   const c = cls(isDark);
   if (state === 'saving' || state === 'dirty') return <span className={`text-[10px] flex items-center gap-1 ${c.muted}`}><Loader2 size={10} className="animate-spin" /> speichert …</span>;
   if (state === 'error') return <span title={message} className="text-[10px] text-rose-500 flex items-center gap-1"><AlertTriangle size={10} /> nicht gespeichert</span>;
@@ -753,7 +754,7 @@ function upsert(list: Mapping[] | undefined, name: string, expression: string): 
 }
 
 /** `case class In` or `type In = NoInput` — the same for Out. */
-function NothingChoice({ nothing, cls: klass, none, noneHint, canEdit, isDark, onChange }: {
+export function NothingChoice({ nothing, cls: klass, none, noneHint, canEdit, isDark, onChange }: {
   nothing: boolean; cls: string; none: string; noneHint: string; canEdit: boolean; isDark: boolean; onChange: (nothing: boolean) => void;
 }) {
   const c = cls(isDark);
@@ -876,7 +877,7 @@ function ParamRow({ param: p, spec, vars, canEdit, isDark, onChange, onRemove }:
   );
 }
 
-function MappingRow({ target, types, value, placeholder, vars, canEdit, isDark, required, onChange }: {
+export function MappingRow({ target, types, value, placeholder, vars, canEdit, isDark, required, onChange }: {
   target: Field; types: TypeDef[]; value: string; placeholder: string; vars: VarNode[]; canEdit: boolean; isDark: boolean;
   /** the field needs a value (an Out field) — empty is a finding */
   required?: boolean;

@@ -3,7 +3,7 @@
 // `{ v: 2, kind: 'serviceCollection', scala }`. Version 2, so that an older
 // helper refuses it instead of taking the services for a process.
 import { AlertTriangle, Check, Copy, Download, Terminal, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { helperCommandOf } from '../exporters';
 import type { Model } from '../types';
 import { cls } from '../ui';
@@ -17,18 +17,33 @@ export const collectionHelperCommand = (spec: ServiceCollectionSpec, model: Mode
 export default function CollectionExport({ spec, model, isDark, onClose }: {
   spec: ServiceCollectionSpec; model: Model | null; isDark: boolean; onClose: () => void;
 }) {
-  const c = cls(isDark);
   const text = useMemo(() => collectionBundle(spec, model), [spec, model]);
   const todos = useMemo(() => openTodos(spec, model), [spec, model]);
+  return (
+    <ScalaExport title={spec.title} text={text} todos={todos} fileName={`${collectionSlug(spec)}.scala`} isDark={isDark} onClose={onClose}
+      command={() => collectionHelperCommand(spec, model)}
+      description={<>
+        Je Service ein ServiceTask in <span className="font-mono">01-domain</span> und ein ServiceWorker in <span className="font-mono">03-worker</span>,
+        dazu der Super-Trait und die Typen der API. Der Helper legt an, was fehlt, vergleicht Bestehendes (überschreibt nie) und
+        registriert die Worker in der WorkerApp und die Services in der API-Doku.
+      </>} />
+  );
+}
+
+/** The export of something under `services/`: the Scala code, the places to fill, the helper command. */
+export function ScalaExport({ title, description, text, todos, fileName, command, isDark, onClose }: {
+  title: string; description: React.ReactNode; text: string; todos: { file: string; count: number }[];
+  fileName: string; command: () => string; isDark: boolean; onClose: () => void;
+}) {
+  const c = cls(isDark);
   const [copied, setCopied] = useState<'scala' | number | null>(null);
   const [shown, setShown] = useState<string | null>(null);
-  const fileName = `${collectionSlug(spec)}.scala`;
 
   const flash = (what: 'scala' | number) => { setCopied(what); setTimeout(() => setCopied(null), 2500); };
   const copyCommand = async () => {
-    const command = collectionHelperCommand(spec, model);
-    try { await navigator.clipboard.writeText(command); setShown(null); flash(Math.ceil(command.length / 1024)); }
-    catch { setShown(command); }
+    const cmd = command();
+    try { await navigator.clipboard.writeText(cmd); setShown(null); flash(Math.ceil(cmd.length / 1024)); }
+    catch { setShown(cmd); }
   };
   const save = () => {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
@@ -41,14 +56,10 @@ export default function CollectionExport({ spec, model, isDark, onClose }: {
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6" onClick={onClose}>
       <div className={`max-w-5xl w-full max-h-[85vh] flex flex-col rounded-xl border p-5 ${c.border2} ${c.panelStrong}`} onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 mb-2">
-          <h3 className={`text-sm font-semibold ${c.text}`}>Export — {spec.title}</h3>
+          <h3 className={`text-sm font-semibold ${c.text}`}>Export — {title}</h3>
           <button onClick={onClose} className={`p-1 ${c.muted}`}><X size={14} /></button>
         </div>
-        <p className={`text-[10px] mb-2 ${c.muted}`}>
-          Je Service ein ServiceTask in <span className="font-mono">01-domain</span> und ein ServiceWorker in <span className="font-mono">03-worker</span>,
-          dazu der Super-Trait und die Typen der API. Der Helper legt an, was fehlt, vergleicht Bestehendes (überschreibt nie) und
-          registriert die Worker in der WorkerApp und die Services in der API-Doku.
-        </p>
+        <p className={`text-[10px] mb-2 ${c.muted}`}>{description}</p>
         {todos.length > 0 && (
           <div className={`mb-2 text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700'}`}>
             <div className="flex items-center gap-1 font-semibold"><AlertTriangle size={11} /> Von Hand zu ergänzen (<span className="font-mono">???</span>)</div>

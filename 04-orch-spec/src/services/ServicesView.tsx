@@ -7,7 +7,7 @@
 //
 // Same head as the other lists (search, epics, groups per project); deleting
 // only with the admin role or without mandatory login, as for processes.
-import { AlertTriangle, Boxes, Library, Loader2, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Boxes, Library, Loader2, MessageSquare, Plus, Trash2, Workflow } from 'lucide-react';
 import { useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -18,10 +18,15 @@ import { EpicChip, StatusChip, cls } from '../ui';
 import { API_NAME, PROJECT_NAME, apiList, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
 import { useServices, type ServiceListItem } from './store';
 import CollectionImport from './CollectionImport';
+import { newOrchestration, orchestrationTopic } from './orchestration';
+import { isCollection } from './types';
+import { slugify } from '../util';
 
 const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
   title: data.title,
-  terms: [slug, data.pathPrefix ?? '', ...apisOf(data).map(a => `${a.api} ${topicPrefix(a)}`), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)],
+  terms: isCollection(data)
+    ? [slug, data.pathPrefix ?? '', ...apisOf(data).map(a => `${a.api} ${topicPrefix(a)}`), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)]
+    : [slug, data.name, orchestrationTopic(data), 'Orchestrierung'],
   project: data.project, epics: data.epics, updatedAt: data.updatedAt,
 });
 
@@ -32,6 +37,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
   const confirm = useConfirm();
   const c = cls(isDark);
   const [creating, setCreating] = useState(false);
+  const [orchestrating, setOrchestrating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const list = useSpecList(services, serviceEntry, model);
@@ -46,6 +52,10 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
               <Library size={12} /> Bestehende importieren
             </button>
+            <button onClick={() => setOrchestrating(true)} title="Ein Worker, der Services aufruft — nacheinander, parallel oder je nach Bedingung"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <Workflow size={12} /> Neue Orchestrierung
+            </button>
             <button onClick={() => setCreating(true)}
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
               <Plus size={12} /> Neue Collection
@@ -57,14 +67,25 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
         Eine <b>Service Collection</b> ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein Teilpfad, mit ihren
         APIs (<span className="font-mono">client v1</span>, <span className="font-mono">crm v2</span> …): die Operationen wählen,
         je Service <span className="font-mono">In</span> und <span className="font-mono">Out</span> ergänzen und die Mappings
-        festlegen. Daraus entstehen ServiceTasks und ServiceWorker.
+        festlegen. Daraus entstehen ServiceTasks und ServiceWorker. Eine <b>Service-Orchestrierung</b> ist ein Worker, der
+        solche Services aufruft — modelliert wie ein Prozess, aber nur mit Service- und Script-Tasks und Gateways.
       </p>
 
       {importing && (
-        <CollectionImport model={model} existing={services.map(s => s.data)} isDark={isDark} onClose={() => setImporting(false)}
+        <CollectionImport model={model} existing={services.map(s => s.data).filter(isCollection)} isDark={isDark} onClose={() => setImporting(false)}
           onCreate={async spec => {
             const r = await createService(spec);
             if (r.ok) { setImporting(false); onOpen(spec.slug); }
+            return r;
+          }} />
+      )}
+      {orchestrating && (
+        <NewOrchestration existing={services.map(s => s.slug)} onClose={() => setOrchestrating(false)}
+          projects={[...new Set(services.map(s => s.data.project))]}
+          onCreate={async input => {
+            const spec = newOrchestration(input);
+            const r = await createService(spec);
+            if (r.ok) { setOrchestrating(false); onOpen(spec.slug); }
             return r;
           }} />
       )}
@@ -96,16 +117,41 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
       ) : services.length === 0 ? (
         <div className={`rounded border p-6 text-center ${c.border2}`}>
           <Boxes size={20} className={`mx-auto mb-2 ${c.muted}`} />
-          <p className={`text-xs ${c.muted2}`}>Noch keine Services – «Neue Collection» legt die erste an (<span className="font-mono">services/</span>).</p>
+          <p className={`text-xs ${c.muted2}`}>Noch keine Services – «Neue Collection» oder «Bestehende importieren» legt die erste an (<span className="font-mono">services/</span>).</p>
         </div>
       ) : !list.visible.length ? (
         <div className={`text-xs ${c.muted} py-10 text-center`}>
-          Keine Collection passt zu Suche und Filter.
+          Nichts passt zu Suche und Filter.
           <button onClick={list.reset} className="ml-1.5 hover:underline">Filter aus</button>
         </div>
       ) : (
-        <ProjectGroups isDark={isDark} groups={list.groups} noun={['Collection', 'Collections']} render={({ slug, data, version }) => {
+        <ProjectGroups isDark={isDark} groups={list.groups} noun={['Eintrag', 'Einträge']} render={({ slug, data, version }) => {
           const open = (data.comments ?? []).filter(t => !t.resolved).length;
+          if (!isCollection(data)) return (
+            <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
+              <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
+                <Workflow size={14} className={isDark ? 'text-violet-300' : 'text-violet-700'} />
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
+                  <div className={`text-[10px] font-mono truncate ${c.muted}`}>{orchestrationTopic(data)}</div>
+                </div>
+                {epicsOf({ epics: data.epics }, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
+                <span className={`hidden sm:inline text-[9px] ${c.muted}`}>Orchestrierung</span>
+                <StatusChip status={data.status} isDark={isDark} />
+              </button>
+              {canDelete && (
+                <button title="Orchestrierung löschen"
+                  onClick={async () => {
+                    if (!(await confirm({ title: `Orchestrierung «${data.title || slug}» löschen?` }))) return;
+                    const r = await deleteService(slug, version);
+                    setDeleteError(r.ok ? null : r.message);
+                  }}
+                  className={`p-2 mr-1 rounded ${c.muted} hover:text-rose-500`}>
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          );
           return (
             <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
               <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
@@ -198,6 +244,78 @@ function NewCollection({ existing, onCreate, onClose }: {
         <span className={`text-[10px] font-mono ${problem && input.title ? 'text-rose-500' : c.muted}`}>
           {problem && (input.title || input.project || input.api) ? problem
             : input.project && input.api ? `services/${slug}.json · neue Services in ${collectionPackage(input)}` : 'Paket und Topics folgen aus Projekt, API und Version — je Service'}
+        </span>
+        {error && <span className="text-[10px] text-rose-500">{error}</span>}
+        <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
+        <button disabled={!!problem || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await onCreate(input);
+              if (!r.ok) setError(r.message);
+            } finally { setBusy(false); }
+          }}
+          className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+          Anlegen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NewOrchestration({ existing, projects, onCreate, onClose }: {
+  existing: string[];
+  /** the projects of the collections — the orchestration usually belongs to one of them */
+  projects: string[];
+  onCreate: (input: { title: string; project: string; api: string; apiVersion: number; name: string }) => Promise<{ ok: true } | { ok: false; message: string }>;
+  onClose: () => void;
+}) {
+  const { isDark } = useStore();
+  const c = cls(isDark);
+  const [title, setTitle] = useState('');
+  const [project, setProject] = useState(projects.length === 1 ? projects[0] : '');
+  const [api, setApi] = useState('');
+  const [apiVersion, setApiVersion] = useState(1);
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, name: name.trim() };
+  const slug = slugify(`${input.project}-${input.name}`);
+  const problem = !input.title ? 'Titel fehlt'
+    : !PROJECT_NAME.test(input.project) ? 'Projekt: Kleinbuchstaben mit «-», z. B. acme-crm'
+      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
+        : !/^[A-Z][A-Za-z0-9]*$/.test(input.name) ? 'Name: ein Scala-Objekt, z. B. UpdateClient'
+          : existing.includes(slug) ? `services/${slug}.json gibt es schon` : '';
+  const field = `w-full px-2 py-1 rounded border bg-transparent text-[11px] outline-none ${c.border2} ${c.text}`;
+  return (
+    <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
+      <div className="grid grid-cols-[2fr_1.5fr_1.5fr_1fr_4rem] gap-2">
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Titel</span>
+          <input className={field} value={title} onChange={e => setTitle(e.target.value)} placeholder="Kunde ändern" autoFocus />
+        </label>
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Projekt</span>
+          <input className={`${field} font-mono`} value={project} onChange={e => setProject(e.target.value)} placeholder="acme-crm" list="orch-projects" />
+          <datalist id="orch-projects">{projects.map(p => <option key={p} value={p} />)}</datalist>
+        </label>
+        <label className="space-y-0.5" title="Das Objekt des CustomTasks — auch der letzte Teil des Topics">
+          <span className={`text-[10px] ${c.muted}`}>Name</span>
+          <input className={`${field} font-mono`} value={name} onChange={e => setName(e.target.value)} placeholder="UpdateClient" />
+        </label>
+        <label className="space-y-0.5" title="Die API, in deren Paket der CustomTask und sein Worker liegen">
+          <span className={`text-[10px] ${c.muted}`}>API</span>
+          <input className={`${field} font-mono`} value={api} onChange={e => setApi(e.target.value)} placeholder="client" />
+        </label>
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Version</span>
+          <input className={`${field} font-mono`} type="number" min={1} value={apiVersion} onChange={e => setApiVersion(Math.max(1, Number(e.target.value) || 1))} />
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className={`text-[10px] font-mono ${problem && input.title ? 'text-rose-500' : c.muted}`}>
+          {problem && (input.title || input.project || input.api || input.name) ? problem
+            : input.project && input.api && input.name ? `services/${slug}.json · Topic ${orchestrationTopic(input)}` : 'Ein CustomTask mit seinem Worker, im Paket der API'}
         </span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
