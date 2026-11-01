@@ -1,6 +1,7 @@
 package orchescala.helper.dev.update
 
 import orchescala.domain.BpmnProcessType
+import orchescala.helper.dev.update.merge.{OnConflict, ProcessExport, SpecMerge}
 
 /** Creates a process from the exports of Orch Spec:
   *   - the BPMN export - the process id gives the names (process, version, object); without it the
@@ -14,84 +15,26 @@ import orchescala.domain.BpmnProcessType
   * Existing files are never overwritten - so the command can be re-run after adding new classes
   * in Orch Spec. The one exception is the process object: the types from Orch Spec are merged into
   * it, everything else in it stays (see `OrchSpecProcessObject.merge`).
+  *
+  * The decision is the plan of the merge from Orch Spec without a base (`merge.SpecMerge`): the
+  * library decides and writes, only this command prints.
   */
 case class OrchSpecGenerator()(using config: DevConfig):
 
+  /** «Process from Spec» of one process (`orchspec:` or pasted): decide (the plan, without a base
+    * - an existing file that differs stays), write it, print it.
+    */
   def createProcess(bpmn: Option[String], scalaExport: String, dmns: Seq[(String, String)] = Seq.empty): Unit =
-    val files                     = OrchSpecExport.parse(scalaExport)
-    val (processFile, classFiles) = files.partition(_.insert)
-    val bpmnProcessId             = bpmn.flatMap(OrchSpecExport.processId)
-    val fromBpmn                  = bpmnProcessId.map(OrchSpecNames(_, config.projectName))
-    // the package is in the exported classes - so they decide, if there are any
-    val fromExport                = Option.when(files.nonEmpty):
-      val (processName, version) = processAndVersion(packageOf(OrchSpecExport.processDir(files)))
-      val dir                    = BpmnGenerator().domainPath(processName, Some(version))
-      // Orch Spec names the file after the object it knows from the domain - that one counts only
-      // while its file exists; otherwise the name follows the process (the version is in the package)
-      val exported               = processFile.headOption.map(_.path.last.stripSuffix(".scala"))
-      val objectName             = OrchSpecNames.objectName(
-        exported,
-        fromBpmn.filter(_.processName == processName).map(_.objectName)
-          .getOrElse(s"${processName.head.toUpper}${processName.tail}"),
-        name => os.exists(dir / s"$name.scala")
-      )
-      for e <- exported if e != objectName do
-        println(s"${Console.YELLOW}$e.scala does not exist (any more) - the process object is $objectName.${Console.RESET}")
-      OrchSpecNames(processName, version, objectName)
-    for b <- fromBpmn; e <- fromExport if b != e do
-      println(
-        s"${Console.YELLOW}WARNING: The BPMN (${bpmnProcessId.mkString}) gives $b, the Scala classes $e - the Scala classes are taken.${Console.RESET}"
-      )
-    val OrchSpecNames(processName, versionNr, objectName) = fromExport.orElse(fromBpmn).getOrElse:
-      throw IllegalArgumentException("Neither a BPMN with a process id nor Scala classes - nothing to create.")
-    val version                   = Some(versionNr)
-    val pkg                       = s"${config.projectPackage}.domain.$processName.v$versionNr"
-    val setupElement              = SetupElement("Process", processName, objectName, version)
-    val domainDir                 = BpmnGenerator().domainPath(processName, version)
-    val hasSchema                 = classFiles.exists(_.path.segments.contains("schema"))
-    val schemaImport              = s"import $pkg.schema.*"
-    val processId                 = bpmnProcessId.getOrElse(setupElement.identifier)
+    val project = config.projectDir
+    val plan    = SpecMerge.plan(project, Seq.empty, Seq(ProcessExport("orchspec", bpmn, scalaExport, dmns)), strict = true)
+    val result  = SpecMerge.merge(project, plan, OnConflict.KeepCode)
+    MergeReport.printMerged(plan, result)
+    linkDiagrams(project)
+  end createProcess
 
-    // objects of another project (a custom task whose topic is not of this process) exist there
-    // already - neither their domain object nor their worker is created here
-    val (ownFiles, foreignFiles) = classFiles.partition(f => !OrchSpecExport.isForeign(f.content, processId))
-    foreignFiles.flatMap(f => OrchSpecExport.interaction(f.content).map(_._1 -> OrchSpecExport.topicName(f.content)))
-      .foreach: (name, topic) =>
-        println(
-          s"${Console.YELLOW}$name (${topic.getOrElse("-")}) is not of $processId - exists in its project, not created.${Console.RESET}"
-        )
-
-    // domain
-    ownFiles.foreach: file =>
-      val inSchema = file.path.segments.contains("schema")
-      createOrCompare(
-        domainDir / file.path.relativeTo(OrchSpecExport.processDir(files)),
-        if hasSchema && !inSchema then OrchSpecExport.withImport(file.content, schemaImport)
-        else file.content
-      )()
-    val processObject = OrchSpecProcessObject(
-      pkg,
-      objectName,
-      processId,
-      processFile.headOption.map(_.content).getOrElse(""),
-      Option.when(hasSchema)(schemaImport)
-    )
-    // only what comes from Orch Spec is merged - the rest of the process object is implementation
-    mergeProcessObject(domainDir / s"$objectName.scala", processObject)
-    processObject.warnings.foreach(w => println(s"${Console.YELLOW}WARNING: $w${Console.RESET}"))
-
-    // bpmn - its engine decides where the diagrams go (camunda or camunda8)
-    def processTypeOf(c8: Boolean): BpmnProcessType =
-      OrchSpecGenerator.processTypeOf(config.projectBpmnProcessType, c8)
-    bpmn match
-      case Some(xml) =>
-        val name = processId.stripPrefix(s"${config.companyName}-")
-        createOrCompare(os.pwd / processTypeOf(OrchSpecExport.isC8(xml)).diagramPath / s"$name.bpmn", xml)()
-      case None      =>
-        BpmnProcessGenerator(config.projectBpmnProcessType).createBpmn(setupElement)
-    end match
-    // the worker app serves the diagrams in its docs - a project set up before its first BPMN has no link yet
-    SetupGenerator.ensureDiagramsLink(os.pwd) match
+  /** The worker app serves the diagrams in its docs - a project set up before its first BPMN has no link yet. */
+  def linkDiagrams(project: os.Path): Unit =
+    SetupGenerator.ensureDiagramsLink(project) match
       case SetupGenerator.DiagramsLink.Linked            =>
         println(s"${Console.GREEN}Linked 03-worker/src/main/resources/diagrams -> src/main/resources/camunda${Console.RESET}")
       case SetupGenerator.DiagramsLink.NoWorkerResources =>
@@ -103,137 +46,6 @@ case class OrchSpecGenerator()(using config: DevConfig):
           s"${Console.YELLOW}WARNING: 03-worker/src/main/resources/diagrams -> src/main/resources/camunda not linked ($reason) - the docs miss the diagrams${Console.RESET}"
         )
       case SetupGenerator.DiagramsLink.Exists | SetupGenerator.DiagramsLink.NoDiagrams => ()
-
-    // the tables of the DMN decisions - next to the BPMN (without a BPMN: the engine of the DMN)
-    dmns.foreach: (file, xml) =>
-      val c8 = bpmn.map(OrchSpecExport.isC8).getOrElse(OrchSpecExport.isC8Dmn(xml))
-      createOrCompare(os.pwd / processTypeOf(c8).diagramPath / OrchSpecExport.dmnFileName(file), xml)()
-
-    // workers
-    WorkerGenerator().createProcessWorker(
-      setupElement,
-      processObject.customInit
-        // not the example - that would run with its values; `???` fails, so it is clear what is to do
-        .getOrElse(if processObject.hasInitIn then "???" else "InitIn()")
-    )
-    val interactions = ownFiles.flatMap(f =>
-      OrchSpecExport.interaction(f.content).map((name, dsl) => (name, dsl, OrchSpecExport.topicName(f.content)))
-    )
-    val customTasks  = OrchSpecExport.workerNames(interactions, processId)
-    customTasks.foreach: name =>
-      WorkerGenerator().createWorker(SetupElement("CustomTask", processName, name, version))
-    val workers      = objectName +: customTasks
-
-    // simulation - in Camunda 8 (or next to one of the other engine) one class per engine
-    SimulationGenerator().createSimulation(setupElement, bpmn.exists(OrchSpecExport.isC8))
-
-    // registration in the WorkerApp and the API documentation - on a re-run the missing entries are added
-    val versionPackage = version.versionPackage
-    register(
-      config.projectDir / ModuleConfig.workerModule.packagePath(config.projectPath) / "WorkerApp.scala",
-      OrchSpecRegistration(
-        "WorkerApp",
-        "workers(",
-        s"${processName}Workers",
-        workers.map(w => s"${w}Worker()"),
-        entries =>
-          s"""  private lazy val ${processName}Workers =
-             |    import ${config.projectPackage}.worker.$processName$versionPackage.*
-             |    Seq(
-             |${entries.map(e => s"      $e,").mkString("\n")}
-             |    )
-             |  end ${processName}Workers""".stripMargin
-      )
-    )
-    register(
-      config.projectDir / ModuleConfig.apiModule.packagePath(config.projectPath) / "ApiProjectCreator.scala",
-      OrchSpecRegistration(
-        "ApiProjectCreator",
-        "document(",
-        s"${processName}Api",
-        interactions.map((name, _, _) => s"$name.example"),
-        entries =>
-          s"""  private lazy val ${processName}Api =
-             |    import ${config.projectPackage}.domain.$processName$versionPackage.*
-             |    api($objectName.example)(${
-              if entries.isEmpty then ")"
-              else entries.map(e => s"      $e,").mkString("\n", "\n", "\n    )")
-            }
-             |  end ${processName}Api""".stripMargin
-      )
-    )
-  end createProcess
-
-  /** Creates the file - an existing one is never overwritten, only compared with Orch Spec
-    * (`differences`: what differs, empty if nothing).
-    */
-  private def createOrCompare(file: os.Path, content: String)(
-      differences: String => Seq[String] = OrchSpecExport.differences(_, content)
-  ): Unit =
-    if !os.exists(file) then createIfNotExists(file, content)
-    else
-      differences(os.read(file)) match
-        case Seq()                  =>
-          println(s"UNCHANGED: $file")
-        case Seq(OrchSpecExport.whole) =>
-          println(
-            s"${Console.YELLOW}DIFFERS from Orch Spec: $file - merge it manually, or delete it and run again.${Console.RESET}"
-          )
-        case parts                  =>
-          println(
-            s"${Console.YELLOW}DIFFERS from Orch Spec: $file (${parts.mkString(", ")}) - merge it manually, or delete it and run again.${Console.RESET}"
-          )
-  end createOrCompare
-
-  /** The process object: created if it is new, otherwise the types and imports from Orch Spec are
-    * merged into it (see `OrchSpecProcessObject.merge`) - the rest stays.
-    */
-  private def mergeProcessObject(file: os.Path, processObject: OrchSpecProcessObject): Unit =
-    if !os.exists(file) then createIfNotExists(file, processObject.content)
-    else
-      val existing = os.read(file)
-      processObject.differences(existing) match
-        case Seq() => println(s"UNCHANGED: $file")
-        case parts =>
-          os.write.over(file, processObject.merge(existing))
-          println(s"${Console.GREEN}UPDATED from Orch Spec: $file (${parts.mkString(", ")})${Console.RESET}")
-  end mergeProcessObject
-
-  private def register(file: os.Path, registration: OrchSpecRegistration): Unit =
-    val result =
-      if os.exists(file) then registration.register(os.read(file))
-      else RegistrationResult.Manual(s"$file does not exist.", registration.snippet(registration.entries))
-    result match
-      case RegistrationResult.Unchanged                =>
-        println(s"UNCHANGED: ${registration.name} in $file")
-      case RegistrationResult.Registered(content, added) =>
-        println(s"${Console.BLUE}Updated - $file (${registration.name}: ${added.mkString(", ")})${Console.RESET}")
-        os.write.over(file, content)
-      case RegistrationResult.Manual(reason, snippet)  =>
-        println(
-          s"""${Console.RED}NOT Updated - $reason
-             |Add it manually to ${registration.objectName}:${Console.RESET}
-             |$snippet""".stripMargin
-        )
-    end match
-  end register
-
-  private def packageOf(processDir: os.RelPath): String =
-    processDir.segments.dropWhile(_ != "scala").drop(1).mkString(".")
-
-  // `<projectPackage>.domain.<processName>.v<version>` - the package Orch Spec derives from the process id
-  private def processAndVersion(pkg: String): (String, Int) =
-    val Expected = s"""${java.util.regex.Pattern.quote(config.projectPackage)}\\.domain\\.(\\w+)\\.v(\\d+)""".r
-    pkg match
-      case Expected(processName, version) => processName -> version.toInt
-      case other                          =>
-        throw IllegalArgumentException(
-          s"""The package of the export '$other' does not belong to this project.
-             |Expected: ${config.projectPackage}.domain.<processName>.v<version>
-             |Check company and project of the process in Orch Spec.""".stripMargin
-        )
-    end match
-  end processAndVersion
 
 end OrchSpecGenerator
 
@@ -320,6 +132,40 @@ case class OrchSpecRegistration(
       else copy(entries = left).addBlock(lines)
     end if
   end register
+
+  /** Removes what Orch Spec no longer has: the `removed` entries from the block - or, with
+    * `wholeBlock` (the process is gone), the block itself and its name in the list. Comments and
+    * everything else stay. The content as it is if there is nothing to remove.
+    */
+  def unregister(content: String, removed: Seq[String], wholeBlock: Boolean): String =
+    val lines  = content.linesIterator.toSeq
+    val hidden = commented(lines)
+    val start  = lines.indices.indexWhere(i =>
+      !hidden(i) && lines(i).matches(s"""$leadingComments(private\\s+)?lazy val $name\\s*=.*""")
+    )
+    val end    = if start < 0 then -1 else lines.indexWhere(_.trim == s"end $name", start)
+    if end < 0 then content
+    else if wholeBlock then
+      // the block with the blank line before it, and its name in the list
+      val from    = if start > 0 && lines(start - 1).isBlank then start - 1 else start
+      val cut     = lines.patch(from, Nil, end + 1 - from)
+      // no blank line left behind: before the end of the object, or a second one
+      val blank   = cut.lift(from).exists(_.isBlank) &&
+        (cut.lift(from + 1).exists(_.trim == s"end $objectName") || from > 0 && cut(from - 1).isBlank)
+      val without = if blank then cut.patch(from, Nil, 1) else cut
+      val list    = without.indexWhere(_.trim == listStart)
+      val close   = if list < 0 then -1 else without.indexWhere(_.trim == ")", list + 1)
+      val entry   =
+        if close < 0 then None
+        else (list + 1 until close).find(i => without(i).trim.stripSuffix(",").trim == name)
+      entry.fold(without)(i => without.patch(i, Nil, 1)).mkString("\n") + "\n"
+    else
+      val keys = removed.toSet
+      val kept = lines.zipWithIndex.collect:
+        case (l, i) if !(i > start && i < end && keys.contains(l.trim.stripSuffix(",").trim)) => l
+      if kept.size == lines.size then content else kept.mkString("\n") + "\n"
+    end if
+  end unregister
 
   /** The lines that begin inside a block comment (`/* … */`) or a multi-line string - like the
     * example of the generated `ApiProjectCreator`: a block there is no registration, neither the
