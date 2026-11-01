@@ -30,7 +30,8 @@ import scala.util.{Failure, Success, Try}
   * and removed in the `WorkerApp` and the `ApiProjectCreator`; a skeleton (worker, template BPMN)
   * that exists without a base stays; the process object without a base gets the types of Orch
   * Spec merged by structure (as `processFromSpec` always did). BPMN and DMN are brought into one
-  * form first (Orch Spec's `formatXml`) - indentation and the order of attributes are no change.
+  * form first (Orch Spec's `formatXml`) - indentation and the order of attributes are no change -
+  * and their diagram (coordinates) is merged apart from the logic (`DiagramMerge`).
   */
 object SpecMerge:
 
@@ -165,9 +166,13 @@ object SpecMerge:
   ): Option[PlannedFile] =
     def file(action: Action, content: Option[String] = None, conflicts: Seq[Conflict] = Seq.empty, note: Option[String] = None) =
       Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note))
+    // BPMN and DMN: the logic as text, the diagram (shapes, edges) entry by entry - see DiagramMerge
     def threeWay(b: String, c: String, n: String) =
-      val r = ThreeWay.merge(b, c, n)
-      if r.clean then file(Action.merged, Some(r.text)) else file(Action.conflict, Some(r.text), r.conflicts)
+      val diagram    = if isXml(rel) && b.nonEmpty then DiagramMerge.merge(b, c, n) else None
+      val (r, notes) = diagram.fold(ThreeWay.merge(b, c, n) -> Seq.empty[String])(d => d.merge -> d.notes)
+      val note       = Option.when(notes.nonEmpty)(notes.mkString("; "))
+      if r.clean then file(Action.merged, Some(r.text), note = note)
+      else file(Action.conflict, Some(r.text), r.conflicts, note)
     (base, neu, code) match
       case (None, None, _) | (Some(_), None, None) => None
       case (None, Some(n), None)        => file(Action.create, Some(n.content))

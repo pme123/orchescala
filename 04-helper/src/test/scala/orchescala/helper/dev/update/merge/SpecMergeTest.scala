@@ -236,6 +236,17 @@ class SpecMergeTest extends FunSuite:
       val bpmn      = os.read(file(project, "demo-orderV1.bpmn"))
       assert(bpmn.contains("approve the order") && bpmn.contains("""x="120""""), bpmn)
 
+  test("a BPMN where both moved the same shape: merged - the code's layout stays, with a note"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      editFile(project, "demo-orderV1.bpmn")(_.replace("""x="100" y="100"""", """x="150" y="100""""))
+      val moved     = order.copy(bpmn = order.bpmn.map(_.replace("""<dc:Bounds x="100" y="100"""", """<dc:Bounds x="120" y="100"""")))
+      val (plan, _) = run(project, Seq(order), Seq(moved))
+      val bpmn      = plan.files.find(_.path.endsWith("demo-orderV1.bpmn")).get
+      assertEquals(bpmn.action, Action.merged)
+      assert(bpmn.note.exists(_.contains("Layout of StartEvent")), bpmn.note)
+      assert(os.read(file(project, "demo-orderV1.bpmn")).contains("""x="150""""))
+
   /** A formatter for the test: the lines without their indentation. */
   private object Unindent extends XmlFormatter:
     def format(texts: Map[String, String]): Map[String, String] =
