@@ -69,7 +69,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |  )
        |end $objName""".stripMargin
 
-  private def processWorker(initIn: String)(setupElement: SetupElement) =
+  private[update] def processWorker(initIn: String)(setupElement: SetupElement) =
     val SetupElement(_, processName, workerName, version) = setupElement
     s"""package ${config.projectPackage}
        |package worker.$processName${version.versionPackage}
@@ -87,7 +87,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |end ${workerName}Worker""".stripMargin
   end processWorker
 
-  private def eventWorker(setupElement: SetupElement) =
+  private[update] def eventWorker(setupElement: SetupElement) =
     val SetupElement(_, processName, workerName, version) = setupElement
     s"""package ${config.projectPackage}
        |package worker.$processName${version.versionPackage}
@@ -104,7 +104,7 @@ case class WorkerGenerator()(using config: DevConfig):
        |end ${workerName}Worker""".stripMargin
   end eventWorker
 
-  private def processElement(
+  private[update] def processElement(
       setupElement: SetupElement
   ) =
     val SetupElement(label, processName, workerName, version) = setupElement
@@ -153,7 +153,7 @@ case class WorkerGenerator()(using config: DevConfig):
         |  ) = ???
         |
         |""".stripMargin
-  private def processWorkerTest(initIn: String)(setupElement: SetupElement) =
+  private[update] def processWorkerTest(initIn: String)(setupElement: SetupElement) =
     workerTest(setupElement):
       s"""
          |  test("customInit"):
@@ -172,7 +172,7 @@ case class WorkerGenerator()(using config: DevConfig):
          |  )
          |""".stripMargin
 
-  private def eventWorkerTest(setupElement: SetupElement) =
+  private[update] def eventWorkerTest(setupElement: SetupElement) =
     workerTest(setupElement):
       s"""
          |  test("validate"):
@@ -189,7 +189,7 @@ case class WorkerGenerator()(using config: DevConfig):
          |    )
          |""".stripMargin
 
-  private def processElementTest(setupElement: SetupElement) =
+  private[update] def processElementTest(setupElement: SetupElement) =
     workerTest(setupElement):
       if setupElement.label == "CustomTask"
       then
@@ -303,6 +303,15 @@ case class WorkerGenerator()(using config: DevConfig):
        |    </root>
        |</configuration>
        |""".stripMargin
+
+  /** The worker of the element and its test, relative to the project - nothing is created. */
+  private[update] def workerRel(setupElement: SetupElement): os.RelPath =
+    ModuleConfig.workerModule.packagePath(config.projectPath) /
+      setupElement.processName / setupElement.version.versionPath / s"${setupElement.bpmnName}Worker.scala"
+
+  private[update] def workerTestRel(setupElement: SetupElement): os.RelPath =
+    ModuleConfig.workerModule.packagePath(config.projectPath, mainOrTest = "test") /
+      setupElement.processName / setupElement.version.versionPath / s"${setupElement.bpmnName}WorkerTest.scala"
 
   private def workerPath(setupElement: Option[SetupElement] = None) =
     val dir = config.projectDir / ModuleConfig.workerModule.packagePath(
