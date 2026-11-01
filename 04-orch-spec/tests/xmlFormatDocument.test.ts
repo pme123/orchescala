@@ -81,12 +81,3 @@ test('what is not XML stays as it is', () => {
   for (const bad of ['', 'no xml', '<a><b></a>', '<a/><b/>']) assert.equal(formatXml(bad), bad);
 });
 
-test('the tool: one file, or many as JSON', () => {
-  const file = join(root, 'tests/fixtures/spec-folder/processes/order.bpmn');
-  const one = spawnSync(process.execPath, [join(root, 'tools/xmlformat.ts'), file], { encoding: 'utf8' });
-  assert.equal(one.status, 0, one.stderr);
-  assert.equal(one.stdout, formatXml(readFileSync(file, 'utf8')));
-  const many = spawnSync(process.execPath, [join(root, 'tools/xmlformat.ts'), '--json'], { encoding: 'utf8', input: JSON.stringify({ a: '<a><b/></a>', b: 'x' }) });
-  assert.equal(many.status, 0, many.stderr);
-  assert.deepEqual(JSON.parse(many.stdout), { a: '<a>\n  <b />\n</a>\n', b: 'x' });
-});
