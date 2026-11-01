@@ -1,7 +1,7 @@
 // Merging the bundled catalog (`catalog.generated.json`) with the model.json.
 import type { DomainDefault, DomainType, Model, ServiceDef, ServiceParam } from './types';
-import { feelIfPossible } from './juelFeel';
-import { withOrchescalaTypes } from './orchescalaTypes';
+import { feelIfPossible } from './juelFeel.ts';
+import { withOrchescalaTypes } from './orchescalaTypes.ts';
 import type { CatalogFile } from './catalogImport';
 
 // ── Bundled catalog ──────────────────────────────────────────────────────────
