@@ -2,10 +2,10 @@ package orchescala.engine.c8
 
 import orchescala.domain.{CamundaVariable, IdentityCorrelation, IdentityCorrelationSigner, InputParams, JsonProperty}
 import orchescala.engine.*
+import orchescala.engine.c8.C8ProcessInstanceService.PendingMarker
 import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
-import orchescala.engine.c8.C8ProcessInstanceService.PendingMarker
 import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{durationInt, Duration, IO, UIO, ZIO}
 
@@ -459,6 +459,10 @@ object C8ProcessInstanceService:
     * within a partition: an instance the message started is created after it, on its partition. A
     * running instance it landed in is older - or on another partition. This is Zeebe's key layout
     * (`Protocol.encodePartitionId`), not a documented contract. None if they are no Zeebe keys.
+    *
+    * Two messages with the same key at the same time: a partition processes them one after the
+    * other, and the first creates its instance while it is processed. So the second message's key
+    * is newer than that instance - landed in it, it is no start (c8run test: two at the same time).
     */
   def startedBy(messageKey: String, processInstanceKey: String): Option[Boolean] =
     for
