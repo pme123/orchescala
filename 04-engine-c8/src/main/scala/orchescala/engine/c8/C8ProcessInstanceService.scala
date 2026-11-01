@@ -382,12 +382,12 @@ class C8ProcessInstanceService(
           case PendingMarker.NotSent => ZIO.unit
         logWarning(conflict) *>
           removeMarker
-            .as("")
+            .as(None)
             .catchAll: err =>
               val notRemoved = s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
-              ZIO.logError(s"Process $processInstanceKey: $notRemoved").as(s" - $notRemoved")
+              ZIO.logError(s"Process $processInstanceKey: $notRemoved").as(Some(notRemoved))
             .flatMap: notRemoved =>
-              ZIO.fail(EngineError.ServiceRequestError(409, conflict + notRemoved))
+              ZIO.fail(EngineError.ServiceRequestError(409, (conflict +: notRemoved.toSeq).mkString(" - ")))
   end ensureStarted
 
   /** The message landed in a running instance and set its pending marker (C8 cannot delete a
