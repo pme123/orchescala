@@ -11,7 +11,7 @@ import type { BpmnHandle } from '../components/BpmnEditor';
 import { StandaloneTypeEditor } from '../components/TypeBuilder';
 import { fieldVariables } from '../feel';
 import { useStore } from '../store';
-import { STATUSES, STATUS_META, type Mapping, type Status, type Step, type TypeDef } from '../types';
+import { STATUSES, STATUS_META, type Mapping, type Model, type Status, type Step, type TypeDef } from '../types';
 import { cls } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { collectionPackage, processFrame } from './collection';
@@ -23,14 +23,15 @@ import {
   resultName, serviceMembers, servicesByTopic, varFields, varsAt, type ServiceRef,
 } from './orchestration';
 import { orchestrationBundle, orchestrationTodos } from './scalaOrchestration';
+import { servicePayload } from './servicePayload';
 import { useServices } from './store';
 import { isCollection, isOrchestration, type OrchTask, type ServiceOrchestrationSpec, type ServiceSpec } from './types';
 
 const BpmnEditor = lazy(() => import('../components/BpmnEditor'));
 
-/** `./helper.scala processFromSpec orchspec:…` — format v2, written like a collection. */
-export const orchestrationHelperCommand = (o: ServiceOrchestrationSpec, all: ServiceSpec[]): string =>
-  helperCommandOf(JSON.stringify({ v: 2, kind: 'serviceOrchestration', scala: orchestrationBundle(o, all) }));
+/** `./helper.scala processFromSpec orchspec:…` — format v2, written like a collection; the same code as the export shows. */
+export const orchestrationHelperCommand = (o: ServiceOrchestrationSpec, all: ServiceSpec[], model: Model | null): string =>
+  helperCommandOf(JSON.stringify(servicePayload(o, all, model)));
 
 /** A mapping list with one expression changed — an empty one removes it. */
 function upsert(list: Mapping[] | undefined, name: string, expression: string): Mapping[] | undefined {
@@ -144,7 +145,7 @@ export default function OrchestrationView({ slug, onBack }: { slug: string; onBa
       {exportOpen && (
         <ScalaExport title={spec.title} isDark={isDark} onClose={() => setExportOpen(false)}
           text={orchestrationBundle(spec, all, model)} todos={orchestrationTodos(spec, all, model)} fileName={`${spec.slug}.scala`}
-          command={() => orchestrationHelperCommand(spec, all)}
+          command={() => orchestrationHelperCommand(spec, all, model)}
           description={<>
             Ein CustomTask in <span className="font-mono">01-domain</span> und sein CustomWorker in <span className="font-mono">03-worker</span>,
             im Paket <span className="font-mono">{collectionPackage(orchestrationApi(spec))}</span>. Der Worker ruft die Services in

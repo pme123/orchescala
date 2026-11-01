@@ -5,13 +5,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useStore, type SaveResult } from '../store';
 import type { StorageBackend } from '../backend';
-import { isCollection, type ServiceSpec } from './types';
-import { withServiceApis } from './collection';
+import type { ServiceSpec } from './types';
+import { migrateService as migrate, SERVICES_DIR } from './servicePayload';
 
-export const SERVICES_DIR = 'services';
-
-/** Older collections have the API only on the collection — an orchestration stays as it is. */
-const migrate = (s: ServiceSpec): ServiceSpec => (isCollection(s) ? withServiceApis(s) : s);
+export { SERVICES_DIR };
 
 export interface ServiceListItem {
   slug: string;

@@ -9,10 +9,11 @@ import type { Model } from '../types';
 import { cls } from '../ui';
 import { collectionSlug } from './collection';
 import { collectionBundle, openTodos } from './scalaCollection';
+import { servicePayload } from './servicePayload';
 import type { ServiceCollectionSpec } from './types';
 
 export const collectionHelperCommand = (spec: ServiceCollectionSpec, model: Model | null): string =>
-  helperCommandOf(JSON.stringify({ v: 2, kind: 'serviceCollection', scala: collectionBundle(spec, model) }));
+  helperCommandOf(JSON.stringify(servicePayload(spec, [spec], model)));
 
 export default function CollectionExport({ spec, model, isDark, onClose }: {
   spec: ServiceCollectionSpec; model: Model | null; isDark: boolean; onClose: () => void;
