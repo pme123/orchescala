@@ -142,5 +142,68 @@ export interface ServiceCollectionSpec {
   [key: string]: unknown;
 }
 
-/** Everything under `services/` — today only collections, the orchestrations follow. */
-export type ServiceSpec = ServiceCollectionSpec;
+/** What a task of an orchestration does — per BPMN element ID. */
+export interface OrchTask {
+  /** service task: the topic of the service it calls — `acme-crm-clientV1.GetClient` */
+  service?: string;
+  /** service task: per field of the service's `In` a FEEL expression against what is known there */
+  inputs?: Mapping[];
+  /** service task: the name of its result afterwards (`client`) — without: the service name, first letter small */
+  result?: string;
+  /** script task: assignments — `name` gets the value of the FEEL `expression` */
+  assignments?: Mapping[];
+  [key: string]: unknown;
+}
+
+/**
+ * A **service orchestration**: one worker that calls service workers — like a process, but
+ * only service and script tasks, parallel and exclusive gateways. In Orchescala a
+ * CustomTask (`object UpdateClient extends CompanyBpmnCustomTaskDsl`) and its CustomWorker,
+ * whose `runWorkZIO` calls the workers of the services one after the other
+ * (`GetClientWorker().runWorkFromWorkerUnsafe(GetClient.In(…))`), in parallel (`zipPar`)
+ * or depending on a condition.
+ */
+export interface ServiceOrchestrationSpec {
+  kind: 'serviceOrchestration';
+  version: number;
+  slug: string;
+  /** business title, e.g. «Kunde ändern» */
+  title: string;
+  /** the service project (sbt) — `acme-crm` */
+  project: string;
+  /** the API it belongs to — package `acme.crm.domain.client.v1`, topic `acme-crm-clientV1.<name>` */
+  api: string;
+  apiVersion: number;
+  /** Scala object of the CustomTask, e.g. `UpdateClient` — also the last part of the topic */
+  name: string;
+  status: Status;
+  /** what it does (Markdown) — `val descr` */
+  description?: string;
+  epics?: string[];
+  comments?: CommentThread[];
+  createdAt: string;
+  updatedAt: string;
+  /** the flow — BPMN 2.0, edited like the one of a process */
+  bpmn: string;
+  /** per BPMN element ID: what the task does */
+  tasks: Record<string, OrchTask>;
+  /** per branch of an exclusive gateway (ID of the sequence flow) its condition in FEEL */
+  conditions?: Record<string, string>;
+  /** `In`, `Out` and own types */
+  types: TypeDef[];
+  inTypeId?: string;
+  outTypeId?: string;
+  /** `type In = NoInput` */
+  noIn?: boolean;
+  /** `type Out = NoOutput` */
+  noOut?: boolean;
+  /** per `Out` field a FEEL expression against what is known at the end */
+  outMappings?: Mapping[];
+  [key: string]: unknown;
+}
+
+/** Everything under `services/`: collections and orchestrations. */
+export type ServiceSpec = ServiceCollectionSpec | ServiceOrchestrationSpec;
+
+export const isCollection = (s: ServiceSpec): s is ServiceCollectionSpec => s.kind === 'serviceCollection';
+export const isOrchestration = (s: ServiceSpec): s is ServiceOrchestrationSpec => s.kind === 'serviceOrchestration';

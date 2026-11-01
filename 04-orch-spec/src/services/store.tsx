@@ -5,10 +5,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useStore, type SaveResult } from '../store';
 import type { StorageBackend } from '../backend';
-import type { ServiceSpec } from './types';
+import { isCollection, type ServiceSpec } from './types';
 import { withServiceApis } from './collection';
 
 export const SERVICES_DIR = 'services';
+
+/** Older collections have the API only on the collection — an orchestration stays as it is. */
+const migrate = (s: ServiceSpec): ServiceSpec => (isCollection(s) ? withServiceApis(s) : s);
 
 export interface ServiceListItem {
   slug: string;
@@ -37,8 +40,13 @@ const pathOf = (slug: string) => `${SERVICES_DIR}/${slug}.json`;
 
 /** The shape the views rely on — what does not fit counts as unreadable. */
 export function serviceProblem(raw: unknown): string | null {
-  const r = raw as Partial<ServiceSpec> | null;
+  const r = raw as (Partial<ServiceSpec> & { services?: unknown; bpmn?: unknown }) | null;
   if (!r || typeof r !== 'object' || Array.isArray(r)) return 'kein JSON-Objekt';
+  if (r.kind === 'serviceOrchestration') {
+    if (typeof r.bpmn !== 'string') return '«bpmn» fehlt';
+    if (!Array.isArray(r.types)) return '«types» fehlt';
+    return null;
+  }
   if (r.kind !== 'serviceCollection') return `unbekannte Art «${String(r.kind)}»`;
   if (!Array.isArray(r.services)) return '«services» fehlt';
   if (!Array.isArray(r.types)) return '«types» fehlt';
@@ -67,7 +75,7 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
           const data: unknown = JSON.parse(read.text);
           const problem = serviceProblem(data);
           if (problem) throw new Error(problem);
-          items.push({ slug: f.name.replace(/\.json$/, ''), data: withServiceApis(data as ServiceSpec), version: read.version });
+          items.push({ slug: f.name.replace(/\.json$/, ''), data: migrate(data as ServiceSpec), version: read.version });
         } catch (e) {
           unreadable.push({ file: f.name, problem: e instanceof Error ? e.message : String(e) });
         }
@@ -103,7 +111,7 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
     const data: unknown = JSON.parse(read.text);
     const problem = serviceProblem(data);
     if (problem) throw new Error(`${pathOf(slug)}: ${problem}`);
-    return { data: withServiceApis(data as ServiceSpec), version: read.version };
+    return { data: migrate(data as ServiceSpec), version: read.version };
   }, [getBackend]);
 
   const write = useCallback(async (data: ServiceSpec, opts: { ifMatch?: string; createOnly?: boolean }): Promise<SaveResult & { exists?: true }> => {

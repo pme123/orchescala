@@ -182,15 +182,20 @@ export function withoutService(c: ServiceCollectionSpec, id: string): ServiceCol
  * The collection as the frame the class builder and the Scala generator know
  * (a `ProcessSpec` without flow): its types and its project.
  */
-export function processFrame(c: ServiceCollectionSpec, ownPackage?: string): ProcessSpec {
+export function processFrame(c: ServiceCollectionSpec, ownPackage?: string): ProcessSpec;
+export function processFrame(c: FrameSource, ownPackage: string, types?: TypeDef[]): ProcessSpec;
+export function processFrame(c: FrameSource, ownPackage?: string, types?: TypeDef[]): ProcessSpec {
   return {
     version: 1, slug: c.slug, name: c.slug, title: c.title, project: c.project,
     status: c.status, createdAt: c.createdAt, updatedAt: c.updatedAt,
-    types: c.types, interactions: [], steps: [],
+    types: types ?? c.types, interactions: [], steps: [],
     // the package the types live in — that of their API, as a process has its own
-    ownPackage: ownPackage ?? typeHome(c),
+    ownPackage: ownPackage ?? typeHome(c as ServiceCollectionSpec),
   };
 }
+
+/** What a frame for the class builder needs — a collection or an orchestration. */
+type FrameSource = Pick<ServiceCollectionSpec, 'slug' | 'title' | 'project' | 'status' | 'createdAt' | 'updatedAt' | 'types'>;
 
 /**
  * The package of the API a type of the collection belongs to: where the domain has it

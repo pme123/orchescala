@@ -17,10 +17,10 @@ import {
 import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
 
-const indent = (text: string, by = '  ') => text.split('\n').map(l => (l ? by + l : l)).join('\n');
+export const indent = (text: string, by = '  ') => text.split('\n').map(l => (l ? by + l : l)).join('\n');
 
 /** `val descr` — one line as a string, several as `"""…""".stripMargin` */
-function descr(text: string | undefined): string {
+export function descr(text: string | undefined): string {
   const t = (text ?? '').trim().replace(/"""/g, '\\"\\"\\"');
   if (!t.includes('\n')) return `  val descr: String = ${scalaKey(t)}`;
   const [first, ...rest] = t.split('\n');
@@ -142,7 +142,7 @@ end ${name}
 
 // ── the worker ───────────────────────────────────────────────────────────────
 
-const workerPackageClause = (ref: ApiRef): string => {
+export const workerPackageClause = (ref: ApiRef): string => {
   const parts = workerPackage(ref).split('.');
   const at = parts.indexOf('worker');
   return `package ${parts.slice(0, at + 1).join('.')}\npackage ${parts.slice(at + 1).join('.')}`;

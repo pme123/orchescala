@@ -50,6 +50,12 @@ const ident = (n: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(n) ? n : `\`${n}\`
 
 /** Translate the expression (with or without `=`) for a target field. */
 export function feelToScala(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated {
+  const { type: _type, ...t } = translate(expression, vars, types, target);
+  return t;
+}
+
+/** `feelToScala` with the type of a path (TypeDef id or ScalaType) — for a literal compared with it. */
+function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated & { type?: string } {
   const raw = expression.trim();
   const body = raw.startsWith('=') ? raw.slice(1).trim() : raw;
   if (!body) return todo(raw, 'kein Wert');
@@ -90,7 +96,104 @@ export function feelToScala(expression: string, vars: Map<string, ScalaVar>, typ
     }
     shape = field;
   }
-  return { scala, optional };
+  return { scala, optional, ...(shape.type ? { type: shape.type } : {}) };
+}
+
+/**
+ * A condition in FEEL → a Scala `Boolean` — for the branches of an exclusive gateway:
+ * a Boolean path, comparisons (`=`, `!=`, `<`, `<=`, `>`, `>=`, also with `null`),
+ * `and`, `or`, `not(…)` and parentheses. An optional value compares as Option:
+ * `segment = 3` → `segment.contains(3)`, `etag != null` → `etag.isDefined`.
+ */
+export function feelCondition(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[]): Translated {
+  const raw = expression.trim();
+  const body = raw.startsWith('=') ? raw.slice(1).trim() : raw;
+  if (!body) return todo(raw, 'keine Bedingung');
+  const out = condition(body, vars, types);
+  return out ?? todo(body, 'Bedingung');
+}
+
+/** split at a top-level keyword (`and`, `or`) — not inside quotes or parentheses */
+function splitTop(text: string, word: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, quote = false, start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' && text[i - 1] !== '\\') quote = !quote;
+    if (quote) continue;
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (depth === 0 && text.slice(i, i + word.length + 2) === ` ${word} `) {
+      parts.push(text.slice(start, i));
+      start = i + word.length + 2;
+      i += word.length + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map(p => p.trim());
+}
+
+/** the outer parentheses belong together: `(a and b)` */
+const wrapped = (t: string): boolean => {
+  if (!t.startsWith('(') || !t.endsWith(')')) return false;
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '(') depth++;
+    if (t[i] === ')') depth--;
+    if (depth === 0 && i < t.length - 1) return false;
+  }
+  return true;
+};
+
+function condition(text: string, vars: Map<string, ScalaVar>, types: TypeDef[]): Translated | null {
+  const t = text.trim();
+  if (wrapped(t)) {
+    const inner = condition(t.slice(1, -1), vars, types);
+    return inner && { scala: `(${inner.scala})`, optional: false };
+  }
+  for (const [word, op] of [['or', '||'], ['and', '&&']] as const) {
+    const parts = splitTop(t, word);
+    if (parts.length > 1) {
+      const each = parts.map(p => condition(p, vars, types));
+      if (each.some(e => !e || e.todo)) return null;
+      return { scala: each.map(e => e!.scala).join(` ${op} `), optional: false };
+    }
+  }
+  const not = /^not\s*\((.*)\)$/s.exec(t);
+  if (not) {
+    const inner = condition(not[1], vars, types);
+    return inner && !inner.todo ? { scala: `!(${inner.scala})`, optional: false } : null;
+  }
+  const cmp = /^(.+?)\s*(!=|<=|>=|=|<|>)\s*(.+)$/s.exec(t);
+  if (cmp) {
+    const [, left, op, right] = cmp;
+    const l = translate(`= ${left}`, vars, types);
+    if (l.todo) return null;
+    if (right.trim() === 'null') {
+      if (op === '=') return { scala: l.optional ? `${l.scala}.isEmpty` : 'false', optional: false };
+      if (op === '!=') return { scala: l.optional ? `${l.scala}.isDefined` : 'true', optional: false };
+      return null;
+    }
+    // the right side in the type of the left one — an enum case, a Long literal
+    const r = feelToScala(`= ${right}`, vars, types, l.type ? { type: l.type } : undefined);
+    if (r.todo) return null;
+    const scalaOp = op === '=' ? '==' : op;
+    if (l.optional && !r.optional) {
+      if (op === '=') return { scala: `${l.scala}.contains(${r.scala})`, optional: false };
+      if (op === '!=') return { scala: `!${l.scala}.contains(${r.scala})`, optional: false };
+      return { scala: `${l.scala}.exists(_ ${scalaOp} ${r.scala})`, optional: false };
+    }
+    if (!l.optional && r.optional) {
+      if (op === '=') return { scala: `${r.scala}.contains(${l.scala})`, optional: false };
+      if (op === '!=') return { scala: `!${r.scala}.contains(${l.scala})`, optional: false };
+      return null;
+    }
+    return { scala: `${l.scala} ${scalaOp} ${r.scala}`, optional: false };
+  }
+  // a Boolean on its own
+  const b = feelToScala(`= ${t}`, vars, types, { type: 'Boolean' });
+  if (b.todo) return null;
+  return { scala: b.optional ? `${b.scala}.contains(true)` : b.scala, optional: false };
 }
 
 /** `a.b.c` → the names; null if it is not a plain path */
