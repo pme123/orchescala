@@ -147,8 +147,22 @@ function attrRank([name]: [string, string]): string {
   return `3${name}`;
 }
 
-/** The value of an attribute as it was written - in double quotes. */
-const quoted = (raw: string, quote: string) => (quote === '"' ? raw : raw.replace(/"/g, '&quot;'));
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+/** The value of an attribute in one form, for double quotes: the references decoded (`&#34;`,
+ *  `&quot;`, `&#x22;` are the same) and encoded again - `&amp; &lt; &gt; &quot;` and the blanks a
+ *  parser would otherwise turn into spaces. An unknown entity stays as it is. */
+function quoted(raw: string): string {
+  // an unknown entity keeps its `&` - marked while the others are decoded and encoded again
+  const keep = '\u0000';
+  const value = raw.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][\w.-]*);/g, (_all, ref: string) =>
+    ref.startsWith('#x') ? String.fromCodePoint(parseInt(ref.slice(2), 16))
+      : ref.startsWith('#') ? String.fromCodePoint(parseInt(ref.slice(1), 10))
+        : ENTITIES[ref] ?? `${keep}${ref};`);
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;')
+    .replace(/\u0000/g, '&');
+}
 
 function parseXml(xml: string): { prolog: XmlNode[]; root: XmlNode & { kind: 'el' } } {
   let i = 0;
@@ -201,7 +215,7 @@ function parseXml(xml: string): { prolog: XmlNode[]; root: XmlNode & { kind: 'el
       i += m[0].length;
       const end = xml.indexOf(m[2], i);
       if (end < 0) fail('no end of the attribute');
-      attrs.push([m[1], quoted(xml.slice(i, end), m[2])]);
+      attrs.push([m[1], quoted(xml.slice(i, end))]);
       i = end + 1;
     }
     i++; // >

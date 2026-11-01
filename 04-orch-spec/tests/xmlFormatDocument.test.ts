@@ -70,6 +70,13 @@ test('texts, CDATA, comments and entities stay as they were', () => {
 `);
 });
 
+test('references in attribute values are one form: &#34; &quot; &#x22; - line breaks stay encoded', () => {
+  const a = formatXml(`<a x="#{f(&#34;s&#34;)}" y="a&#10;b" z='it&apos;s &lt; &amp;' />`);
+  const b = formatXml(`<a z="it's &#60; &#38;" y="a&#xA;b" x="#{f(&quot;s&quot;)}"/>`);
+  assert.equal(a, b);
+  assert.equal(a, '<a x="#{f(&quot;s&quot;)}" y="a&#10;b" z="it\'s &lt; &amp;" />\n');
+});
+
 test('what is not XML stays as it is', () => {
   for (const bad of ['', 'no xml', '<a><b></a>', '<a/><b/>']) assert.equal(formatXml(bad), bad);
 });
