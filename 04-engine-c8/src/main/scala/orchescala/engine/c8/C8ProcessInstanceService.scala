@@ -6,9 +6,11 @@ import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
 import zio.ZIO.{logDebug, logInfo, logWarning}
-import zio.{durationInt, IO, UIO, ZIO}
+import zio.{durationInt, Duration, IO, UIO, ZIO}
 
-class C8ProcessInstanceService(using
+class C8ProcessInstanceService(
+    timings: C8ProcessInstanceService.StartTimings = C8ProcessInstanceService.StartTimings()
+)(using
     rest: C8RestClient,
     engineConfig: EngineConfig
 ) extends ProcessInstanceService, C8Service, C8EventService:
@@ -327,6 +329,11 @@ class C8ProcessInstanceService(using
     *     e.g. two starts at the same time). Now it gets the message - answered with 409.
     *   - Refused again: sent without key - a new instance starts, as before and as in C7. With no
     *     such message at all this fails again; the error names both.
+    *
+    * Known limit: if an instance of «Einmalige Ausführung» needs longer than `subscriptionWait` to
+    * open that subscription (a cluster under load), a start at the same time is refused twice and
+    * starts a second instance with the same `businessKey`. Starts one after the other are not
+    * affected. Other 404s (no such message, another tenant) cost the wait and two requests more.
     */
   private def correlateWithBusinessKey(
       messageName: String,
@@ -341,7 +348,7 @@ class C8ProcessInstanceService(using
       case Some(key) =>
         val withKey = correlate(Some(key))
         withKey
-          .catchSome { case err if refused(err) => withKey.delay(C8ProcessInstanceService.subscriptionWait) }
+          .catchSome { case err if refused(err) => withKey.delay(timings.subscriptionWait) }
           .catchSome:
             case err if refused(err) =>
               logInfo(
@@ -364,7 +371,7 @@ class C8ProcessInstanceService(using
     C8ProcessInstanceService.startedBy(messageKey, processInstanceKey) match
       case Some(true)  => ZIO.unit
       case None        =>
-        logWarning(
+        ZIO.logError(
           s"Message '$messageName': the keys (message $messageKey, instance $processInstanceKey) are not Zeebe keys - " +
             "cannot tell a start from a running instance, taken as started (no unique execution)."
         )
@@ -386,7 +393,9 @@ class C8ProcessInstanceService(using
 
   /** The message landed in a running instance and set its pending marker (C8 cannot delete a
     * variable). Its workers would wait for a correlation that never comes - unless the instance has
-    * one: then the marker is ignored. So the marker is cleared only if no correlation shows up.
+    * one: then the marker is ignored (`WorkerHandler.verifyIdentityCorrelation` checks it only
+    * without correlation, see `IdentityBindingSpec`). So the marker is cleared only if no
+    * correlation shows up.
     *
     * The instance's own start may still be signing (a second start right after the first): its
     * correlation follows within milliseconds (signed locally, one request). It is waited for up to
@@ -399,9 +408,9 @@ class C8ProcessInstanceService(using
     def awaitCorrelation(checks: Int): IO[EngineError, Boolean] =
       correlationSet.flatMap:
         case false if checks > 1 =>
-          awaitCorrelation(checks - 1).delay(C8ProcessInstanceService.correlationCheckInterval)
+          awaitCorrelation(checks - 1).delay(timings.correlationCheckInterval)
         case found               => ZIO.succeed(found)
-    awaitCorrelation(C8ProcessInstanceService.correlationChecks)
+    awaitCorrelation(timings.correlationChecks)
       .flatMap:
         case true  => logDebug(s"Process $processInstanceKey has its correlation - its pending marker is ignored.")
         case false =>
@@ -415,16 +424,22 @@ end C8ProcessInstanceService
 
 object C8ProcessInstanceService:
 
-  /** How often, and how far apart, a running instance is checked for its correlation before its
-    * pending marker is cleared - see `clearIdentityPending`.
+  /** The waits of a start by message.
+    *
+    * @param correlationChecks
+    *   how often a running instance is checked for its correlation before its pending marker is
+    *   cleared - see `clearIdentityPending`
+    * @param correlationCheckInterval
+    *   how far apart these checks are
+    * @param subscriptionWait
+    *   how long a refused start waits before it is sent with its key once more - see
+    *   `correlateWithBusinessKey`
     */
-  private[c8] val correlationChecks        = 4
-  private[c8] val correlationCheckInterval = 250.millis
-
-  /** How long a refused start waits before it is sent with its key once more - see
-    * `correlateWithBusinessKey`.
-    */
-  private[c8] val subscriptionWait = 250.millis
+  final case class StartTimings(
+      correlationChecks: Int = 4,
+      correlationCheckInterval: Duration = 250.millis,
+      subscriptionWait: Duration = 250.millis
+  )
 
   /** Did this message start the instance? A key holds its partition in the upper bits and grows
     * within a partition: an instance the message started is created after it, on its partition. A
