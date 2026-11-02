@@ -608,11 +608,34 @@ function itemsOf(el: Element): Item[] {
 }
 const sameSlot = (a: Item, b: Item) => a.inExt === b.inExt && a.container === b.container;
 /**
+ * The variable of a listener expression that is exactly one `execution.setVariable("x", …)` -
+ * the call closed with its own bracket and nothing after it (`… ) + foo(b)` does more).
+ */
+export function setVariableOnly(expression: string): string | null {
+  const head = /^\s*[$#]\{\s*execution\.setVariable\(\s*(["'])([\w.-]+)\1\s*,/.exec(expression);
+  if (!head) return null;
+  let depth = 1, quote = '';
+  for (let i = head[0].length; i < expression.length; i++) {
+    const ch = expression[i];
+    if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = ''; continue; }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return /^\s*\}\s*$/.test(expression.slice(i + 1)) ? head[2] : null;
+  }
+  return null;
+}
+
+/**
  * Which variable a mapping assigns (`camunda:in`/`out`, input/output parameter,
- * `zeebe:input`/`output`) — `null` for everything else and for `variables="all"`.
+ * `zeebe:input`/`output`, a Camunda 7 execution listener that is one
+ * `execution.setVariable("x", …)`) — `null` for everything else and for `variables="all"`.
  */
 function mappingKey(el: Element): string | null {
   const n = local(el);
+  if (n === 'executionListener') {
+    const name = setVariableOnly(el.getAttribute('expression') ?? '');
+    return name ? `${el.namespaceURI ?? ''}|${n}:${el.getAttribute('event') ?? ''}|${name}` : null;
+  }
   const by = n === 'inputParameter' || n === 'outputParameter' ? 'name'
     : n === 'in' || n === 'out' || n === 'input' || n === 'output' ? 'target' : null;
   const v = by ? el.getAttribute(by) : null;
@@ -946,6 +969,33 @@ function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Bindi
   });
 }
 
+/**
+ * What the pattern's own nodes carry belongs to it too: a listener on the end of its block or
+ * path is not free for another pattern. So the end `output-mocked` of «Init Process» is not also
+ * «Prozess-Status am Ende» - it sets `processStatus` because «Init Process» does. A block node
+ * still gets another pattern for what it carries beyond its block (see `inBlockOnly`).
+ */
+function blockItems(fn: Element, tn: Element, b: Binding): Set<Element> {
+  const out = new Set<Element>();
+  const tItems = itemsOf(tn);
+  for (const fi of itemsOf(fn)) {
+    const ti = tItems.find(x => sameSlot(fi, x) && !out.has(x.el) && matchEl(fi.el, x.el, b));
+    if (ti) out.add(ti.el);
+  }
+  return out;
+}
+
+/**
+ * The pattern's block nodes with the diagram nodes of the same kind in its block. A block is
+ * matched by its entry only (see matchBlocks), so there is no node-by-node mapping: each node of
+ * a kind is paired with all of that kind. An item is still taken only if it matches an item of
+ * the pattern's node - two ends with the same listener in one block both belong to it. So an own
+ * pattern that brings exactly such an item is not recognised on a node of that block either: what
+ * a block owns, it owns completely.
+ */
+const blockPairs = (block: Fragment['blocks'][number], elements: Element[]): Array<[Element, Element]> =>
+  block.nodes.flatMap(fn => elements.filter(e => local(e) === local(fn)).map(e => [fn, e] as [Element, Element]));
+
 const builtins = (t: Element | null, proc: Element | null): Map<string, string> => {
   const m = new Map<string, string>();
   if (t) { m.set('targetId', t.getAttribute('id') ?? ''); m.set('targetName', t.getAttribute('name') ?? ''); }
@@ -1020,6 +1070,18 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       if (id && (FLOW_NODES.has(local(e)) || local(e) === 'sequenceFlow')) res.owned.set(id, pid);
     }
   };
+  /** per node of a block or path and per pattern: the items it brings there - whatever order the patterns come in */
+  const ownItems: OwnItems = new Map();
+  const ownBlock = (pid: string, pairs: Array<[Element, Element]>, b: Binding) => {
+    for (const [fn, tn] of pairs) {
+      const items = blockItems(fn, tn, b);
+      if (!items.size) continue;
+      const byPattern = ownItems.get(tn) ?? new Map<string, Set<Element>>();
+      byPattern.set(pid, new Set([...(byPattern.get(pid) ?? []), ...items]));
+      ownItems.set(tn, byPattern);
+      items.forEach(i => claimed.add(i));
+    }
+  };
   for (const { def, fr } of parsed) {
     if (!fr.anchor) {
       if (!proc) continue;
@@ -1031,7 +1093,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       let b = m.b;
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
-      for (const x of blocks) own(x!.elements, def.id);
+      blocks.forEach((x, i) => { own(x!.elements, def.id); ownBlock(def.id, blockPairs(fr.blocks[i], x!.elements), b); });
       res.hits.push({ patternId: def.id, targetId: null, params: paramsOf(b, def), match: { ...m, b }, fr });
       continue;
     }
@@ -1057,16 +1119,71 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
         }
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
+        ownBlock(def.id, [...m.attached], m.b);
         res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
         // assign shared blocks once per scope
         if (fr.blocks.length) {
-          for (const x of matchBlocks(fr, tg, claimed, m.b)) if (x) own(x.elements, def.id);
+          matchBlocks(fr, tg, claimed, m.b).forEach((x, i) => {
+            if (!x) return;
+            own(x.elements, def.id);
+            // x.b grew from m.b - it has the parameters of the anchor too
+            ownBlock(def.id, blockPairs(fr.blocks[i], x.elements), x.b);
+          });
         }
         if (!m.items.length && !m.attached.size) break;
       }
     }
   }
+  // a pattern that came first may have taken a node of another pattern's block - only for what
+  // that block brings there anyway: then it is not a pattern of its own (order of the scores)
+  res.hits = res.hits.filter(h => !inBlockOnly(h, ownItems, all));
   return res;
+}
+
+/**
+ * Take out what the recognised patterns carry on their element (or the process) - their
+ * listeners, mappings, definitions -, not their paths and blocks. For a switch of engine: the
+ * rest is converted as it is, then each pattern is inserted again in the form of the target
+ * engine (see patternConvert.ts), so no old form stays beside the new one. `take` chooses by the
+ * position of the hit in `all` (stable for the same diagram); `taken` are those positions. An item
+ * that also belongs to a hit not taken stays - otherwise that one would lose it.
+ */
+export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit, index: number) => boolean = () => true): { xml: string; all: PatternHit[]; taken: number[] } {
+  const doc = parseXml(xml);
+  if (!doc) return { xml, all: [], taken: [] };
+  const found = detectIn(doc, defs, engine).hits;
+  const all = found.map(({ match: _, fr: __, ...h }) => h);
+  const taken = found.map((h, i) => (take(all[i], i) ? i : -1)).filter(i => i >= 0);
+  if (!taken.length) return { xml, all, taken };
+  const takenSet = new Set(taken);
+  const kept = new Set(found.filter((_, i) => !takenSet.has(i)).flatMap(h => h.match.items));
+  for (const i of taken) {
+    for (const el of found[i].match.items) {
+      // two hits on one element may share an item - it is gone already, or the other keeps it
+      const parent: Element | null = el.parentElement;
+      if (!parent || kept.has(el)) continue;
+      removeEl(el);
+      // the container (inputOutput, ioMapping …) and extensionElements this removal emptied go
+      // too - only up the chain of the removed item, and each held at least that item before
+      let c: Element | null = parent;
+      while (c && !c.children.length && (local(c) === 'extensionElements' || CONTAINERS.has(local(c)))) {
+        const up: Element | null = c.parentElement;
+        removeEl(c);
+        c = up;
+      }
+    }
+  }
+  return { xml: new Writer(doc).serialize(xml), all, taken };
+}
+
+type OwnItems = Map<Element, Map<string, Set<Element>>>;
+
+/** Is the hit only what the block or path of another pattern carries on its element? */
+function inBlockOnly(h: InternalHit, ownItems: OwnItems, all: Element[]): boolean {
+  if (!h.targetId || h.match.attrs.length || h.match.attached.size || !h.match.items.length) return false;
+  const t = all.find(e => e.getAttribute('id') === h.targetId);
+  const owners = t ? ownItems.get(t) : undefined;
+  return !!owners && [...owners].some(([pid, items]) => pid !== h.patternId && h.match.items.every(i => items.has(i)));
 }
 
 // ── Inserting ────────────────────────────────────────────────────────────────
@@ -1531,6 +1648,12 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   const t = targetId ? byIdIn(doc.documentElement, targetId) : proc;
   if (!t || !proc) return same([targetId ? `«${targetId}» steht nicht im Diagramm.` : 'Kein Prozess im Diagramm.']);
   const scope = targetId ? t.parentElement! : proc;
+  // a value that lands inside a string of an expression (`"{{processStatus}}"`) ends it with a
+  // quote or a backslash - only plain text there (a FEEL expression replaces the whole string)
+  const given = valuesFor(def, params, targetId ? t : null, proc);
+  const inString = new Set([...textOnlyParams(src), ...[...src.matchAll(QUOTED_PH)].map(m => m[1])]);
+  const broken = patternParams(def).map(p => p.name).filter(n => inString.has(n) && !isFeelValue(given[n]) && /["\\]/.test(given[n] ?? ''));
+  if (broken.length) return same([`«${def.name}»: ${broken.map(n => `«${n}»`).join(', ')} nimmt nur Text ohne " und \\ - der Wert steht im BPMN in einer Zeichenkette.`]);
   const w = new Writer(doc);
   // `{{startMessage}}` needs a message start event — if it is missing,
   // the process start becomes one (message = process ID, the convention)

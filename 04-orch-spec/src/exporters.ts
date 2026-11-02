@@ -13,8 +13,9 @@ import { scalaBundle } from './scala.ts';
 import { C7_LABEL, C8_LABEL, engineLabel } from './engineLabels.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
-import { convertBpmn } from './engineConvert.ts';
+import { convertWithPatterns } from './patternConvert.ts';
 import { engineExpression } from './feelJuel.ts';
+import { juelOptions } from './feel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
@@ -403,7 +404,7 @@ export function exportBpmn(spec: ProcessSpec, bpmn: string, model: Model | null 
 export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7', model: Model | null = null): WriteResult {
   const written = exportBpmn(spec, bpmn, model);
   if (!bpmn || engine === (spec.engine ?? 'c7')) return written;
-  const conv = convertBpmn(written.xml, engine, { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec) });
+  const conv = convertWithPatterns(written.xml, engine, patternDefs(model), { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec), juel: juelOptions(spec, model) });
   return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
 }
 

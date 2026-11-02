@@ -76,6 +76,10 @@ export default function App() {
       ? { kind: 'page', slug: deepLink.slug, ...(deepLink.commentId ? { commentId: deepLink.commentId } : {}) }
       : { kind: 'spec', slug: deepLink.slug, ...(deepLink.commentId ? { commentId: deepLink.commentId } : {}) });
   }, [deepLink, storage, model]);
+  // tab title: the company of the folder, if it has one
+  useEffect(() => {
+    document.title = model?.company ? `Orch Spec ${model.company}` : 'Z9nAI Orch Spec';
+  }, [model?.company]);
   const dirHandle = storage; // Short name: connected storage (local or SharePoint)
   // Login active and not yet logged in → gate; admin only with the role.
   // First the folder, then the login: whether it is needed is said by the model.json

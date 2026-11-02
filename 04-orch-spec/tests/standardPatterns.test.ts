@@ -4,13 +4,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern, setVariableOnly } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
+import { convertWithPatterns } from '../src/patternConvert';
+import { installXmlNamespaces } from './xmlNamespaces';
 import type { EngineId, PatternDef } from '../src/types';
 
 const g = globalThis as unknown as Record<string, unknown>;
 g.DOMParser ??= DOMParser;
 g.XMLSerializer ??= class { serializeToString(doc: { toString(): string }) { return doc.toString(); } };
+installXmlNamespaces();
 
 const BPMN = 'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"';
 const NS: Record<EngineId, string> = {
@@ -43,7 +46,7 @@ const targetFor = (type: string) => (type === 'process' ? null : 'Target');
 
 test('the standard patterns are there without a company pattern', () => {
   const ids = patternDefs(null).map(p => p.id);
-  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution']) assert.ok(ids.includes(id), id);
+  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution', 'process-status']) assert.ok(ids.includes(id), id);
   assert.ok(STANDARD_PATTERNS.every(p => isStandardPattern(p) && !p.builtin));
   // a copy (an own pattern from a file) is not a standard pattern, whatever it carries
   assert.ok(!isStandardPattern({ ...STANDARD_PATTERNS[0], standard: true }));
@@ -298,4 +301,317 @@ test('«Einmalige Ausführung» on C8: a start message with another correlation 
   // not overwritten, not added a second time
   assert.deepEqual(subscriptionOf(message), ['=clientKey']);
   assert.ok(res.issues.some(i => i.includes('=clientKey') && i.includes('=businessKey')), res.issues.join('; '));
+});
+
+// «Prozess-Status am Ende» - an end event sets processStatus; the end `output-mocked` of
+// «Init Process» sets it too, but as part of that pattern
+const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
+const init = STANDARD_PATTERNS.find(p => p.id === 'init-process')!;
+const hitsOf = (xml: string, engine: EngineId) =>
+  detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId, h.params.processStatus ?? null]);
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: the status is set as text and read back`, () => {
+    const res = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'canceled' });
+    assert.ok(res.changed, res.issues.join('; '));
+    assert.ok(!res.xml.includes('{{'), 'no placeholder left');
+    const end = one(parse(res.xml), 'bpmn:endEvent');
+    if (engine === 'c7') {
+      assert.equal(one(end, 'camunda:executionListener').getAttribute('expression'), '${execution.setVariable("processStatus", "canceled")}');
+    } else {
+      const out = one(end, 'zeebe:output');
+      assert.deepEqual([out.getAttribute('source'), out.getAttribute('target')], ['="canceled"', 'processStatus']);
+    }
+    assert.deepEqual(hitsOf(res.xml, engine), [['process-status', 'End', 'canceled']]);
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: with «Init Process» - its end output-mocked is not the pattern, the own end is`, () => {
+    const withInit = applyPattern(diagram(engine, 'serviceTask'), init, engine, 'Target');
+    assert.ok(withInit.changed, withInit.issues.join('; '));
+    assert.ok(withInit.xml.includes('output-mocked'), 'the block of «Init Process» is there');
+    // the end of the block sets processStatus = output-mocked - it belongs to «Init Process»
+    assert.deepEqual(hitsOf(withInit.xml, engine), [['init-process', 'Target', null]]);
+    const both = applyPattern(withInit.xml, status, engine, 'End', { processStatus: 'succeeded' });
+    assert.ok(both.changed, both.issues.join('; '));
+    assert.deepEqual(hitsOf(both.xml, engine).sort(), [['init-process', 'Target', null], ['process-status', 'End', 'succeeded']]);
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: removed again - the end stays, without the status`, () => {
+    const applied = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'canceled' }).xml;
+    const res = removePattern(applied, status, engine, 'End', STANDARD_PATTERNS);
+    assert.ok(res.changed, res.issues.join('; '));
+    assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits, []);
+    assert.ok(!res.xml.includes('processStatus'), 'the status is gone');
+    assert.equal(elements(parse(res.xml), 'bpmn:endEvent').length, 1, 'the end stays');
+  });
+}
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: a value with " or \\ is refused - it would end the string in the BPMN`, () => {
+    for (const bad of ['can"celed', 'can\\celed']) {
+      const res = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: bad });
+      assert.equal(res.changed, false, bad);
+      assert.ok(res.issues.some(i => i.includes('«processStatus»')), res.issues.join('; '));
+    }
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: several ends - each with its own status`, () => {
+    // a second end on the start: Start → Target → End, Start → End2
+    const two = diagram(engine, 'task')
+      .replace('<bpmn:outgoing>f1</bpmn:outgoing>', '<bpmn:outgoing>f1</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing>')
+      .replace('</bpmn:process>', '<bpmn:endEvent id="End2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent><bpmn:sequenceFlow id="f3" sourceRef="Start" targetRef="End2" /></bpmn:process>');
+    const a = applyPattern(two, status, engine, 'End', { processStatus: 'succeeded' });
+    const b = applyPattern(a.xml, status, engine, 'End2', { processStatus: 'canceled' });
+    assert.ok(a.changed && b.changed, [...a.issues, ...b.issues].join('; '));
+    assert.deepEqual(hitsOf(b.xml, engine).sort(), [['process-status', 'End', 'succeeded'], ['process-status', 'End2', 'canceled']]);
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: applied again with another status - one status, the new one`, () => {
+    const once = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'succeeded' }).xml;
+    const same = applyPattern(once, status, engine, 'End', { processStatus: 'succeeded' });
+    assert.equal(same.changed, false, 'the same status again changes nothing');
+    const other = applyPattern(once, status, engine, 'End', { processStatus: 'canceled' });
+    assert.ok(other.changed, other.issues.join('; '));
+    const end = one(parse(other.xml), 'bpmn:endEvent');
+    const set = engine === 'c7'
+      ? elements(end, 'camunda:executionListener').map(l => l.getAttribute('expression'))
+      : elements(end, 'zeebe:output').map(o => `${o.getAttribute('target')}=${o.getAttribute('source')}`);
+    assert.deepEqual(set, engine === 'c7' ? ['${execution.setVariable("processStatus", "canceled")}'] : ['processStatus=="canceled"']);
+    assert.deepEqual(hitsOf(other.xml, engine), [['process-status', 'End', 'canceled']]);
+  });
+
+  test(`a node of the block of «Init Process» still gets another pattern for what it carries beyond the block (${engine.toUpperCase()})`, () => {
+    // an own pattern on end events that sets something else
+    const audit: PatternDef = {
+      ...status, id: 'acme-audit', name: 'Audit', params: [],
+      bpmn: { [engine]: status.bpmn[engine]!.replace(/processStatus/g, 'audited').replace(/\{\{audited\}\}/g, 'yes') },
+    };
+    const withInit = applyPattern(diagram(engine, 'serviceTask'), init, engine, 'Target').xml;
+    const blockEnd = elements(parse(withInit), 'bpmn:endEvent').find(e => e.getAttribute('name') === 'output-mocked')!.getAttribute('id')!;
+    const res = applyPattern(withInit, audit, engine, blockEnd);
+    assert.ok(res.changed, res.issues.join('; '));
+    const hits = detectPatterns(res.xml, patternDefs({ patterns: [audit] }), engine).hits.map(h => [h.patternId, h.targetId]);
+    assert.deepEqual(hits.sort(), [['acme-audit', blockEnd], ['init-process', 'Target']]);
+  });
+}
+
+// the order of recognition follows the score of a pattern - the block must win whatever comes first
+const SHAPE = (id: string, x: number, y: number, w = 36, h = 36) => `<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}"><dc:Bounds x="${x}" y="${y}" width="${w}" height="${h}" /></bpmndi:BPMNShape>`;
+const DI_NS = 'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI"';
+/** what an end sets as processStatus, in the form of the engine */
+const statusExt = (engine: EngineId, value: string) => engine === 'c7'
+  ? `<bpmn:extensionElements><camunda:executionListener expression="\${execution.setVariable(&#34;processStatus&#34;, &#34;${value}&#34;)}" event="start" /></bpmn:extensionElements>`
+  : `<bpmn:extensionElements><zeebe:ioMapping><zeebe:output source="=&#34;${value}&#34;" target="processStatus" /></zeebe:ioMapping></bpmn:extensionElements>`;
+const fragment = (engine: EngineId, body: string, shapes: string) =>
+  `<bpmn:definitions ${NS[engine]} ${DI_NS} id="P"><bpmn:process id="PP">${body}</bpmn:process><bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="PL" bpmnElement="PP">${shapes}</bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>`;
+/** a small pattern with a block: error boundary → link; link target → end with the status */
+const blockPattern = (engine: EngineId, value: string): PatternDef => ({
+  id: 'acme-mocked', name: 'Gemockt', appliesTo: ['serviceTask'],
+  bpmn: { [engine]: fragment(engine, `
+    <bpmn:serviceTask id="PatternTarget" />
+    <bpmn:boundaryEvent id="B" attachedToRef="PatternTarget"><bpmn:outgoing>bf</bpmn:outgoing><bpmn:errorEventDefinition id="BE" /></bpmn:boundaryEvent>
+    <bpmn:intermediateThrowEvent id="T" name="acme-mocked"><bpmn:incoming>bf</bpmn:incoming><bpmn:linkEventDefinition id="TL" name="acme-mocked" /></bpmn:intermediateThrowEvent>
+    <bpmn:sequenceFlow id="bf" sourceRef="B" targetRef="T" />
+    <bpmn:intermediateCatchEvent id="C" name="acme-mocked"><bpmn:outgoing>cf</bpmn:outgoing><bpmn:linkEventDefinition id="CL" name="acme-mocked" /></bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="E" name="acme-mocked">${statusExt(engine, value)}<bpmn:incoming>cf</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="cf" sourceRef="C" targetRef="E" />`,
+    `${SHAPE('PatternTarget', 200, 100, 100, 80)}${SHAPE('B', 262, 162)}${SHAPE('T', 262, 242)}${SHAPE('C', 422, 342)}${SHAPE('E', 522, 342)}`) },
+});
+/** an own status pattern with the status fixed in the BPMN */
+const fixedStatus = (engine: EngineId, value: string): PatternDef => ({
+  id: 'acme-fixed-status', name: 'Fester Status', appliesTo: ['endEvent'],
+  bpmn: { [engine]: fragment(engine, `<bpmn:endEvent id="PatternTarget">${statusExt(engine, value)}</bpmn:endEvent>`, SHAPE('PatternTarget', 200, 100)) },
+});
+const scoreOf = (d: PatternDef, engine: EngineId) => { const fr = parseFragment(d.bpmn[engine]!); assert.ok(!('error' in fr)); return (fr as { score: number }).score; };
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`a status pattern that is recognised before a block pattern does not get the end of that block (${engine.toUpperCase()})`, () => {
+    // a long status makes the status pattern score higher - it is recognised first
+    const long = `output-mocked-${'x'.repeat(200)}`;
+    const block = blockPattern(engine, long), status1 = fixedStatus(engine, long);
+    assert.ok(scoreOf(status1, engine) > scoreOf(block, engine), `${scoreOf(status1, engine)} > ${scoreOf(block, engine)}`);
+    const xml = applyPattern(diagram(engine, 'serviceTask'), block, engine, 'Target');
+    assert.ok(xml.changed, xml.issues.join('; '));
+    assert.deepEqual(detectPatterns(xml.xml, [block, status1], engine).hits.map(h => [h.patternId, h.targetId]), [['acme-mocked', 'Target']]);
+    // and in the other order (the block first) the same
+    const short = blockPattern(engine, 'x'), status2 = fixedStatus(engine, 'x');
+    assert.ok(scoreOf(short, engine) > scoreOf(status2, engine));
+    const xml2 = applyPattern(diagram(engine, 'serviceTask'), short, engine, 'Target').xml;
+    assert.deepEqual(detectPatterns(xml2, [short, status2], engine).hits.map(h => [h.patternId, h.targetId]), [['acme-mocked', 'Target']]);
+  });
+
+  test(`a pattern with a path on two elements: both paths keep their end, the status pattern gets neither (${engine.toUpperCase()})`, () => {
+    // error boundary → end with a status, on each service task
+    const path: PatternDef = {
+      id: 'acme-fail', name: 'Fehler-Ende', appliesTo: ['serviceTask'],
+      bpmn: { [engine]: fragment(engine, `
+        <bpmn:serviceTask id="PatternTarget" />
+        <bpmn:boundaryEvent id="B" attachedToRef="PatternTarget"><bpmn:outgoing>bf</bpmn:outgoing><bpmn:errorEventDefinition id="BE" /></bpmn:boundaryEvent>
+        <bpmn:endEvent id="E" name="failed">${statusExt(engine, 'failed')}<bpmn:incoming>bf</bpmn:incoming></bpmn:endEvent>
+        <bpmn:sequenceFlow id="bf" sourceRef="B" targetRef="E" />`,
+        `${SHAPE('PatternTarget', 200, 100, 100, 80)}${SHAPE('B', 262, 162)}${SHAPE('E', 262, 242)}`) },
+    };
+    const two = diagram(engine, 'serviceTask')
+      .replace('<bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>', '<bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask><bpmn:serviceTask id="Target2"><bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing></bpmn:serviceTask>')
+      .replace('<bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>', '<bpmn:incoming>f4</bpmn:incoming></bpmn:endEvent>')
+      .replace('targetRef="End" />', 'targetRef="Target2" /><bpmn:sequenceFlow id="f3" sourceRef="Target" targetRef="Target2" /><bpmn:sequenceFlow id="f4" sourceRef="Target2" targetRef="End" />')
+      .replace('<bpmn:sequenceFlow id="f2" sourceRef="Target" targetRef="Target2" />', '');
+    const a = applyPattern(two, path, engine, 'Target');
+    const b = applyPattern(a.xml, path, engine, 'Target2');
+    assert.ok(a.changed && b.changed, [...a.issues, ...b.issues].join('; '));
+    const hits = detectPatterns(b.xml, patternDefs({ patterns: [path] }), engine).hits.map(h => [h.patternId, h.targetId]);
+    assert.deepEqual(hits.sort(), [['acme-fail', 'Target'], ['acme-fail', 'Target2']]);
+  });
+
+  test(`a value with " or \\ is refused for any parameter inside a string - not only the status (${engine.toUpperCase()})`, () => {
+    const note: PatternDef = {
+      id: 'acme-note', name: 'Notiz', appliesTo: ['task'], params: [{ name: 'note' }],
+      bpmn: { [engine]: fragment(engine, `<bpmn:task id="PatternTarget">${statusExt(engine, '{{note}}').replace(/processStatus/g, 'note')}</bpmn:task>`, SHAPE('PatternTarget', 200, 100, 100, 80)) },
+    };
+    const ok = applyPattern(diagram(engine, 'task'), note, engine, 'Target', { note: 'plain text' });
+    assert.ok(ok.changed, ok.issues.join('; '));
+    const bad = applyPattern(diagram(engine, 'task'), note, engine, 'Target', { note: 'say "hi"' });
+    assert.equal(bad.changed, false);
+    assert.ok(bad.issues.some(i => i.includes('«note»')), bad.issues.join('; '));
+  });
+}
+
+test('C7: a listener that does more than set the variable is not replaced by the pattern', () => {
+  const more = '${execution.setVariable("processStatus", "old") || execution.setVariable("other", 1)}';
+  const xml = diagram('c7', 'task').replace('<bpmn:endEvent id="End">',
+    `<bpmn:endEvent id="End"><bpmn:extensionElements><camunda:executionListener expression="${more.replace(/"/g, '&#34;')}" event="start" /></bpmn:extensionElements>`);
+  const res = applyPattern(xml, status, 'c7', 'End', { processStatus: 'canceled' });
+  assert.ok(res.changed, res.issues.join('; '));
+  const expressions = elements(one(parse(res.xml), 'bpmn:endEvent'), 'camunda:executionListener').map(l => l.getAttribute('expression'));
+  assert.deepEqual(expressions, [more, '${execution.setVariable("processStatus", "canceled")}']);
+});
+
+test('setVariableOnly: one setVariable call and nothing after it - brackets and quotes in strings do not count', () => {
+  const cases: Array<[string, string | null]> = [
+    ['${execution.setVariable("processStatus", "succeeded")}', 'processStatus'],
+    ["#{execution.setVariable('processStatus', 'succeeded')}", 'processStatus'],
+    ['${execution.setVariable("x", ")")}', 'x'],
+    ['${execution.setVariable("x", "a \\" ) b")}', 'x'],
+    ['${execution.setVariable("x", foo(")", bar(1)))}', 'x'],
+    ['${execution.setVariable("x", foo(1)) + foo(b)}', null],
+    ['${execution.setVariable("x", "a") || execution.setVariable("y", 1)}', null],
+    ['${execution.setVariable("x", "unterminated)}', null],
+    ['${execution.setVariable("x", foo(1)}', null],
+    ['${execution.getVariable("x")}', null],
+  ];
+  for (const [expr, name] of cases) assert.equal(setVariableOnly(expr), name, expr);
+});
+
+// «Prozess mit Fehler stoppen» - the message as text or FEEL; C7 a Groovy exception after
+// asyncBefore, C8 FEEL assert in an output mapping
+const stop = STANDARD_PATTERNS.find(p => p.id === 'stop-with-error')!;
+const STOP_FEEL = '"Kunde " + customerName + " ist gesperrt."';
+/** the message the event carries: C7 the input parameter, C8 the first output */
+const messageOf = (xml: string, id: string, engine: EngineId) => {
+  const doc = parse(xml);
+  const el = [...elements(doc, 'bpmn:endEvent'), ...elements(doc, 'bpmn:intermediateThrowEvent')].find(e => e.getAttribute('id') === id)!;
+  if (engine === 'c7') return { message: elements(el, 'camunda:inputParameter').find(p => p.getAttribute('name') === '_errorMessage')?.textContent ?? '', async: el.getAttribute('camunda:asyncBefore'), script: elements(el, 'camunda:script')[0]?.textContent ?? '', retries: elements(el, 'camunda:failedJobRetryTimeCycle')[0]?.textContent ?? '' };
+  const outs = elements(el, 'zeebe:output');
+  return { message: outs[0]?.getAttribute('source') ?? '', assert: outs[1]?.getAttribute('source') ?? '', targets: outs.map(o => o.getAttribute('target')) };
+};
+/** start → an intermediate throw event → end */
+const withThrow = (engine: EngineId) => diagram(engine, 'intermediateThrowEvent');
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess mit Fehler stoppen» on ${engine.toUpperCase()}: a text message - on an end event and on an intermediate throw event`, () => {
+    for (const [xml, target] of [[diagram(engine, 'task'), 'End'], [withThrow(engine), 'Target']] as const) {
+      const res = applyPattern(xml, stop, engine, target, { message: 'Kunde gesperrt.' });
+      assert.ok(res.changed, res.issues.join('; '));
+      const m = messageOf(res.xml, target, engine);
+      if (engine === 'c7') {
+        assert.equal(m.message, 'Kunde gesperrt.');
+        assert.equal(m.async, 'true', 'the incident is on the event');
+        assert.equal(m.retries, 'R1/PT0S', 'one attempt - the incident at once, whatever the engine is configured to');
+        assert.equal(m.script.trim(), 'throw new IllegalArgumentException(String.valueOf(execution.getVariable("_errorMessage")))');
+      } else {
+        assert.equal(m.message, '="Kunde gesperrt."');
+        assert.equal(m.assert, '=assert(false, false, string(_errorMessage))');
+        // two targets: Zeebe merges the outputs into one context - one name twice would be there once
+        assert.deepEqual(m.targets, ['_errorMessage', '_stopped'], 'first the message, then the assert');
+      }
+      const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'stop-with-error');
+      assert.deepEqual(hits.map(h => [h.targetId, h.params.message]), [[target, 'Kunde gesperrt.']]);
+    }
+  });
+}
+
+test('«Prozess mit Fehler stoppen»: a FEEL message - JUEL on C7, the FEEL expression on C8, read back the same', () => {
+  // as the step stores it: in the form of the engine (see patternParams)
+  const c7Value = '${"Kunde ".concat(customerName).concat(" ist gesperrt.")}';
+  const c8Value = `=${STOP_FEEL}`;
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: c7Value }).xml;
+  assert.equal(messageOf(c7, 'End', 'c7').message, c7Value);
+  assert.deepEqual(detectPatterns(c7, STANDARD_PATTERNS, 'c7').hits.filter(h => h.patternId === 'stop-with-error').map(h => h.params.message), [c7Value]);
+  const c8 = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: c8Value }).xml;
+  assert.equal(messageOf(c8, 'End', 'c8').message, c8Value);
+  assert.deepEqual(detectPatterns(c8, STANDARD_PATTERNS, 'c8').hits.filter(h => h.patternId === 'stop-with-error').map(h => h.params.message), [c8Value]);
+});
+
+test('«Prozess mit Fehler stoppen»: switching engine translates the FEEL message - and back', () => {
+  const c7Value = '${"Kunde ".concat(customerName).concat(" ist gesperrt.")}';
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: c7Value }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(messageOf(c8.xml, 'End', 'c8').message, '="Kunde " + string(customerName) + " ist gesperrt."');
+  assert.equal(messageOf(c8.xml, 'End', 'c8').assert, '=assert(false, false, string(_errorMessage))');
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(back.issues, []);
+  assert.equal(messageOf(back.xml, 'End', 'c7').message, c7Value);
+  assert.equal(messageOf(back.xml, 'End', 'c7').async, 'true');
+});
+
+test('«Prozess mit Fehler stoppen»: fixed text goes over the engine switch as text - and back', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'Kunde gesperrt.' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(messageOf(c8.xml, 'End', 'c8').message, '="Kunde gesperrt."');
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(back.issues, []);
+  assert.equal(messageOf(back.xml, 'End', 'c7').message, 'Kunde gesperrt.');
+});
+
+test('«Prozess mit Fehler stoppen»: a FEEL message without JUEL counterpart is said on the way to C7', () => {
+  const c8 = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: '=string join(["a", "b"], ", ")' }).xml;
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.ok(c7.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('nicht für')), c7.issues.map(i => i.text).join('; '));
+});
+
+test('«Prozess mit Fehler stoppen» on C8: a text message with a quote is refused - it would end the FEEL string', () => {
+  const res = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: 'Kunde "X" gesperrt' });
+  assert.equal(res.changed, false);
+  assert.ok(res.issues.some(i => i.includes('«message»')), res.issues.join('; '));
+  // as FEEL it works
+  const feel = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: '="Kunde \\"X\\" gesperrt"' });
+  assert.ok(feel.changed, feel.issues.join('; '));
+});
+
+test('«Prozess mit Fehler stoppen»: a backslash in a C8 text message is refused, < and & in a C7 message are escaped in the XML', () => {
+  const back = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: 'C:\\temp fehlt' });
+  assert.equal(back.changed, false);
+  assert.ok(back.issues.some(i => i.includes('«message»')), back.issues.join('; '));
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'Betrag < 0 & ungültig' });
+  assert.ok(c7.changed, c7.issues.join('; '));
+  assert.equal(messageOf(c7.xml, 'End', 'c7').message, 'Betrag < 0 & ungültig');
+  assert.ok(c7.xml.includes('Betrag &lt; 0 &amp; ungültig'), 'escaped in the XML');
+});
+
+test('«Prozess mit Fehler stoppen»: a C7 text with a quote goes to C8 as a FEEL string - not refused', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'Kunde "X" gesperrt' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(messageOf(c8.xml, 'End', 'c8').message, '="Kunde \\"X\\" gesperrt"');
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(back.issues, []);
+  assert.equal(messageOf(back.xml, 'End', 'c7').message, '${"Kunde \\"X\\" gesperrt"}');
+});
+
+test('«Prozess mit Fehler stoppen»: JUEL without FEEL form is said on the way to C8', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: '${execution.getVariableTyped("reason")}' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.ok(c8.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('JUEL ohne FEEL')), c8.issues.map(i => i.text).join('; '));
 });

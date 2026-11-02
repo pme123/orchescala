@@ -760,6 +760,26 @@ und Doku stehen in `democompany-patterns`:
 - **Mocks und Identität weitergeben** (`propagate-mocks`, Call Activity):
   `_servicesMocked`, `_mockedWorkers` und `_identityCorrelation` gehen an den
   Teilprozess.
+- **Einmalige Ausführung** (`unique-execution`, am Prozess): Start über ein
+  Nachrichten-Startereignis mit `businessKey`; ein zweiter Start mit demselben
+  `businessKey` landet in der laufenden Instanz.
+- **Prozess-Status am Ende** (`process-status`, Endereignis): setzt
+  `processStatus` auf den Parameter (Vorgabe `succeeded`). Das Ende
+  `output-mocked` von «Init Process» setzt ihn auch, gehört aber zu jenem
+  Pattern: Was ein Pattern in seinem Block oder Pfad mitbringt, macht dort
+  kein anderes Pattern aus — gleich, welches zuerst erkannt wird. Was ein
+  Element darüber hinaus trägt, kann ein anderes Pattern sein.
+- **Prozess mit Fehler stoppen** (`stop-with-error`, End- oder werfendes
+  Zwischenereignis): unterbricht den Prozess mit einem Fehler, den DevOps im
+  Cockpit bzw. in Operate behandeln — sofort ein Incident, dessen Meldung
+  (`message`, Text oder FEEL) das Problem beschreibt. Ein Retry wirft ihn
+  wieder; behandelt wird er durch Abbrechen der Instanz oder eine Process
+  Instance Modification. Camunda 7: Groovy-Exception nach `asyncBefore` mit
+  `failedJobRetryTimeCycle` `R1/PT0S` (ein Versuch, der Incident sofort);
+  Camunda 8: `assert(false, false, …)` im Output-Mapping. Die Meldung steht
+  danach in `_errorMessage` (C8 zusätzlich `_stopped`). Fester Text mit `"`
+  schreibt der Engine-Wechsel nach Camunda 8 als FEEL-Text (`= "…\"…"`); in
+  Camunda 7 ist Text mit `${` ein Ausdruck.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
@@ -806,7 +826,8 @@ Block, wenn ihn kein anderes Element mehr braucht. Ein Parameter, der nur im
 gemeinsamen Block steht, gilt beim ersten Einfügen; danach gehört der Block
 dem Prozess. Belegt das Element eine Variable des Patterns schon anders
 (`camunda:in`/`out` gleichen Ziels, Input-/Output-Parameter gleichen Namens,
-`zeebe:input`/`output`), gilt das Pattern: die bisherige Zuordnung wird
+`zeebe:input`/`output`, ein Execution Listener `execution.setVariable("x", …)`
+für dieselbe Variable), gilt das Pattern: die bisherige Zuordnung wird
 ersetzt, statt doppelt dazustehen. Ein schon doppeltes Element bereinigt das
 Anpassen eines Parameters. Gibt es einen gemeinsamen Block schon (sein
 Einstieg, z. B. das Link-Ziel `output-mocked`), ergänzt das Einfügen an seinen
@@ -827,7 +848,8 @@ ist der Wert Text, kein FEEL — das Feld am Schritt ist ein einfaches Textfeld,
 `= ProcessStatus.succeeded` bzw. `= "succeeded"` wird zu `succeeded`. Zur Auswahl
 stehen die Werte, die der Admin beim Parameter nennt (`values`), für
 `processStatus` die Status von Orchescala; ein eigener Status (`ordered`) lässt
-sich trotzdem eintippen. Im Datenmodell steht `ProcessStatus` (Orchescala) in der
+sich trotzdem eintippen. `"` und `\` nimmt ein solches Feld nicht — sie
+beendeten die Zeichenkette im BPMN; das Einfügen sagt das. Im Datenmodell steht `ProcessStatus` (Orchescala) in der
 Typ-Auswahl in einer eigenen Gruppe, immer sichtbar.
 
 **Der Import erkennt Pattern** — aus demselben BPMN: ein Element trägt ein
@@ -1596,7 +1618,15 @@ Ein Klick auf die Engine im Kopf («· Camunda 7 / Operaton») wandelt das Diagr
 andere Engine um — und zurück. Der Dialog wandelt erst zur Probe und zeigt,
 was danach von Hand zu prüfen ist; umgestellt wird erst auf «Umwandeln».
 Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
-(`src/engineConvert.ts`, Regeln wie im Migrationsleitfaden `bpmn-c7-to-c8`):
+(`src/engineConvert.ts`, Regeln wie im Migrationsleitfaden `bpmn-c7-to-c8`).
+
+**Pattern gehen in ihrer Form für die andere Engine hinüber** (`src/patternConvert.ts`): was im
+Diagramm als Pattern erkannt ist, setzt die Umwandlung danach mit seinen Parametern im BPMN der
+Ziel-Engine neu ein — statt seine Ausdrücke einzeln zu übersetzen. So kommt «Identität übernehmen»
+mit seinen Output-Mappings nach Camunda 8, obwohl sich `execution.getVariableTyped(…)` nicht
+nach FEEL übersetzen lässt; was das Pattern ersetzt hat, steht nicht mehr unter «von Hand
+prüfen». Hat ein Pattern kein BPMN für die Ziel-Engine, sagt der Dialog das. Für alles übrige
+gelten die Regeln:
 
 | Camunda 7 | Camunda 8 |
 | --- | --- |

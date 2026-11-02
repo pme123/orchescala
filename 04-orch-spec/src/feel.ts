@@ -328,6 +328,12 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz, gesetzt vom InitWorker, wenn er fertig ist — ${C7_LABEL}: execution.processInstanceId` });
   add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
   add({ name: 'processDefinitionKey', type: 'any', label: 'Prozess', source: 'Engine', description: `der Prozess — ${C7_LABEL}: execution.getProcessDefinition().getKey()` });
+  // What the gateway of Orchescala sets: the signed identity of the start - and the identity of
+  // whoever completed a user task (or sent a message with processInstanceId), only after that
+  const identity = (name: string, optional: boolean, description: string) =>
+    add(nodeOf(name, 'IdentityCorrelation', { optional, collection: false, source: 'Gateway', label: 'IdentityCorrelation', description }, b, 0, new Set()));
+  identity('_identityCorrelation', false, 'Identität des Starts, signiert — setzt das Gateway');
+  identity('_identityCorrelationOfActor', true, 'Identität dessen, der die letzte Benutzeraufgabe erledigt (oder eine Nachricht gesendet) hat — setzt das Gateway, sonst fehlt sie');
   return out;
 }
 
