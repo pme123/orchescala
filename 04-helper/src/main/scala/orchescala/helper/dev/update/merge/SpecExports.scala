@@ -60,7 +60,8 @@ object NodeSpecExporter extends SpecExporter:
 
   val tool = "spec2export.js"
 
-  def hasNode: Boolean =
+  /** Node.js is on the PATH - checked once per run of the helper. */
+  lazy val hasNode: Boolean =
     Try(os.proc("node", "--version").call(check = false, stderr = os.Pipe).exitCode == 0).getOrElse(false)
 
   def exportOf(specDir: os.Path): SpecExport =
