@@ -465,11 +465,18 @@ class RepoCheckTest extends FunSuite:
     assertEquals(RepoCheck.withoutUserInfo("https://repo.example.com/x"), "https://repo.example.com/x")
 
   test("buildx is checked before the first sbt run when the images are built for a platform"):
+    // every call gets its own `docker buildx inspect` output - the machine's docker setup must not matter
     var asked = Seq.empty[Seq[String]]
-    DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), cmd => { asked :+= cmd; 0 })
+    var inspected = Seq.empty[Seq[String]]
+    DockerCheck.verifyBuildx(
+      Seq("--platform", "linux/amd64"),
+      cmd => { asked :+= cmd; 0 },
+      cmd => { inspected :+= cmd; "Name: default\nDriver: docker\n" }
+    )
     assertEquals(asked, Seq(Seq("docker", "buildx", "version")))
+    assertEquals(inspected, Seq(Seq("docker", "buildx", "inspect")))
     val error = intercept[IllegalStateException]:
-      DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 1)
+      DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 1, _ => fail("not inspected"))
     assert(error.getMessage.contains("brew install docker-buildx"), error.getMessage)
     // the builder must keep the image in the daemon - the `docker` driver
     DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 0, _ => "Name: default\nDriver: docker\n")
@@ -483,7 +490,7 @@ class RepoCheckTest extends FunSuite:
     DockerCheck.verifyBuildx(Seq("--platform=linux/amd64"), _ => { askedEq = true; 0 }, _ => "Driver: docker")
     assert(askedEq)
     // no platform asked for: nothing to check
-    DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"))
-    DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"))
+    DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"), _ => fail("not inspected"))
+    DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"), _ => fail("not inspected"))
 
 end RepoCheckTest
