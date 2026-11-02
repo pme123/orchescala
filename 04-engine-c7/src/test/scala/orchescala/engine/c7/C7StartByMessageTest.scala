@@ -25,14 +25,18 @@ object C7StartByMessageTest extends ZIOSpecDefault:
   private val withCorrelation =
     200 -> """{"_identityCorrelationPending":{"type":"Boolean","value":true},"_identityCorrelation":{"type":"Json","value":"{}"}}"""
   private val checkFails      = 500 -> """{"type":"RestException","message":"boom"}"""
+  // how C7 answers the variables of an instance that has ended
+  private val instanceEnded   =
+    500 -> """{"type":"NullValueException","message":"Cannot get process instance variables running-pi: execution running-pi doesn't exist: execution is null"}"""
+  private val notFound        = 404 -> """{"type":"InvalidRequestException","message":"Process instance running-pi not found"}"""
 
   /** C7 stub: /message answers `messageResult`, the n-th variables GET `variableChecks(n)` (the last
-    * one repeats), a variables PATCH `patchStatus`. Records the requests (method, path, body).
+    * one repeats), a variables POST `patch`. Records the requests (method, path, body).
     */
   private def engine(
       messageResult: String,
       variableChecks: Seq[(Int, String)] = Seq(noCorrelation),
-      patchStatus: Int = 204
+      patch: (Int, String) = 204 -> ""
   ): ZIO[Scope, Throwable, (String, ConcurrentLinkedQueue[String])] =
     ZIO.acquireRelease(
       ZIO.attempt:
@@ -50,7 +54,7 @@ object C7StartByMessageTest extends ZIOSpecDefault:
               if path.endsWith("/message") then 200 -> messageResult
               else if method == "GET" && path.endsWith("/variables") then
                 variableChecks(math.min(checks.getAndIncrement(), variableChecks.size - 1))
-              else if path.endsWith("/variables") then patchStatus -> ""
+              else if path.endsWith("/variables") then patch
               else 204                                              -> ""
             val bytes = body.getBytes(StandardCharsets.UTF_8)
             exchange.getResponseHeaders.add("Content-Type", "application/json")
@@ -88,8 +92,10 @@ object C7StartByMessageTest extends ZIOSpecDefault:
 
   private def markerRemoved(requests: ConcurrentLinkedQueue[String]) =
     requests.asScala.exists(r =>
-      r.startsWith("PUT /process-instance/running-pi/variables") || r.startsWith("POST /process-instance/running-pi/variables")
+      r.startsWith("POST /process-instance/running-pi/variables") && r.contains("_identityCorrelationPending")
     )
+
+  private val noNote: String => Boolean = msg => msg.contains("running-pi") && !msg.contains("could not be removed")
 
   def spec = suite("C7 start process by message")(
     test("a message correlated to a running instance is no start - and gets no identity") {
@@ -97,16 +103,14 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         (baseUrl, requests) <- engine(correlatedToRunning)
         exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
       yield assertTrue(
-        conflict(exit)(msg => msg.contains("running-pi") && !msg.contains("could not be removed")),
+        conflict(exit)(noNote),
         // the caller's identity was signed onto the running instance
         !requests.asScala.exists(r =>
           r.contains("/process-instance/running-pi/variables") && r.contains("\"_identityCorrelation\"")
         ),
         // no correlation shows up: the pending marker, delivered with the message, is removed again
         runningChecks(requests) == fastTimings.correlationChecks,
-        requests.asScala.exists(r =>
-          r.startsWith("POST /process-instance/running-pi/variables") && r.contains("_identityCorrelationPending")
-        )
+        markerRemoved(requests)
       )
     },
     test("the running instance's own start sets its correlation meanwhile - the marker stays") {
@@ -114,9 +118,52 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         (baseUrl, requests) <- engine(correlatedToRunning, Seq(noCorrelation, withCorrelation))
         exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
       yield assertTrue(
-        conflict(exit)(msg => msg.contains("running-pi") && !msg.contains("could not be removed")),
+        conflict(exit)(noNote),
         runningChecks(requests) == 2,
         !markerRemoved(requests)
+      )
+    },
+    test("the correlation shows up at the last check - the marker stays") {
+      val lastCheck = Seq.fill(fastTimings.correlationChecks - 1)(noCorrelation) :+ withCorrelation
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, lastCheck)
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == fastTimings.correlationChecks,
+        !markerRemoved(requests)
+      )
+    },
+    test("the running instance has ended - nothing to remove, a plain 409") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(instanceEnded))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == 1,
+        !markerRemoved(requests)
+      )
+    },
+    test("the running instance is not found (404) - nothing to remove, a plain 409") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(notFound))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == 1,
+        !markerRemoved(requests)
+      )
+    },
+    test("the running instance ends before its marker is removed - a plain 409") {
+      for
+        (baseUrl, requests) <- engine(
+                                 correlatedToRunning,
+                                 patch = 500 -> """{"type":"ProcessEngineException","message":"Cannot modify variables for process instance running-pi: execution running-pi doesn't exist: execution is null"}"""
+                               )
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        markerRemoved(requests)
       )
     },
     test("the correlation check fails - nothing is removed, the 409 says so") {
@@ -131,7 +178,7 @@ object C7StartByMessageTest extends ZIOSpecDefault:
     },
     test("removing the marker fails - the 409 says so") {
       for
-        (baseUrl, requests) <- engine(correlatedToRunning, patchStatus = 500)
+        (baseUrl, requests) <- engine(correlatedToRunning, patch = 500 -> """{"type":"RestException","message":"boom"}""")
         exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
       yield assertTrue(
         conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
