@@ -1165,7 +1165,8 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
       removeEl(el);
       // the container (inputOutput, ioMapping …) and extensionElements this removal emptied go
       // too - only up the chain of the removed item, and each held at least that item before
-      for (let c: Element | null = parent; c && !c.children.length && ['extensionElements', ...CONTAINERS].includes(local(c)); ) {
+      let c: Element | null = parent;
+      while (c && !c.children.length && (local(c) === 'extensionElements' || CONTAINERS.has(local(c)))) {
         const up: Element | null = c.parentElement;
         removeEl(c);
         c = up;

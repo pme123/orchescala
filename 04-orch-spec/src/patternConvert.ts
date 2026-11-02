@@ -27,27 +27,32 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
   const unique = defs.filter((d, i) => defs.findIndex(x => x.id === d.id) === i);
   const byId = new Map(unique.map(d => [d.id, d]));
   // a pattern that could not be inserted again is converted like the rest in the next pass - it
-  // is not lost, and the others still go over in their target form. Each pass skips at least one
-  // more hit, so it ends after at most one pass per hit; should it not, the plain conversion.
+  // is not lost, and the others still go over in their target form. Each pass skips all failures
+  // so far, so it ends after at most one pass per hit.
   const failed: Failed = new Map();
+  /** the result with the patterns; null: nothing to do with them, or they gave up */
   let result: (WriteResult & { changed: boolean }) | null = null;
-  let settled = false;
-  for (let pass = 0, hits = 1; pass <= hits; pass++) {
-    const run = attempt(xml, target, byId, unique, opts, new Set(failed.keys()));
-    hits = run.hits;
-    result = run.result;
-    if (!run.failed.size) { settled = true; break; }
-    for (const [i, f] of run.failed) failed.set(i, f);
+  let gaveUp: string | null = null;
+  try {
+    for (let pass = 0, limit = 1; ; pass++) {
+      const run = attempt(xml, target, byId, unique, opts, new Set(failed.keys()));
+      limit = run.hits;
+      if (!run.failed.size) { result = run.result; break; }
+      for (const [i, f] of run.failed) failed.set(i, f);
+      if (pass >= limit) { gaveUp = 'zu viele Durchgänge'; break; }
+    }
+  } catch (e) {
+    // a fault in converting the rest or in recognising: the plain conversion
+    gaveUp = e instanceof Error ? e.message : String(e);
   }
-  // nothing left to do with patterns (all failed, or none) or not settled: the plain conversion -
-  // with the notes
-  if (!settled || !result) result = convertBpmn(xml, target, opts);
-  if (!failed.size) return result;
+  // without patterns (none to do, or given up): the plain conversion - with the notes
+  if (!result) result = convertBpmn(xml, target, opts);
+  if (!failed.size && !gaveUp) return result;
   const note: WriteIssue[] = [...failed.values()].map(({ h, why }) => ({
     stepId: h.targetId ?? '', where: 'Pattern',
     text: `«${byId.get(h.patternId)!.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen${why ? ` (${why})` : ''} — umgewandelt wie der Rest, von Hand prüfen.`,
   }));
-  if (!settled) note.push({ stepId: '', where: 'Pattern', text: `Die Pattern liessen sich nicht in der Form für ${engineLabel(target)} einsetzen — alle umgewandelt wie der Rest, von Hand prüfen.` });
+  if (gaveUp) note.push({ stepId: '', where: 'Pattern', text: `Die Pattern liessen sich nicht in der Form für ${engineLabel(target)} einsetzen (${gaveUp}) — alle umgewandelt wie der Rest, von Hand prüfen.` });
   return { ...result, issues: [...result.issues, ...note] };
 }
 

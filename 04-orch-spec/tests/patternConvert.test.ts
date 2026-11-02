@@ -281,3 +281,13 @@ test('the export to the other engine and back: the patterns and stringValue() su
   const who = named(elementOf(back.xml, 'End'), 'camunda:inputParameter').find(p => p.getAttribute('name') === 'who')?.textContent ?? '';
   assert.ok(who.includes('_identityCorrelation.prop("username").stringValue()'), who);
 });
+
+test('a fault while converting with the patterns falls back to the plain conversion - with a note', () => {
+  // a definition whose C8 BPMN cannot be read: inserting throws or fails - the conversion still ends
+  const take = std('identity-take-over');
+  const broken: PatternDef = { ...take, bpmn: { c7: take.bpmn.c7, c8: '<not-bpmn' } };
+  const res = convertWithPatterns(withPatterns('c7'), 'c8', [broken]);
+  assert.ok(res.changed);
+  assert.ok(res.issues.some(i => i.where === 'Pattern' && i.text.includes('umgewandelt wie der Rest')), res.issues.map(i => i.text).join('; '));
+  assert.equal(setsOf(res.xml, 'TakeOver').outputs.length, 2, 'converted like the rest');
+});
