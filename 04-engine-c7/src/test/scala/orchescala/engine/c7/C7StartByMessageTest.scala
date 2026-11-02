@@ -36,7 +36,8 @@ object C7StartByMessageTest extends ZIOSpecDefault:
   private def engine(
       messageResult: String,
       variableChecks: Seq[(Int, String)] = Seq(noCorrelation),
-      patch: (Int, String) = 204 -> ""
+      patch: (Int, String) = 204 -> "",
+      checkDelay: Duration = Duration.Zero
   ): ZIO[Scope, Throwable, (String, ConcurrentLinkedQueue[String])] =
     ZIO.acquireRelease(
       ZIO.attempt:
@@ -53,6 +54,7 @@ object C7StartByMessageTest extends ZIOSpecDefault:
             val (status, body) =
               if path.endsWith("/message") then 200 -> messageResult
               else if method == "GET" && path.endsWith("/variables") then
+                Thread.sleep(checkDelay.toMillis)
                 variableChecks(math.min(checks.getAndIncrement(), variableChecks.size - 1))
               else if path.endsWith("/variables") then patch
               else 204                                              -> ""
@@ -72,13 +74,13 @@ object C7StartByMessageTest extends ZIOSpecDefault:
   private val fastTimings =
     C7ProcessInstanceService.StartTimings(correlationChecks = 3, correlationCheckInterval = 1.milli)
 
-  private def service(baseUrl: String) =
+  private def service(baseUrl: String, timings: C7ProcessInstanceService.StartTimings = fastTimings) =
     given IO[EngineError, ApiClient] = ZIO.succeed:
       val client = ApiClient(ApiHttpClient.pooled())
       client.setBasePath(baseUrl)
       client
     given EngineConfig = DefaultEngineConfig(identitySigningKey = Some("secret"))
-    C7ProcessInstanceService(fastTimings)
+    C7ProcessInstanceService(timings)
 
   private val alice = Some(IdentityCorrelation("alice"))
 
@@ -195,6 +197,32 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
       yield assertTrue(
         conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        !markerRemoved(requests)
+      )
+    },
+    test("the caller gives up during the checks - the marker is removed anyway") {
+      val slow = fastTimings.copy(correlationCheckInterval = 100.millis)
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning)
+        fiber               <- service(baseUrl, slow).startProcessByMessage("msg", identityCorrelation = alice).fork
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(runningChecks(requests))).repeatUntil(_ >= 1)
+        _                   <- fiber.interrupt
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(markerRemoved(requests)))
+                                 .repeatUntil(identity)
+                                 .timeoutFail("marker not removed")(2.seconds)
+      yield assertTrue(
+        runningChecks(requests) == slow.correlationChecks,
+        markerRemoved(requests)
+      )
+    },
+    test("the engine hangs - the start waits for the cleanup at most its cap, the 409 says so") {
+      val capped = fastTimings.copy(cleanupTimeout = 200.millis)
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, checkDelay = 1.second)
+        (took, exit)        <- service(baseUrl, capped).startProcessByMessage("msg", identityCorrelation = alice).exit.timed
+      yield assertTrue(
+        conflict(exit)(_.contains("did not finish within 200 ms")),
+        took.toMillis < 900,
         !markerRemoved(requests)
       )
     },

@@ -351,23 +351,33 @@ class C7ProcessInstanceService(
   /** The message landed in a running instance: fails with the 409 of `onlyStarted` - after the
     * pending marker it set there is removed. If that fails, the 409 says so.
     *
-    * The removal runs uninterruptibly (it waits up to ~750 ms): a caller that times out meanwhile
-    * must not leave the marker behind - the workers of an instance without correlation would wait
-    * for one forever.
+    * The removal runs in a fiber of its own (it waits up to ~750 ms): a caller that gives up
+    * meanwhile must not leave the marker behind - the workers of an instance without correlation
+    * would wait for one forever. The caller waits for it at most `StartTimings.cleanupTimeout`: a
+    * hanging engine (up to 60 s per request) must not hold it for minutes. Then the removal goes
+    * on in the background, and the 409 says so.
     */
   private def conflictWithPendingRemoved(
       conflict: EngineError.ServiceRequestError,
       processInstanceId: String,
       removePending: String => IO[EngineError, Unit]
   ): IO[EngineError, Nothing] =
-    removePending(processInstanceId).uninterruptible.foldZIO(
-      failure = err =>
-        val notRemoved =
-          s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
-        ZIO.logError(s"Process $processInstanceId: $notRemoved") *>
-          ZIO.fail(conflict.copy(errorMsg = s"${conflict.errorMsg} - $notRemoved")),
-      success = _ => ZIO.fail(conflict)
-    )
+    def notRemoved(err: EngineError) =
+      s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
+    val unfinished                   =
+      s"the removal of its pending identity marker did not finish within ${timings.cleanupTimeout.toMillis} ms - it goes on in the background"
+    for
+      cleanup <- removePending(processInstanceId)
+                   .tapError(err => ZIO.logError(s"Process $processInstanceId: ${notRemoved(err)}"))
+                   .forkDaemon
+      done    <- cleanup.join.either.timeout(timings.cleanupTimeout)
+      note    <- done match
+                   case Some(Right(_))  => ZIO.none
+                   case Some(Left(err)) => ZIO.some(notRemoved(err))
+                   case None            => logWarning(s"Process $processInstanceId: $unfinished").as(Some(unfinished))
+      failure <- ZIO.fail(conflict.copy(errorMsg = (conflict.errorMsg +: note.toSeq).mkString(" - ")))
+    yield failure
+  end conflictWithPendingRemoved
 
   /** The message landed in a running instance and set its pending marker there. Its workers would
     * wait for a correlation that never comes - unless the instance has one: then the marker is
@@ -504,10 +514,14 @@ object C7ProcessInstanceService:
     *   removed - see `clearIdentityPending`
     * @param correlationCheckInterval
     *   how far apart these checks are
+    * @param cleanupTimeout
+    *   how long a start waits at most for these checks and the removal - see
+    *   `conflictWithPendingRemoved`
     */
   final case class StartTimings(
       correlationChecks: Int = 4,
-      correlationCheckInterval: Duration = 250.millis
+      correlationCheckInterval: Duration = 250.millis,
+      cleanupTimeout: Duration = 10.seconds
   )
 
   /** C7's text for an execution (instance) that does not exist (any more). */
