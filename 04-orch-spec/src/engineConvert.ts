@@ -127,18 +127,22 @@ const plainVar = (source: string): string | null => {
 };
 
 // ── Conversion ───────────────────────────────────────────────────────────────
+export interface ConvertOptions {
+  /** history time to live of the process (Camunda 7 requires one) */
+  timeToLive?: string;
+  /**
+   * the correlation key chosen at the step per element ID — a waiting message without one gets
+   * the suggestion `=businessKey` in Camunda 8
+   */
+  correlationKeys?: Record<string, string>;
+  /** the variables of the specification (juelOptions) for FEEL → JUEL — without them a Spin path ends without `stringValue()` & co. */
+  juel?: JuelOptions;
+}
+
 /**
  * Bring the diagram into the form of the target engine. If it is already in this
  * form, it comes back unchanged.
  */
-/**
- * `correlationKeys`: the correlation key chosen at the step per element ID —
- * a waiting message without one gets the suggestion `=businessKey` in Camunda 8.
- * `juel`: the variables of the specification (juelOptions) for FEEL → JUEL — without them a Spin
- * path ends without `stringValue()` & co.
- */
-export interface ConvertOptions { timeToLive?: string; correlationKeys?: Record<string, string>; juel?: JuelOptions }
-
 export function convertBpmn(xml: string, target: EngineId, opts: ConvertOptions = {}): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
   if (detectEngine(xml) === target) return { xml, issues, changed: false };
