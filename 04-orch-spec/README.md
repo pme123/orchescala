@@ -769,6 +769,17 @@ und Doku stehen in `democompany-patterns`:
   Pattern: Was ein Pattern in seinem Block oder Pfad mitbringt, macht dort
   kein anderes Pattern aus — gleich, welches zuerst erkannt wird. Was ein
   Element darüber hinaus trägt, kann ein anderes Pattern sein.
+- **Prozess mit Fehler stoppen** (`stop-with-error`, End- oder werfendes
+  Zwischenereignis): unterbricht den Prozess mit einem Fehler, den DevOps im
+  Cockpit bzw. in Operate behandeln — sofort ein Incident, dessen Meldung
+  (`message`, Text oder FEEL) das Problem beschreibt. Ein Retry wirft ihn
+  wieder; behandelt wird er durch Abbrechen der Instanz oder eine Process
+  Instance Modification. Camunda 7: Groovy-Exception nach `asyncBefore` mit
+  `failedJobRetryTimeCycle` `R1/PT0S` (ein Versuch, der Incident sofort);
+  Camunda 8: `assert(false, false, …)` im Output-Mapping. Die Meldung steht
+  danach in `_errorMessage` (C8 zusätzlich `_stopped`). Fester Text mit `"`
+  schreibt der Engine-Wechsel nach Camunda 8 als FEEL-Text (`= "…\"…"`); in
+  Camunda 7 ist Text mit `${` ein Ausdruck.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
