@@ -20,7 +20,7 @@
 import type { Field, Mapping, TypeDef } from '../types';
 import { uid } from '../util';
 import { basePathParams } from './collection';
-import { camelName, capitalize, lowerFirst } from './names';
+import { camelName, capitalize, lowerFirst, withMethod, withoutRepeatedPrefix } from './names';
 import { asOpenApi3 } from './swagger2';
 import type { BodyRef, CollectionService, HttpMethod, ParamIn, RequestParam, ServiceCollectionSpec } from './types';
 
@@ -146,17 +146,29 @@ export function typeName(raw: string): string {
 }
 
 /**
- * The name of a service: the `operationId` if there is one (`getClient` →
- * `GetClient`), otherwise method and the fixed segments of the path
- * (`GET /clients/{clientKey}/addresses` → `GetClientsAddresses`).
+ * The name of a service: the HTTP method, then the `operationId` if there is one
+ * (`getClient` → `GetClient`, `MultipleNaturalPersons_ReadMultipleNaturalPerson2`
+ * → `PostReadMultipleNaturalPerson2`), otherwise the fixed segments of the path
+ * (`GET /clients/{clientKey}/addresses` → `GetClientsAddresses`) — see `names.ts`.
  */
 function nameOf(method: string, path: string, op: Operation): string {
-  if (op.operationId && /[A-Za-z]/.test(op.operationId)) {
-    const n = typeName(op.operationId.replace(/^[^A-Za-z]+/, ''));
-    return n;
-  }
-  const fixed = path.split('/').filter(s => s && !s.startsWith('{')).map(s => typeName(s));
-  return capitalize(method) + fixed.join('');
+  const base = op.operationId && /[A-Za-z]/.test(op.operationId)
+    ? typeName(op.operationId.replace(/^[^A-Za-z]+/, ''))
+    : path.split('/').filter(s => s && !s.startsWith('{')).map(s => typeName(s)).join('');
+  return withMethod(method, withoutRepeatedPrefix(base));
+}
+
+/**
+ * The type name of each schema of the document: without a repeated leading part
+ * (`withoutRepeatedPrefix`) — unless two schemas would then have the same name;
+ * those keep theirs.
+ */
+function schemaNames(doc: Doc): Map<string, string> {
+  const raw = Object.keys((doc.components?.schemas as Record<string, unknown> | undefined) ?? {});
+  const short = new Map(raw.map(r => [r, withoutRepeatedPrefix(typeName(r))]));
+  const count = new Map<string, number>();
+  for (const n of short.values()) count.set(n, (count.get(n) ?? 0) + 1);
+  return new Map(raw.map(r => [r, count.get(short.get(r)!)! > 1 ? typeName(r) : short.get(r)!]));
 }
 
 export function readApi(raw: unknown): ApiImport {
@@ -229,8 +241,11 @@ class SchemaTypes {
   /** schema name → type id (also the existing types of the collection, by name) */
   private byName = new Map<string, string>();
   private names: Set<string>;
+  /** schema → type name (see `schemaNames`) */
+  private schemaName: Map<string, string>;
 
   constructor(private doc: Doc, existing: TypeDef[]) {
+    this.schemaName = schemaNames(doc);
     for (const t of existing) if (!t.interactionId) this.byName.set(t.name, t.id);
     this.names = new Set(existing.map(t => t.name));
   }
@@ -246,11 +261,12 @@ class SchemaTypes {
   shape(raw: Schema | undefined, hint: string, depth = 0): Shape {
     if (!raw || depth > 12) return { type: 'String' };
     if (raw.$ref) {
-      const name = refName(raw.$ref);
+      const ref = refName(raw.$ref);
+      const name = this.schemaName.get(ref) ?? typeName(ref);
       const target = derefSchema(raw, this.doc);
       if (target && isScalarSchema(target) && !target.enum) return { type: scalarOf(target) };
-      if (target?.type === 'array') return { ...this.shape(target.items, typeName(name), depth + 1), collection: true };
-      return { type: this.named(typeName(name), target, depth) };
+      if (target?.type === 'array') return { ...this.shape(target.items, name, depth + 1), collection: true };
+      return { type: this.named(name, target, depth) };
     }
     const types = Array.isArray(raw.type) ? raw.type.filter(t => t !== 'null') : [raw.type];
     const t = types[0];
