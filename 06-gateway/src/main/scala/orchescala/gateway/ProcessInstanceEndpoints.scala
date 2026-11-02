@@ -66,8 +66,12 @@ object ProcessInstanceEndpoints:
         """Starts a new process instance by sending a message to a Message Start Event.
           |This is used when a process is triggered by a message rather than being started directly.
           |
-          |Note: In Camunda 7 a message is correlated to a running process instance waiting for it
-          |first (message names are engine wide). Then no process is started - answered with 409.
+          |Note: with a `businessKey`, a running process instance waiting for this message gets it
+          |first (Camunda 7: message names are engine wide; Camunda 8: the `businessKey` is the
+          |correlation key). Then no process is started - answered with 409.
+          |The variables of the message are set in that running instance.
+          |Camunda 8: a start at the same moment as the first one may still start a second
+          |instance, if the first one has not opened its event subprocess within 250 ms.
           |""".stripMargin
       )
       .tag(apiGroup)
