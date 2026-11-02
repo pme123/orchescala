@@ -1,5 +1,6 @@
 package orchescala.helper.dev.update.merge
 
+import scala.concurrent.duration.*
 import scala.util.Try
 
 /** The export of a spec folder (`tools/spec2export.ts` of Orch Spec, format v1):
@@ -62,7 +63,7 @@ object NodeSpecExporter extends SpecExporter:
 
   /** Node.js is on the PATH - checked once per run of the helper. */
   lazy val hasNode: Boolean =
-    Try(os.proc("node", "--version").call(check = false, stderr = os.Pipe).exitCode == 0).getOrElse(false)
+    Try(ExternalTool.call(Seq("node", "--version"), 30.seconds).exitCode == 0).getOrElse(false)
 
   def exportOf(specDir: os.Path): SpecExport =
     if !hasNode then
@@ -71,7 +72,7 @@ object NodeSpecExporter extends SpecExporter:
     val script = dir / tool
     os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / tool))
     try
-      val r = os.proc("node", script.toString, specDir.toString).call(check = false, stderr = os.Pipe)
+      val r = ExternalTool.call(Seq("node", script.toString, specDir.toString), ExternalTool.nodeTimeout)
       if r.exitCode != 0 then
         throw IllegalStateException(s"$tool failed (exit code ${r.exitCode}): ${r.err.text().trim}")
       SpecExport.fromJson(r.out.text())
@@ -99,19 +100,23 @@ object SpecSources:
     * folder). None if the commit has no spec.
     */
   private def fromGit(project: os.Path, rev: String): Option[os.Path] =
-    def git(args: String*) = os.proc("git", args).call(cwd = project, check = false, stderr = os.Pipe)
+    def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project)
     // the path of the project in the repository (`projects/my-project/` - empty in its root)
     val root    = git("rev-parse", "--show-toplevel")
     val prefix  = git("rev-parse", "--show-prefix")
     if root.exitCode != 0 || prefix.exitCode != 0 then None
     else
       val top     = os.Path(root.out.trim())
-      val archive = os.proc("git", "archive", "--format=tar", s"$rev:${prefix.out.trim()}$specDir")
-        .call(cwd = top, check = false, stderr = os.Pipe)
+      val archive = ExternalTool.call(
+        Seq("git", "archive", "--format=tar", s"$rev:${prefix.out.trim()}$specDir"),
+        ExternalTool.gitTimeout,
+        cwd = top
+      )
       if archive.exitCode != 0 then None
       else
         val dir = os.temp.dir(prefix = "orch-spec-")
-        os.proc("tar", "-x", "-C", dir.toString).call(stdin = archive.out.bytes, stderr = os.Pipe)
+        val tar = ExternalTool.call(Seq("tar", "-x", "-C", dir.toString), ExternalTool.gitTimeout, stdin = archive.out.bytes)
+        if tar.exitCode != 0 then throw os.SubprocessException(tar)
         if os.list(dir).isEmpty then
           os.remove.all(dir)
           None
@@ -161,8 +166,7 @@ object NodeXmlFormatter extends XmlFormatter:
       os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / tool))
       try
         import io.circe.syntax.*
-        val r = os.proc("node", script.toString, "--json")
-          .call(stdin = texts.asJson.noSpaces, check = false, stderr = os.Pipe)
+        val r = ExternalTool.call(Seq("node", script.toString, "--json"), ExternalTool.nodeTimeout, stdin = texts.asJson.noSpaces)
         if r.exitCode != 0 then
           throw IllegalStateException(s"$tool failed (exit code ${r.exitCode}): ${r.err.text().trim}")
         io.circe.parser.decode[Map[String, String]](r.out.text()).fold(e => throw IllegalStateException(e.getMessage), identity)

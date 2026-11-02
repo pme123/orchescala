@@ -71,8 +71,9 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / "spec2diff.js"))
         try
           val missing = dir / "no-spec-before"
-          os.proc("node", script.toString, before.getOrElse(missing).toString, after.toString)
-            .call(stderr = os.Pipe).out.text()
+          val r       = ExternalTool.call(Seq("node", script.toString, before.getOrElse(missing).toString, after.toString), ExternalTool.nodeTimeout)
+          if r.exitCode != 0 then throw os.SubprocessException(r)
+          r.out.text()
         finally os.remove.all(dir)
       .getOrElse("(the comparison of the spec is not available)\n")
 
