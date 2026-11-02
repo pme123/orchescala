@@ -137,7 +137,9 @@ const plainVar = (source: string): string | null => {
  * `juel`: the variables of the specification (juelOptions) for FEEL → JUEL — without them a Spin
  * path ends without `stringValue()` & co.
  */
-export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string>; juel?: JuelOptions } = {}): WriteResult & { changed: boolean } {
+export interface ConvertOptions { timeToLive?: string; correlationKeys?: Record<string, string>; juel?: JuelOptions }
+
+export function convertBpmn(xml: string, target: EngineId, opts: ConvertOptions = {}): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
   if (detectEngine(xml) === target) return { xml, issues, changed: false };
   const doc = new DOMParser().parseFromString(xml, 'text/xml');

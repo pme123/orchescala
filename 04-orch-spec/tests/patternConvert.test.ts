@@ -219,3 +219,24 @@ test('the export for the other engine takes the patterns of the model', () => {
   const withoutModel = exportBpmnFor(spec, c7, 'c8', null);
   assert.ok(!withoutModel.issues.some(i => i.text.includes('war «succeeded»')));
 });
+
+test('two patterns fail, the third still goes over in its target form - both failures are said', () => {
+  const misfitOf = (id: string): PatternDef => { const d = std(id); return { ...d, bpmn: { c7: d.bpmn.c7, c8: std('unique-execution').bpmn.c8 } }; };
+  const defs = [misfitOf('identity-take-over'), misfitOf('identity-reset'), std('process-status')];
+  const res = convertWithPatterns(withPatterns('c7'), 'c8', defs);
+  for (const id of ['TakeOver', 'Reset']) {
+    assert.ok(res.issues.some(i => i.stepId === id && i.text.includes('liess sich nicht')), `${id}: ${res.issues.map(i => i.text).join('; ')}`);
+    assert.ok(setsOf(res.xml, id).outputs.length > 0, `${id}: converted like the rest`);
+  }
+  assert.deepEqual(setsOf(res.xml, 'End').outputs, setsOf(withPatterns('c8'), 'End').outputs);
+  assert.ok(!res.issues.some(i => i.stepId === 'End'));
+});
+
+test('two definitions with the same ID: the first counts (own before standard, as in patternDefs)', () => {
+  const status = std('process-status');
+  const own: PatternDef = { ...status, bpmn: { c7: status.bpmn.c7, c8: status.bpmn.c8!.replace('{{processStatus}}', '{{state}}') } };
+  const ownFirst = convertWithPatterns(withPatterns('c7'), 'c8', [own, ...STANDARD_PATTERNS]);
+  assert.ok(ownFirst.issues.some(i => i.stepId === 'End' && i.text.includes('war «succeeded»')), ownFirst.issues.map(i => i.text).join('; '));
+  const standardFirst = convertWithPatterns(withPatterns('c7'), 'c8', [...STANDARD_PATTERNS, own]);
+  assert.deepEqual(standardFirst.issues, []);
+});
