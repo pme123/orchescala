@@ -47,3 +47,20 @@ test('Camunda 8: the old name processInstanceKey is reported with the new one', 
   const r = checkFeel('= processInstanceKey', processVariables(spec, null));
   assert.ok(r.issues.some(i => i.level === 'error' && i.text.includes('processInstanceId')));
 });
+
+// What the gateway sets: the identity of the start always, the one of the actor only after a task
+test('the identities of the gateway are known - _identityCorrelation always, _identityCorrelationOfActor as optional', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const spec = { ...importBpmn(bpmn(PID), 'key.bpmn').spec, engine };
+    const vars = processVariables(spec, null);
+    const start = vars.find(v => v.name === '_identityCorrelation');
+    const actor = vars.find(v => v.name === '_identityCorrelationOfActor');
+    assert.ok(start && !start.optional, engine);
+    assert.ok(actor?.optional, engine);
+    // its fields are known (IdentityCorrelation of Orchescala)
+    for (const expr of ['= _identityCorrelation', '= _identityCorrelation.username', '= if _identityCorrelationOfActor = null then _identityCorrelation else _identityCorrelationOfActor']) {
+      const unknown = checkFeel(expr, vars).issues.filter(i => i.text.includes('nicht bekannt'));
+      assert.deepEqual(unknown, [], `${engine}: ${expr}`);
+    }
+  }
+});
