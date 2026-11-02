@@ -17,46 +17,79 @@ import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import type { EngineId, PatternDef } from './types.ts';
 
 type Opts = Parameters<typeof convertBpmn>[2];
+const keyOf = (h: PatternHit) => `${h.patternId}@${h.targetId ?? ''}`;
+const sameParams = (a: Record<string, string>, b: Record<string, string>) =>
+  Object.keys({ ...a, ...b }).every(k => (a[k] ?? '') === (b[k] ?? ''));
 
 export function convertWithPatterns(xml: string, target: EngineId, defs: PatternDef[] | undefined, opts: Opts = {}): WriteResult & { changed: boolean } {
   const from = detectEngine(xml);
   if (from === target || !defs?.length) return convertBpmn(xml, target, opts);
-  const defOf = (id: string) => defs.find(d => d.id === id);
-  const hasTarget = (h: PatternHit) => !!fragmentFor(defOf(h.patternId)!, target);
-  // a pattern without BPMN for the target engine is converted like everything else
-  const strip = stripPatternItems(xml, defs, from, hasTarget);
-  const without = strip.all.filter(h => !hasTarget(h));
-  if (!strip.hits.length && !without.length) return convertBpmn(xml, target, opts);
+  const byId = new Map(defs.map(d => [d.id, d]));
+  const hasTarget = (h: PatternHit) => !!fragmentFor(byId.get(h.patternId)!, target);
+  const first = attempt(xml, target, byId, defs, opts, h => hasTarget(h));
+  if (!first) return convertBpmn(xml, target, opts);
+  // a pattern that could not be inserted again: convert it like the rest instead - it is not lost
+  if (!first.failed.size) return first.result;
+  const second = attempt(xml, target, byId, defs, opts, h => hasTarget(h) && !first.failed.has(keyOf(h)));
+  const result = second?.result ?? convertBpmn(xml, target, opts);
+  const note = [...first.failed.values()].map(({ h, why }) => ({
+    stepId: h.targetId ?? '', where: 'Pattern',
+    text: `«${byId.get(h.patternId)!.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen${why ? ` (${why})` : ''} - umgewandelt wie der Rest, von Hand prüfen.`,
+  }));
+  return { ...result, issues: [...result.issues, ...note] };
+}
+
+/**
+ * One conversion: take out the patterns `take` chooses, convert the rest, insert them again.
+ * `failed`: the patterns that did not come back on their element - null if there is nothing to do.
+ */
+function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: Opts, take: (h: PatternHit) => boolean):
+  { result: WriteResult & { changed: boolean }; failed: Map<string, { h: PatternHit; why: string }> } | null {
+  const strip = stripPatternItems(xml, defs, detectEngine(xml), take);
+  const without = strip.all.filter(h => !fragmentFor(byId.get(h.patternId)!, target));
+  if (!strip.hits.length && !without.length) return null;
 
   const conv = convertBpmn(strip.xml, target, opts);
   let out = conv.xml;
   const extra: WriteIssue[] = without.map(h => ({
     stepId: h.targetId ?? '', where: 'Pattern',
-    text: `«${defOf(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} - umgewandelt wie der Rest, von Hand prüfen.`,
+    text: `«${byId.get(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} - umgewandelt wie der Rest, von Hand prüfen.`,
   }));
   const inserted = new Map<PatternHit, { changed: boolean; issues: string[] }>();
+  const failed = new Map<string, { h: PatternHit; why: string }>();
   for (const h of strip.hits) {
-    const res = applyPattern(out, defOf(h.patternId)!, target, h.targetId, h.params);
-    if (res.changed) out = res.xml;
-    inserted.set(h, res);
+    try {
+      const res = applyPattern(out, byId.get(h.patternId)!, target, h.targetId, h.params);
+      if (res.changed) out = res.xml;
+      inserted.set(h, res);
+    } catch (e) {
+      failed.set(keyOf(h), { h, why: e instanceof Error ? e.message : String(e) });
+    }
   }
 
-  // each pattern on its element again - with the same parameters
-  const now = detectPatterns(out, defs, target).hits;
+  // each pattern on its element again - with the same parameters; a hit is matched only once
+  // (two of the same pattern on one element), the one with the same parameters first
+  const pool = [...detectPatterns(out, defs, target).hits];
+  const take1 = (h: PatternHit) => {
+    const same = (x: PatternHit) => x.patternId === h.patternId && (x.targetId ?? '') === (h.targetId ?? '');
+    const i = pool.findIndex(x => same(x) && sameParams(x.params, h.params));
+    const j = i >= 0 ? i : pool.findIndex(same);
+    return j >= 0 ? pool.splice(j, 1)[0] : undefined;
+  };
   for (const h of strip.hits) {
-    const def = defOf(h.patternId)!;
+    if (failed.has(keyOf(h))) continue;
+    const def = byId.get(h.patternId)!;
     const stepId = h.targetId ?? '';
-    const again = now.find(x => x.patternId === h.patternId && x.targetId === h.targetId);
-    // what inserting says (a limitation on the engine, a kept correlation key, why it failed) -
-    // not when it found everything there already
     const res = inserted.get(h)!;
-    if (res.changed || !again) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
-    if (!again) {
-      extra.push({ stepId, where: 'Pattern', text: `«${def.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen - von Hand ergänzen.` });
-      continue;
+    const again = take1(h);
+    if (!again) { failed.set(keyOf(h), { h, why: res.issues.join(' ') }); continue; }
+    // what inserting says (a limitation on the engine, a kept correlation key) - not when it
+    // found everything there already
+    if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
+    if (!sameParams(h.params, again.params)) {
+      const keys = Object.keys({ ...h.params, ...again.params }).filter(k => (h.params[k] ?? '') !== (again.params[k] ?? ''));
+      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${h.params[k] ?? ''}», ist jetzt «${again.params[k] ?? ''}»`).join(', ')} - prüfen.` });
     }
-    const changed = Object.keys({ ...h.params, ...again.params }).filter(k => (h.params[k] ?? '') !== (again.params[k] ?? ''));
-    if (changed.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${changed.map(k => `«${k}» war «${h.params[k] ?? ''}», ist jetzt «${again.params[k] ?? ''}»`).join(', ')} - prüfen.` });
   }
-  return { xml: out, issues: [...conv.issues, ...extra], changed: true };
+  return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed };
 }

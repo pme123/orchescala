@@ -112,6 +112,45 @@ test('a pattern whose target BPMN does not fit the element is said - it is missi
   const misfit: PatternDef = { ...take, id: 'acme-misfit', bpmn: { c7: take.bpmn.c7, c8: std('unique-execution').bpmn.c8 } };
   const res = convertWithPatterns(withPatterns('c7'), 'c8', [misfit]);
   assert.ok(res.issues.some(i => i.stepId === 'TakeOver' && i.where === 'Pattern' && i.text.includes('liess sich nicht')), res.issues.map(i => i.text).join('; '));
+  // it is not lost: converted like the rest - its listeners became outputs, untranslated where needed
+  assert.equal(setsOf(res.xml, 'TakeOver').outputs.length, 2, res.xml);
+  assert.ok(res.issues.some(i => i.stepId === 'TakeOver' && i.text.includes('nicht nach FEEL')));
+});
+
+test('a parameter that comes back different is said', () => {
+  // the C8 form names the parameter differently - the value of «processStatus» does not arrive
+  const status = std('process-status');
+  const renamed: PatternDef = { ...status, id: 'acme-status', bpmn: { c7: status.bpmn.c7, c8: status.bpmn.c8!.replace('{{processStatus}}', '{{state}}') } };
+  const res = convertWithPatterns(withPatterns('c7'), 'c8', [renamed]);
+  assert.ok(res.issues.some(i => i.stepId === 'End' && i.text.includes('«processStatus» war «succeeded», ist jetzt «»')), res.issues.map(i => i.text).join('; '));
+});
+
+test('two patterns on one element both come over', () => {
+  const status = std('process-status');
+  // an own pattern on end events that sets something else
+  const audit = (engine: EngineId): PatternDef => ({
+    ...status, id: 'acme-audit', name: 'Audit', params: [],
+    bpmn: { c7: status.bpmn.c7!.replace(/processStatus/g, 'audited').replace(/\{\{audited\}\}/g, 'yes'), c8: status.bpmn.c8!.replace(/processStatus/g, 'audited').replace(/\{\{audited\}\}/g, 'yes') },
+  });
+  const defs = [...STANDARD_PATTERNS, audit('c7')];
+  const c7 = applyPattern(withPatterns('c7'), audit('c7'), 'c7', 'End').xml;
+  const at = (xml: string, engine: EngineId) => detectPatterns(xml, defs, engine).hits.filter(h => h.targetId === 'End').map(h => h.patternId).sort();
+  assert.deepEqual(at(c7, 'c7'), ['acme-audit', 'process-status']);
+  const res = convertWithPatterns(c7, 'c8', defs);
+  assert.deepEqual(res.issues, []);
+  assert.deepEqual(at(res.xml, 'c8'), ['acme-audit', 'process-status']);
+  assert.deepEqual(setsOf(res.xml, 'End').outputs.sort(), ['audited=="yes"', 'processStatus=="succeeded"']);
+});
+
+test('a pattern on the process («Einmalige Ausführung») comes over too - with the correlation key on C8', () => {
+  const c7 = applyPattern(withPatterns('c7'), std('unique-execution'), 'c7', null);
+  assert.ok(c7.changed, c7.issues.join('; '));
+  const res = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, 'c8').hits.filter(h => h.targetId == null).map(h => h.patternId), ['unique-execution']);
+  assert.ok(res.xml.includes('correlationKey="=businessKey"'), 'the start message correlates with the business key');
+  assert.ok(!res.issues.some(i => i.where === 'Pattern'), res.issues.map(i => i.text).join('; '));
+  const back = convertWithPatterns(res.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(detectPatterns(back.xml, STANDARD_PATTERNS, 'c7').hits.filter(h => h.targetId == null).map(h => h.patternId), ['unique-execution']);
 });
 
 test('C7 → C8 → C7: the patterns come back in their C7 form only - no output parameters beside the listeners', () => {
