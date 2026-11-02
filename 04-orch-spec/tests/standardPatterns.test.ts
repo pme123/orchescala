@@ -615,3 +615,36 @@ test('«Prozess mit Fehler stoppen»: JUEL without FEEL form is said on the way 
   const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
   assert.ok(c8.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('JUEL ohne FEEL')), c8.issues.map(i => i.text).join('; '));
 });
+
+// a pattern that marks its spot: the colours of the anchor's shape go onto the element
+const shapeOf = (xml: string, id: string) => elements(parse(xml), 'bpmndi:BPMNShape').find(s => s.getAttribute('bpmnElement') === id);
+/** the test diagram with a shape for the end event */
+const withShapes = (engine: EngineId) => diagram(engine, 'task').replace('</bpmn:definitions>',
+  '<bpmndi:BPMNDiagram id="DI" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"><bpmndi:BPMNPlane id="PL" bpmnElement="acme-demoV1"><bpmndi:BPMNShape id="End_di" bpmnElement="End"><dc:Bounds x="300" y="100" width="36" height="36" /></bpmndi:BPMNShape></bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>');
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess mit Fehler stoppen» on ${engine.toUpperCase()}: the event turns orange - and back when the pattern is removed`, () => {
+    const res = applyPattern(withShapes(engine), stop, engine, 'End', { message: 'Kunde gesperrt.' });
+    assert.ok(res.changed, res.issues.join('; '));
+    const shape = shapeOf(res.xml, 'End')!;
+    assert.deepEqual(['bioc:stroke', 'bioc:fill', 'color:background-color', 'color:border-color'].map(n => shape.getAttribute(n)), ['#fb8c00', '#ffe0b2', '#ffe0b2', '#fb8c00']);
+    assert.ok(res.xml.includes('xmlns:bioc=') && res.xml.includes('xmlns:color='), 'the colour namespaces are declared');
+    // the colour is no part of the recognition
+    assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'stop-with-error').map(h => h.targetId), ['End']);
+    const removed = removePattern(res.xml, stop, engine, 'End', STANDARD_PATTERNS);
+    assert.ok(removed.changed, removed.issues.join('; '));
+    const after = shapeOf(removed.xml, 'End')!;
+    assert.deepEqual(['bioc:stroke', 'bioc:fill', 'color:background-color', 'color:border-color'].map(n => after.getAttribute(n)), [null, null, null, null]);
+  });
+}
+
+test('a colour the element got otherwise stays when the pattern is removed', () => {
+  const own = withShapes('c7').replace('<bpmndi:BPMNShape id="End_di" bpmnElement="End">', '<bpmndi:BPMNShape id="End_di" bpmnElement="End" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" bioc:fill="#c8e6c9">');
+  const res = applyPattern(own, stop, 'c7', 'End', { message: 'x' });
+  // the pattern's colour while it is there
+  assert.equal(shapeOf(res.xml, 'End')!.getAttribute('bioc:fill'), '#ffe0b2');
+  // a pattern without colours leaves the shape as it is
+  const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
+  const st = applyPattern(own, status, 'c7', 'End', { processStatus: 'succeeded' });
+  assert.equal(shapeOf(st.xml, 'End')!.getAttribute('bioc:fill'), '#c8e6c9');
+});
