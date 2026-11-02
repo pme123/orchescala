@@ -818,9 +818,10 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   Nachricht); eine Vorgabe darf sie nennen (`{{processId}}-inform`).
 - **Farbe:** hat der Anker im Pattern eine Farbe (`bioc:fill`/`stroke`,
   `color:background-color`/`border-color` — wie der Camunda Modeler sie
-  schreibt), bekommt das Element sie beim Einfügen; das Entfernen nimmt sie
-  wieder weg, wenn sie noch die des Patterns ist. Erkannt wird ein Pattern
-  nicht an der Farbe.
+  schreibt), bekommt das Element sie beim Einfügen — ausser es hat schon
+  eine eigene Farbe (die bleibt). Das Entfernen nimmt die Farbe des Patterns
+  wieder weg, wenn sie noch dieselbe ist. Erkannt wird ein Pattern nicht an
+  der Farbe.
 - **Je Engine ein BPMN** (Camunda 7 / 8): angeboten wird ein Pattern nur, wo
   es für die Engine der Spezifikation eines gibt.
 

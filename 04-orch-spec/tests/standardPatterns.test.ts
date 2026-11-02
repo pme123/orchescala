@@ -638,13 +638,31 @@ for (const engine of ['c7', 'c8'] as const) {
   });
 }
 
-test('a colour the element got otherwise stays when the pattern is removed', () => {
+const COLORS = ['bioc:stroke', 'bioc:fill', 'color:background-color', 'color:border-color'];
+const colorsAt = (xml: string) => COLORS.map(n => shapeOf(xml, 'End')!.getAttribute(n));
+
+test('an own colour of the element stays - the pattern does not paint over it, removing it keeps it', () => {
   const own = withShapes('c7').replace('<bpmndi:BPMNShape id="End_di" bpmnElement="End">', '<bpmndi:BPMNShape id="End_di" bpmnElement="End" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" bioc:fill="#c8e6c9">');
   const res = applyPattern(own, stop, 'c7', 'End', { message: 'x' });
-  // the pattern's colour while it is there
-  assert.equal(shapeOf(res.xml, 'End')!.getAttribute('bioc:fill'), '#ffe0b2');
+  assert.ok(res.changed, res.issues.join('; '));
+  assert.deepEqual(colorsAt(res.xml), [null, '#c8e6c9', null, null], 'the own colour, not the orange');
+  const removed = removePattern(res.xml, stop, 'c7', 'End', STANDARD_PATTERNS);
+  assert.deepEqual(colorsAt(removed.xml), [null, '#c8e6c9', null, null]);
   // a pattern without colours leaves the shape as it is
   const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
-  const st = applyPattern(own, status, 'c7', 'End', { processStatus: 'succeeded' });
-  assert.equal(shapeOf(st.xml, 'End')!.getAttribute('bioc:fill'), '#c8e6c9');
+  assert.equal(shapeOf(applyPattern(own, status, 'c7', 'End', { processStatus: 'succeeded' }).xml, 'End')!.getAttribute('bioc:fill'), '#c8e6c9');
+});
+
+test('a colour changed after inserting stays when the pattern is removed - the unchanged ones go', () => {
+  const res = applyPattern(withShapes('c7'), stop, 'c7', 'End', { message: 'x' }).xml;
+  const changed = res.replace('bioc:fill="#ffe0b2"', 'bioc:fill="#bbdefb"');
+  assert.notEqual(changed, res);
+  const removed = removePattern(changed, stop, 'c7', 'End', STANDARD_PATTERNS);
+  assert.deepEqual(colorsAt(removed.xml), [null, '#bbdefb', null, null]);
+});
+
+test('without a shape (no diagram) the pattern goes in without colour', () => {
+  const res = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'x' });
+  assert.ok(res.changed, res.issues.join('; '));
+  assert.ok(!res.xml.includes('bioc:fill'), 'nothing coloured');
 });

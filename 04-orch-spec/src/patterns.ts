@@ -1225,17 +1225,19 @@ function extent(dis: Element[]): Box | null {
   return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
 }
 
-/** DI elements (shapes and edges) per bpmnElement */
+/** The colour attributes of a shape (`color:background-color`, `bioc:fill` … as the Camunda Modeler writes them) */
+const colorsOf = (shape: Element): Attr[] => Array.from(shape.attributes).filter(a => /^(color|bioc):/.test(a.name));
+
 /**
- * The colours of the anchor's shape in the pattern (`color:background-color`, `bioc:fill` … as
- * the Camunda Modeler writes them): a pattern that marks its spot. They are not part of the
- * recognition - only of inserting and removing.
+ * The colours of the anchor's shape in the pattern: a pattern that marks its spot. They are not
+ * part of the recognition - only of inserting and removing.
  */
 const anchorColors = (fragDoc: Document): Attr[] => {
   const di = diIndex(fragDoc).get(ANCHOR_ID);
-  return di ? Array.from(di.attributes).filter(a => /^(color|bioc):/.test(a.name)) : [];
+  return di ? colorsOf(di) : [];
 };
 
+/** DI elements (shapes and edges) per bpmnElement */
 function diIndex(doc: Document): Map<string, Element> {
   const m = new Map<string, Element>();
   for (const e of descendants(doc.documentElement)) {
@@ -1701,12 +1703,15 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     changed = true;
   }
   if (addItems(w, fr.items, firstNamed(fr.anchor ?? fr.process, 'extensionElements'), t, targetId ?? 'process', idMap, fr.doc)) changed = true;
-  // the colour of the pattern on the element's shape
+  // the colour of the pattern on the element's shape - not over a colour the element has already
+  // (its own, a project colour), which would otherwise be lost on removal. Without a shape (no
+  // diagram) there is nothing to colour.
   const shape = targetId ? w.di.get(targetId) : undefined;
-  for (const a of shape ? anchorColors(fr.doc) : []) {
-    if (shape!.getAttribute(a.name) === a.value) continue;
-    if (a.namespaceURI) shape!.setAttributeNS(a.namespaceURI, a.name, a.value); else shape!.setAttribute(a.name, a.value);
-    changed = true;
+  if (shape && !colorsOf(shape).length) {
+    for (const a of anchorColors(fr.doc)) {
+      if (a.namespaceURI) shape.setAttributeNS(a.namespaceURI, a.name, a.value); else shape.setAttribute(a.name, a.value);
+      changed = true;
+    }
   }
 
   // 2. hanging on the element: boundary events with their path — relative to the anchor
@@ -1864,9 +1869,9 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
   }
   const ext = firstNamed(t, 'extensionElements');
   if (ext && !ext.children.length) removeEl(ext);
-  // the colour the pattern brought - only if it is still the pattern's
+  // the colour the pattern brought - only if it is still the pattern's (a colour changed since stays)
   const shape = targetId ? w.di.get(targetId) : undefined;
-  for (const a of shape ? anchorColors(fr.doc) : []) if (shape!.getAttribute(a.name) === a.value) shape!.removeAttribute(a.name);
+  if (shape) for (const a of anchorColors(fr.doc)) if (shape.getAttribute(a.name) === a.value) shape.removeAttribute(a.name);
   for (const el of m.attached.values()) drop(w, el);
   // shared blocks: only if no other element in the scope still carries the pattern
   if (fr.blocks.length) {
