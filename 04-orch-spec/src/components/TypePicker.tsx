@@ -12,6 +12,7 @@ import { domainRef, serviceTypes, type ServiceType } from '../serviceTypes';
 import { cls } from '../ui';
 import { isScalaTypeExpression } from '../scala';
 import { ORCHESCALA_TYPES } from '../orchescalaTypes';
+import { searchByName } from '../typeSearch';
 
 export const NEW_CASE = '__newCase';
 export const NEW_ENUM = '__newEnum';
@@ -120,23 +121,11 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
         ...entries.filter(e => e.group === 'service').slice(0, 20),
       ];
     }
-    const words = needle.split(/\s+/);
     // Whoever matches the name comes before those that only match a field or the package
     // — otherwise `ProcessCallOrigin` stands behind every `In` with a
-    // field `processCallOrigin` (and possibly falls behind the limit).
-    const rang = (e: Entry) => {
-      const n = e.name.toLowerCase(), kurz = n.split('.').pop()!;
-      if (n === needle || kurz === needle) return 0;
-      if (n.startsWith(needle) || kurz.startsWith(needle)) return 1;
-      if (words.every(w => n.includes(w))) return 2;
-      return 3;
-    };
-    return entries
-      .filter(e => words.every(w => e.haystack.includes(w)))
-      .map((e, i) => ({ e, r: rang(e), i }))
-      .sort((a, b) => a.r - b.r || a.i - b.i)
-      .map(x => x.e)
-      .slice(0, 120);
+    // field `processCallOrigin` (and possibly falls behind the limit). After
+    // them the names that hold the typed characters in this order (`nat3`).
+    return searchByName(entries, needle, e => e.name, e => e.haystack).slice(0, 120);
   }, [entries, q]);
 
   // Clicking outside and Escape close it

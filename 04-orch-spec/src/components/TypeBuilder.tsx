@@ -35,6 +35,7 @@ import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../cl
 import { pasteField, pasteType, typeClosure } from '../copyPaste';
 import { patternOfField } from '../patterns';
 import { interactionStatus } from '../status';
+import { searchByName } from '../typeSearch';
 
 interface Props {
   spec: ProcessSpec;
@@ -822,11 +823,7 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
   const [query, setQuery] = useState<string | null>(null);
   const catalog = useMemo(() => (query == null ? [] : catalogMembers(model, member, ownPkg,
     new Set(interactions.map(i => i.name).filter(Boolean)))), [query == null, model, member, ownPkg, interactions]);
-  const hits = query == null ? [] : catalog.filter(d => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const hay = `${d.name} ${d.pkg}`.toLowerCase();
-    return words.every(w => hay.includes(w));
-  }).slice(0, 12);
+  const hits = query == null ? [] : searchByName(catalog, query, d => d.name, d => `${d.name} ${d.pkg}`.toLowerCase()).slice(0, 12);
   const pick = async (v: string) => {
     // the own class gets lost — with fields, ask first
     if (own && (t?.fields?.length ?? 0) > 0
