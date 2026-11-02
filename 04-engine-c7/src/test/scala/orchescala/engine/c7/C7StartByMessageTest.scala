@@ -10,7 +10,7 @@ import zio.test.*
 
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.{ConcurrentLinkedQueue, ExecutorService, Executors}
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
 
@@ -37,13 +37,16 @@ object C7StartByMessageTest extends ZIOSpecDefault:
       messageResult: String,
       variableChecks: Seq[(Int, String)] = Seq(noCorrelation),
       patch: (Int, String) = 204 -> "",
-      checkDelay: Duration = Duration.Zero
+      checkDelay: Duration = Duration.Zero,
+      messageDelay: Duration = Duration.Zero
   ): ZIO[Scope, Throwable, (String, ConcurrentLinkedQueue[String])] =
     ZIO.acquireRelease(
       ZIO.attempt:
         val requests = ConcurrentLinkedQueue[String]()
         val checks   = AtomicInteger(0)
         val server   = HttpServer.create(InetSocketAddress("localhost", 0), 0)
+        // more than one thread: a slow answer must not hold back the next request
+        server.setExecutor(Executors.newFixedThreadPool(4))
         server.createContext(
           "/",
           exchange =>
@@ -52,7 +55,9 @@ object C7StartByMessageTest extends ZIOSpecDefault:
             val requestBody = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
             requests.add(s"$method $path $requestBody")
             val (status, body) =
-              if path.endsWith("/message") then 200 -> messageResult
+              if path.endsWith("/message") then
+                Thread.sleep(messageDelay.toMillis)
+                200 -> messageResult
               else if method == "GET" && path.endsWith("/variables") then
                 Thread.sleep(checkDelay.toMillis)
                 variableChecks(math.min(checks.getAndIncrement(), variableChecks.size - 1))
@@ -68,7 +73,13 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         )
         server.start()
         (server, requests)
-    )((server, _) => ZIO.succeed(server.stop(0)))
+    )((server, _) =>
+      ZIO.succeed:
+        server.stop(0)
+        server.getExecutor match
+          case pool: ExecutorService => pool.shutdownNow()
+          case _                     => ()
+    )
       .map((server, requests) => (s"http://localhost:${server.getAddress.getPort}", requests))
 
   private val fastTimings =
@@ -215,14 +226,26 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         markerRemoved(requests)
       )
     },
+    test("the caller gives up while the message is sent - the marker is removed anyway") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, messageDelay = 300.millis)
+        fiber               <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).fork
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(requests.asScala.exists(_.contains("/message"))))
+                                 .repeatUntil(identity)
+        _                   <- fiber.interrupt
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(markerRemoved(requests)))
+                                 .repeatUntil(identity)
+                                 .timeoutFail("marker not removed")(2.seconds)
+      yield assertTrue(markerRemoved(requests))
+    },
     test("the engine hangs - the start waits for the cleanup at most its cap, the 409 says so") {
       val capped = fastTimings.copy(cleanupTimeout = 200.millis)
       for
-        (baseUrl, requests) <- engine(correlatedToRunning, checkDelay = 1.second)
+        (baseUrl, requests) <- engine(correlatedToRunning, checkDelay = 3.seconds)
         (took, exit)        <- service(baseUrl, capped).startProcessByMessage("msg", identityCorrelation = alice).exit.timed
       yield assertTrue(
         conflict(exit)(_.contains("did not finish within 200 ms")),
-        took.toMillis < 900,
+        took.toMillis < 2000,
         !markerRemoved(requests)
       )
     },

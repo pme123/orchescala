@@ -15,7 +15,7 @@ import org.camunda.community.rest.client.dto.{
 }
 import org.camunda.community.rest.client.invoker.{ApiClient, ApiException}
 import zio.ZIO.{logDebug, logInfo, logWarning}
-import zio.{durationInt, Duration, IO, UIO, ZIO}
+import zio.{durationInt, Duration, Fiber, IO, UIO, ZIO}
 
 import scala.jdk.CollectionConverters.*
 
@@ -326,7 +326,29 @@ class C7ProcessInstanceService(
   ): IO[EngineError, MessageCorrelationResult] =
     for
       apiClient <- apiClientZIO
-      response  <-
+      // Once sent, the message may set the pending marker in a running instance: until its removal
+      // runs, a caller that gives up must not stop this (the request cannot be interrupted anyway).
+      started   <- ZIO.uninterruptibleMask: restore =>
+                     deliverMessage(apiClient, messageName, businessKey, tenantId, variables)
+                       .flatMap: result =>
+                         onlyStarted(messageName, result).foldZIO(
+                           failure = conflict =>
+                             removeInBackground(result.processInstanceId, removePending)
+                               .flatMap(cleanup => restore(conflictAfterRemoval(conflict, result.processInstanceId, cleanup))),
+                           success = ZIO.succeed(_)
+                         )
+    yield started
+  end sendMessageToStartProcess
+
+  private def deliverMessage(
+      apiClient: ApiClient,
+      messageName: String,
+      businessKey: Option[String],
+      tenantId: Option[String],
+      variables: Option[JsonObject]
+  ): IO[EngineError, MessageCorrelationResult] =
+    for
+      response <-
         ZIO
           .attemptBlocking:
             new org.camunda.community.rest.client.api.MessageApi(apiClient)
@@ -342,34 +364,39 @@ class C7ProcessInstanceService(
             C7Service.withStatus(err)(EngineError.ProcessError(
               s"Problem sending message '$messageName' to start process: $err"
             ))
-      result    <- mapMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
-      started   <- onlyStarted(messageName, result)
-                     .catchAll(conflictWithPendingRemoved(_, result.processInstanceId, removePending))
-    yield started
-  end sendMessageToStartProcess
+      result   <- mapMessageCorrelationResult(Option(response).map(_.asScala).toSeq.flatten)
+    yield result
+  end deliverMessage
 
-  /** The message landed in a running instance: fails with the 409 of `onlyStarted` - after the
-    * pending marker it set there is removed. If that fails, the 409 says so.
-    *
-    * The removal runs in a fiber of its own (it waits up to ~750 ms): a caller that gives up
-    * meanwhile must not leave the marker behind - the workers of an instance without correlation
-    * would wait for one forever. The caller waits for it at most `StartTimings.cleanupTimeout`: a
-    * hanging engine (up to 60 s per request) must not hold it for minutes. Then the removal goes
-    * on in the background, and the 409 says so.
+  private def notRemoved(err: EngineError) =
+    s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
+
+  /** The message landed in a running instance: the pending marker it set there is removed in a
+    * fiber of its own (it waits up to ~750 ms) - a caller that gives up meanwhile must not leave the
+    * marker behind: the workers of an instance without correlation would wait for one forever. A
+    * failure is logged here - also one after the caller stopped waiting.
     */
-  private def conflictWithPendingRemoved(
-      conflict: EngineError.ServiceRequestError,
+  private def removeInBackground(
       processInstanceId: String,
       removePending: String => IO[EngineError, Unit]
+  ): UIO[Fiber.Runtime[EngineError, Unit]] =
+    removePending(processInstanceId)
+      .tapError(err => ZIO.logError(s"Process $processInstanceId: ${notRemoved(err)}"))
+      .forkDaemon
+
+  /** Fails with the 409 of `onlyStarted` once the removal of the pending marker is done - the 409
+    * says if it failed. The caller waits for it at most `StartTimings.cleanupTimeout`: a hanging
+    * engine (up to 60 s per request) must not hold it for minutes. Then the removal goes on in the
+    * background, and the 409 says so.
+    */
+  private def conflictAfterRemoval(
+      conflict: EngineError.ServiceRequestError,
+      processInstanceId: String,
+      cleanup: Fiber[EngineError, Unit]
   ): IO[EngineError, Nothing] =
-    def notRemoved(err: EngineError) =
-      s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
-    val unfinished                   =
+    val unfinished =
       s"the removal of its pending identity marker did not finish within ${timings.cleanupTimeout.toMillis} ms - it goes on in the background"
     for
-      cleanup <- removePending(processInstanceId)
-                   .tapError(err => ZIO.logError(s"Process $processInstanceId: ${notRemoved(err)}"))
-                   .forkDaemon
       done    <- cleanup.join.either.timeout(timings.cleanupTimeout)
       note    <- done match
                    case Some(Right(_))  => ZIO.none
@@ -377,7 +404,7 @@ class C7ProcessInstanceService(
                    case None            => logWarning(s"Process $processInstanceId: $unfinished").as(Some(unfinished))
       failure <- ZIO.fail(conflict.copy(errorMsg = (conflict.errorMsg +: note.toSeq).mkString(" - ")))
     yield failure
-  end conflictWithPendingRemoved
+  end conflictAfterRemoval
 
   /** The message landed in a running instance and set its pending marker there. Its workers would
     * wait for a correlation that never comes - unless the instance has one: then the marker is
@@ -434,7 +461,10 @@ class C7ProcessInstanceService(
         case RunningInstance.Correlated   =>
           logDebug(s"Process $processInstanceId has its correlation - its pending marker is ignored.")
         case RunningInstance.Ended        => ended
-        case RunningInstance.Uncorrelated => remove
+        case RunningInstance.Uncorrelated =>
+          logInfo(
+            s"Process $processInstanceId has no correlation after ${timings.correlationChecks} checks - its pending marker is removed."
+          ) *> remove
   end clearIdentityPending
 
   /** C7 answers an instance that does not exist (any more) with a 404 - or, for its variables,
