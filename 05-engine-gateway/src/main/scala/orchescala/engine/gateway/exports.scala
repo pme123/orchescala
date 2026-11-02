@@ -36,8 +36,11 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
                   .foldZIO(
                     {
                       case error if isFinalAnswer(error) =>
+                        val before =
+                          if errors.isEmpty then ""
+                          else s" (before: ${errors.map(_.errorMsg).mkString("; ")})"
                         ZIO.logWarning(
-                          s"$operationName refused by ${service.engineType} - no other engine is tried: ${error.errorMsg}"
+                          s"$operationName refused by ${service.engineType} - no other engine is tried: ${error.errorMsg}$before"
                         ) *> ZIO.fail(error)
                       case error                         =>
                         ZIO.logWarning(
@@ -69,6 +72,14 @@ end tryServicesWithErrorCollection
   * the engine has a conflicting state, e.g. a start by message that landed in a running instance
   * («Einmalige Ausführung»). Trying the next engine would start a new instance there for a process
   * deployed on both engines - the unique execution would be lost.
+  *
+  * This holds for every operation, not only the starts: a 409 of a message (e.g. C8: already
+  * published), a user task or a job also says the engine has it. The other engine does not know
+  * the id (it answered 404, and the 409 was the result anyway) or would do it a second time.
+  *
+  * Only a `ServiceRequestError` carries a status: both engine clients map an HTTP 4xx to it
+  * (`C7Service.withStatus`, `C8RestClient.problem`), and the 409s of the start by message are
+  * created as such.
   */
 private[gateway] def isFinalAnswer(error: EngineError): Boolean =
   error match
