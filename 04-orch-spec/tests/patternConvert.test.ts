@@ -267,3 +267,17 @@ test('the variables of the specification reach the conversion through convertWit
   assert.ok(who.includes('_identityCorrelation.prop("username").stringValue()'), who);
   assert.deepEqual(hitsOf(res.xml, 'c7'), hitsOf(withPatterns('c7'), 'c7'));
 });
+
+test('the export to the other engine and back: the patterns and stringValue() survive', () => {
+  const c7 = withPatterns('c7').replace(/(<bpmn:endEvent id="End">)/,
+    '$1<bpmn:extensionElements><camunda:inputOutput><camunda:inputParameter name="who">${_identityCorrelation.prop("username").stringValue()}</camunda:inputParameter></camunda:inputOutput></bpmn:extensionElements>');
+  const spec7 = { ...importBpmn(c7, 'x.bpmn', { patterns: STANDARD_PATTERNS }).spec, engine: 'c7' as const };
+  const c8 = exportBpmnFor(spec7, c7, 'c8', null);
+  assert.ok(!c8.issues.some(i => i.text.includes('nicht nach FEEL')), c8.issues.map(i => i.text).join('; '));
+  assert.deepEqual(hitsOf(c8.xml, 'c8'), hitsOf(withPatterns('c8'), 'c8'));
+  const spec8 = { ...importBpmn(c8.xml, 'x.bpmn', { patterns: STANDARD_PATTERNS }).spec, engine: 'c8' as const, timeToLive: '5' };
+  const back = exportBpmnFor(spec8, c8.xml, 'c7', null);
+  assert.deepEqual(hitsOf(back.xml, 'c7'), hitsOf(withPatterns('c7'), 'c7'));
+  const who = named(elementOf(back.xml, 'End'), 'camunda:inputParameter').find(p => p.getAttribute('name') === 'who')?.textContent ?? '';
+  assert.ok(who.includes('_identityCorrelation.prop("username").stringValue()'), who);
+});

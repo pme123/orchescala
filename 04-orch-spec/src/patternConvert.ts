@@ -43,10 +43,11 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
   // with the notes
   if (!settled || !result) result = convertBpmn(xml, target, opts);
   if (!failed.size) return result;
-  const note = [...failed.values()].map(({ h, why }) => ({
+  const note: WriteIssue[] = [...failed.values()].map(({ h, why }) => ({
     stepId: h.targetId ?? '', where: 'Pattern',
     text: `«${byId.get(h.patternId)!.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen${why ? ` (${why})` : ''} — umgewandelt wie der Rest, von Hand prüfen.`,
   }));
+  if (!settled) note.push({ stepId: '', where: 'Pattern', text: `Die Pattern liessen sich nicht in der Form für ${engineLabel(target)} einsetzen — alle umgewandelt wie der Rest, von Hand prüfen.` });
   return { ...result, issues: [...result.issues, ...note] };
 }
 
