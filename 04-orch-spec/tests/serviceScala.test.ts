@@ -251,7 +251,32 @@ test('an In with cases (ADT): enum In with the shared fields as def, its example
   assert.match(domain, /in = In\.exampleMinimal,/, domain);
 
   const worker = files.find(f => f.path.endsWith('GetClientWorker.scala'))!.content;
-  // a shared field is read as before; a field of one case only needs the case — a TODO
+  // a shared field is read as before; a field of one case through a match — optional,
+  // so the required path parameter takes it with a TODO for the other case
   assert.match(worker, /in\.requestId/, worker);
-  assert.match(worker, /TODO[^\n]*clientKey/, worker);
+  assert.match(worker, /\(in match \{ case v: In\.ByKey => Some\(v\.clientKey\); case _ => None \}\)/, worker);
+});
+
+test('fieldAccess: a field in every case is read without None, an optional one without Some', async () => {
+  const { fieldAccess, fieldsOnce } = await import('../src/scala.ts');
+  const t: TypeDef = {
+    id: 't', name: 'In', kind: 'enum',
+    fields: [{ id: 's', name: 'shared', type: 'String' }],
+    values: [
+      { name: 'A', fields: [{ id: 'a1', name: 'both', type: 'Long' }, { id: 'a2', name: 'onlyA', type: 'String', optional: true }] },
+      { name: 'B', fields: [{ id: 'b1', name: 'both', type: 'Long' }] },
+      { name: 'Empty' },
+    ],
+  };
+  const access = Object.fromEntries(fieldAccess(t).map(a => [a.field.name, `${a.scala} ${a.optional ? '?' : '!'}`]));
+  assert.deepEqual(access, {
+    shared: 'in.shared !',
+    // not in «Empty» — optional
+    both: '(in match { case v: In.A => Some(v.both); case v: In.B => Some(v.both); case _ => None }) ?',
+    onlyA: '(in match { case v: In.A => v.onlyA; case _ => None }) ?',
+  });
+  // the variables of the mappers: every name once, as for the In of a process
+  assert.deepEqual(fieldsOnce(t).map(f => f.name), ['shared', 'both', 'onlyA']);
+  const noEmpty: TypeDef = { ...t, values: t.values!.slice(0, 2) };
+  assert.equal(fieldAccess(noEmpty).find(a => a.field.name === 'both')?.scala, '(in match { case v: In.A => v.both; case v: In.B => v.both })');
 });

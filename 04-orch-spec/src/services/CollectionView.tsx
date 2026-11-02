@@ -31,6 +31,7 @@ import { MethodChip } from './ui';
 import { headerVar } from './names';
 import { useServices } from './store';
 import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
+import { fieldsOnce } from '../scala';
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
 
@@ -543,7 +544,8 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
 
   // what the mappings of the request read: the fields of the In
-  const inVars = useMemo(() => (s.noIn ? [] : fieldVariables(inType?.fields ?? [], 'In', spec.types, model)), [s.noIn, inType, spec.types, model]);
+  // of an ADT also the fields of its cases — as for the In of a process
+  const inVars = useMemo(() => (s.noIn ? [] : fieldVariables(fieldsOnce(inType), 'In', spec.types, model)), [s.noIn, inType, spec.types, model]);
   // what the Out mappings read: the body of the response, its headers, the In
   const outVars = useMemo((): VarNode[] => {
     const vars: VarNode[] = [];
@@ -754,7 +756,7 @@ function ServiceOutline({ spec, service: s, active, isDark, onJump }: {
   const outAsBody = !!s.serviceOut && !s.serviceOut.collection && s.serviceOut.type === s.outTypeId && !s.noOut;
   const n = (k: number, one: string, many: string) => (k ? `${k} ${k === 1 ? one : many}` : '—');
   const detail: Record<ServicePart, string> = {
-    in: s.noIn ? 'NoInput' : n((inType?.fields ?? []).filter(f => f.name).length, 'Feld', 'Felder'),
+    in: s.noIn ? 'NoInput' : n(fieldsOnce(inType).length, 'Feld', 'Felder'),
     apiUri: `${s.method} · ${n(count('path'), 'Parameter', 'Parameter')}`,
     query: n(count('query'), 'Parameter', 'Parameter'),
     headers: n(count('header'), 'Header', 'Header'),

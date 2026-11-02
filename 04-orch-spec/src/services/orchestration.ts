@@ -14,6 +14,7 @@ import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
 import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
 import { lowerFirst } from './names.ts';
 import type { CollectionService, OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
+import { fieldAccess } from '../scala.ts';
 
 /** In and Out belong to the orchestration — not to the types of the API. */
 export const ORCH_MEMBER = 'orchestration';
@@ -195,13 +196,13 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
   return out;
 }
 
-/** The fields of the In — `in.clientKey`. */
+/** The fields of the In — `in.clientKey`; of an ADT also those of its cases (through a match). */
 export function inVars(o: ServiceOrchestrationSpec): OrchVar[] {
   if (o.noIn) return [];
   const inType = o.types.find(t => t.id === o.inTypeId);
-  return (inType?.fields ?? []).filter(f => f.name).map(f => ({
-    name: f.name, scala: `in.${f.name}`, type: f.type, source: 'In' as const,
-    ...(f.collection ? { collection: true } : {}), ...(f.optional ? { optional: true } : {}),
+  return fieldAccess(inType).map(({ field: f, scala, optional }) => ({
+    name: f.name, scala, type: f.type, source: 'In' as const,
+    ...(f.collection ? { collection: true } : {}), ...(optional ? { optional: true } : {}),
   }));
 }
 

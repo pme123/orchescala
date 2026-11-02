@@ -9,7 +9,7 @@
 //
 // The mappings come from FEEL (feelScala.ts); what does not translate is a
 // `???` with the FEEL in a comment — the project compiles once it is filled.
-import { exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
+import { exampleValue, fieldAccess, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, TypeDef } from '../types';
 import {
   apiKey, apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
@@ -150,10 +150,10 @@ export const workerPackageClause = (ref: ApiRef): string => {
   return `package ${parts.slice(0, at + 1).join('.')}\npackage ${parts.slice(at + 1).join('.')}`;
 };
 
-/** What a mapping of the request can read: the fields of the In. */
+/** What a mapping of the request can read: the fields of the In — of an ADT also those of its cases. */
 function inVars(inType: TypeDef | undefined): Map<string, ScalaVar> {
-  return new Map((inType?.fields ?? []).filter(f => f.name).map(f => [f.name, {
-    scala: `in.${scalaIdent(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection,
+  return new Map(fieldAccess(inType).map(({ field: f, scala, optional }) => [f.name, {
+    scala, type: f.type, optional, collection: !!f.collection,
   }]));
 }
 

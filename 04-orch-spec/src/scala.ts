@@ -1086,6 +1086,38 @@ export function allFields(t: TypeDef): Field[] {
   return t.kind === 'enum' ? [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])] : (t.fields ?? []);
 }
 
+/** `allFields`, each name once (the first) — what a mapping of an In can read, as for the In of a process. */
+export function fieldsOnce(t: TypeDef | undefined): Field[] {
+  const seen = new Set<string>();
+  return (t ? allFields(t) : []).filter(f => f.name && !seen.has(f.name) && !!seen.add(f.name));
+}
+
+/**
+ * How the code reads each field of an In (`in`): a field of the class, or a
+ * shared field of an ADT, directly — `in.clientKey`. A field of some cases only
+ * through a match, optional where a case does not have it:
+ * `(in match { case v: In.ByKeys => Some(v.clientKeys); case _ => None })`.
+ */
+export function fieldAccess(t: TypeDef | undefined, typeName = 'In', at = 'in'): Array<{ field: Field; scala: string; optional: boolean }> {
+  if (!t) return [];
+  const shared = (t.fields ?? []).filter(f => f.name);
+  const out = shared.map(f => ({ field: f, scala: `${at}.${scalaIdent(f.name)}`, optional: !!f.optional }));
+  if (t.kind !== 'enum') return out;
+  const cases = (t.values ?? []).filter(v => v.name);
+  const seen = new Set(shared.map(f => f.name));
+  for (const v of cases) for (const f of v.fields ?? []) {
+    if (!f.name || seen.has(f.name)) continue;
+    seen.add(f.name);
+    const holders = cases.flatMap(c => { const g = (c.fields ?? []).find(x => x.name === f.name); return g ? [{ c, g }] : []; });
+    const everywhere = holders.length === cases.length;
+    const optional = !everywhere || holders.some(h => h.g.optional);
+    const arms = holders.map(({ c, g }) => `case v: ${typeName}.${caseIdent(c.name)} => ${optional && !g.optional ? `Some(v.${scalaIdent(f.name)})` : `v.${scalaIdent(f.name)}`}`);
+    if (!everywhere) arms.push('case _ => None');
+    out.push({ field: { ...f, optional }, scala: `(${at} match { ${arms.join('; ')} })`, optional });
+  }
+  return out;
+}
+
 /**
  * The package lines of a file: split at `domain` — `package acme.product.domain`
  * and `package lilaSet.v2` —, so that everything from `acme.product.domain` is visible
