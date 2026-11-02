@@ -563,3 +563,28 @@ test('«Prozess mit Fehler stoppen»: switching engine translates the FEEL messa
   assert.equal(messageOf(back.xml, 'End', 'c7').message, c7Value);
   assert.equal(messageOf(back.xml, 'End', 'c7').async, 'true');
 });
+
+test('«Prozess mit Fehler stoppen»: fixed text goes over the engine switch as text - and back', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'Kunde gesperrt.' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(messageOf(c8.xml, 'End', 'c8').message, '="Kunde gesperrt."');
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(back.issues, []);
+  assert.equal(messageOf(back.xml, 'End', 'c7').message, 'Kunde gesperrt.');
+});
+
+test('«Prozess mit Fehler stoppen»: a FEEL message without JUEL counterpart is said on the way to C7', () => {
+  const c8 = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: '=string join(["a", "b"], ", ")' }).xml;
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.ok(c7.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('nicht nach JUEL')), c7.issues.map(i => i.text).join('; '));
+});
+
+test('«Prozess mit Fehler stoppen» on C8: a text message with a quote is refused - it would end the FEEL string', () => {
+  const res = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: 'Kunde "X" gesperrt' });
+  assert.equal(res.changed, false);
+  assert.ok(res.issues.some(i => i.includes('«message»')), res.issues.join('; '));
+  // as FEEL it works
+  const feel = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: '="Kunde \\"X\\" gesperrt"' });
+  assert.ok(feel.changed, feel.issues.join('; '));
+});

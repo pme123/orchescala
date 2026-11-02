@@ -772,7 +772,11 @@ und Doku stehen in `democompany-patterns`:
 - **Prozess mit Fehler stoppen** (`stop-with-error`, End- oder werfendes
   Zwischenereignis): der Prozess bleibt mit einem Incident stehen; die
   Meldung (`message`) ist Text oder FEEL. Camunda 7: Groovy-Exception nach
-  `asyncBefore`, Camunda 8: `assert(false, false, …)` im Output-Mapping.
+  `asyncBefore` — der Incident kommt, wenn die Job-Retries aufgebraucht sind
+  (ohne `failedJobRetryTimeCycle` drei, sofort); Camunda 8: `assert(false,
+  false, …)` im Output-Mapping, der Incident sofort. Die Meldung steht danach
+  in `_errorMessage` (C8 zusätzlich `_stopped`). Fester Text mit `"` geht in
+  Camunda 8 nicht — dann als FEEL (`= "…\"…"`).
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):

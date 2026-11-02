@@ -13,7 +13,7 @@
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
 import { applyPattern, detectPatterns, fragmentFor, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
-import { paramFor, paramView } from './patternParams.ts';
+import { paramForChecked, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import type { EngineId, PatternDef } from './types.ts';
 
@@ -78,7 +78,8 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     text: `«${byId.get(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} — umgewandelt wie der Rest, von Hand prüfen.`,
   }));
   // the parameters in the form of the target engine (`${…}` ⇄ `=…`, fixed text stays)
-  const paramsIn = (h: PatternHit) => Object.fromEntries(Object.entries(h.params).map(([k, v]) => [k, paramFor(v, target, opts.juel?.vars ?? [])]));
+  const checked = (h: PatternHit) => Object.entries(h.params).map(([k, v]) => [k, paramForChecked(v, target, opts.juel?.vars ?? [])] as const);
+  const paramsIn = (h: PatternHit) => Object.fromEntries(checked(h).map(([k, c]) => [k, c.value]));
   const inserted = new Map<number, { changed: boolean; issues: string[] }>();
   for (const i of strip.taken) {
     const h = strip.all[i];
@@ -114,6 +115,10 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
+    // a FEEL value without JUEL: written as it is - Camunda 7 would take it as text
+    for (const [k, c] of checked(h)) {
+      if (c.untranslated) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: «${k}» = «${paramView(h.params[k])}» ist nicht nach JUEL übersetzbar (${c.untranslated}) — von Hand anpassen.` });
+    }
     const wanted = paramsIn(h);
     if (!sameParams(wanted, again.params)) {
       const keys = Object.keys({ ...wanted, ...again.params }).filter(k => (wanted[k] ?? '') !== (again.params[k] ?? ''));

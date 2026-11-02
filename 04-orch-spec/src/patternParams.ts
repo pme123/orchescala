@@ -23,3 +23,15 @@ export function paramStored(view: string, engine: EngineId, vars: readonly VarNo
 
 /** A stored value of one engine in the form of the other */
 export const paramFor = (stored: string, engine: EngineId, vars: readonly VarNode[] = []): string => paramStored(paramView(stored), engine, vars);
+
+/**
+ * Like paramFor, and why FEEL did not translate to JUEL - then the value stays FEEL, which
+ * Camunda 7 would take as fixed text.
+ */
+export function paramForChecked(stored: string, engine: EngineId, vars: readonly VarNode[] = []): { value: string; untranslated?: string } {
+  const view = paramView(stored);
+  const body = feelBody(view);
+  if (engine !== 'c7' || body == null) return { value: paramStored(view, engine, vars) };
+  const r = feelToJuel(body, { vars });
+  return r.ok ? { value: `\${${r.juel}}` } : { value: view, untranslated: r.reason };
+}
