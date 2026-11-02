@@ -34,10 +34,16 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
               case (errors, None, _)                  =>
                 operation(service)
                   .foldZIO(
-                    error =>
-                      ZIO.logWarning(
-                        s"$operationName failed for ${service.engineType}: ${error.errorMsg}"
-                      ).as((errors :+ error, None, None)),
+                    {
+                      case error if isFinalAnswer(error) =>
+                        ZIO.logWarning(
+                          s"$operationName refused by ${service.engineType} - no other engine is tried: ${error.errorMsg}"
+                        ) *> ZIO.fail(error)
+                      case error                         =>
+                        ZIO.logWarning(
+                          s"$operationName failed for ${service.engineType}: ${error.errorMsg}"
+                        ).as((errors :+ error, None, None))
+                    },
                     result => ZIO.succeed((errors, Some(result), Some(service.engineType)))
                   )
           .flatMap:
@@ -55,6 +61,19 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
             case (errors, _, _)                      => ZIO.fail(allServicesFailed(operationName, errors))
   end match
 end tryServicesWithErrorCollection
+
+/** An error that is the answer of the engine that has the case - no other engine is tried.
+  *
+  * The fall-through to the next engine is for errors that say "not on this engine" (404 of an
+  * unknown id, a process not deployed there, an engine not reachable, ...). A 409 says the opposite:
+  * the engine has a conflicting state, e.g. a start by message that landed in a running instance
+  * («Einmalige Ausführung»). Trying the next engine would start a new instance there for a process
+  * deployed on both engines - the unique execution would be lost.
+  */
+private[gateway] def isFinalAnswer(error: EngineError): Boolean =
+  error match
+    case EngineError.ServiceRequestError(409, _) => true
+    case _                                       => false
 
 /** The error when no engine could do it.
   *
