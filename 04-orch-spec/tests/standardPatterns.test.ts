@@ -527,7 +527,7 @@ for (const engine of ['c7', 'c8'] as const) {
         assert.equal(m.message, 'Kunde gesperrt.');
         assert.equal(m.async, 'true', 'the incident is on the event');
         assert.equal(m.retries, 'R1/PT0S', 'one attempt - the incident at once, whatever the engine is configured to');
-        assert.ok(m.script.includes('throw new IllegalArgumentException'), m.script);
+        assert.equal(m.script.trim(), 'throw new IllegalArgumentException(String.valueOf(execution.getVariable("_errorMessage")))');
       } else {
         assert.equal(m.message, '="Kunde gesperrt."');
         assert.equal(m.assert, '=assert(false, false, string(_errorMessage))');
@@ -578,7 +578,7 @@ test('«Prozess mit Fehler stoppen»: fixed text goes over the engine switch as 
 test('«Prozess mit Fehler stoppen»: a FEEL message without JUEL counterpart is said on the way to C7', () => {
   const c8 = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: '=string join(["a", "b"], ", ")' }).xml;
   const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
-  assert.ok(c7.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('nicht nach JUEL')), c7.issues.map(i => i.text).join('; '));
+  assert.ok(c7.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('nicht für')), c7.issues.map(i => i.text).join('; '));
 });
 
 test('«Prozess mit Fehler stoppen» on C8: a text message with a quote is refused - it would end the FEEL string', () => {
@@ -598,4 +598,20 @@ test('«Prozess mit Fehler stoppen»: a backslash in a C8 text message is refuse
   assert.ok(c7.changed, c7.issues.join('; '));
   assert.equal(messageOf(c7.xml, 'End', 'c7').message, 'Betrag < 0 & ungültig');
   assert.ok(c7.xml.includes('Betrag &lt; 0 &amp; ungültig'), 'escaped in the XML');
+});
+
+test('«Prozess mit Fehler stoppen»: a C7 text with a quote goes to C8 as a FEEL string - not refused', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'Kunde "X" gesperrt' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(messageOf(c8.xml, 'End', 'c8').message, '="Kunde \\"X\\" gesperrt"');
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(back.issues, []);
+  assert.equal(messageOf(back.xml, 'End', 'c7').message, '${"Kunde \\"X\\" gesperrt"}');
+});
+
+test('«Prozess mit Fehler stoppen»: JUEL without FEEL form is said on the way to C8', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: '${execution.getVariableTyped("reason")}' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.ok(c8.issues.some(i => i.stepId === 'End' && i.text.includes('«message»') && i.text.includes('JUEL ohne FEEL')), c8.issues.map(i => i.text).join('; '));
 });

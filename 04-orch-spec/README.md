@@ -778,7 +778,8 @@ und Doku stehen in `democompany-patterns`:
   `failedJobRetryTimeCycle` `R1/PT0S` (ein Versuch, der Incident sofort);
   Camunda 8: `assert(false, false, …)` im Output-Mapping. Die Meldung steht
   danach in `_errorMessage` (C8 zusätzlich `_stopped`). Fester Text mit `"`
-  geht in Camunda 8 nicht — dann als FEEL (`= "…\"…"`).
+  schreibt der Engine-Wechsel nach Camunda 8 als FEEL-Text (`= "…\"…"`); in
+  Camunda 7 ist Text mit `${` ein Ausdruck.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):

@@ -78,7 +78,8 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     text: `«${byId.get(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} — umgewandelt wie der Rest, von Hand prüfen.`,
   }));
   // the parameters in the form of the target engine (`${…}` ⇄ `=…`, fixed text stays)
-  // translated once per hit
+  // translated once per hit - keyed by the hit object: strip.taken points into strip.all, and every
+  // use below takes the hits from there
   const cache = new Map<PatternHit, Array<readonly [string, { value: string; untranslated?: string }]>>();
   const checked = (h: PatternHit) => {
     let c = cache.get(h);
@@ -89,6 +90,12 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   const inserted = new Map<number, { changed: boolean; issues: string[] }>();
   for (const i of strip.taken) {
     const h = strip.all[i];
+    // a parameter without a form for the target engine: the pattern goes over like the rest
+    const untranslated = checked(h).filter(([, c]) => c.untranslated);
+    if (untranslated.length) {
+      failed.set(i, { h, why: untranslated.map(([k, c]) => `«${k}» = «${paramView(h.params[k])}» ist nicht für ${engineLabel(target)} übersetzbar: ${c.untranslated}`).join('; ') });
+      continue;
+    }
     try {
       const res = applyPattern(out, byId.get(h.patternId)!, target, h.targetId, paramsIn(h));
       if (res.changed) out = res.xml;
@@ -121,10 +128,6 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
-    // a FEEL value without JUEL: written as it is - Camunda 7 would take it as text
-    for (const [k, c] of checked(h)) {
-      if (c.untranslated) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: «${k}» = «${paramView(h.params[k])}» ist nicht nach JUEL übersetzbar (${c.untranslated}) — von Hand anpassen.` });
-    }
     const wanted = paramsIn(h);
     if (!sameParams(wanted, again.params)) {
       const keys = Object.keys({ ...wanted, ...again.params }).filter(k => (wanted[k] ?? '') !== (again.params[k] ?? ''));
