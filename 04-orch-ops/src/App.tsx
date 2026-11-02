@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen, UserRound } from 'lucide-react';
+import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, X, KeyRound, BookOpen, UserRound, Undo2 } from 'lucide-react';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import {
@@ -16,7 +16,8 @@ import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
 export default function App() {
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
-    connectSharePoint, savedSharePoint, forgetSharePoint, disconnect, actor, setLocalName } = useStore();
+    connectSharePoint, savedSharePoint, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious,
+    actor, setLocalName } = useStore();
   const [spOpen, setSpOpen] = useState(false);
   const [spLink, setSpLink] = useState('');
   const [spBusy, setSpBusy] = useState(false);
@@ -37,9 +38,14 @@ export default function App() {
   const setList = (list: ListState) => setRoute({ ...route, list });
   const [nameOpen, setNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
-  // sign-in active and not signed in yet → gate; admin only with role
-  const gated = auth.status !== 'disabled' && auth.status !== 'signedIn';
   const dirHandle = storage; // short name: connected storage (local or SharePoint)
+  // Sign-in active and not signed in yet → gate; admin only with the role.
+  // First the folder, then the sign-in (as in orch-spec): whether it is needed
+  // is said by the folder's model.json, and the SharePoint button signs in
+  // itself. So without a folder the start card is shown, not the gate — and
+  // the gate always offers the way to another folder.
+  const needsLogin = auth.status !== 'disabled' && auth.status !== 'signedIn';
+  const gated = needsLogin && !!dirHandle;
 
   // SharePoint: resolve the link and connect
   const doConnectSharePoint = async () => {
@@ -61,8 +67,11 @@ export default function App() {
     setSpPreparing(true);
     try {
       const r = await auth.loginForSharePoint();
-      if (r === 'ready') setSpOpen(true);
-      else if (r === 'setup') { setSetupError(''); setSetupRoles(peekPendingRoles() ?? { ...DEFAULT_ROLES }); setSetupOpen(true); }
+      // remembered folder → straight in; otherwise ask for the link
+      if (r === 'ready') {
+        if (savedSharePoint) await reconnectSharePoint();
+        else setSpOpen(true);
+      } else if (r === 'setup') { setSetupError(''); setSetupRoles(peekPendingRoles() ?? { ...DEFAULT_ROLES }); setSetupOpen(true); }
     } finally {
       setSpPreparing(false);
     }
@@ -79,7 +88,7 @@ export default function App() {
     setTimeout(() => { void startSharePoint(); }, 50);
   };
 
-  const denied = auth.status === 'signedIn' && !canView;
+  const denied = auth.status === 'signedIn' && !canView && !!dirHandle;
 
   // Docs button: only show it if there actually is an index.html one level
   // above the app (the app is embedded under /orch-ops/ in a docs site —
@@ -113,6 +122,20 @@ export default function App() {
   const topBg = isDark ? 'bg-[#0c0d0f]' : 'bg-[#eae9e5]';
   const textBase = isDark ? 'text-white' : 'text-black';
   const textMuted = isDark ? 'text-white/40' : 'text-black/40';
+  const switchFolder = () => { disconnect(); setRoute({ ...route, view: 'list', id: null, isNew: false }); };
+  // for which folder the sign-in is — and the way to another one
+  const folderOfGate = dirHandle && (
+    <div className={`flex items-center gap-2 rounded border px-3 py-2 mb-5 text-left ${isDark ? 'border-white/10' : 'border-black/10'}`}>
+      <span className={textMuted}>{dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}</span>
+      <span className="min-w-0 flex-1">
+        <span className={`block text-xs font-semibold truncate ${isDark ? 'text-white/80' : 'text-black/80'}`}>{dirHandle.name}</span>
+        <span className={`block text-[10px] truncate ${textMuted}`} title={dirHandle.webUrl}>
+          {dirHandle.kind === 'sharepoint' ? dirHandle.webUrl ?? 'SharePoint-Ordner' : 'lokaler Ordner'}
+        </span>
+      </span>
+      <button onClick={switchFolder} className={`text-[10px] flex-shrink-0 ${textMuted} hover:underline`}>anderer Ordner</button>
+    </div>
+  );
 
   return (
     <div className={`flex flex-col h-screen ${bg} ${textBase}`}>
@@ -206,7 +229,7 @@ export default function App() {
           {/* Shared folder (local or SharePoint) */}
           {!gated && !denied && dirHandle && (
           <button
-            onClick={() => { disconnect(); setRoute({ ...route, view: 'list', id: null, isNew: false }); }}
+            onClick={switchFolder}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors ${isDark ? 'border-white/15 text-white/50 hover:border-white/30' : 'border-black/15 text-black/50 hover:border-black/30'}`}
             title={dirHandle.kind === 'sharepoint' ? `SharePoint: ${dirHandle.webUrl ?? ''} — Klick: anderen Ordner wählen` : 'Anderen Ordner wählen'}
           >
@@ -242,6 +265,7 @@ export default function App() {
               <h1 className={`text-sm font-semibold uppercase tracking-widest mb-3 ${isDark ? 'text-white/70' : 'text-black/70'}`}>
                 Betrieb Camunda
               </h1>
+              {folderOfGate}
               {auth.status === 'loading' ? (
                 <p className={`text-xs ${textMuted}`}>Anmeldung wird geprüft …</p>
               ) : auth.status === 'error' ? (
@@ -257,7 +281,7 @@ export default function App() {
               ) : (
                 <>
                   <p className={`text-xs leading-relaxed mb-6 ${textMuted}`}>
-                    Bitte mit dem Microsoft-Konto anmelden. Die Anmeldung läuft über
+                    Dieser Ordner verlangt eine Anmeldung mit dem Microsoft-Konto. Sie läuft über
                     Microsoft Entra ID; die App selbst speichert keine Zugangsdaten.
                   </p>
                   <button onClick={auth.login}
@@ -272,6 +296,7 @@ export default function App() {
           <div className="h-full flex items-center justify-center p-6">
             <div className={`max-w-md w-full rounded-xl border p-8 text-center ${isDark ? 'border-rose-500/30 bg-rose-500/5' : 'border-rose-300 bg-rose-50'}`}>
               <AlertTriangle size={28} className={`mx-auto mb-4 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />
+              {folderOfGate}
               <p className={`text-xs leading-relaxed mb-2 ${isDark ? 'text-rose-300' : 'text-rose-700'}`}>
                 Keine Berechtigung für diese App.
               </p>
@@ -299,13 +324,28 @@ export default function App() {
                 <span className="font-semibold">errors/</span>? Fehlen sie, werden sie automatisch angelegt.
                 Kein eigener Server — die Daten bleiben im gewählten Ordner.
               </p>
+              {auth.status === 'error' && auth.error && (
+                <div className={`mb-4 flex items-start gap-1.5 text-[11px] px-2 py-1.5 rounded border text-left ${isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>
+                  <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" /> <span>Anmeldung: {auth.error}</span>
+                </div>
+              )}
+              {/* back to the folder that was just open — without new permission or sign-in */}
+              {previousStorage && (
+                <button onClick={() => void resumePrevious()}
+                  className={`w-full mb-4 flex items-center justify-center gap-2 text-xs px-3 py-2 rounded border transition-colors ${
+                    isDark ? 'border-blue-500/40 text-blue-300 hover:bg-blue-500/10' : 'border-blue-300 text-blue-700 hover:bg-blue-50'}`}>
+                  <Undo2 size={12} /> Zurück zu «{previousStorage.name}»
+                  <span className={`text-[10px] ${textMuted}`}>({previousStorage.kind === 'sharepoint' ? 'SharePoint' : 'lokaler Ordner'})</span>
+                </button>
+              )}
               <div className="space-y-3">
                 {/* SharePoint */}
                 {savedSharePoint ? (
                   <div className="space-y-1">
-                    <button onClick={startSharePoint} disabled={spPreparing}
+                    <button onClick={startSharePoint} disabled={spPreparing || auth.status === 'loading'}
                       className={`w-full flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/80'}`}>
-                      <Cloud size={12} /> {spPreparing ? 'Anmeldung …' : `Wieder verbinden: ${savedSharePoint.name}`}
+                      <Cloud size={12} /> {spPreparing || auth.status === 'loading' ? 'Anmeldung …'
+                        : `${auth.status === 'signedIn' ? 'Wieder verbinden' : 'Anmelden und verbinden'}: ${savedSharePoint.name}`}
                     </button>
                     <button onClick={forgetSharePoint} className={`text-[10px] ${textMuted} hover:underline`}>anderen SharePoint-Ordner wählen</button>
                   </div>
