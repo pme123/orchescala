@@ -30,13 +30,13 @@ const NEWER_SCAN = ['routing', 'topicName', 'ownerDescr', 'ownerDescrExpr'] as c
 // the old one from the catalog, the new one from the model.json. So the
 // types of a project come from **one** side — the one scanned later.
 
-/** The project folder from the path of the source (`valiant-bpmn/01-domain/…`) */
+/** The project folder from the path of the source (`acme-bpmn/01-domain/…`) */
 const projectOfSource = (t: DomainType): string | null => {
   const at = t.source?.indexOf('/') ?? -1;
   return at > 0 ? t.source!.slice(0, at) : null;
 };
 
-/** The package root of the project: up to `.domain` or `.worker` (`valiant.bpmn`) */
+/** The package root of the project: up to `.domain` or `.worker` (`acme.bpmn`) */
 export const packageRoot = (pkg: string): string => {
   const parts = pkg.split('.');
   const at = parts.findIndex(p => p === 'domain' || p === 'worker');

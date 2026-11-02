@@ -1,33 +1,28 @@
-{%
-helium.site.pageNavigation.enabled = false
-%}
 
 # Introduction
 
 A Company Project handles the specific configuration for the company.
 
-@:callout(info)
-See our [Demo Company](https://github.com/pme123/orchescala-democompany) - Check out an Example, how to setup _Orchescala_ for your Company - examples for all Engines.
-@:@
+> [!NOTE]
+> See our [Demo Company](https://github.com/pme123/orchescala-democompany) - Check out an Example, how to setup _Orchescala_ for your Company - examples for all Engines.
 
-@:callout(warning)
-**Be aware** that this is not tested.
-
-Make sure you have [init the company](../development/initCompany.md).
-
-In this process many files are generated and some are replaced.
-
-Only files with the comment `DO NOT ADJUST` will be replaced.
-So if you add custom code, make sure to remove this comment.
-
-We recommend you make a comment what you have changed, 
-so you can easily update the file from time to time.
-(just add the `DO NOT ADJUST` comment again)
-
-If there is no `DO NOT ADJUST` comment, you need to delete it if you want the newest version of this file.
-
-Normally these files have the comment: `// This file was created with .. - to reset delete it and run the command.`.
-@:@
+> [!WARNING]
+> **Be aware** that this is not tested.
+>
+> Make sure you have [init the company](../development/initCompany.md).
+>
+> In this process many files are generated and some are replaced.
+>
+> Only files with the comment `DO NOT ADJUST` will be replaced.
+> So if you add custom code, make sure to remove this comment.
+>
+> We recommend you make a comment what you have changed, 
+> so you can easily update the file from time to time.
+> (just add the `DO NOT ADJUST` comment again)
+>
+> If there is no `DO NOT ADJUST` comment, you need to delete it if you want the newest version of this file.
+>
+> Normally these files have the comment: `// This file was created with .. - to reset delete it and run the command.`.
 
 The layout looks similar to a BPMN project:
 ```bash

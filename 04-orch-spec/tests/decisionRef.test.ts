@@ -1,5 +1,5 @@
 // A DMN decision in the package of the process whose decisionRef does not start
-// with the process ID (`valiant-bpmn-map-actions` in `valiant-bpmn-sendProcessEvent`):
+// with the process ID (`acme-bpmn-map-actions` in `acme-bpmn-sendProcessEvent`):
 // it still belongs to the process — the sync matches it to the step.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';

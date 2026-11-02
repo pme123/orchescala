@@ -1,5 +1,6 @@
 package orchescala.engine.c8
 
+import orchescala.domain.IdentityCorrelation
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, EngineType, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
@@ -17,9 +18,12 @@ class C8MessageService(using
       timeToLiveInSec: Option[Int],
       businessKey: Option[String],
       processInstanceId: Option[String],
-      variables: Option[JsonObject]
+      variables: Option[JsonObject],
+      identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      withActorIdentityOfMessage(name, processInstanceId, identityCorrelation, variables)
+    .flatMap: variables =>
       // like C7: the processInstanceId wins - the BPMN takes it with correlationKey="=processInstanceId"
       val correlationKey = processInstanceId.orElse(businessKey)
       val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)

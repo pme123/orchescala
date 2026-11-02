@@ -1,7 +1,7 @@
 package orchescala.engine.c7
 
-import orchescala.engine.withoutCallerIdentityCorrelation
-import orchescala.domain.CamundaVariable
+import orchescala.engine.{withActorIdentityOfMessage, withoutCallerIdentityCorrelation}
+import orchescala.domain.{CamundaVariable, IdentityCorrelation}
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult}
 import orchescala.engine.services.MessageService
 import orchescala.engine.EngineConfig
@@ -28,9 +28,12 @@ class C7MessageService(using
       timeToLiveInSec: Option[Int],
       businessKey: Option[String],
       processInstanceId: Option[String],
-      variables: Option[JsonObject]
+      variables: Option[JsonObject],
+      identityCorrelation: Option[IdentityCorrelation]
   ): IO[EngineError, MessageCorrelationResult] =
     ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
+      withActorIdentityOfMessage(name, processInstanceId, identityCorrelation, variables)
+    .flatMap: variables =>
       val theBusinessKey = if processInstanceId.isDefined then None else businessKey
       val theTenantId    = if processInstanceId.isDefined then None else tenantId
 

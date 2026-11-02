@@ -11,6 +11,7 @@ import {
   insertDecision, insertErrorPath, insertStep, NEW_STEP_KINDS, removeStep, renameElement, type BranchSpec, type EditResult, type NewStepKind,
 } from './bpmnEdit';
 import { failed, isObject, type ToolKit, type ToolOutcome } from './toolkit';
+import { patternDefs } from '../patterns';
 
 /** The draft of one process - diagram and spec together. */
 export type ProcessDraft = {
@@ -180,7 +181,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
 /** The spec after a change of the diagram - as after a change by hand (ProcessView.planXml). */
 export function followDiagram(d: ProcessDraft, xml: string, ctx: ProcessContext): ProcessSpec {
-  const opts = { patterns: ctx.model?.patterns };
+  const opts = { patterns: patternDefs(ctx.model) };
   const fresh = importBpmn(xml, 'Claude', opts).spec;
   const before = importBpmn(d.xml, 'Claude', opts).spec;
   return mergeSpec(fresh, d.spec, before).spec;

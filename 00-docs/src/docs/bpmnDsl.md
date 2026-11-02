@@ -113,11 +113,10 @@ These are technical _Process Variables_, like:
 - Control the process flow (e.g. timers).
 - Mocking of services and sub-processes.
 
-@:callout(info)
-The _InitWorker_ will automatically put these variables on the process.
-That means you can override them for example in _Postman_ 
-- just set them as _process variables_ (`inConfig` object is not needed).
-@:@
+> [!NOTE]
+> The _InitWorker_ will automatically put these variables on the process.
+> That means you can override them for example in _Postman_ 
+> - just set them as _process variables_ (`inConfig` object is not needed).
 
 ## Business Rule Tasks (Decision DMNs)
 
@@ -311,10 +310,9 @@ This task is more specific, and so we need to define
   They represent the bodies of the service-request and -response.
 - In the _example_ we define also the _serviceInExample_ and the _serviceMock_.
 
-@:callout(info)
-At the moment we only support these 3 types of _External Tasks_.
-Depending on the use case we can add more types.
-@:@
+> [!NOTE]
+> At the moment we only support these 3 types of _External Tasks_.
+> Depending on the use case we can add more types.
 
 ## Receive Message Event
 A _Receive Message Event_ represents a catching message event. 
@@ -351,7 +349,7 @@ As we don't support _Throwing Signal events_ we can simplify this to _signalEven
 ```scala
 object MySignalEvent extends CompanyBpmnSignalEventDsl:
 
-  val messageName = s"mycompany-myproject-mysignal-$${SignalEvent.Dynamic_ProcessInstance}"
+  val messageName = s"mycompany-myproject-mysignal-${SignalEvent.Dynamic_ProcessInstance}"
   val descr: String = "my signal..."
 
   case class In(...)

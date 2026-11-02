@@ -32,16 +32,16 @@ const c7 = `<?xml version="1.0" encoding="UTF-8"?>
     <bpmn:sequenceFlow id="f2" sourceRef="InitProcessTask" targetRef="CancelEvent"/>
     <bpmn:sequenceFlow id="f3" sourceRef="CancelEvent" targetRef="EndEvent"/>
   </bpmn:process>
-  <bpmn:signal id="Sig" name="valiant-cancel-\${mainProcessInstanceId}" />
+  <bpmn:signal id="Sig" name="acme-cancel-\${mainProcessInstanceId}" />
 </bpmn:definitions>`;
 
 const signalName = (xml: string) => /<bpmn:signal id="Sig" name="([^"]*)"/.exec(xml)?.[1]?.replace(/&quot;|&#34;/g, '"');
 
 test('C7 -> C8 -> C7: a signal name with an expression becomes FEEL - and back JUEL', () => {
   const c8 = convertBpmn(c7, 'c8').xml;
-  assert.equal(signalName(c8), '="valiant-cancel-" + string(mainProcessInstanceId)');
+  assert.equal(signalName(c8), '="acme-cancel-" + string(mainProcessInstanceId)');
   // back to JUEL — equivalent to the original
-  assert.equal(signalName(convertBpmn(c8, 'c7').xml), '${"valiant-cancel-".concat(mainProcessInstanceId)}');
+  assert.equal(signalName(convertBpmn(c8, 'c7').xml), '${"acme-cancel-".concat(mainProcessInstanceId)}');
 });
 
 test('C8: the InitWorker reading processInstanceId at its own task is reported - it is still empty there', () => {

@@ -20,7 +20,7 @@ import { INTERACTION_META, SCALA_TYPES, isAdt } from './types.ts';
 import { interactionOrigin, loopSettings, mockableSteps } from './interactions.ts';
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
-import { isFixedCaseDefault } from './scalaTypes.ts';
+import { importName, isFixedCaseDefault } from './scalaTypes.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -56,9 +56,9 @@ export interface TypeIndex {
   defaultOf: (f: Field) => DomainDefault | null;
   /** Classes of the data model that already exist in another domain — per TypeDef id (see `referencedClass`) */
   referenced: Map<string, DomainType>;
-  /** Package of the own project (`valiant.product`) */
+  /** Package of the own project (`acme.product`) */
   home: string;
-  /** Package of the process (`valiant.product.domain.lilaSet.v2`) — empty if unknown */
+  /** Package of the process (`acme.product.domain.lilaSet.v2`) — empty if unknown */
   ownPkg: string;
   /** An example value of the domain by name (`defaultValidUntil`) — with the same precedence as `defaultOf` */
   defaultNamed: (name: string) => DomainDefault | null;
@@ -83,7 +83,7 @@ const isSchemaClass = (t: TypeDef) => !t.root && !t.processOut && !t.initIn && !
  * - defined in an object of the own process (`ResolveTimerDueDateWithOverwrite.DueDateSpec`,
  *   `OrderCard.CustomProcessStatus`) — the export would write it a second time as `schema/`
  * - in exactly one other package; with several, one in the same project wins
- *   (`PoaResult` → `valiant.product.domain.loadPoas.v1.schema`). If several remain: new, to be checked.
+ *   (`PoaResult` → `acme.product.domain.loadPoas.v1.schema`). If several remain: new, to be checked.
  */
 export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string): { type?: DomainType; ambiguous?: string[] } {
   if (!isSchemaClass(t) || !t.name?.trim()) return {};
@@ -127,12 +127,12 @@ export const isAutoImported = (pkg: string): boolean => pkg === 'orchescala.doma
 
 const typeKey = (t: string): string => {
   const clean = t.replace(/\s+/g, ' ').trim();
-  // `valiant.orchescala.domain.Iban` → `Iban`; composite types stay as they are
+  // `acme.orchescala.domain.Iban` → `Iban`; composite types stay as they are
   return /^[\w.]+$/.test(clean) ? clean.split('.').pop()! : clean;
 };
 
 /**
- * @param home package of the own project (`valiant.product`) — for example values
+ * @param home package of the own project (`acme.product`) — for example values
  *             with the same name, the own project comes first after the company library.
  */
 export function indexTypes(types: TypeDef[] = [], model: Model | null = null, home = '', ownPkg?: string): TypeIndex {
@@ -541,7 +541,7 @@ function descriptionLine(text: string): string {
 
 const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 /**
- * A value from Scala in the text (`valiant-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
+ * A value from Scala in the text (`acme-cancel-${SignalEvent.Dynamic_ProcessInstance}`,
  * `… ${OrderCard.processName} …`): then the literal is interpolated (`s"…"`) —
  * otherwise the placeholder would be in it verbatim, and e.g. no signal would arrive.
  * Only if every `${…}` is a path: `${execution.processInstanceId}` (JUEL
@@ -827,7 +827,10 @@ export function renderInteraction(ia: Interaction, spec: ProcessSpec, idx: TypeI
   const member = (t: TypeDef | null, name: 'In' | 'Out') => {
     const values = name === 'In' ? ia.inExample : ia.outExample;
     // another type: `type In = OrderCardUT.In` — its example, with the differing values
-    const alias = aliasName(name === 'In' ? ia.inAlias : ia.outAlias, spec, idx);
+    const ref = name === 'In' ? ia.inAlias : ia.outAlias;
+    // the other member of the same object (`type Out = In`) is visible without its object
+    const other = name === 'In' ? 'Out' : 'In';
+    const alias = ref === `${ia.id}.${other}` ? other : aliasName(ref, spec, idx);
     if (alias) {
       lines.push(`  type ${name} = ${alias}`);
       lines.push('');
@@ -1082,8 +1085,8 @@ export function allFields(t: TypeDef): Field[] {
 }
 
 /**
- * The package lines of a file: split at `domain` — `package valiant.product.domain`
- * and `package lilaSet.v2` —, so that everything from `valiant.product.domain` is visible
+ * The package lines of a file: split at `domain` — `package acme.product.domain`
+ * and `package lilaSet.v2` —, so that everything from `acme.product.domain` is visible
  * without an import, as in the hand-written domain files. Without `domain` one line.
  */
 export function packageClause(pkg: string): string {
@@ -1094,7 +1097,7 @@ export function packageClause(pkg: string): string {
     : `package ${pkg}`;
 }
 
-/** The package of the first package line (`valiant.product.domain`) — its content needs no import */
+/** The package of the first package line (`acme.product.domain`) — its content needs no import */
 const domainStem = (pkg: string): string | null => {
   const parts = pkg.split('.');
   const at = parts.indexOf('domain');
@@ -1104,9 +1107,7 @@ const domainStem = (pkg: string): string | null => {
 export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
   const lines: string[] = [];
   const fields = allFields(t).filter(f => isFinished(f, idx));
-  if (fields.some(f => f.constraint?.trim())) {
-    lines.push('import io.github.iltotore.iron.*', 'import io.github.iltotore.iron.constraint.all.*');
-  }
+  // Iron (`:|`, the constraints) needs no import: the project's `-Yimports` brings it along
   const external = new Map<string, string>(); // importPath → note
   for (const f of fields) {
     // the example value from another project needs its import — derived
@@ -1118,9 +1119,9 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     for (const name of f.example?.match(/\bdefault[A-Z]\w*/g) ?? []) {
       // from the domain: the import of its file — or none if the value was visible there without one
       if (f.exampleImports) {
-        const own = f.exampleImports.filter(i => i.endsWith(`.${name}`));
+        const own = f.exampleImports.filter(i => importName(i) === name);
         for (const i of own) external.set(i, '');
-        // … except via nested packages (`package valiant.product` / `package domain`):
+        // … except via nested packages (`package acme.product` / `package domain`):
         // the export only splits the package line at `domain` (see packageClause) — a value
         // of the own project elsewhere needs the import (below it is dropped if visible)
         const named = own.length ? null : idx.defaultNamed(name);
@@ -1140,7 +1141,7 @@ export function importsOf(t: TypeDef, idx: TypeIndex): string[] {
     const svc = idx.serviceOf(f.type);
     if (svc) external.set(svc.importPath, svc.uncertain ? '  // Pfad prüfen — aus dem Service-Namen abgeleitet' : '');
   }
-  // what lives directly in `valiant.product.domain` the file sees via its first package line
+  // what lives directly in `acme.product.domain` the file sees via its first package line
   const stem = domainStem(idx.ownPkg);
   for (const [path, note] of [...external.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     if (stem && path.slice(0, path.lastIndexOf('.')) === stem) continue;
@@ -1206,7 +1207,7 @@ function srcDir(spec: ProcessSpec, model: Model | null): string {
   return `01-domain/src/main/scala/${packageOf(spec, model).replace(/\./g, '/')}`;
 }
 
-/** Package of the own project: `valiant-product` → `valiant.product`. */
+/** Package of the own project: `acme-product` → `acme.product`. */
 export const homeOf = (spec: ProcessSpec): string => (spec.project ?? '').split('-').filter(Boolean).join('.');
 
 /** The imports of an interaction — those of its `In` and `Out` (catalog types, example values). */

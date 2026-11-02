@@ -14,7 +14,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       files.map(f => f.path.last -> f.insert),
       Seq("KundenkontaktDokumentieren.scala" -> true, "CreateContactNote.scala" -> false)
     )
-    assert(files(1).content.startsWith("package valiant.addresschange.domain.kundenkontaktDokumentieren.v1"))
+    assert(files(1).content.startsWith("package acme.addresschange.domain.kundenkontaktDokumentieren.v1"))
     assert(files(1).content.endsWith("end CreateContactNote\n"))
 
   test("parse drops the section headers"):
@@ -73,39 +73,39 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("workers only for the custom tasks of the process - not for user tasks, signals, messages"):
     val interactions = Seq(
-      ("PrepareOrderCard", "CustomTask", Some("valiant-product-orderCard-PrepareOrderCard")),
-      ("CreateAllPoa", "CustomTask", Some("valiant-product-orderCardV1-CreateAllPoaStatus90")),
+      ("PrepareOrderCard", "CustomTask", Some("acme-product-orderCard-PrepareOrderCard")),
+      ("CreateAllPoa", "CustomTask", Some("acme-product-orderCardV1-CreateAllPoaStatus90")),
       ("ApproveOrder", "UserTask", None),
       ("WaitForPreview", "SignalEvent", None),
       ("CardDelivered", "MessageEvent", None),
       // a worker of another project - exists there already
-      ("AdjustProcessVariables", "CustomTask", Some("valiant-addresschange-addressChangeV1-AdjustProcessVariables"))
+      ("AdjustProcessVariables", "CustomTask", Some("acme-addresschange-addressChangeV1-AdjustProcessVariables"))
     )
     assertEquals(
-      OrchSpecExport.workerNames(interactions, "valiant-product-orderCard"),
+      OrchSpecExport.workerNames(interactions, "acme-product-orderCard"),
       Seq("PrepareOrderCard", "CreateAllPoa")
     )
 
   test("a custom task of another project is foreign - neither domain object nor worker"):
     def task(topic: String) = s"object T extends CompanyBpmnCustomTaskDsl:\n  val topicName = \"$topic\"\n"
-    val processId = "valiant-product-orderCard"
-    assert(!OrchSpecExport.isForeign(task("valiant-product-orderCard-PrepareOrderCard"), processId))
-    assert(!OrchSpecExport.isForeign(task("valiant-product-orderCardV1-CreateAllPoaStatus90"), processId))
-    assert(OrchSpecExport.isForeign(task("valiant-addresschange-addressChangeV1-AdjustProcessVariables"), processId))
+    val processId = "acme-product-orderCard"
+    assert(!OrchSpecExport.isForeign(task("acme-product-orderCard-PrepareOrderCard"), processId))
+    assert(!OrchSpecExport.isForeign(task("acme-product-orderCardV1-CreateAllPoaStatus90"), processId))
+    assert(OrchSpecExport.isForeign(task("acme-addresschange-addressChangeV1-AdjustProcessVariables"), processId))
     // the others decides the export of Orch Spec (with the catalog) - and plain classes are always own
     assert(!OrchSpecExport.isForeign("object X extends CompanyBpmnUserTaskDsl:\n  val name = \"T\"\n", processId))
     assert(!OrchSpecExport.isForeign("case class Address(street: String)\n", processId))
 
   test("topicName of a worker object"):
-    val content = "object Check extends CompanyBpmnCustomTaskDsl:\n  val topicName     = \"valiant-product-orderCard-Check\"\n"
-    assertEquals(OrchSpecExport.topicName(content), Some("valiant-product-orderCard-Check"))
+    val content = "object Check extends CompanyBpmnCustomTaskDsl:\n  val topicName     = \"acme-product-orderCard-Check\"\n"
+    assertEquals(OrchSpecExport.topicName(content), Some("acme-product-orderCard-Check"))
     assertEquals(OrchSpecExport.topicName("object X extends CompanyBpmnUserTaskDsl:\n  val name = \"T\"\n"), None)
 
   test("processId takes the executable process"):
     val bpmn =
       """<bpmn:process id="other" isExecutable="false"></bpmn:process>
-        |<bpmn:process id="valiant-addresschange-kundenkontaktDokumentierenV1" name="x" isExecutable="true">""".stripMargin
-    assertEquals(OrchSpecExport.processId(bpmn), Some("valiant-addresschange-kundenkontaktDokumentierenV1"))
+        |<bpmn:process id="acme-addresschange-kundenkontaktDokumentierenV1" name="x" isExecutable="true">""".stripMargin
+    assertEquals(OrchSpecExport.processId(bpmn), Some("acme-addresschange-kundenkontaktDokumentierenV1"))
 
   test("withImport adds the import after the package"):
     assertEquals(
@@ -114,18 +114,18 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     )
 
   lazy val processObject = OrchSpecProcessObject(
-    "valiant.addresschange.domain.kundenkontaktDokumentieren.v1",
+    "acme.addresschange.domain.kundenkontaktDokumentieren.v1",
     "KundenkontaktDokumentieren",
-    "valiant-addresschange-kundenkontaktDokumentierenV1",
+    "acme-addresschange-kundenkontaktDokumentierenV1",
     files.head.content
   )
 
   test("process object - imports, name and examples"):
     val content = processObject.content
-    assert(content.startsWith("package valiant.addresschange.domain\npackage kundenkontaktDokumentieren.v1\n\nimport io.github.iltotore.iron.*\n"))
-    assert(content.contains("import valiant.graviton.domain.work.v1.PostWorkActivity\n"))
+    assert(content.startsWith("package acme.addresschange.domain\npackage kundenkontaktDokumentieren.v1\n\nimport io.github.iltotore.iron.*\n"))
+    assert(content.contains("import acme.graviton.domain.work.v1.PostWorkActivity\n"))
     assert(content.contains("object KundenkontaktDokumentieren extends CompanyBpmnProcessDsl:"))
-    assert(content.contains("""  val processName = "valiant-addresschange-kundenkontaktDokumentierenV1""""))
+    assert(content.contains("""  val processName = "acme-addresschange-kundenkontaktDokumentierenV1""""))
     assert(content.contains("    InitIn.exampleMinimal\n  )\nend KundenkontaktDokumentieren\n"))
     assert(!content.contains("// in object"))
     assert(processObject.hasInitIn)
@@ -133,7 +133,6 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
   test("process object - In gets the inConfig"):
     assert(processObject.content.contains(
       """      shabNumber: Option[String],
-        |      @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
         |      inConfig: Option[InConfig] = None
         |  ) extends WithConfig[InConfig]:
         |    lazy val defaultConfig = InConfig()
@@ -189,11 +188,9 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |    case Standard(
         |        clientKey: Long,
         |        amount: Int,
-        |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
         |        inConfig: Option[InConfig] = None
         |    )
         |    case Empty(
-        |        @description("A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**")
         |        inConfig: Option[InConfig] = None
         |    )
         |  end In""".stripMargin
@@ -399,7 +396,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(processObject.differences(implemented), Seq.empty)
     val changedIn   = implemented.replace("      shabNumber: Option[String],", "      shabNumber: Option[String],\n      newField: Int,")
     assertEquals(processObject.differences(changedIn), Seq("In"))
-    val noImport    = implemented.replace("import valiant.graviton.domain.work.v1.PostWorkActivity\n", "")
+    val noImport    = implemented.replace("import acme.graviton.domain.work.v1.PostWorkActivity\n", "")
     assertEquals(processObject.differences(noImport), Seq("imports"))
 
   test("object name - the exported one while its file exists, otherwise without the version"):
@@ -409,7 +406,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
 
   test("names from the process id - like Orch Spec"):
     assertEquals(
-      OrchSpecNames("valiant-addresschange-kundenkontakt-dokumentieren", "valiant-addresschange"),
+      OrchSpecNames("acme-addresschange-kundenkontakt-dokumentieren", "acme-addresschange"),
       OrchSpecNames("kundenkontaktDokumentieren", 1, "KundenkontaktDokumentieren")
     )
     assertEquals(
@@ -703,6 +700,183 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assertEquals(mergeObject.differences(merged), Seq.empty)
     assertEquals(mergeObject.merge(merged), merged)
 
+  test("merge - InConfig fields without default get the default of Orch Spec - and it needs no example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      @description("Time to wait")
+        |      timerInformKube: String = "P1D",
+        |      timerEscalationInform: Option[String] = Some("P5D"),
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  // see InConfig.example
+        |  lazy val minimalConfig = Proc.InConfig.exampleMinimal
+        |  lazy val otherConfig   = Other.InConfig.example
+        |
+        |  case class InConfig(
+        |      // Process Configuration
+        |      @description(
+        |        "Time to wait"
+        |      )
+        |      timerInformKube: String,
+        |      timerEscalationInform: Option[String],
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      timerInformKube = "P1D",
+        |      timerEscalationInform = Some("P5D")
+        |    )
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(m.contains(
+      """  case class InConfig(
+        |      // Process Configuration
+        |      @description(
+        |        "Time to wait"
+        |      )
+        |      timerInformKube: String = "P1D",
+        |      timerEscalationInform: Option[String] = Some("P5D"),
+        |      qmsRole: String = "6300--QMS"
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    ), m)
+    // all values are defaults now - no example, the In takes `InConfig()`
+    assert(!m.contains("lazy val example = InConfig("), m)
+    assert(!m.contains("= InConfig.example"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig()\n"), m)
+    // only references to this InConfig - not another object's, not in a comment
+    assert(m.contains("  lazy val minimalConfig = InConfig()\n"), m)
+    assert(m.contains("  lazy val otherConfig   = Other.InConfig.example\n"), m)
+    assert(m.contains("  // see InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - InConfig: a default over several lines or a commented line stays as it is - and so the example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      mocks: Seq[String] = Seq(
+        |        "a"
+        |      ),
+        |      timer: String = "P1D",
+        |      handler: String => Int = _.length
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  case class InConfig(
+        |      mocks: Seq[String],
+        |      timer: String, // the "timer"
+        |      handler: String => Int
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      mocks = Seq("a"),
+        |      timer = "P1D",
+        |      handler = _.length
+        |    )
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the multi-line default and the commented line are not touched - `=>` in a type is no default
+    assert(m.contains("      mocks: Seq[String],\n      timer: String, // the \"timer\"\n      handler: String => Int = _.length\n  )"), m)
+    // not all values are defaults: the example and `InConfig.example` stay
+    assert(m.contains("    lazy val example = InConfig(\n"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - InConfig: an example with other values than the defaults stays - and so InConfig.example"):
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  case class InConfig(
+        |      timer: String = "P1D",
+        |      retries: Int = 3
+        |  )
+        |
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |  end InConfig""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig.example
+        |  end In
+        |
+        |  case class InConfig(
+        |      timer: String = "P1D",
+        |      retries: Int = 3
+        |  )
+        |  object InConfig:
+        |    given ApiSchema[InConfig]  = deriveApiSchema
+        |    given InOutCodec[InConfig] = deriveInOutCodec
+        |    lazy val example = InConfig(
+        |      timer = "PT1M"
+        |    )
+        |    lazy val exampleMinimal = example.copy(retries = 0)
+        |  end InConfig
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the example differs from the defaults: `InConfig()` would change the configuration
+    assert(m.contains("    lazy val example = InConfig(\n      timer = \"PT1M\"\n    )\n"), m)
+    assert(m.contains("    lazy val exampleMinimal = example.copy(retries = 0)\n"), m)
+    assert(m.contains("    lazy val defaultConfig = InConfig.example\n"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
   test("merge - a field without default in InitIn also goes into its example"):
     val block    =
       """// in object Proc einfügen
@@ -957,6 +1131,83 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     // the examples from Orch Spec
     assert(m.contains("    lazy val example = In(\n      receivingSystems = None,\n      amount = 1\n    )\n"), m)
     assert(m.contains("    lazy val exampleMinimal = example.copy(\n      receivingSystems = None\n    )\n  end In\nend Proc"), m)
+    assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
+
+  test("merge - an enum In: the cases from Orch Spec, the companion keeps its own codec and decoders"):
+    val existing =
+      """package a.b.domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |  val descr: String = ""
+        |
+        |  enum In extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()
+        |
+        |    case PersonalVisit(
+        |        admissionTypeCode: AdmissionTypeCode,
+        |        inConfig: Option[InConfig] = None
+        |    )
+        |    case CheckedUnder(
+        |        admissionTypeCode: AdmissionTypeCode,
+        |        inConfig: Option[InConfig] = None
+        |    )
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]   = deriveApiSchema
+        |    given InOutCodec[In] = CirceCodec.from(decoder, deriveInOutEncoder)
+        |    given InOutDecoder[In.PersonalVisit] = deriveInOutDecoder
+        |    given InOutDecoder[In.CheckedUnder]  = deriveInOutDecoder
+        |
+        |    private lazy val decoder = new InOutDecoder[In]:
+        |      final def apply(c: HCursor): Decoder.Result[In] =
+        |        c.downField("admissionTypeCode").as[AdmissionTypeCode]
+        |          .flatMap:
+        |            case AdmissionTypeCode.PERSONAL_VISIT =>
+        |              customDecodeAccumulating[In.PersonalVisit](c)
+        |            case AdmissionTypeCode.CHECKED_UNDER  =>
+        |              customDecodeAccumulating[In.CheckedUnder](c)
+        |
+        |    lazy val example = In.PersonalVisit(AdmissionTypeCode.PERSONAL_VISIT)
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val block    =
+      """// in object Proc einfügen
+        |
+        |  enum In:
+        |    case PersonalVisit(
+        |        @description("the type")
+        |        admissionTypeCode: AdmissionTypeCode,
+        |        visitor: String
+        |    )
+        |    case CheckedUnder(
+        |        admissionTypeCode: AdmissionTypeCode
+        |    )
+        |  end In
+        |
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |
+        |    lazy val example = In.PersonalVisit(
+        |      admissionTypeCode = AdmissionTypeCode.PERSONAL_VISIT,
+        |      visitor = "Max"
+        |    )
+        |  end In
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    // the cases from Orch Spec
+    assert(m.contains("        admissionTypeCode: AdmissionTypeCode,\n        visitor: String,\n"), m)
+    // the companion stays - the own codec, the decoders of the cases, the decoder
+    assert(m.contains("    given InOutCodec[In] = CirceCodec.from(decoder, deriveInOutEncoder)\n"), m)
+    assert(m.contains("    given InOutDecoder[In.PersonalVisit] = deriveInOutDecoder\n"), m)
+    assert(m.contains("    private lazy val decoder = new InOutDecoder[In]:\n"), m)
+    assert(m.contains("              customDecodeAccumulating[In.CheckedUnder](c)\n"), m)
+    assert(!m.contains("deriveInOutCodec"), m)
+    // the example from Orch Spec
+    assert(m.contains("      visitor = \"Max\"\n    )\n  end In\nend Proc"), m)
     assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
 
   test("merge - a class without body gets the generated one, a companion without givens gets them"):

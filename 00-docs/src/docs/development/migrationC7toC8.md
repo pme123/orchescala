@@ -3,14 +3,13 @@
 This guide provides step-by-step instructions for migrating your Orchescala application from Camunda 7 to Camunda 8.
 The migration involves changes to BPMNs/ DMNs, Engine-, Worker- and Simulation configuration.
 
-@:callout(info)
-This is a work in progress. I will add more details as I go along.
-
-For now, it describes running C7 and C8 next to each other.
-
-The documentation is based on the [Demo Company](https://github.com/pme123/orchescala-democompany). 
-Check it out for the whole context.
-@:@
+> [!NOTE]
+> This is a work in progress. I will add more details as I go along.
+>
+> For now, it describes running C7 and C8 next to each other.
+>
+> The documentation is based on the [Demo Company](https://github.com/pme123/orchescala-democompany). 
+> Check it out for the whole context.
 
 ## Overview
 
@@ -301,14 +300,13 @@ simulate(
   ...
 ```
 
-@:callout(warning)
-
-Throwing an error in an end event is treated in:
-- C8: is an unhandled BPMN error, which can interrupt the process and propagate the error.
-- C7: is ignored if there is no boundary error event to catch it. 
-
-So in this case, you have to have different Scenarios.
-@:@
+> [!WARNING]
+>
+> Throwing an error in an end event is treated in:
+> - C8: is an unhandled BPMN error, which can interrupt the process and propagate the error.
+> - C7: is ignored if there is no boundary error event to catch it. 
+>
+> So in this case, you have to have different Scenarios.
 ---
 Here an example:
 

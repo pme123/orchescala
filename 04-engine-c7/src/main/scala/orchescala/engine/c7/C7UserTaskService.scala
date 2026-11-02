@@ -83,25 +83,17 @@ class C7UserTaskService() (using
         apiClient <- apiClientZIO
         _         <- logInfo(s"Completing UserTask: $taskId")
 
-        // Get existing correlation from process or use provided one
-        existingCorr <- getOrUpdateCorrelation(taskId, identityCorrelation)
-        _            <- ZIO.logDebug(s"existing correlation of $taskId: $existingCorr")
-
-        // Get processInstanceId from task
         processInstanceId <- getProcessInstanceIdFromTask(taskId)
-
-        // Sign the correlation with processInstanceId if provided
-        signedCorr <- existingCorr match
-                        case Some(corr) => signCorrelation(corr, processInstanceId)
-                        case None       => ZIO.succeed(None)
-        _          <- ZIO.logDebug(s"signed correlation of $taskId: $signedCorr")
-
-        // Build variables with signed correlation
-        jsonObj = processVariables.add(
-                    InputParams._identityCorrelation.toString,
-                    signedCorr.asJson.deepDropNullValues
-                  )
-        _      <- logInfo(s"complete UserTask: $taskId - ${jsonObj.keys.mkString(", ")}")
+        // the actor's identity under its own name - `_identityCorrelation` stays as set at the start
+        signedActor       <- ZIO.foreach(identityCorrelation)(signedFor(_, processInstanceId))
+        overridden        <- overriddenCorrelation(taskId, identityCorrelation, processInstanceId)
+        withActor          = signedActor.fold(processVariables)(withActorIdentity(processVariables, _))
+        jsonObj            = overridden.fold(withActor): corr =>
+                               withActor.add(
+                                 InputParams._identityCorrelation.toString,
+                                 corr.asJson.deepDropNullValues
+                               )
+        _                  <- logInfo(s"complete UserTask: $taskId - ${jsonObj.keys.mkString(", ")}")
 
         variableDtos <- toC7Variables(CamundaVariable.jsonObjectToProcessVariables(jsonObj))
         _            <- ZIO
@@ -156,68 +148,49 @@ class C7UserTaskService() (using
           s"Problem mapping CamundaVariable (${cValue.value}:${cValue.`type`}) to C7VariableValue: $err"
         )
 
-  private def getOrUpdateCorrelation(
+  /** DEPRECATED - only for processes that still rely on it (with the old `impersonateUserId`
+    * scripts): a user task with the form variable `doOverrideImpersonation = true` also overwrites
+    * `_identityCorrelation` with the actor's identity (its `impersonateProcessValue` from the
+    * task's form variable `engineConfig.impersonateProcessKey`). Without it - or with `false` - the
+    * process keeps its identity; take over `_identityCorrelationOfActor` in the BPMN instead.
+    */
+  private def overriddenCorrelation(
       taskId: String,
-      identityCorrelation: Option[IdentityCorrelation]
+      identityCorrelation: Option[IdentityCorrelation],
+      processInstanceId: String
   ): IO[EngineError, Option[IdentityCorrelation]] =
-    for
-      apiClient <- apiClientZIO
-      variables <-
-        ZIO
-          .attemptBlocking:
-            new TaskApi(apiClient)
-              .getFormVariables(
-                taskId,
-                s"identityCorrelation,doOverrideImpersonation,$impersonateProcessKeyLabel",
-                false
-              ).asScala
-          .mapError: err =>
-            C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting form variables: $err"))
+    identityCorrelation match
+      case None              => ZIO.none
+      case Some(correlation) =>
+        for
+          apiClient               <- apiClientZIO
+          variables               <-
+            ZIO
+              .attemptBlocking:
+                new TaskApi(apiClient)
+                  .getFormVariables(taskId, s"doOverrideImpersonation,$impersonateProcessKeyLabel", false)
+                  .asScala
+              .mapError: err =>
+                C7Service.withStatus(err)(EngineError.ProcessError(s"Problem getting form variables: $err"))
+          doOverride               = isOverride(variables)
+          impersonateProcessValue <- impersonateProcessValue(variables)
+          overridden              <-
+            if doOverride then
+              ZIO.logWarning(
+                s"UserTask '$taskId': `doOverrideImpersonation` is deprecated - " +
+                  "take over `_identityCorrelationOfActor` in the BPMN instead."
+              ) *>
+                signedFor(correlation.copy(impersonateProcessValue = impersonateProcessValue), processInstanceId)
+                  .map(Some(_))
+            else ZIO.none
+        yield overridden
 
-      doOverrideImpersonation <- checkOverride(variables)
-      impersonateProcessValue <- impersonateProcessValue(variables)
-      idCorrelation           <-
-        if doOverrideImpersonation then
-          // impersonateProcessValue is not set in the identityCorrelation, but maybe in the existing Correlation
-          ZIO.succeed(identityCorrelation.map(_.copy(impersonateProcessValue =
-            impersonateProcessValue
-          )))
-        else
-          variables
-            .get(InputParams._identityCorrelation.toString)
-            .map: dto =>
-              toVariableValue(dto)
-                .map: v =>
-                  val json = v.toJson
-                  Some(
-                    IdentityCorrelation(
-                      username =
-                        json.hcursor.downField("username").as[String].getOrElse("BAD_USERNAME"),
-                      email = json.hcursor.downField("email").as[Option[String]].getOrElse(None),
-                      impersonateProcessValue = json.hcursor.downField(
-                        "impersonateProcessValue"
-                      ).as[Option[String]].getOrElse(None),
-                      issuedAt = json.hcursor.downField(
-                        "issuedAt"
-                      ).as[Long].getOrElse(System.currentTimeMillis()),
-                      processInstanceId = json.hcursor.downField(
-                        "processInstanceId"
-                      ).as[Option[String]].getOrElse(None),
-                      signature =
-                        json.hcursor.downField("signature").as[Option[String]].getOrElse(None)
-                    )
-                  )
-            .getOrElse(ZIO.none)
-    yield idCorrelation
-
-  private def checkOverride(variables: mutable.Map[String, VariableValueDto])
-      : ZIO[Any, Nothing, Boolean] =
-    ZIO
-      .attempt:
-        variables.get("doOverrideImpersonation").forall(v => Boolean.unbox(v.getValue))
-      .catchAll: err =>
-        ZIO.logError(s"Problem getting doOverrideImpersonation: $err")
-          .as(true)
+  /** Only an explicit `true` (Boolean or "true") - a missing flag no longer overwrites. */
+  private[c7] def isOverride(variables: collection.Map[String, VariableValueDto]): Boolean =
+    variables.get("doOverrideImpersonation").map(_.getValue).exists:
+      case b: java.lang.Boolean => b.booleanValue
+      case s: String            => s.trim.equalsIgnoreCase("true")
+      case _                    => false
 
   private def impersonateProcessValue(variables: mutable.Map[String, VariableValueDto])
       : ZIO[Any, Nothing, Option[String]] =
@@ -245,25 +218,5 @@ class C7UserTaskService() (using
                                EngineError.ProcessError(s"Task $taskId has no processInstanceId")
                              )
     yield processInstanceId
-
-  private def signCorrelation(
-      correlation: IdentityCorrelation,
-      processInstanceId: String
-  ): IO[EngineError, Option[IdentityCorrelation]] =
-    engineConfig.identitySigningKey match
-      case Some(key) =>
-        ZIO.succeed:
-          Some(
-            orchescala.domain.IdentityCorrelationSigner.sign(
-              correlation.copy(processInstanceId = Some(processInstanceId)),
-              processInstanceId,
-              key
-            )
-          )
-      case None      =>
-        ZIO.logWarning(
-          "No identity signing key configured - correlation will not be signed"
-        ) *>
-          ZIO.succeed(Some(correlation.copy(processInstanceId = Some(processInstanceId))))
 
 end C7UserTaskService

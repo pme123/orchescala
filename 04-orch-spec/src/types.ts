@@ -281,6 +281,11 @@ export interface PatternDef {
    */
   variants?: Partial<Record<EngineId, string[]>>;
   /**
+   * What the pattern does not do yet on an engine — said when it is inserted (in `issues`) and in
+   * the admin, not only in the description.
+   */
+  limitations?: Partial<Record<EngineId, string>>;
+  /**
    * Where the pattern appears on the step. `assignment`: it determines the
    * responsibility (e.g. a task listener that assigns the advisor) — it is shown under
    * «Zuständigkeit», and groups/person are then not editable.
@@ -375,7 +380,7 @@ export interface Field {
   example?: string;
   /**
    * From the domain: the imports the example needs — as they appear in
-   * the file (`swisscom.fil.is.domain.defaultValidUntil`); empty if
+   * the file (`acme.fil.is.domain.defaultValidUntil`); empty if
    * the values were visible without an import (company library, own package)
    */
   exampleImports?: string[];
@@ -390,7 +395,7 @@ export interface Field {
   descriptionExpr?: string;
   /**
    * The imports `descriptionExpr` needs — from the domain's file:
-   * `valiant.bpmn.domain.sendProcessEvent.v1.SendProcessEvent` for
+   * `acme.bpmn.domain.sendProcessEvent.v1.SendProcessEvent` for
    * `s"…${SendProcessEvent.processName}…"`, `…Escalation.*` for `timerStartEscalationDescr`
    */
   descriptionImports?: string[];
@@ -647,7 +652,7 @@ export interface ProcessSpec {
   project?: string;
   /**
    * Old name that does not follow the convention (`company-projekt-prozessVersion`)
-   * and has to stay — e.g. `valiant-product-orderCard`. Then the only
+   * and has to stay — e.g. `acme-product-orderCard`. Then the only
    * check is that the ID has three parts.
    */
   legacyProcessId?: boolean;
@@ -740,7 +745,7 @@ export interface DomainField {
 export interface DomainDefault {
   /** `defaultClientKey` */
   name: string;
-  /** `valiant.orchescala.domain` */
+  /** `acme.orchescala.domain` */
   pkg: string;
   /** given or derived from the literal (`Long`) — without a type the value is not used */
   type?: string;
@@ -812,7 +817,7 @@ export interface DomainType {
   /** origin (file) — only for traceability */
   source?: string;
   /**
-   * The imports of the file (`valiant.vollmacht.domain.loadPoas.v1.LoadPoas`,
+   * The imports of the file (`acme.vollmacht.domain.loadPoas.v1.LoadPoas`,
    * `a.b.*`) — a field type is resolved via them first, as in Scala
    */
   imports?: string[];

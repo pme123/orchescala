@@ -19,6 +19,7 @@ import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
 import { correlationKeysOf, messageCorrelation, messageRequest } from './messageCall.ts';
+import { patternDefs } from './patterns.ts';
 
 export type ExportKind = 'fachlich' | 'orchescala' | 'scala' | 'bpmn' | 'json';
 
@@ -69,7 +70,7 @@ function statusTag(s: Status): string {
 // does not appear as separate steps: not at all in the business export, in the
 // Orchescala export marked in the overview.
 type PatternNames = (id: string) => string;
-const patternNames = (model: Model | null): PatternNames => id => model?.patterns?.find(p => p.id === id)?.name ?? id;
+const patternNames = (model: Model | null): PatternNames => id => patternDefs(model).find(p => p.id === id)?.name ?? id;
 function patternText(ps: AppliedPattern[] | undefined, name: PatternNames, code = false): string {
   return (ps ?? []).map(p => {
     const werte = Object.entries(p.params ?? {}).filter(([, v]) => v !== '').map(([k, v]) => (code ? `${k} = \`${v}\`` : `${k} = ${v}`));
@@ -369,7 +370,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
   if (verwendet.size) {
     out.push('## Verwendete Pattern', '');
     for (const [id, wo] of verwendet) {
-      const def = model?.patterns?.find(p => p.id === id);
+      const def = patternDefs(model).find(p => p.id === id);
       out.push(`### ${def?.name ?? id} (\`${id}\`)`, '', `An: ${wo.join(', ')}`, '');
       if (def?.description) out.push(def.description, '');
       if (def?.docUrl) out.push(`Doku: ${def.docUrl}`, '');

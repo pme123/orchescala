@@ -106,7 +106,7 @@ class UserTaskRunner(val userTaskScenario: SUserTask)(using
       _       <- userTaskService.complete(
                    taskId,
                    jsonOut,
-                   identityCorrelation = Some(testIdentityCorrelation)
+                   identityCorrelation = Some(userTaskScenario.identityCorrelation)
                  )
                    .mapError: err =>
                      SimulationError.ProcessError(

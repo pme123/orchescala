@@ -1,6 +1,6 @@
 package orchescala.engine.c8
 
-import orchescala.domain.{IdentityCorrelation, InputParams, Json, JsonProperty}
+import orchescala.domain.{IdentityCorrelation, Json, JsonProperty}
 import orchescala.engine.*
 import orchescala.engine.domain.{EngineError, UserTask}
 import orchescala.engine.services.UserTaskService
@@ -45,15 +45,9 @@ class C8UserTaskService()(using
         taskKey           <- toKey("taskId")(taskId)
         // Get processInstanceId from task
         processInstanceId <- getProcessInstanceIdFromTask(taskKey)
-        // Sign the correlation with processInstanceId if provided
-        signedCorr        <- identityCorrelation match
-                               case Some(corr) => signCorrelation(corr, processInstanceId)
-                               case None       => ZIO.none
-        jsonVariables      =
-          signedCorr
-            .map: s =>
-              processVariables.add(InputParams._identityCorrelation.toString, s.asJson.deepDropNullValues)
-            .getOrElse(processVariables)
+        // the actor's identity under its own name - `_identityCorrelation` stays as set at the start
+        signedActor       <- ZIO.foreach(identityCorrelation)(signedFor(_, processInstanceId))
+        jsonVariables      = signedActor.fold(processVariables)(withActorIdentity(processVariables, _))
         _                 <-
           rest
             .postNoContent(
@@ -93,24 +87,6 @@ class C8UserTaskService()(using
                                EngineError.ProcessError(s"Task $taskKey has no processInstanceId")
                              )
     yield processInstanceId
-
-  private def signCorrelation(
-      correlation: IdentityCorrelation,
-      processInstanceId: String
-  ): IO[EngineError, Option[IdentityCorrelation]] =
-    engineConfig.identitySigningKey match
-      case Some(key) =>
-        ZIO.some:
-          orchescala.domain.IdentityCorrelationSigner.sign(
-            correlation.copy(processInstanceId = Some(processInstanceId)),
-            processInstanceId,
-            key
-          )
-      case None      =>
-        ZIO.logWarning(
-          "No identity signing key configured - correlation will not be signed"
-        ).as:
-          Some(correlation.copy(processInstanceId = Some(processInstanceId)))
 
   def variables(
       taskId: String,

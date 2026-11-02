@@ -54,6 +54,36 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     inline def apply(process: Process[?, ?, ?]): ProcessScenario =
       ProcessScenario(nameOfVariable(process), process)
   
+  // A check on a process makes it a scenario named after the val it is defined in - not after
+  // `example` (the conversion above would take the name of the process value):
+  // `lazy val Approved = example.exists("x")` -> scenario `Approved`.
+  extension (inline process: Process[?, ?, ?])
+    inline def exists(key: String): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).exists(key)
+    inline def notExists(key: String): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).notExists(key)
+    inline def isEquals[V: InOutEncoder](key: String, value: V): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).isEquals(key, value)
+    inline def hasSize(key: String, size: Int): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).hasSize(key, size)
+    inline def hasSize(size: Int): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).hasSize(size)
+    inline def contains(key: String, value: CamundaVariable): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).contains(key, value)
+    inline def contains[V: InOutEncoder](expected: V): ProcessScenario =
+      ProcessScenario(nameOfEnclosingVal(process), process).contains(expected)
+  end extension
+
+  // Acting as another identity names the step after the val it is defined in, like the checks
+  // on a process: `lazy val CloseUT = CloseRequestUT.example.actingAs(testActorIdentityCorrelation)`.
+  extension (inline task: UserTask[?, ?])
+    inline def actingAs(identity: IdentityCorrelation): SUserTask =
+      SUserTask(nameOfEnclosingVal(task), task).actingAs(identity)
+
+  extension (inline event: MessageEvent[?])
+    inline def actingAs(identity: IdentityCorrelation): SMessageEvent =
+      SMessageEvent(nameOfEnclosingVal(event), event).actingAs(identity)
+
   inline given Conversion[UserTask[?, ?], SUserTask] with
     inline def apply(task: UserTask[?, ?]): SUserTask =
       SUserTask(nameOfVariable(task), task)
@@ -74,7 +104,7 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
     def waitFor(readyVariable: String): SMessageEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): SMessageEvent =
-      SMessageEvent(event.name, event.inOut, Some(readyVariable), readyValue)
+      event.copy(scenarioName = event.name, optReadyVariable = Some(readyVariable), readyValue = readyValue)
 
   end extension
 
@@ -83,19 +113,19 @@ trait SimulationDsl[T] extends TestOverrideExtensions:
       event.waitFor(readyVariable, true)
 
     def waitFor(readyVariable: String, readyValue: Any): SSignalEvent =
-      SSignalEvent(event.scenarioName, event.inOut, readyVariable, readyValue)
+      event.copy(readyVariable = readyVariable, readyValue = readyValue)
   end extension
 
   extension (event: STimerEvent)
     def waitFor(readyVariable: String): STimerEvent =
       event.waitFor(readyVariable, true)
     def waitFor(readyVariable: String, readyValue: Any): STimerEvent =
-      STimerEvent(event.scenarioName, event.inOut, Some(readyVariable), readyValue)
+      event.copy(optReadyVariable = Some(readyVariable), readyValue = readyValue)
   end extension
 
   extension (ut: SUserTask)
     def waitForSec(sec: Int): SUserTask =
-      SUserTask(ut.scenarioName, ut.inOut, waitForSec = Some(sec))
+      ut.copy(waitForSec = Some(sec))
 
   end extension
 

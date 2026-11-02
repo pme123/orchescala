@@ -27,7 +27,8 @@
 // A pattern on the **process** (`appliesTo: ['process']`) has no anchor:
 // its content is the blocks and the extensions of the process itself.
 
-import type { AppliedPattern, EngineId, Field, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
+import type { AppliedPattern, EngineId, Field, Model, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
+import { STANDARD_PATTERN_DEFS } from './standardPatterns.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import { uid } from './util.ts';
 import { ORCHESCALA_TYPES } from './orchescalaTypes.ts';
@@ -87,8 +88,56 @@ export function patternOfField(spec: ProcessSpec, type: TypeDef | undefined, fie
   return LABEL_FIELDS.some(l => l.name === field.name) ? ORCHESCALA_PATTERNS[0] : null;
 }
 
-/** The patterns of Orchescala and those from the admin */
-export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...(defs ?? [])];
+/**
+ * The standard patterns — BPMN building blocks that come with Orchescala
+ * (Init Process, identity, passing on mocks …), so every company has them.
+ * They are documented with their example processes in democompany-patterns.
+ */
+const deepFreeze = <T>(x: T): T => {
+  if (x && typeof x === 'object' && !Object.isFrozen(x)) {
+    for (const v of Object.values(x)) deepFreeze(v);
+    Object.freeze(x);
+  }
+  return x;
+};
+/** frozen through and through — shared by every model, so nobody may change them */
+export const STANDARD_PATTERNS: PatternDef[] = deepFreeze(STANDARD_PATTERN_DEFS.map(p => structuredClone(p)));
+
+/**
+ * One of the standard patterns itself — by identity, not by a flag: an own
+ * pattern from a file or the model.json cannot pass itself off as one.
+ */
+export const isStandardPattern = (p: PatternDef): boolean => STANDARD_PATTERNS.includes(p);
+
+const withStandard = new WeakMap<PatternDef[], PatternDef[]>();
+
+/**
+ * The patterns a company can use: its own from the admin, then the standard
+ * patterns — its own replaces a standard pattern with the same ID. Own patterns
+ * come first: if one matches the same element as a standard pattern and is as
+ * specific, the recognition gives the element to the own one (what one pattern
+ * claims, another cannot have).
+ * The result is cached per list, so it can be used as a React dependency —
+ * every writer replaces `model.patterns`, none changes it in place. It is
+ * frozen: it may be the shared STANDARD_PATTERNS.
+ */
+export function patternDefs(model: Pick<Model, 'patterns'> | null | undefined): PatternDef[] {
+  const own = model?.patterns;
+  if (!own?.length) return STANDARD_PATTERNS;
+  let all = withStandard.get(own);
+  if (!all) {
+    const ids = new Set(own.map(p => p.id));
+    all = Object.freeze([...own, ...STANDARD_PATTERNS.filter(p => !ids.has(p.id))]) as PatternDef[];
+    withStandard.set(own, all);
+  }
+  return all;
+}
+
+/**
+ * The patterns of Orchescala (built in and standard) and those from the admin —
+ * a new list on every call, unlike `patternDefs`: not as a React dependency.
+ */
+export const allPatterns = (defs: PatternDef[] | undefined): PatternDef[] => [...ORCHESCALA_PATTERNS, ...patternDefs({ patterns: defs })];
 
 /** The patterns on the process — those of Orchescala from the specification, the others from the diagram */
 export function processPatterns(spec: ProcessSpec): AppliedPattern[] {
@@ -162,6 +211,10 @@ const STRUCTURAL = new Set(['incoming', 'outgoing', 'documentation']);
 const CONTAINERS = new Set(['inputOutput', 'properties', 'ioMapping', 'taskHeaders']);
 /** Attributes that point to a root element — its name is compared */
 const REF_ATTRS = new Set(['signalRef', 'messageRef', 'errorRef', 'escalationRef']);
+/** Root elements a flow node refers to (by REF_ATTRS) */
+const ROOT_TAGS = new Set(['signal', 'message', 'error', 'escalation']);
+/** The prefix of an element's tag with the colon (`bpmn:`) — from the tag, not every DOM sets `prefix` */
+const prefixOf = (el: Element): string => (el.tagName.includes(':') ? el.tagName.slice(0, el.tagName.indexOf(':') + 1) : '');
 /** Attributes that never count */
 const SKIP_ATTRS = new Set(['id', 'attachedToRef', 'sourceRef', 'targetRef', 'default', 'isExecutable']);
 
@@ -785,6 +838,84 @@ function reachOwned(g: Graph, start: Element): Element[] {
   return [...nodes, ...flows];
 }
 
+/** Tasks that do the work of a block — what they call identifies the block */
+const WORK_TAGS = new Set(['serviceTask', 'sendTask', 'callActivity', 'businessRuleTask', 'scriptTask', 'userTask', 'receiveTask']);
+/**
+ * What a task calls, under engine-neutral keys — Camunda 7 on the element, Camunda 8 in its
+ * extensions: `task` (topic / job type), `process` (called process), `decision`, `template`.
+ */
+function callsOf(n: Element): Map<string, string> {
+  const out = new Map<string, string>();
+  const ext = firstNamed(n, 'extensionElements');
+  const zeebe = (tag: string, attr: string) => (ext ? firstNamed(ext, tag)?.getAttribute(attr) ?? null : null);
+  const put = (key: string, v: string | null | undefined) => { if (v != null) out.set(key, v); };
+  put('task', attrOf(n, 'camunda:topic') ?? zeebe('taskDefinition', 'type'));
+  put('process', attrOf(n, 'calledElement') ?? zeebe('calledElement', 'processId'));
+  put('decision', attrOf(n, 'camunda:decisionRef') ?? zeebe('calledDecision', 'decisionId'));
+  put('template', attrOf(n, 'camunda:modelerTemplate') ?? attrOf(n, 'zeebe:modelerTemplate'));
+  return out;
+}
+
+/** Does the diagram's task `rn` do what the pattern's task `fn` does — same kind, same calls? */
+function fitTask(fn: Element, rn: Element, b: Binding): Binding | null {
+  if (local(rn) !== local(fn)) return null;
+  const calls = callsOf(rn);
+  let cur: Binding | null = b;
+  for (const [k, v] of callsOf(fn)) {
+    const tv = calls.get(k);
+    cur = tv == null ? null : matchText(v, tv, cur);
+    if (!cur) return null;
+  }
+  return cur;
+}
+
+/**
+ * Lay the pattern's tasks onto the diagram's, each on its own — the binding grows along. If a
+ * choice binds a placeholder so that a later task no longer fits, the next candidate is tried
+ * (the blocks are small, a few tasks).
+ */
+function fitWork(work: Element[], reached: Element[], b: Binding, used: Set<Element> = new Set()): Binding | null {
+  if (!work.length) return b;
+  const [fn, ...rest] = work;
+  for (const rn of reached) {
+    if (used.has(rn)) continue;
+    const hit = fitTask(fn, rn, b);
+    if (!hit) continue;
+    const all = fitWork(rest, reached, hit, new Set(used).add(rn));
+    if (all) return all;
+  }
+  return null;
+}
+
+/**
+ * Does the block behind the pattern's link fit — the same tasks calling the same things?
+ * The path on the element (timer → link) has free parameters and fits every timer → link;
+ * only the block tells e.g. a mail from a process event. What a task calls is compared
+ * engine-neutrally, a placeholder must have the same value as on the path; mappings do not
+ * count (a block with one field more or less still fits). A task of the pattern that calls
+ * nothing fits every task of its kind — there is nothing to tell them apart. A block missing in
+ * the diagram does not speak against it; an event subprocess is defined by its start alone.
+ */
+function blocksFit(fr: Fragment, tg: Graph, b: Binding): boolean {
+  let cur: Binding = b;
+  for (const block of fr.blocks) {
+    const entry = block.entry;
+    if (local(entry) === 'subProcess') continue;
+    const entries = tg.nodes.filter(tn => local(tn) === local(entry))
+      .map(tn => ({ tn, b: matchEl(entry, tn, cur) })).filter((x): x is { tn: Element; b: Binding } => !!x.b);
+    if (!entries.length) continue;
+    const work = block.nodes.filter(n => WORK_TAGS.has(local(n)));
+    let fit: Binding | null = null;
+    for (const { tn, b: eb } of entries) {
+      fit = fitWork(work, reachOwned(tg, tn).filter(e => WORK_TAGS.has(local(e))), eb);
+      if (fit) break;
+    }
+    if (!fit) return false;
+    cur = fit;
+  }
+  return true;
+}
+
 /**
  * Find the pattern's shared blocks in the scope. What matters is the
  * **entry**: a link target with the same name, an event subprocess
@@ -896,7 +1027,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       const m = matchAnchor(fr, proc, null, claimed, builtins(null, proc));
       if (!m) continue;
       const blocks = matchBlocks(fr, graph(proc), claimed, m.b);
-      if (blocks.some(x => !x)) continue;
+      if (blocks.some(x => !x) || !blocksFit(fr, graph(proc), m.b)) continue;
       let b = m.b;
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
@@ -911,9 +1042,19 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       const tg = graph(t.parentElement);
       // the same pattern can hang on the element several times (two mail timers) —
       // whatever is already assigned is no longer available to the next one
+      /** paths of this element whose block belongs to something else — not offered again */
+      const rejected = new Set<Element>();
       for (let i = 0; i < 10; i++) {
-        const m = matchAnchor(fr, t, tg, claimed, builtins(t, proc));
+        const m = matchAnchor(fr, t, tg, rejected.size ? new Set([...claimed, ...rejected]) : claimed, builtins(t, proc));
         if (!m) break;
+        if (fr.blocks.length && !blocksFit(fr, tg, m.b)) {
+          // the path fits, its block does not (a timer → link of another pattern): try the next
+          // path — but only if this one is new; otherwise the same match would come back
+          const before = rejected.size;
+          for (const e of m.attached.values()) rejected.add(e);
+          if (rejected.size === before) break;
+          continue;
+        }
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
         res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
@@ -1044,7 +1185,10 @@ class Writer {
     if (!src) return fragId;
     const tag = local(src), name = refName(frag, fragId);
     const have = kids(this.defs).find(e => local(e) === tag && refName(this.doc, e.getAttribute('id') ?? '') === name);
-    if (have) return have.getAttribute('id')!;
+    if (have) {
+      this.addRootExtensions(have, src);
+      return have.getAttribute('id')!;
+    }
     const el = this.doc.importNode(src, true) as Element;
     el.setAttribute('id', this.newId(fragId));
     const before = kids(this.defs).find(e => local(e) === 'process' || local(e) === 'collaboration' || local(e) === 'BPMNDiagram');
@@ -1053,6 +1197,58 @@ class Writer {
       this.defs.insertBefore(this.doc.createTextNode('\n  '), before);
     } else appendEl(this.defs, el);
     return el.getAttribute('id')!;
+  }
+  /**
+   * The extensions the pattern needs on an existing root element (message, signal, error,
+   * escalation) — e.g. the correlation key (`zeebe:subscription`) of the start message, which an
+   * event subprocess catching it needs in Camunda 8. Only what is missing, by kind: an existing
+   * extension of the same kind stays as it is, also with other values or children (it was set on
+   * purpose — the pattern does not overwrite or merge it). The root element is shared with the
+   * rest of the diagram, so removing the pattern leaves the extension there. The namespace comes
+   * along with `declareFrom`. Returns whether something was added. If the kept one differs from
+   * the pattern's (another correlation key), that is said in `issues` — the pattern may rely on it.
+   */
+  addRootExtensions(have: Element, src: Element): boolean {
+    const want = firstNamed(src, 'extensionElements');
+    if (!want) return false;
+    const same = (a: Element, b: Element) => local(a) === local(b) && a.namespaceURI === b.namespaceURI;
+    const attrs = (e: Element) => Array.from(e.attributes).map(a => `${a.name}="${a.value}"`).sort().join(' ');
+    let ext = firstNamed(have, 'extensionElements');
+    let added = false;
+    for (const item of kids(want)) {
+      const kept = ext ? kids(ext).find(k => same(k, item)) : undefined;
+      if (kept) {
+        if (attrs(kept) !== attrs(item)) {
+          const what = `${local(have) === 'message' ? 'Nachricht' : local(have) === 'signal' ? 'Signal' : local(have) === 'error' ? 'Fehler' : 'Eskalation'} «${have.getAttribute('name') ?? have.getAttribute('id')}»`;
+          const msg = `${what}: ${item.tagName} bleibt wie im Diagramm (${attrs(kept) || 'ohne Angaben'}) — das Pattern sieht ${attrs(item) || 'nichts'} vor; prüfen.`;
+          if (!this.issues.includes(msg)) this.issues.push(msg);
+        }
+        continue;
+      }
+      if (!ext) {
+        ext = this.doc.createElementNS(BPMN_NS, `${prefixOf(have)}extensionElements`);
+        prependEl(have, ext);
+      }
+      appendEl(ext, this.doc.importNode(item, true) as Element);
+      added = true;
+    }
+    return added;
+  }
+  /**
+   * The root elements the pattern refers to that the diagram already has: their extensions,
+   * where missing. Only roots a node of the pattern refers to (REF_ATTRS).
+   */
+  addAllRootExtensions(frag: Document): boolean {
+    const used = new Set<string>();
+    for (const e of descendants(frag.documentElement)) for (const k of REF_ATTRS) { const v = e.getAttribute(k); if (v) used.add(v); }
+    let added = false;
+    for (const src of kids(frag.documentElement)) {
+      if (!ROOT_TAGS.has(local(src)) || !used.has(src.getAttribute('id') ?? '')) continue;
+      const name = refName(frag, src.getAttribute('id') ?? '');
+      const have = kids(this.defs).find(e => local(e) === local(src) && refName(this.doc, e.getAttribute('id') ?? '') === name);
+      if (have && this.addRootExtensions(have, src)) added = true;
+    }
+    return added;
   }
   /** Take over the DI of the pattern BPMN: shifted, moved to the new IDs */
   adoptDi(fragDi: Map<string, Element>, fragId: string, idMap: Map<string, string>, plane: Element, dx: number, dy: number): Element | null {
@@ -1094,8 +1290,7 @@ function ensureMessageStart(w: Writer, proc: Element): string | null {
   }
   const start = plain.find(s => s.getAttribute('id') === 'StartStartEvent') ?? plain[0];
   const name = proc.getAttribute('id') ?? '';
-  // prefix from the tag (`bpmn:startEvent`) — not every DOM sets `prefix`
-  const pre = start.tagName.includes(':') ? start.tagName.slice(0, start.tagName.indexOf(':') + 1) : '';
+  const pre = prefixOf(start);
   let msg = kids(w.defs).find(e => local(e) === 'message' && e.getAttribute('name') === name) ?? null;
   if (!msg) {
     msg = w.doc.createElementNS(BPMN_NS, `${pre}message`);
@@ -1451,12 +1646,17 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
     }
     changed = true;
   }
-  if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`]);
+  // the root elements the diagram already had (start message …) — also when everything else is
+  // already there: the pattern may be complete except for the correlation key of its message
+  if (w.addAllRootExtensions(fr.doc)) changed = true;
+  if (!changed) return same([`«${def.name}» ist hier schon vorhanden.`, ...w.issues]);
   // an unnamed element is named like the anchor («Init Process») — otherwise it would have no label
   const anchorName = fr.anchor?.getAttribute('name')?.trim();
   if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
   if (!plane && (fr.attached.length || missing.length)) w.issues.push('Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.');
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
+  const limitation = def.limitations?.[engine];
+  if (limitation) w.issues.push(`«${def.name}»: ${limitation}`);
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
 }
 

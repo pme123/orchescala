@@ -23,7 +23,7 @@ import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
 import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
-import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
+import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields, patternDefs } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { conversionNote, engineLabel } from '../engineLabels';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
@@ -227,24 +227,53 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     return () => mq.removeEventListener('change', h);
   }, []);
 
+  // Not there or not readable: said so instead of «Lade Spezifikation …» forever (e.g. a link
+  // from Teams into another folder). Read again when another folder is connected after opening -
+  // the folder from a link is often connected only after the sign-in. Keyed by the folder, not
+  // the storage object: reconnecting the same folder does not read again over local edits.
+  const [loadIssue, setLoadIssue] = useState<{ missing: true } | { error: string } | null>(null);
+  const [loadSeq, setLoadSeq] = useState(0);
+  const folderKey = storage ? `${storage.kind}|${storage.name}|${storage.webUrl ?? ''}` : null;
   useEffect(() => {
+    if (!folderKey) return; // without a folder the app shows the start card, not this view
     let alive = true;
+    // nothing of the previous folder stays: a pending save would go into the new folder
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = null;
+    latest.current = null;
+    auditBase.current = null;
+    auditQueue.current = [];
+    setSpec(null); setVersion(null); setXml(null); setShowDiagram(false);
+    setLoadIssue(null); setNotice(null);
     loadSpec(slug).then(r => {
-      if (!alive || !r) return;
-      setSpec(r.data);
-      setVersion(r.version);
+      if (!alive) return;
+      if (!r) { setLoadIssue({ missing: true }); return; }
+      // Subprocesses and error paths collapsed at first: overview first
+      // the pattern blocks too — their wiring is only shown when needed.
+      // Worked out before any state is set: if it throws, the catch below shows it.
+      const start = new Set<string>(foldIds(r.data.steps));
+      for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       auditBase.current = r.data;
       latest.current = r.data;
       auditQueue.current = [...r.audit];
-      // Subprocesses and error paths collapsed at first: overview first
-      // the pattern blocks too — their wiring is only shown when needed
-      const start = new Set<string>(foldIds(r.data.steps));
-      for (const s of allSteps(r.data.steps)) if (s.kind === 'subprocess') start.add(s.id);
       setCollapsed(start);
+      setVersion(r.version);
+      setSpec(r.data);
+    }).catch(e => {
+      console.error('[orch-spec] loadSpec:', e);
+      if (!alive) return;
+      latest.current = null; auditBase.current = null;
+      setSpec(null);
+      setLoadIssue({ error: e instanceof Error ? e.message : String(e) });
     });
-    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } });
+    loadBpmn(slug).then(x => { if (alive) { setXml(x); setShowDiagram(!!x); } }, e => {
+      console.error('[orch-spec] loadBpmn:', e);
+      if (alive) setNotice({ tone: 'warn', message: `Das Diagramm konnte nicht geladen werden: ${e instanceof Error ? e.message : String(e)} Seite neu laden, um es nochmals zu versuchen.` });
+    });
     return () => { alive = false; };
-  }, [slug, loadSpec, loadBpmn]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs and setters only; the folder by its key
+  }, [slug, folderKey, loadSeq, loadSpec, loadBpmn]);
 
   // Bare type names from an import without a catalog: as soon as the catalog
   // knows them, they become references — this is saved with the next
@@ -711,11 +740,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     // An open modeler reloads the aligned XML.
     const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
     let text = alignPoolIds(raw, { renameProcess: renamed }).xml;
-    const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
+    const { spec: fresh } = importBpmn(text, from, { patterns: patternDefs(modelRef.current) });
     // the previous BPMN as reference: what the diagram did not change stays
     // as in the specification (service, mappings — they only go in on export)
     let base = null;
-    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unreadable — without reference */ }
+    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: patternDefs(modelRef.current) }).spec : null; } catch { /* unreadable — without reference */ }
     const { spec: merged0, report } = mergeSpec(fresh, current, base, st);
     // Steps renamed in the diagram: the ID follows the name (convention).
     // If the change comes from the modeler, it renames — that triggers the
@@ -871,7 +900,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   // Afterwards the sync reads the diagram again: so the step shows what is in the
   // diagram, and an open modeler reloads the new XML.
   const changePattern = useCallback(async (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params: Record<string, string> = {}, previous?: Record<string, string>) => {
-    const x = xmlRef.current, cur = specRef.current, defs = modelRef.current?.patterns ?? [];
+    const x = xmlRef.current, cur = specRef.current, defs = patternDefs(modelRef.current);
     const def = defs.find(d => d.id === patternId);
     if (!x || !cur || !def) {
       setNotice({ tone: 'warn', message: !x ? 'Pattern brauchen das Diagramm — zuerst ein BPMN laden.' : `Pattern «${patternId}» ist im Admin nicht (mehr) definiert.` });
@@ -892,13 +921,13 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   // Pattern changed in the admin (or the specification dates from before):
   // update the pattern details from the diagram, nothing else
-  const patternDefs = model?.patterns;
+  const modelPatterns = patternDefs(model);
   const loaded = !!spec;
   useEffect(() => {
     const cur = specRef.current;
     if (!loaded || !xml || !cur) return;
     try {
-      const fresh = importBpmn(xml, cur.slug, { patterns: patternDefs }).spec;
+      const fresh = importBpmn(xml, cur.slug, { patterns: modelPatterns }).spec;
       const withPatterns = syncPatterns(cur, fresh);
       // a specification from before the import of timers gets them from the diagram
       const withTimers = syncTimers(withPatterns ?? cur, fresh);
@@ -910,7 +939,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       const what = [withPatterns && 'Pattern', withTimers && 'Timer', withKeys && 'Korrelations', withEvents && 'Ereignis'].filter(Boolean).join('- und ');
       if (next) update(next, { source: 'load', note: `${what}-Angaben aus dem Diagramm nachgezogen` });
     } catch { /* unreadable BPMN — the sync reports it */ }
-  }, [loaded, xml, patternDefs, update]);
+  }, [loaded, xml, modelPatterns, update]);
 
   // Switch engine: the converted diagram goes the way of every change —
   // the sync reads engine, topics and mappings from it again
@@ -968,6 +997,17 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     setSync({ raw: await file.text(), from: file.name });
   };
 
+  if (!spec && loadIssue) return (
+    <div className="max-w-5xl mx-auto px-6 py-6">
+      <button onClick={onBack} className={`text-[11px] ${c.muted2}`}>‹ Prozesse</button>
+      <p className={`mt-4 text-xs ${c.muted}`}>
+        {'missing' in loadIssue
+          ? <>Den Prozess «{slug}» gibt es im Ordner «{storage?.name ?? '–'}» nicht (mehr) – vielleicht zeigt der Link auf einen anderen Ordner, oder der Prozess wurde umbenannt oder gelöscht.</>
+          : <>Der Prozess «{slug}» konnte nicht geladen werden: {loadIssue.error}</>}
+      </p>
+      <button onClick={() => setLoadSeq(n => n + 1)} className={`mt-3 text-[11px] underline ${c.muted2}`}>Nochmals laden</button>
+    </div>
+  );
   if (!spec) return <div className={`h-full flex items-center justify-center text-xs ${c.muted}`}>Lade Spezifikation …</div>;
 
   const selectedStep = selected ? shownById.get(selected) ?? null : null;
@@ -1211,7 +1251,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                   serviceOf={s => catalogEntry(s, model)}
                   processId={spec.processId ?? ''}
                   hasCatalog={!!model?.services?.length}
-                  patternName={id => model?.patterns?.find(d => d.id === id)?.name ?? id}
+                  patternName={id => patternDefs(model).find(d => d.id === id)?.name ?? id}
                   onOpenInteraction={ia => { setFocusType(ia.inTypeId ?? ia.outTypeId ?? null); setTab('model'); }}
                   onOpenType={id => { setFocusType(id); setTab('model'); }} />
                 {!spec.steps.length && (
@@ -1458,11 +1498,20 @@ interface ListProps {
 }
 
 /**
+ * Deeper than this the tree stops — a guard: a block that contains itself must not fill the
+ * memory (with fan-out the cost grows per level). Real specifications reach about 7 levels.
+ */
+const MAX_TREE_DEPTH = 20;
+
+/**
  * What a pattern brings into the diagram — timer, link, shared block —
  * is wiring, not business logic. In the tree it is therefore shown as one
  * row in the pattern colour; the steps below only on click.
+ *
+ * `head`: the step the block starts with (its head, or the first step of the error path) —
+ * the list of its content must not open the same block again, otherwise it contains itself.
  */
-function PatternFold({ pattern, what, steps, p }: { pattern: string; what: string; steps: Step[]; p: ListProps }) {
+function PatternFold({ pattern, what, steps, head, p }: { pattern: string; what: string; steps: Step[]; head: string; p: ListProps }) {
   const c = cls(p.isDark);
   // opens and closes like every level (collapsed) — «Alles ausklappen» reaches it too
   const key = foldKey(steps);
@@ -1486,7 +1535,7 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
           {n} Schritt{n === 1 ? '' : 'e'}
         </span>
       </button>
-      {open && <StepList {...p} steps={steps} depth={p.depth + 1} />}
+      {open && <StepList {...p} steps={steps} depth={p.depth + 1} foldOf={head} />}
     </div>
   );
 }
@@ -1495,10 +1544,16 @@ function PatternFold({ pattern, what, steps, p }: { pattern: string; what: strin
  * The steps of a level — own blocks (second start, link target) in
  * a bracket: the block begins at the step with `orphan` and extends
  * to the next one. An event subprocess already has its own bracket.
+ * `foldOf`: the head of the pattern block this list is the content of — it does not open the
+ * block again. Not part of ListProps, so it applies to this one list only and never travels on
+ * with the props to the lists below (children, branches, paths).
  */
-function StepList(p: ListProps) {
+function StepList({ foldOf, ...p }: ListProps & { foldOf?: string }) {
   const c = cls(p.isDark);
-  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)));
+  if (p.depth > MAX_TREE_DEPTH) {
+    return <p className={`text-[10px] ${c.muted}`}>… zu tief verschachtelt — weitere Ebenen ausgeblendet</p>;
+  }
+  const groups = blockGroups(p.steps.filter(s => !p.filterActive || p.matches(s)), foldOf);
   return (
     <div className="flex flex-col">
       {groups.map(g => {
@@ -1507,7 +1562,7 @@ function StepList(p: ListProps) {
         if (g.head.pattern) {
           return (
             <div key={g.head.id} className="mt-2 -ml-6">
-              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} p={p} />
+              <PatternFold pattern={g.head.pattern} what={`gemeinsamer Block · ${start}`} steps={g.steps} head={g.head.id} p={p} />
             </div>
           );
         }
@@ -1640,7 +1695,7 @@ function StepRow({ step, ...p }: ListProps & { step: Step }) {
 
           {/* Error and side paths */}
           {step.errors?.filter(e => e.steps?.length && e.pattern && shows(e.steps)).map(e => (
-            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} p={p} />
+            <PatternFold key={e.code} pattern={e.pattern!} what={`${boundaryLabel(e)} «${e.code}»`} steps={e.steps!} head={e.steps![0].id} p={p} />
           ))}
           {step.errors?.filter(e => e.steps?.length && !e.pattern && shows(e.steps)).map(e => (
             <div key={e.code} className={`ml-6 pl-3 border-l-2 ${

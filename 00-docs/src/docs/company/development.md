@@ -9,9 +9,8 @@ cd ~/dev-mycompany/mycompany-orchescala
 chmod +x helper.scala
 ```
 
-@:callout(info)
-To update this project, use `cd ..` and then `./helperCompany init` - see  [Init Company].
-@:@
+> [!NOTE]
+> To update this project, use `cd ..` and then `./helperCompany init` - see  [Init Company].
 
 ## update
 
@@ -45,11 +44,10 @@ See [project publish](../development/projectDev.md#publish).
 ## Company Documentation
 This is a semi-automatic process. This should be done either to prepare a Release or after a Release.
 
-@:callout(info)
-At the moment this is based on using **Postman** and a **WebDAV** server.
-
-So get in touch if you have a different setup.
-@:@
+> [!NOTE]
+> At the moment this is based on using **Postman** and a **WebDAV** server.
+>
+> So get in touch if you have a different setup.
 
 Do the following steps:
 
@@ -76,9 +74,8 @@ Prepare the company documentation.
 ```bash
 ./helper.scala prepareDocs
 ```
-@:callout(warning)
-Be aware that this overwrites `release.md`
-@:@
+> [!WARNING]
+> Be aware that this overwrites `release.md`
 
 `prepareDocs` ends with a local preview of the documentation site: the site is assembled into
 `00-docs/site` (this company and its siblings, the project APIs at their released versions,
@@ -87,6 +84,24 @@ and the command keeps running until you stop it with Ctrl-C. A failure in the sp
 the sibling repos does not stop the preview, it is printed and the preview continues with what is
 available. Everything needed ships with orchescala; Node.js is only used for the orch-spec
 catalog (skipped without it).
+
+The preview port is 3004 by default. A company changes it in its `CompanyOrchescalaDevHelper`, e.g.
+when two companies preview on the same machine:
+
+```scala
+override protected def docsPreviewPort: Int = 3003
+```
+
+Each company has a folder for orch-spec and one for orch-ops: `00-docs/testdata/spec` and
+`00-docs/testdata/ops`. `prepareDocs` creates them, and the preview shows the path on the start
+screen of both apps (with a copy button - in the folder dialog on macOS paste it with ⌘⇧G). A browser
+cannot be given a folder, so it is linked once per preview port; the browser remembers it afterwards.
+Other folders:
+
+```scala
+override protected def docsSpecDir: os.Path = os.home / "specs" / "my-company"
+override protected def docsOpsDir: os.Path  = os.home / "ops" / "my-company"
+```
 
 - Manually adjust the Release Notes _release.md_ - and check the result in the local preview
   (run `prepareDocs` again, or `npm run site` in orch-doc).
@@ -109,11 +124,10 @@ The site links two apps in its top bar: **Spec** (`spec/`, process specification
 status tags, screenshots). Orch Ops keeps its data in a shared folder of its own (local or
 SharePoint), chosen in the app - the site only serves the app.
 
-@:callout(info)
-The documentation apps (Orch Doc, Orch Spec, Orch Ops) are licensed under the
-[Business Source License 1.1](https://github.com/pme123/orchescala/blob/master/04-orch-doc/LICENSE):
-non-production use is free, production use - publishing the site for a company - needs a license
-from z9nai GmbH.
-@:@
+> [!NOTE]
+> The documentation apps (Orch Doc, Orch Spec, Orch Ops) are licensed under the
+> [Business Source License 1.1](https://github.com/pme123/orchescala/blob/master/04-orch-doc/LICENSE):
+> non-production use is free, production use - publishing the site for a company - needs a license
+> from z9nai GmbH.
 
 - Check the result on your Company Documentation Page (`<documentationUrl>/site/#/<company>`).

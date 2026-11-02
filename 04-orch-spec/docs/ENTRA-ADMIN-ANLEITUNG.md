@@ -61,6 +61,8 @@ Hinweise:
   ID-Token) bleiben **deaktiviert** — PKCE benötigt sie nicht.
 - Die localhost-URIs dienen der Entwicklung (Dev-Server bzw. lokale Vorschau
   der Dokumentation); sie können nach der Einführung entfernt werden.
+- Der Port der lokalen Vorschau ist standardmässig 3004. Setzt die Firma einen
+  eigenen (`docsPreviewPort`), gehört dieser in die URI.
 
 ## Schritt 3 · API-Berechtigungen
 

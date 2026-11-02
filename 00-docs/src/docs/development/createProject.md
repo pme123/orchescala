@@ -1,13 +1,9 @@
-{%
-helium.site.pageNavigation.enabled = false
-%}
 # Create Project
 
 **Experimental**
 
-@:callout(info)
-Make sure you have [setup the company project](../company/intro.md).
-@:@
+> [!NOTE]
+> Make sure you have [setup the company project](../company/intro.md).
 
 Creating a Project is done in two steps:
 
@@ -57,18 +53,17 @@ dependencies: [
 // engineType: Op
 ```
 
-@:callout(info)
-If you haven't released `company-orchescala` yet,
-you need to run it at least locally (`sbt publishLocal`) 
-and set the version in the `helper.scala` manually.
-
-```scala
-//> using dep mycompany::mycompany-orchescala-helper:VERSION NOT FOUND 
-// replace with:
-//> using dep mycompany::mycompany-orchescala-helper:0.1.0-SNAPSHOT
-```
-
-@:@
+> [!NOTE]
+> If you haven't released `company-orchescala` yet,
+> you need to run it at least locally (`sbt publishLocal`) 
+> and set the version in the `helper.scala` manually.
+>
+> ```scala
+> //> using dep mycompany::mycompany-orchescala-helper:VERSION NOT FOUND 
+> // replace with:
+> //> using dep mycompany::mycompany-orchescala-helper:0.1.0-SNAPSHOT
+> ```
+>
 
 ### Next Step: [Project Development]
 

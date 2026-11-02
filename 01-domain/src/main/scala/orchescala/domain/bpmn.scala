@@ -19,6 +19,7 @@ def maybe[T](value: T | Option[T]): Option[T] = value match
 
 inline def allFieldNames[T <: Enum | Product]: Seq[String] = ${ FieldNamesOf.allFieldNames[T] }
 inline def nameOfVariable(inline x: Any): String           = ${ NameOf.nameOfVariable('x) }
+inline def nameOfEnclosingVal(inline x: Any): String       = ${ NameOf.nameOfEnclosingVal('x) }
 inline def nameOfType[A]: String                           = ${ NameOf.nameOfType[A] }
 
 enum InputParams:
@@ -37,6 +38,10 @@ enum InputParams:
   // set by the engine only: the process was started with an identity, its signed correlation
   // follows right after the start (it needs the process instance id) - a worker waits for it
   case _identityCorrelationPending
+  // set by the engine only: the signed identity of the person who completed the user task or sent
+  // the message (with a processInstanceId) - the BPMN decides whether the process takes it over
+  // (`_identityCorrelation = _identityCorrelationOfActor`)
+  case _identityCorrelationOfActor
   // idempotency
   case _idempotentId
   @deprecated("Use `identityCorrelation`") case impersonateUserId
@@ -96,6 +101,9 @@ object GenericExternalTask:
 end GenericExternalTask
 
 trait WithConfig[InConfig <: Product: InOutCodec]:
+  @description(
+    "A way to override process configuration.\n\n**SHOULD NOT BE USED on Production!**"
+  )
   def inConfig: Option[InConfig]
   def defaultConfig: InConfig
   lazy val defaultConfigAsJson: Json = defaultConfig.asJson

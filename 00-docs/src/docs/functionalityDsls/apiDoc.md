@@ -1,11 +1,10 @@
 # API Documentation
 
-@:callout(info)
-The focus is to describe or better define how someone must interact with your processes.
-
-This is done with [ReDoc](https://redocly.com/redoc/) which is an Open API documentation tool.
-So there are some quirks, but I think you get used to them fast.
-@:@
+> [!NOTE]
+> The focus is to describe or better define how someone must interact with your processes.
+>
+> This is done with [ReDoc](https://redocly.com/redoc/) which is an Open API documentation tool.
+> So there are some quirks, but I think you get used to them fast.
 
 ## Why
 
@@ -104,9 +103,8 @@ The output variables are described in the _200_ (_ok_) response, as a status is 
 
 See [Postman Open API] for additional information.
 
-@:callout(info)
-There is an idea to provide a _Domain Driven Gateway_, so this will be more natural.
-@:@
+> [!NOTE]
+> There is an idea to provide a _Domain Driven Gateway_, so this will be more natural.
 
 ## Apis
 Each Api defines its inputs and outputs, as well as if needed additional information.
@@ -224,10 +222,9 @@ private lazy val InvoiceAssignApproverDMN =
 ```
 
 ### Generic Service Process
-@:callout(info)
-This is now _**DEPRECATED**_ and replaced by _Service Workers_.
-See [Service Worker].
-@:@
+> [!NOTE]
+> This is now _**DEPRECATED**_ and replaced by _Service Workers_.
+> See [Service Worker].
 
 ## Groups
 You can organize your Apis within Groups.
@@ -259,40 +256,39 @@ This will create the following structure in  the doc:
 
 ![api_groupStructure](images/api_groupStructure.png)
 
-@:callout(warning)
-Be aware that `document` only supports two levels. 
-This is because we use Tags to structure the APIs.
-
-Correct 1-2 Levels:
-```scala
-    api(`Review Invoice`)(
-      AssignReviewerUT,
-      ReviewInvoiceUT
-    ),
-    OtherExternalTask,
-    group("DMNs")(
-      InvoiceAssignApproverDMN
-    ),
-    group("Helper Processes")(
-      MyServiceProcess
-    ),
-```
-
-Wrong > 2 Levels:
-```scala
-    api(`Review Invoice`)(
-       api(MyServiceProcess)(
-         SelectServiceUT
-       )
-    )
-    group("Cool Processes")(
-      api(MyServiceProcess)(
-        SelectServiceUT
-      )
-    )
-```
-
-@:@
+> [!WARNING]
+> Be aware that `document` only supports two levels. 
+> This is because we use Tags to structure the APIs.
+>
+> Correct 1-2 Levels:
+> ```scala
+>     api(`Review Invoice`)(
+>       AssignReviewerUT,
+>       ReviewInvoiceUT
+>     ),
+>     OtherExternalTask,
+>     group("DMNs")(
+>       InvoiceAssignApproverDMN
+>     ),
+>     group("Helper Processes")(
+>       MyServiceProcess
+>     ),
+> ```
+>
+> Wrong > 2 Levels:
+> ```scala
+>     api(`Review Invoice`)(
+>        api(MyServiceProcess)(
+>          SelectServiceUT
+>        )
+>     )
+>     group("Cool Processes")(
+>       api(MyServiceProcess)(
+>         SelectServiceUT
+>       )
+>     )
+> ```
+>
 
 ## Postman Open API
 Next to the Documentation, it creates also a YAML that you can import into Postman.
@@ -331,13 +327,12 @@ Manual adjustments in most request:
       pm.collectionVariables.set("taskId", taskId)
       ```
 
-@:callout(info)
-That it is not possible to have the API Documentation as the postman Open API is not nice.
-
-However as we can describe a UserTask as one API, it takes three requests to actually handle a UserTask.
-
-In the future we may provide a REST API that will work for both.
-
-This would also allow a painless transition to Camunda 8.
-@:@
+> [!NOTE]
+> That it is not possible to have the API Documentation as the postman Open API is not nice.
+>
+> However as we can describe a UserTask as one API, it takes three requests to actually handle a UserTask.
+>
+> In the future we may provide a REST API that will work for both.
+>
+> This would also allow a painless transition to Camunda 8.
 

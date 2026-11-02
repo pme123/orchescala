@@ -31,9 +31,9 @@ test('safeDecode: a malformed escape stays as it is', () => {
 });
 
 test('rewriteLinks: OpenApi.html with #tag, #operation and without anchor into the app', () => {
-  const md = '[a](https://h/site/valiant/valiant-cms/OpenApi.html#tag/Identification) '
-    + '[b](../valiant-cms/OpenApi.html#operation/Bpmn:%20x) [c](../valiant-cms/OpenApi.html)';
-  assert.equal(rewriteLinks(md, 'valiant'),
-    '[a](#/valiant/api/valiant-cms?op=tag/Identification) '
-    + '[b](#/valiant/api/valiant-cms?op=Bpmn:%20x) [c](#/valiant/api/valiant-cms)');
+  const md = '[a](https://h/site/acme/acme-cms/OpenApi.html#tag/Identification) '
+    + '[b](../acme-cms/OpenApi.html#operation/Bpmn:%20x) [c](../acme-cms/OpenApi.html)';
+  assert.equal(rewriteLinks(md, 'acme'),
+    '[a](#/acme/api/acme-cms?op=tag/Identification) '
+    + '[b](#/acme/api/acme-cms?op=Bpmn:%20x) [c](#/acme/api/acme-cms)');
 });

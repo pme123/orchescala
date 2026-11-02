@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Orch Spec: the pages of an app - designer with live preview, renderer as app bundle (E15) (#31) - see [Commit](https://github.com/pme123/orchescala/commit/b7de6fb12d7c662ee6fbbfa9b9f6ea4aa4305de2)
 - Orch Spec: a step in a pattern block and the process' own start message get no interaction (old drafts go); a step carries the status of its interaction in filter and chip; the whole descr goes to the helper, which writes lazy val descr (stripMargin for several lines) - see [Commit](https://github.com/pme123/orchescala/commit/c116260e7e60192857c270dfae4efbd704c8b9a1)
 - Orch Spec: override def descr of the process object is read (multi-line too) and fills an empty Beschrieb / Ausgangslage / Ziel on import and domain sync; field «Quelle» removed - see [Commit](https://github.com/pme123/orchescala/commit/04d8d4044f35558cd51ab4fb9fa5512da5faf234)
-- Orch Spec export: the package clause is split after domain (package valiant.product.domain / package lilaSet.v2) - in the files of the app and a new process object of the helper; imports of the domain package itself are left out - see [Commit](https://github.com/pme123/orchescala/commit/eb97b45295baf90e8e3e3138f6ff5b09b1813155)
+- Orch Spec export: the package clause is split after domain (package acme.product.domain / package lilaSet.v2) - in the files of the app and a new process object of the helper; imports of the domain package itself are left out - see [Commit](https://github.com/pme123/orchescala/commit/eb97b45295baf90e8e3e3138f6ff5b09b1813155)
 - Orch Spec: a mock that reads a general variable (_outputMock) gets no InConfig field of that name - the field comes from the step name, the BPMN reads it - see [Commit](https://github.com/pme123/orchescala/commit/6a8b275563cdf118b538c058780cd33ad480aa50)
 - Orch Spec export: an existing override val / lazy val processLabels is kept (no second one); a new one is written as override lazy val - see [Commit](https://github.com/pme123/orchescala/commit/bb10f33c04a5402bd2e9250d2656c1b3c4378a49)
 - Orch Spec: a boundary event chosen in the diagram shows the step it is attached to (its handled errors) instead of the process - see [Commit](https://github.com/pme123/orchescala/commit/e1b57ccb4476ab561fdc29ad1646778ce342ccfb)
@@ -163,7 +163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.8.1 - 2026-10-02
 ### Changed 
-- Orch Spec: messages and signals of another process (name not starting with the own process id, e.g. valiant-bpmn-stopEscalation-…) are wiring — no interaction, no prepared draft - see [Commit](https://github.com/pme123/orchescala/commit/244ea3d3f8b28d97579286c9d4ba5583861d55e4)
+- Orch Spec: messages and signals of another process (name not starting with the own process id, e.g. acme-bpmn-stopEscalation-…) are wiring — no interaction, no prepared draft - see [Commit](https://github.com/pme123/orchescala/commit/244ea3d3f8b28d97579286c9d4ba5583861d55e4)
 - Orch Spec: steps that belong to a pattern get no prepared interaction (wiring, no domain object) - see [Commit](https://github.com/pme123/orchescala/commit/07490e30155f4e4c7446ad8e7c8cafccc765fbfa)
 - Orch Spec: imported classes remember their domain type (domainId) — a class of the own process is not «already in the domain» just because an older catalog still has it nested in an object - see [Commit](https://github.com/pme123/orchescala/commit/1f2c27d4969295b2fbce15121cbc66a8dc8cd7f9)
 - Orch Spec: the process's schema classes are always imported; types nested in the own process object belong to the spec (not «already in the domain») and stay in the object on export; a warning lists classes that are nowhere in the domain - see [Commit](https://github.com/pme123/orchescala/commit/f14dad7be9993f1db00f962679f83ad4beecafa4)
@@ -393,7 +393,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PasswordGrantFlow: background refresher keyed like the token cache - see [Commit](git@github.com:pme123/orchescala/commit/f9c5e972770eaaca75f7c851b966f76b727e0afc)
 - C7/Op engine calls: run on the blocking pool, with timeouts - see [Commit](git@github.com:pme123/orchescala/commit/75413e16676bebf5c4806994085e6477d1c66b3a)
 - Company check: compile a generated company project in the build (sbt companyCheck) - see [Commit](git@github.com:pme123/orchescala/commit/6c71081213e4987d5fe18f7fe75f72b0baedd802)
-- Company generator: templates follow the valiant-orchescala structure - see [Commit](git@github.com:pme123/orchescala/commit/20f861c1b88701ff7dc8b629cedd65ce595a887d)
+- Company generator: templates follow the acme-orchescala structure - see [Commit](git@github.com:pme123/orchescala/commit/20f861c1b88701ff7dc8b629cedd65ce595a887d)
 - C8: startProcessByMessage signs the identity correlation - see [Commit](git@github.com:pme123/orchescala/commit/bc6f6ccacaf535b1a927065f0af11cc622a63e4c)
 - GET /deployment without targetEngine lists the deployments of all engines - see [Commit](git@github.com:pme123/orchescala/commit/77ca8ca2bf79259a1f0e167102b003c484b43aed)
 - C8Client: restAuth has no silent default, add C8DefaultNoAuthClient - see [Commit](git@github.com:pme123/orchescala/commit/4f352e89981a8c4864bb0df90a13c76b8fd319e3)

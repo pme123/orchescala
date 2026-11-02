@@ -89,11 +89,11 @@ export function deriveObject(serviceId: string): Derived {
 
 /**
  * Object and package from the domain catalog: a process via its
- * `processName` (`valiant-vollmacht-loadPoasV1` → `LoadPoas` in
- * `valiant.vollmacht.domain.loadPoas.v1`), a worker via its `topicName`
- * (`valiant-graviton-eventStatus.get` → `GetEventStatus`), a service object via its
- * name (`valiant-services-tadv2.GetProfileCompletionCustomerId` → in
- * `valiant.services.domain.tad.v2`) — if the name exists several times, the one in the
+ * `processName` (`acme-vollmacht-loadPoasV1` → `LoadPoas` in
+ * `acme.vollmacht.domain.loadPoas.v1`), a worker via its `topicName`
+ * (`acme-graviton-eventStatus.get` → `GetEventStatus`), a service object via its
+ * name (`acme-services-tadv2.GetProfileCompletionCustomerId` → in
+ * `acme.services.domain.tad.v2`) — if the name exists several times, the one in the
  * derived package, otherwise none. Null if the catalog does not know it.
  */
 export function catalogObject(ref: string, model: Model | null): Derived | null {
@@ -101,7 +101,7 @@ export function catalogObject(ref: string, model: Model | null): Derived | null 
   const asObject = (t: DomainType): Derived => ({ object: t.owner!, pkg: t.pkg, uncertain: false });
   const process = idx.byProcess.get(ref)?.[0];
   if (process) return asObject(process);
-  // a worker via its topic (`valiant-graviton-eventStatus.get` → `GetEventStatus`) —
+  // a worker via its topic (`acme-graviton-eventStatus.get` → `GetEventStatus`) —
   // the name cannot be derived from it
   const worker = idx.byTopic.get(ref) ?? [];
   if (worker.length && new Set(worker.map(t => `${t.pkg}.${t.owner}`)).size === 1) return asObject(worker[0]);

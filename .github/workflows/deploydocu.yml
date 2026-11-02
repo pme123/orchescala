@@ -25,24 +25,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Coursier Cache
-        uses: coursier/cache-action@v6
-      - name: Setup JDK
-        uses: actions/setup-java@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          distribution: temurin
-          java-version: 21
-          cache: sbt
-      - name: Install sbt
-        uses: sbt/setup-sbt@v1
-      - name: Run SBT docs/mdoc and docs/laikaSite
-        run: sbt -v "docs/mdoc; docs/laikaSite"
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 00-docs/package-lock.json
+      - name: Build the documentation site
+        # Vite/React app in 00-docs - renders the markdown of 00-docs/src/docs, one prerendered page per file
+        working-directory: 00-docs
+        run: npm ci && npm run ci
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./00-docs/target/docs/site
+          path: ./00-docs/dist
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

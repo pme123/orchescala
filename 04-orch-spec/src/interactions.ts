@@ -100,7 +100,7 @@ export function interactionKind(step: Step, processId: string): InteractionKind 
   // its fields are in the process's `In` (see `missingInteractions`).
   if (step.kind !== 'receive' && step.eventKind !== 'message' && !(step.eventKind === 'signal' && step.eventDirection === 'throw')) return null;
   // only the messages and signals of this process — as with the workers: a
-  // name of another process (`valiant-bpmn-stopEscalation-…`, `valiant-cancel-…`
+  // name of another process (`acme-bpmn-stopEscalation-…`, `acme-cancel-…`
   // from a pattern) is wiring, its object lives there
   if (step.messageName && processId && !step.messageName.startsWith(processId.replace(/V\d+$/, ''))) return null;
   return step.eventKind === 'signal' ? 'signal' : 'message';
@@ -297,7 +297,7 @@ export interface ForeignOrigin {
   /** the domain object, e.g. `SubStatusAllDmn` */
   object: string;
   pkg: string;
-  /** the project after the package convention: `valiant.bpmn.domain…` → `valiant-bpmn` */
+  /** the project after the package convention: `acme.bpmn.domain…` → `acme-bpmn` */
   project: string;
 }
 
@@ -375,6 +375,43 @@ export function createMemberType(
     interactionId: ia.id,
     status: 'draft',
     fields,
+  };
+}
+
+/**
+ * Set In or Out of an interaction to another type (`type In = OrderCardUT.In`) — or back to an
+ * own class (`null`). The fields come from the target; this member's own class is dropped.
+ * `type Out = In` in the same object: the member that points to the other keeps that one's class;
+ * the member the other points to takes it along — the other follows its new type, or loses its
+ * alias when this one has no type any more.
+ */
+export function withMemberAlias(spec: ProcessSpec, ia: Interaction, member: 'In' | 'Out', ref: string | null, model: Model | null): ProcessSpec {
+  const types = spec.types ?? [];
+  const interactions = spec.interactions ?? [];
+  const keys = (m: 'In' | 'Out') => (m === 'In' ? { alias: 'inAlias', type: 'inTypeId' } as const : { alias: 'outAlias', type: 'outTypeId' } as const);
+  const otherMember = member === 'In' ? 'Out' : 'In';
+  const me = keys(member);
+  const other = keys(otherMember);
+  const pointsToOther = ia[me.alias] === `${ia.id}.${otherMember}`;
+  const otherFollows = ia[other.alias] === `${ia.id}.${member}`;
+  // `In = Out` while `Out = In` would be a cycle - nothing to change
+  if (otherFollows && ref === `${ia.id}.${otherMember}`) return spec;
+  const own = ia[me.type] && !pointsToOther ? types.find(t => t.id === ia[me.type] && t.interactionId === ia.id) : undefined;
+  const rest = own ? types.filter(t => t.id !== own.id) : types;
+  // a type of the catalog: its fields as a copy (for mappings and checks)
+  const dom = ref?.startsWith('dom:') ? (model?.domainTypes ?? []).find(d => `dom:${d.id}` === ref) : undefined;
+  const copy = dom ? aliasMemberType(ia, member, dom, model) : undefined;
+  const dot = ref && !dom ? ref.lastIndexOf('.') : -1;
+  const target = dot > 0 ? interactions.find(i => i.id === ref!.slice(0, dot)) : undefined;
+  const targetId = copy ? copy.id : target ? (ref!.slice(dot + 1) === 'In' ? target.inTypeId : target.outTypeId) : undefined;
+  const typeId = ref ? targetId : undefined;
+  const follower = otherFollows
+    ? (typeId ? { [other.type]: typeId } : { [other.alias]: undefined, [other.type]: undefined })
+    : {};
+  return {
+    ...spec,
+    types: copy ? [...rest, copy] : rest,
+    interactions: interactions.map(i => (i.id === ia.id ? { ...i, [me.alias]: ref ?? undefined, [me.type]: typeId, ...follower } : i)),
   };
 }
 
@@ -457,7 +494,10 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     const en = split ? resolveType(split.base, model, pkg) : null;
     if (split && enumHasCase(en, split.enumCase)) { ref = en; enumCase = split.enumCase; }
   }
-  const example = exampleOf(p);
+  // In/Out of an interaction use no default: one from the constructor (a class without
+  // `example`) is the example value
+  const dflt = p.default && p.default !== 'None' && !isFixedCaseDefault(enumCase, p.default) ? p.default : undefined;
+  const example = exampleOf(p) ?? (dflt ? exampleOf({ type: p.type, example: dflt }) : undefined);
   return {
     id: uid('f'),
     name: p.name,
@@ -467,7 +507,6 @@ export function fieldFromScala(p: DomainField, model: Model | null, pkg?: string
     ...(shape.map ? { map: true } : {}),
     ...(enumCase ? { enumCase } : {}),
     ...(shape.constraint ? { constraint: shape.constraint } : {}),
-    ...(p.default && !isFixedCaseDefault(enumCase, p.default) ? { default: p.default } : {}),
     ...(p.description ? { description: p.description } : {}),
     ...(p.descriptionExpr ? { descriptionExpr: p.descriptionExpr } : {}),
     ...(example ? { example } : {}),
@@ -501,7 +540,7 @@ export interface InteractionOrigin {
  *
  * - if `ia.pkg` is set (remembered on creation), that applies
  * - a match in the own package: the own object
- * - a key with a placeholder (`valiant-cancel-${…}`) applies per process instance —
+ * - a key with a placeholder (`acme-cancel-${…}`) applies per process instance —
  *   each process defines it itself: without its own match, new
  * - exactly one foreign match: referenced; several: new, but needs checking
  */

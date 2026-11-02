@@ -24,9 +24,9 @@ import type { DomainField, DomainType, Field, Interaction, InteractionKind, Mode
 import { SCALA_TYPES } from './types.ts';
 import { isDomainSource, isSkippedDir, scanFiles } from './domainScan.ts';
 import { allSteps } from './bpmn.ts';
-import { exampleOf, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
+import { exampleOf, importedPath, importName, importsForExpression, isCompoundType, isFixedCaseDefault, typeShape, unionAllowsNone } from './scalaTypes.ts';
 import { catalogEntry, createMemberType, interactionKind, missingInteractions, resolveType, suggestName, toInteraction, withOrigin, withoutWiringInteractions } from './interactions.ts';
-import { packageOf, referencedClass } from './scala.ts';
+import { defaultIsUsed, packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
 import { domainRef } from './serviceTypes.ts';
 import { enumHasCase, splitEnumCase } from './feel.ts';
@@ -151,8 +151,8 @@ async function searchDomain(
   // catalog is as old as its last build (Admin → Katalog, prepareDocs),
   // otherwise the sync would only see a change to the domain after that.
   const folders = model?.projects ?? [];
-  // the project whose name is the longest prefix — `valiant` is not the project of
-  // `valiant-bpmn-…` when `valiant-bpmn` is listed too (folders of the same name all count)
+  // the project whose name is the longest prefix — `acme` is not the project of
+  // `acme-bpmn-…` when `acme-bpmn` is listed too (folders of the same name all count)
   const matching = folders.filter(p => processId.startsWith(`${p.name}-`));
   const longest = Math.max(0, ...matching.map(p => p.name.length));
   const own = matching.filter(p => p.name.length === longest);
@@ -182,7 +182,7 @@ const isScalar = (t: string) => (SCALA_TYPES as readonly string[]).includes(t);
 
 /**
  * Does the type belong to the project of the process package (same package root
- * up to `.domain`)? `valiant.addresschange.domain.x.v1` → `valiant.addresschange.domain`.
+ * up to `.domain`)? `acme.addresschange.domain.x.v1` → `acme.addresschange.domain`.
  */
 function inProject(t: DomainType, pkg: string): boolean {
   const stem = pkg.replace(/\.domain\..*$/, '.domain');
@@ -227,18 +227,18 @@ class Converter {
 
   /**
    * A type via the imports of its file: `LoadPoas.Out` with
-   * `import valiant.vollmacht.domain.loadPoas.v1.LoadPoas` — first the
+   * `import acme.vollmacht.domain.loadPoas.v1.LoadPoas` (or a rename `… as X`) — first the
    * explicit ones, then those with `*`; a relative import (`schema.*`) also
    * from the package.
    */
-  private viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
+  viaImports(base: string, pkg: string, imports: string[] | undefined): DomainType | null {
     if (!imports?.length) return null;
     const head = base.split('.')[0];
     const rest = base.slice(head.length);
     const index = catalogIndex(this.model?.domainTypes);
     const lookup = (id: string) => this.domain.find(t => t.id === id) ?? index.byId.get(id) ?? null;
     const at = (path: string) => lookup(path) ?? lookup(`${pkg}.${path}`);
-    for (const imp of imports) if (imp.endsWith(`.${head}`) || imp === head) { const t = at(`${imp}${rest}`); if (t) return t; }
+    for (const imp of imports) if (importName(imp) === head) { const t = at(`${importedPath(imp)}${rest}`); if (t) return t; }
     for (const imp of imports) if (imp.endsWith('.*')) { const t = at(`${imp.slice(0, -2)}.${base}`); if (t) return t; }
     return null;
   }
@@ -376,7 +376,15 @@ class Converter {
         if (ft.noneAlias && !shape.optional && !shape.collection && !shape.map) f.noneAlias = ft.noneAlias;
         const constraint = shape.constraint ?? ft.constraint;
         if (constraint) f.constraint = constraint;
-        if (p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default)) f.default = p.default;
+        // a default only where one is used (InConfig, InitIn, an optional field of the process
+        // input) - elsewhere it is the example value the class lacks (no `example` yet)
+        const dflt = p.default && p.default !== 'None' && !isFixedCaseDefault(f.enumCase, p.default) ? p.default : undefined;
+        const asExample = dflt && !defaultIsUsed(t, f) ? dflt : undefined;
+        if (dflt && !asExample) f.default = dflt;
+        // the InConfig is the configuration: its values are defaults - also when the class keeps
+        // them in its `example` (`defaultConfig = InConfig.example`)
+        const configValue = p.example?.trim();
+        if (!dflt && t.inConfig && configValue && configValue !== 'None') f.default = configValue;
         if (p.description) f.description = p.description;
         if (p.descriptionExpr) {
           f.descriptionExpr = p.descriptionExpr;
@@ -384,12 +392,13 @@ class Converter {
           const imports = importsForExpression(p.descriptionExpr, dom.imports);
           if (imports.length) f.descriptionImports = imports;
         }
-        const example = exampleOf(p);
+        // the InConfig has no example - its values are the defaults (see above)
+        const example = t.inConfig ? undefined : exampleOf(p) ?? (asExample ? exampleOf({ type: p.type, example: asExample }) : undefined);
         if (example) f.example = example;
         // the example values (`defaultValidUntil`) with the imports of their file — which one
         // applies is decided by the file, not the catalog
         const named = example?.match(/\bdefault[A-Z]\w*/g) ?? [];
-        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => i.endsWith(`.${n}`)));
+        if (named.length) f.exampleImports = (dom.imports ?? []).filter(i => named.some(n => n === importName(i)));
         return f;
       });
     if (dom.kind === 'enum') {
@@ -652,8 +661,13 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     if (!t) return undefined;
     if (t.kind === 'case' || t.kind === 'enum') return conv.convert(t, { interactionId: iaId }, `${o.owner}.${name}`);
     if (t.kind === 'alias' && t.target && t.target !== 'NoInput' && t.target !== 'NoOutput') {
-      // `type In = AdjustOrderUT.In` — the same fields under its own name
-      const target = domain.find(x => x.name === t.target || x.id === `${pkg}.${t.target}`);
+      // `type In = AdjustOrderUT.In` — the same fields under its own name. The target as
+      // Scala sees it: in the same object (`type Out = In`), via the imports of the file
+      // (also a rename), in the package, then by name
+      const target = domain.find(x => x.id === `${o.pkg}.${o.owner}.${t.target}`)
+        ?? conv.viaImports(t.target, o.pkg, t.imports)
+        ?? domain.find(x => x.id === `${o.pkg}.${t.target}` || x.id === `${pkg}.${t.target}`)
+        ?? domain.find(x => x.name === t.target);
       if (target && (target.kind === 'case' || target.kind === 'enum')) {
         const copyId = conv.convert(target, { interactionId: iaId, description: `= ${t.target}` }, `${o.owner}.${name}`);
         aliases.push({ iaId, member: name, target, copyId });
@@ -669,14 +683,14 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     // A worker of the project is recognized by its topic — even if it does not
     // start with the process ID (worker of a neighbouring package). Only one of
     // this project: the catalog also holds the workers of other projects
-    // (`valiant-graviton-person.GetConsultant`) — those are services, not own workers.
+    // (`acme-graviton-person.GetConsultant`) — those are services, not own workers.
     const byTopic = step.kind === 'service' && step.topic && step.topic !== processId
       ? objects.find(o => objectKind(o) === 'customTask' && o.topicName === step.topic && inProject(o, pkg)) : undefined;
     // A signal describes the object also when the process **catches** it
     // (start event of an event subprocess, intermediate event)
     const caughtSignal = step.eventKind === 'signal' && step.messageName ? 'signal' as const : null;
     // A decision in the package of the process (or a sub-package) belongs to it — even if
-    // its decisionRef does not start with the process ID (`valiant-bpmn-map-actions`)
+    // its decisionRef does not start with the process ID (`acme-bpmn-map-actions`)
     const ownDecision = step.kind === 'rule' && !!step.topic
       && objects.some(o => inProcessPkg(o) && objectKind(o) === 'decision' && o.key?.toLowerCase() === step.topic!.toLowerCase())
       ? 'decision' as const : null;
@@ -732,7 +746,9 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
     const aliasKey = a.member === 'In' ? 'inAlias' : 'outAlias';
     const typeKey = a.member === 'In' ? 'inTypeId' : 'outTypeId';
     const targetMember = a.target.name.endsWith('.Out') ? 'Out' : 'In';
-    const other = a.target.owner ? interactions.find(i => i.id !== ia.id && i.name === a.target.owner) : undefined;
+    // `type Out = In` in the same object: the own In (only the other member - `type In = In` is none)
+    const other = a.target.owner
+      ? interactions.find(i => i.name === a.target.owner && (i.id !== ia.id || targetMember !== a.member)) : undefined;
     const sharedId = other ? (targetMember === 'In' ? other.inTypeId : other.outTypeId) : undefined;
     if (other && sharedId) {
       ia[aliasKey] = `${other.id}.${targetMember}`;

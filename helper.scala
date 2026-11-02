@@ -20,7 +20,7 @@ def release(version: String): Unit =
   replaceVersion(version)
 
   val isSnapshot = version.contains("-")
-  runInConsole("sbt", "-J-Xmx3G", "docs/mdoc", "docs/laikaSite")
+  runInConsole("sbt", "-J-Xmx3G", "docs/mdoc") // compiles the scala snippets of the documentation
 
   if !isSnapshot then
  //   runInConsole("sbt", "-J-Xmx3G", "publishSigned")

@@ -10,7 +10,8 @@ import zio.test.*
 
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.{ConcurrentLinkedQueue, ExecutorService, Executors}
+import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
 
 object C7StartByMessageTest extends ZIOSpecDefault:
@@ -20,41 +21,94 @@ object C7StartByMessageTest extends ZIOSpecDefault:
   private val started             =
     """[{"resultType":"ProcessDefinition","processInstance":{"id":"new-pi"}}]"""
 
-  /** C7 stub: /message answers `messageResult`, records the requests (method, path, body). */
-  private def engine(messageResult: String): ZIO[Scope, Throwable, (String, ConcurrentLinkedQueue[String])] =
+  private val noCorrelation   = 200 -> """{"_identityCorrelationPending":{"type":"Boolean","value":true}}"""
+  private val withCorrelation =
+    200 -> """{"_identityCorrelationPending":{"type":"Boolean","value":true},"_identityCorrelation":{"type":"Json","value":"{}"}}"""
+  private val checkFails      = 500 -> """{"type":"RestException","message":"boom"}"""
+  // how C7 answers the variables of an instance that has ended
+  private val instanceEnded   =
+    500 -> """{"type":"NullValueException","message":"Cannot get process instance variables running-pi: execution running-pi doesn't exist: execution is null"}"""
+  private val notFound        = 404 -> """{"type":"InvalidRequestException","message":"Process instance running-pi not found"}"""
+
+  /** C7 stub: /message answers `messageResult`, the n-th variables GET `variableChecks(n)` (the last
+    * one repeats), a variables POST `patch`. Records the requests (method, path, body).
+    */
+  private def engine(
+      messageResult: String,
+      variableChecks: Seq[(Int, String)] = Seq(noCorrelation),
+      patch: (Int, String) = 204 -> "",
+      checkDelay: Duration = Duration.Zero,
+      messageDelay: Duration = Duration.Zero
+  ): ZIO[Scope, Throwable, (String, ConcurrentLinkedQueue[String])] =
     ZIO.acquireRelease(
       ZIO.attempt:
         val requests = ConcurrentLinkedQueue[String]()
+        val checks   = AtomicInteger(0)
         val server   = HttpServer.create(InetSocketAddress("localhost", 0), 0)
+        // more than one thread: a slow answer must not hold back the next request
+        server.setExecutor(Executors.newFixedThreadPool(4))
         server.createContext(
           "/",
           exchange =>
+            val method      = exchange.getRequestMethod
+            val path        = exchange.getRequestURI.getPath
             val requestBody = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
-            requests.add(s"${exchange.getRequestMethod} ${exchange.getRequestURI.getPath} $requestBody")
-            val body =
-              (if exchange.getRequestURI.getPath.endsWith("/message") then messageResult else "")
-                .getBytes(StandardCharsets.UTF_8)
+            requests.add(s"$method $path $requestBody")
+            val (status, body) =
+              if path.endsWith("/message") then
+                Thread.sleep(messageDelay.toMillis)
+                200 -> messageResult
+              else if method == "GET" && path.endsWith("/variables") then
+                Thread.sleep(checkDelay.toMillis)
+                variableChecks(math.min(checks.getAndIncrement(), variableChecks.size - 1))
+              else if path.endsWith("/variables") then patch
+              else 204                                              -> ""
+            val bytes = body.getBytes(StandardCharsets.UTF_8)
             exchange.getResponseHeaders.add("Content-Type", "application/json")
-            if body.isEmpty then exchange.sendResponseHeaders(204, -1)
+            if bytes.isEmpty then exchange.sendResponseHeaders(status, -1)
             else
-              exchange.sendResponseHeaders(200, body.length)
-              exchange.getResponseBody.write(body)
+              exchange.sendResponseHeaders(status, bytes.length)
+              exchange.getResponseBody.write(bytes)
             exchange.close()
         )
         server.start()
         (server, requests)
-    )((server, _) => ZIO.succeed(server.stop(0)))
+    )((server, _) =>
+      ZIO.succeed:
+        server.stop(0)
+        server.getExecutor match
+          case pool: ExecutorService => pool.shutdownNow()
+          case _                     => ()
+    )
       .map((server, requests) => (s"http://localhost:${server.getAddress.getPort}", requests))
 
-  private def service(baseUrl: String) =
+  private val fastTimings =
+    C7ProcessInstanceService.StartTimings(correlationChecks = 3, correlationCheckInterval = 1.milli)
+
+  private def service(baseUrl: String, timings: C7ProcessInstanceService.StartTimings = fastTimings) =
     given IO[EngineError, ApiClient] = ZIO.succeed:
       val client = ApiClient(ApiHttpClient.pooled())
       client.setBasePath(baseUrl)
       client
     given EngineConfig = DefaultEngineConfig(identitySigningKey = Some("secret"))
-    C7ProcessInstanceService()
+    C7ProcessInstanceService(timings)
 
   private val alice = Some(IdentityCorrelation("alice"))
+
+  private def conflict(exit: Exit[EngineError, ?])(check: String => Boolean) =
+    exit.causeOption.flatMap(_.failureOption).exists:
+      case EngineError.ServiceRequestError(409, msg) => check(msg)
+      case _                                         => false
+
+  private def runningChecks(requests: ConcurrentLinkedQueue[String]) =
+    requests.asScala.count(_.startsWith("GET /process-instance/running-pi/variables"))
+
+  private def markerRemoved(requests: ConcurrentLinkedQueue[String]) =
+    requests.asScala.exists(r =>
+      r.startsWith("POST /process-instance/running-pi/variables") && r.contains("_identityCorrelationPending")
+    )
+
+  private val noNote: String => Boolean = msg => msg.contains("running-pi") && !msg.contains("could not be removed")
 
   def spec = suite("C7 start process by message")(
     test("a message correlated to a running instance is no start - and gets no identity") {
@@ -62,18 +116,156 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         (baseUrl, requests) <- engine(correlatedToRunning)
         exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
       yield assertTrue(
-        exit.causeOption.flatMap(_.failureOption).exists:
-          case EngineError.ServiceRequestError(409, msg) => msg.contains("running-pi")
-          case _                                         => false
-        ,
+        conflict(exit)(noNote),
         // the caller's identity was signed onto the running instance
         !requests.asScala.exists(r =>
           r.contains("/process-instance/running-pi/variables") && r.contains("\"_identityCorrelation\"")
         ),
-        // the pending marker, delivered with the message, is removed again
-        requests.asScala.exists(r =>
-          r.contains("/process-instance/running-pi/variables") && r.contains("_identityCorrelationPending")
-        )
+        // no correlation shows up: the pending marker, delivered with the message, is removed again
+        runningChecks(requests) == fastTimings.correlationChecks,
+        markerRemoved(requests)
+      )
+    },
+    test("the running instance's own start sets its correlation meanwhile - the marker stays") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(noCorrelation, withCorrelation))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == 2,
+        !markerRemoved(requests)
+      )
+    },
+    test("the correlation shows up at the last check - the marker stays") {
+      val lastCheck = Seq.fill(fastTimings.correlationChecks - 1)(noCorrelation) :+ withCorrelation
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, lastCheck)
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == fastTimings.correlationChecks,
+        !markerRemoved(requests)
+      )
+    },
+    test("the running instance has ended - nothing to remove, a plain 409") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(instanceEnded))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == 1,
+        !markerRemoved(requests)
+      )
+    },
+    test("the running instance is not found (404) - nothing to remove, a plain 409") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(notFound))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        runningChecks(requests) == 1,
+        !markerRemoved(requests)
+      )
+    },
+    test("the running instance ends before its marker is removed - a plain 409") {
+      for
+        (baseUrl, requests) <- engine(
+                                 correlatedToRunning,
+                                 patch = 500 -> """{"type":"ProcessEngineException","message":"Cannot modify variables for process instance running-pi: execution running-pi doesn't exist: execution is null"}"""
+                               )
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(noNote),
+        markerRemoved(requests)
+      )
+    },
+    test("the correlation check fails - nothing is removed, the 409 says so") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(checkFails))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        runningChecks(requests) == 1,
+        !markerRemoved(requests)
+      )
+    },
+    test("a later check fails - nothing is removed, the 409 says so") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(noCorrelation, checkFails))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        runningChecks(requests) == 2,
+        !markerRemoved(requests)
+      )
+    },
+    test("another 500 that says \"doesn't exist\" is a failure, no ended instance") {
+      for
+        (baseUrl, requests) <- engine(
+                                 correlatedToRunning,
+                                 Seq(500 -> """{"type":"ProcessEngineException","message":"Deployment d-1 doesn't exist"}""")
+                               )
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        !markerRemoved(requests)
+      )
+    },
+    test("the caller gives up during the checks - the marker is removed anyway") {
+      val slow = fastTimings.copy(correlationCheckInterval = 100.millis)
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning)
+        fiber               <- service(baseUrl, slow).startProcessByMessage("msg", identityCorrelation = alice).fork
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(runningChecks(requests))).repeatUntil(_ >= 1)
+        _                   <- fiber.interrupt
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(markerRemoved(requests)))
+                                 .repeatUntil(identity)
+                                 .timeoutFail("marker not removed")(2.seconds)
+      yield assertTrue(
+        runningChecks(requests) == slow.correlationChecks,
+        markerRemoved(requests)
+      )
+    },
+    test("the caller gives up while the message is sent - the marker is removed anyway") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, messageDelay = 300.millis)
+        fiber               <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).fork
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(requests.asScala.exists(_.contains("/message"))))
+                                 .repeatUntil(identity)
+        _                   <- fiber.interrupt
+        _                   <- (ZIO.sleep(5.millis) *> ZIO.succeed(markerRemoved(requests)))
+                                 .repeatUntil(identity)
+                                 .timeoutFail("marker not removed")(2.seconds)
+      yield assertTrue(markerRemoved(requests))
+    },
+    test("the engine hangs - the start waits for the cleanup at most its cap, the 409 says so") {
+      val capped = fastTimings.copy(cleanupTimeout = 200.millis)
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, checkDelay = 3.seconds)
+        (took, exit)        <- service(baseUrl, capped).startProcessByMessage("msg", identityCorrelation = alice).exit.timed
+      yield assertTrue(
+        conflict(exit)(_.contains("did not finish within 200 ms")),
+        took.toMillis < 2000,
+        !markerRemoved(requests)
+      )
+    },
+    test("removing the marker fails - the 409 says so") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, patch = 500 -> """{"type":"RestException","message":"boom"}""")
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        markerRemoved(requests)
+      )
+    },
+    test("without identity there is no marker - nothing is checked") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning)
+        exit                <- service(baseUrl).startProcessByMessage("msg").exit
+      yield assertTrue(
+        conflict(exit)(_.contains("running-pi")),
+        runningChecks(requests) == 0,
+        !markerRemoved(requests)
       )
     },
     test("a started process gets the signed identity") {
@@ -82,8 +274,9 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         info                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice)
       yield assertTrue(
         info.processInstanceId == "new-pi",
-        requests.asScala.exists(_.contains("/process-instance/new-pi/variables"))
+        requests.asScala.exists(_.contains("/process-instance/new-pi/variables")),
+        runningChecks(requests) == 0
       )
     }
-  )
+  ) @@ TestAspect.withLiveClock
 end C7StartByMessageTest

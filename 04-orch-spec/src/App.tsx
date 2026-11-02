@@ -18,6 +18,7 @@ const AdminView = lazy(() => import('./components/AdminView'));
 const PagesView = lazy(() => import('./pages/designer/PagesView'));
 const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 import { cls } from './ui';
+import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
   | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string };
@@ -51,6 +52,7 @@ export default function App() {
   const [feelOpen, setFeelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const aiOn = aiEnabled(useAiKey());
+  const companyFolder = useCompanyFolder();
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
     savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious } = useStore();
   const [spOpen, setSpOpen] = useState(false);
@@ -400,7 +402,8 @@ export default function App() {
                 }}
                 secondary={savedSharePoint || pendingFolder ? { label: 'anderen SharePoint-Ordner wählen', onClick: forgetSharePoint } : undefined} />
               <StartOption isDark={isDark} icon={<FolderOpen size={12} />} title="Lokaler Ordner"
-                text="Ein Ordner auf dem Rechner, auch ein synchronisierter (OneDrive, Google Drive). Chrome oder Edge."
+                text={<>Ein Ordner auf dem Rechner, auch ein synchronisierter (OneDrive, Google Drive). Chrome oder Edge.
+                  {companyFolder && <CompanyFolderHint path={companyFolder} muted={c.muted2} />}</>}
                 remembered={savedHandleName}
                 primary={{
                   label: savedHandleName ? 'Wieder verbinden' : 'Ordner wählen',
