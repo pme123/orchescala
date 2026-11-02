@@ -13,7 +13,7 @@ import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags, patternDefs } from '../patterns';
-import { GENERAL_VARIABLES, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
+import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
@@ -1378,8 +1378,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   // is fine without further ado.
   // For outputs the name is the **new** process variable — it may be
   // named as it likes; only inputs are measured against the In of the service
-  // a general variable (`_idempotentId` …) is accepted by every worker — not an extension
-  const unbekannt = (name: string) => !!bekannt && !!name && !bekannt.has(name) && !GENERAL_VARIABLES.has(name);
+  // a general variable (`_idempotentId` …) is accepted by every worker, `businessKey` by every
+  // subprocess — not an extension
+  const unbekannt = (name: string) => !!bekannt && !!name && !bekannt.has(name) && !acceptedEverywhere(name, step.kind);
   const verwaist = list === 'inputs' ? rows.filter(m => unbekannt(m.name)).length : 0;
   const { warn, warnBox, err, errBox } = tones(isDark);
   // The same name twice: the second row would overwrite the first — in the

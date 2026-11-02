@@ -242,6 +242,16 @@ export const GENERAL_VARIABLES = new Set([
   'manualOutMapping', 'outputVariables', 'handledErrors', 'regexHandledErrors',
 ]);
 
+/**
+ * An input every callee accepts without having it in its In: the general variables - and on a
+ * call activity `businessKey`, the business key of the subprocess. Camunda 7 passes it with
+ * `camunda:in businessKey` (an input row of that name becomes that on the way to C7, see
+ * engineConvert); Camunda 8 has no such thing, there it goes as the variable `businessKey`.
+ * Either way it is not a field of the subprocess's In.
+ */
+export const acceptedEverywhere = (name: string, stepKind: string): boolean =>
+  GENERAL_VARIABLES.has(name) || (stepKind === 'call' && name === 'businessKey');
+
 interface IoResult {
   inputs: Mapping[];
   outputs: Mapping[];

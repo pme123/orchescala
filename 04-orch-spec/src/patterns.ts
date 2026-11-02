@@ -1140,6 +1140,42 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
   return res;
 }
 
+/**
+ * Take out what the recognised patterns carry on their element (or the process) - their
+ * listeners, mappings, definitions -, not their paths and blocks. For a switch of engine: the
+ * rest is converted as it is, then each pattern is inserted again in the form of the target
+ * engine (see patternConvert.ts), so no old form stays beside the new one. `take` chooses by the
+ * position of the hit in `all` (stable for the same diagram); `taken` are those positions. An item
+ * that also belongs to a hit not taken stays - otherwise that one would lose it.
+ */
+export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit, index: number) => boolean = () => true): { xml: string; all: PatternHit[]; taken: number[] } {
+  const doc = parseXml(xml);
+  if (!doc) return { xml, all: [], taken: [] };
+  const found = detectIn(doc, defs, engine).hits;
+  const all = found.map(({ match: _, fr: __, ...h }) => h);
+  const taken = found.map((h, i) => (take(all[i], i) ? i : -1)).filter(i => i >= 0);
+  if (!taken.length) return { xml, all, taken };
+  const takenSet = new Set(taken);
+  const kept = new Set(found.filter((_, i) => !takenSet.has(i)).flatMap(h => h.match.items));
+  for (const i of taken) {
+    for (const el of found[i].match.items) {
+      // two hits on one element may share an item - it is gone already, or the other keeps it
+      const parent: Element | null = el.parentElement;
+      if (!parent || kept.has(el)) continue;
+      removeEl(el);
+      // the container (inputOutput, ioMapping …) and extensionElements this removal emptied go
+      // too - only up the chain of the removed item, and each held at least that item before
+      let c: Element | null = parent;
+      while (c && !c.children.length && (local(c) === 'extensionElements' || CONTAINERS.has(local(c)))) {
+        const up: Element | null = c.parentElement;
+        removeEl(c);
+        c = up;
+      }
+    }
+  }
+  return { xml: new Writer(doc).serialize(xml), all, taken };
+}
+
 type OwnItems = Map<Element, Map<string, Set<Element>>>;
 
 /** Is the hit only what the block or path of another pattern carries on its element? */

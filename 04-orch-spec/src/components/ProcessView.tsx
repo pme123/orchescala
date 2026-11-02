@@ -1420,7 +1420,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       </div>
       </CommentsContext.Provider>
 
-      {engineOpen && <EngineDialog spec={spec} bpmn={xml ?? ''} isDark={isDark} onClose={() => setEngineOpen(false)}
+      {engineOpen && <EngineDialog spec={spec} model={model} bpmn={xml ?? ''} patterns={modelPatterns} isDark={isDark} onClose={() => setEngineOpen(false)}
         onConvert={(next, target) => { setEngineOpen(false); void convertEngine(next, target); }} />}
       {exportOpen && <ExportDialog spec={spec} model={model} bpmn={xml ?? ''} isDark={isDark} onClose={() => setExportOpen(false)} />}
     </div>

@@ -5,15 +5,20 @@
 // diagram like any other change (engine, mappings, topics).
 import { useMemo } from 'react';
 import { AlertTriangle, ArrowRightLeft, Check, X } from 'lucide-react';
-import { convertBpmn } from '../engineConvert';
+import { convertWithPatterns } from '../patternConvert';
 import { correlationKeysOf } from '../messageCall';
+import { juelOptions } from '../feel';
 import { engineLabel } from '../engineLabels';
-import type { EngineId, ProcessSpec } from '../types';
+import type { EngineId, Model, PatternDef, ProcessSpec } from '../types';
 import { cls } from '../ui';
 
-export default function EngineDialog({ spec, bpmn, isDark, onConvert, onClose }: {
+export default function EngineDialog({ spec, model, bpmn, patterns, isDark, onConvert, onClose }: {
   spec: ProcessSpec;
+  /** for the types of the variables (FEEL → JUEL) */
+  model: Model | null;
   bpmn: string;
+  /** the patterns of the company - what they carry goes over in their form for the target engine */
+  patterns: PatternDef[];
   isDark: boolean;
   /** converted diagram (or null without a diagram) and the target engine */
   onConvert: (xml: string | null, target: EngineId) => void;
@@ -22,7 +27,7 @@ export default function EngineDialog({ spec, bpmn, isDark, onConvert, onClose }:
   const c = cls(isDark);
   const from: EngineId = spec.engine ?? 'c7';
   const target: EngineId = from === 'c7' ? 'c8' : 'c7';
-  const probe = useMemo(() => (bpmn ? convertBpmn(bpmn, target, { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec) }) : null), [bpmn, target, spec]);
+  const probe = useMemo(() => (bpmn ? convertWithPatterns(bpmn, target, patterns, { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec), juel: juelOptions(spec, model) }) : null), [bpmn, target, spec, patterns, model]);
   const issues = probe?.issues ?? [];
 
   return (
