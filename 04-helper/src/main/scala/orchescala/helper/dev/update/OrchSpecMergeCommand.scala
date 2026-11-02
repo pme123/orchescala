@@ -60,10 +60,15 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       if merge then
         if !plan.hasChanges && !(markers && plan.hasConflicts) then println("Nothing to merge.")
         else if yes || confirm(plan, markers) then
-          val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode)
-          println()
-          MergeReport.printMerged(plan, result, markers)
-          OrchSpecGenerator().linkDiagrams(project)
+          try
+            val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode)
+            println()
+            MergeReport.printMerged(plan, result, markers)
+            OrchSpecGenerator().linkDiagrams(project)
+          catch
+            case e: MergeIncomplete =>
+              println()
+              MergeReport.printIncomplete(e)
         else println("Not merged.")
     finally before.foreach(os.remove.all)
     end try

@@ -4,6 +4,7 @@ import orchescala.helper.dev.update.*
 
 import java.nio.charset.{CharacterCodingException, CodingErrorAction, StandardCharsets}
 import java.security.MessageDigest
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
 /** The merge from Orch Spec - all changes of the spec reach the code without losing the
@@ -140,7 +141,8 @@ object SpecMerge:
   end plan
 
   /** 2. Merge: exactly the plan - first all `codeHash` are checked: if a file changed since the
-    * check, it aborts without writing a file (`MergeAborted`).
+    * check, it aborts without writing a file (`MergeAborted`). If writing or deleting a file fails,
+    * it stops there - `MergeIncomplete` tells what was done before.
     */
   def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict): MergeResult =
     val changed = plan.files.filter(f => hashOf(project / os.RelPath(f.path)) != f.codeHash).map(_.path)
@@ -151,15 +153,18 @@ object SpecMerge:
       val bytes = if f.binary then java.util.Base64.getDecoder.decode(content) else content.getBytes(StandardCharsets.UTF_8)
       os.write.over(project / os.RelPath(f.path), bytes, createFolders = true)
       written += f.path
+    def result = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict))
     plan.files.foreach: f =>
-      f.action match
-        case Action.create | Action.update | Action.merged => write(f)
-        case Action.delete                                 =>
-          os.remove(project / os.RelPath(f.path))
-          deleted += f.path
-        case Action.conflict if onConflict == OnConflict.Markers => write(f)
-        case _                                             => ()
-    MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict))
+      try
+        f.action match
+          case Action.create | Action.update | Action.merged => write(f)
+          case Action.delete                                 =>
+            os.remove(project / os.RelPath(f.path))
+            deleted += f.path
+          case Action.conflict if onConflict == OnConflict.Markers => write(f)
+          case _                                             => ()
+      catch case NonFatal(e) => throw MergeIncomplete(result, f.path, e)
+    result
   end merge
 
   // ── deciding ────────────────────────────────────────────────────────────────────────────

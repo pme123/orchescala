@@ -280,6 +280,29 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.read(project / workerAppRel), app)
       assert(os.walk(project).forall(_.last != "SendMail.scala"))
 
+  test("a file cannot be written midway: the merge stops there - what was written and deleted before is reported"):
+    inProject: project =>
+      os.write(project / "old.txt", "old")
+      // b/c.txt cannot be written: a folder is in its place
+      os.makeDir.all(project / "b" / "c.txt")
+      val plan = MergePlan(
+        "acme-demo",
+        Seq(
+          PlannedFile("a.txt", Owner.spec, Action.create, content = Some("a")),
+          PlannedFile("old.txt", Owner.spec, Action.delete, SpecMerge.hashOf(project / "old.txt")),
+          PlannedFile("b/c.txt", Owner.spec, Action.create, content = Some("c")),
+          PlannedFile("d.txt", Owner.spec, Action.create, content = Some("d"))
+        )
+      )
+      val stopped = intercept[MergeIncomplete](SpecMerge.merge(project, plan, OnConflict.KeepCode))
+      assertEquals(stopped.failed, "b/c.txt")
+      assertEquals(stopped.done.written, Seq("a.txt"))
+      assertEquals(stopped.done.deleted, Seq("old.txt"))
+      assert(stopped.getMessage.contains("1 file(s) written and 1 deleted before it"), stopped.getMessage)
+      assertEquals(os.read(project / "a.txt"), "a")
+      assert(!os.exists(project / "old.txt"))
+      assert(!os.exists(project / "d.txt"))
+
   test("the plan as JSON - read back the same"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))

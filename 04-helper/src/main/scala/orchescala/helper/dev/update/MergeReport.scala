@@ -35,6 +35,15 @@ object MergeReport:
     println(summary(plan))
   end printMerged
 
+  /** The merge stopped at a file - what it did before, so the project is not left half merged
+    * without a word.
+    */
+  def printIncomplete(e: MergeIncomplete): Unit =
+    println(colored(Console.RED, s"The merge stopped at ${e.failed}: ${Option(e.getCause.getMessage).getOrElse(e.getCause.toString)}"))
+    e.done.written.foreach(p => println(colored(Console.GREEN, s"WRITTEN before: $p")))
+    e.done.deleted.foreach(p => println(colored(Console.BLUE, s"DELETED before: $p")))
+    println(colored(Console.YELLOW, "The other files were not touched - fix the cause and run --merge again (git status shows what changed)."))
+
   def summary(plan: MergePlan): String =
     Action.values.map(a => s"${plan.summary(a)} $a").mkString("Summary: ", " · ", "")
 

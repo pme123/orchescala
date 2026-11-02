@@ -134,3 +134,15 @@ case class MergeResult(written: Seq[String], deleted: Seq[String], conflicts: Se
 /** A file changed between the check and the merge - nothing was written; it needs a new check. */
 case class MergeAborted(changed: Seq[String])
     extends RuntimeException(s"Changed since the check - nothing written, check again: ${changed.mkString(", ")}")
+
+/** The merge stopped at a file (an IO error): what was written and deleted before it stays, the
+  * files after it were not touched. Fix the cause and merge again - the files already merged are
+  * unchanged in the new plan.
+  * @param done   what was written and deleted before
+  * @param failed the file it stopped at
+  */
+case class MergeIncomplete(done: MergeResult, failed: String, cause: Throwable)
+    extends RuntimeException(
+      s"The merge stopped at $failed (${cause.getMessage}) - ${done.written.size} file(s) written and ${done.deleted.size} deleted before it.",
+      cause
+    )
