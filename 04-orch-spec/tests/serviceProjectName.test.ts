@@ -55,3 +55,13 @@ test('replacePrefix: the prefix as a whole - before -, a blank, a dot or at the 
   assert.equal(replacePrefix('«acme-crm Kunden»', 'acme-crm', 'acme-x'), '«acme-x Kunden»');
   assert.equal(replacePrefix('acme-crm2', 'acme-crm', 'acme-x'), 'acme-crm2');
 });
+
+test('projectSuggestions: URL and serviceBasePath of the other collections of the same project', async () => {
+  const { newCollection, projectSuggestions } = await import('../src/services/collection.ts');
+  const mk = (title: string, project: string, extra: object = {}) => ({ ...newCollection({ title, project, api: 'client', apiVersion: 1 }), ...extra });
+  const me = mk('Organisation', 'acme-crm');
+  const sibling = mk('Person', 'acme-crm', { source: { basePath: 'https://crm.acme.ch/api' }, serviceBasePaths: { 'client.v1': 's"$crmBasePath/api"' } });
+  const other = mk('Fremd', 'acme-sales', { source: { basePath: 'https://sales.acme.ch' } });
+  assert.deepEqual(projectSuggestions(me, [me, sibling, other]), { urls: ['https://crm.acme.ch/api'], serviceBasePaths: ['s"$crmBasePath/api"'] });
+  assert.deepEqual(projectSuggestions(me, [me, other]), { urls: [], serviceBasePaths: [] });
+});

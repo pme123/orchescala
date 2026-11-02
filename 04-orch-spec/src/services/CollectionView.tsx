@@ -20,7 +20,7 @@ import { PanelWidthHandle, StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
   API_NAME, apiKey, apiList, apiName, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
-  renameApi, renameProject, serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
+  projectSuggestions, renameApi, renameProject, serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
@@ -33,6 +33,7 @@ import { useServices } from './store';
 import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
 import { fieldsOnce } from '../scala';
 import { ProjectSelect } from '../components/SpecMeta';
+import { defaultServiceBasePath } from './scalaCollection';
 import { knownPrefixes } from '../stepIds';
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
@@ -394,18 +395,29 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   ]), [model, specs, services, catalog]);
   const knownApis = useMemo(() => [...new Set((catalog.find(p => p.project === spec.project)?.apis ?? []).map(a => a.api))].sort(), [catalog, spec.project]);
   const apis = apisOf(spec).length ? apisOf(spec) : [{ project: spec.project, api: spec.api, apiVersion: spec.apiVersion }];
+  // where the OpenAPI brings no URL (Swagger 2.0 without host): what the other collections of the project have
+  const fromProject = useMemo(() => projectSuggestions(spec, services.map(s => s.data).filter(isCollection)), [spec, services]);
+  const setServiceBasePath = (a: { api: string; apiVersion: number }, value: string) => {
+    const next = { ...(spec.serviceBasePaths ?? {}) };
+    if (value.trim()) next[apiKey(a)] = value; else delete next[apiKey(a)];
+    onChange({ serviceBasePaths: Object.keys(next).length ? next : undefined });
+  };
+  const take = (value: string, apply: () => void) => canEdit && (
+    <button onClick={apply} title="aus einer anderen Collection dieses Projekts"
+      className={`text-[10px] px-2 py-1 rounded border whitespace-nowrap max-w-[45%] truncate ${c.btn}`}>{value} übernehmen</button>
+  );
   return (
     <div className="p-4 space-y-3 max-w-3xl">
       <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Collection</div>
-      <div className="grid grid-cols-4 gap-2 text-[11px] items-start">
-        <div className={`col-span-2 rounded border px-2 py-1 ${c.border2}`}>
+      <div className="flex flex-wrap gap-2 text-[11px] items-start">
+        <div className={`flex-[3_1_16rem] rounded border px-2 py-1 ${c.border2}`}>
           <div className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Projekt</div>
           <div className="pt-0.5" title="Firma und Projekt — wie bei einem Prozess wird das alte Präfix überall ersetzt (IDs, Titel, Texte); der Dateiname bleibt">
             <ProjectSelect value={spec.project} prefixes={prefixes} isDark={isDark} canEdit={canEdit}
               onChange={project => { if (project) onUpdate(s => renameProject(s, project)); }} />
           </div>
         </div>
-        <div className={`rounded border px-2 py-1 ${c.border2}`}>
+        <div className={`flex-[2_1_14rem] rounded border px-2 py-1 ${c.border2}`}>
           <div className={`text-[9px] uppercase tracking-widest ${c.muted}`} title="Name und Version je API — ein Wechsel gilt für alle Services dieser API">APIs</div>
           <datalist id="collection-apis">{knownApis.map(a => <option key={a} value={a} />)}</datalist>
           {apis.map(a => (
@@ -413,7 +425,7 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
               onCommit={to => onUpdate(s => renameApi(s, a, to))} />
           ))}
         </div>
-        <Info label="Status" value={STATUS_META[collectionStatus(spec)].label} isDark={isDark} />
+        <div className="flex-[1_1_6rem]"><Info label="Status" value={STATUS_META[collectionStatus(spec)].label} isDark={isDark} /></div>
       </div>
       <label className="block space-y-0.5">
         <span className={`text-[10px] ${c.muted}`}>Service-Bezeichnung (<span className="font-mono">serviceLabel</span> — steht in der Beschreibung jedes Services)</span>
@@ -422,8 +434,13 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
       </label>
       <label className="block space-y-0.5">
         <span className={`text-[10px] ${c.muted}`}>Basis-URL (<span className="font-mono">serviceBasePath</span> — wo die API läuft; aus <span className="font-mono">servers</span> der OpenAPI)</span>
-        <input className={`${input} font-mono`} disabled={!canEdit} value={spec.source?.basePath ?? ''} placeholder="https://api.example.com/v1"
-          onChange={e => onChange({ source: { ...(spec.source ?? {}), basePath: e.target.value || undefined } })} />
+        <div className="flex items-center gap-2">
+          <input className={`${input} font-mono`} disabled={!canEdit} value={spec.source?.basePath ?? ''} list="collection-urls"
+            placeholder={spec.source?.file ? `${spec.source.file} nennt keinen Server (host / servers)` : 'https://api.example.com/v1'}
+            onChange={e => onChange({ source: { ...(spec.source ?? {}), basePath: e.target.value || undefined } })} />
+          <datalist id="collection-urls">{fromProject.urls.map(u => <option key={u} value={u} />)}</datalist>
+          {!spec.source?.basePath && fromProject.urls[0] && take(fromProject.urls[0], () => onChange({ source: { ...(spec.source ?? {}), basePath: fromProject.urls[0] } }))}
+        </div>
       </label>
       {apisOf(spec).length > 0 && (
         <div className="space-y-1">
@@ -431,16 +448,14 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
             <span className="font-mono">def serviceBasePath</span> je API — der Ausdruck im <span className="font-mono">exports.scala</span> des
             Workers; der Abgleich übernimmt ihn aus dem Projekt. Leer: aus Basis-URL und Basispfad.
           </span>
+          <datalist id="collection-service-base-paths">{fromProject.serviceBasePaths.map(x => <option key={x} value={x} />)}</datalist>
           {apisOf(spec).map(a => (
             <label key={apiKey(a)} className="flex items-center gap-2">
-              <span className={`w-28 text-[10px] font-mono ${c.muted}`}>{collectionTrait(a)}</span>
-              <input className={`${input} font-mono`} disabled={!canEdit} value={spec.serviceBasePaths?.[apiKey(a)] ?? ''}
-                placeholder={'s"$basePath/…"'}
-                onChange={e => {
-                  const next = { ...(spec.serviceBasePaths ?? {}) };
-                  if (e.target.value.trim()) next[apiKey(a)] = e.target.value; else delete next[apiKey(a)];
-                  onChange({ serviceBasePaths: Object.keys(next).length ? next : undefined });
-                }} />
+              <span className={`flex-none whitespace-nowrap text-[10px] font-mono ${c.muted}`}>{collectionTrait(a)}</span>
+              <input className={`${input} font-mono min-w-0`} disabled={!canEdit} value={spec.serviceBasePaths?.[apiKey(a)] ?? ''} list="collection-service-base-paths"
+                placeholder={defaultServiceBasePath(spec)} title={`leer: ${defaultServiceBasePath(spec)}`}
+                onChange={e => setServiceBasePath(a, e.target.value)} />
+              {!spec.serviceBasePaths?.[apiKey(a)] && fromProject.serviceBasePaths[0] && take(fromProject.serviceBasePaths[0], () => setServiceBasePath(a, fromProject.serviceBasePaths[0]))}
             </label>
           ))}
         </div>

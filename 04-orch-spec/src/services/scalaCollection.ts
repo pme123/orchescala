@@ -330,9 +330,13 @@ function reach(id: string | undefined, types: TypeDef[], seen = new Set<string>(
  * its placeholders are what the company knows (`$bankNumber`), to fill in by hand.
  */
 function serviceBasePath(c: ServiceCollectionSpec, a: ApiRef): string {
-  // as the project has it (`s"$filIsBasePath/…/banks/$bankNumber"`) — the Abgleich takes it over
+  // as the project has it (`s"$basePath/…/banks/$bankNumber"`) — the Abgleich takes it over
   const own = c.serviceBasePaths?.[apiKey(a)]?.trim();
-  if (own) return own;
+  return own || defaultServiceBasePath(c);
+}
+
+/** `serviceBasePath` without an own expression: from the URL of the API and the base of the company */
+export function defaultServiceBasePath(c: ServiceCollectionSpec): string {
   const url = (c.source?.basePath || 'TODO: https://…').replace(/\/+$/, '');
   const base = normalPathBase(c.pathBase);
   if (!base) return scalaKey(url);

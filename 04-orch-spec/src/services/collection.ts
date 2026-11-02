@@ -317,3 +317,17 @@ export function renameProject(c: ServiceCollectionSpec, project: string): Servic
   if (!project || project === old) return c;
   return { ...(old ? renamePrefixIn(c, old, project) : c), slug: c.slug, project };
 }
+
+/**
+ * What the other collections of the same project already know — the URL of
+ * their API (`source.basePath`) and their `serviceBasePath` expressions — as
+ * suggestions where an OpenAPI brings none (a Swagger 2.0 without `host`).
+ */
+export function projectSuggestions(c: ServiceCollectionSpec, others: ServiceCollectionSpec[]): { urls: string[]; serviceBasePaths: string[] } {
+  const same = others.filter(o => o.slug !== c.slug && o.project === c.project);
+  const uniq = (xs: Array<string | undefined>) => [...new Set(xs.map(x => x?.trim()).filter((x): x is string => !!x))];
+  return {
+    urls: uniq(same.map(o => o.source?.basePath)),
+    serviceBasePaths: uniq(same.flatMap(o => Object.values(o.serviceBasePaths ?? {}))),
+  };
+}
