@@ -21,6 +21,7 @@ import type { Field, Mapping, TypeDef } from '../types';
 import { uid } from '../util';
 import { basePathParams } from './collection';
 import { camelName, capitalize, lowerFirst } from './names';
+import { asOpenApi3 } from './swagger2';
 import type { BodyRef, CollectionService, HttpMethod, ParamIn, RequestParam, ServiceCollectionSpec } from './types';
 
 interface Schema {
@@ -108,9 +109,9 @@ export interface ApiImport {
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 
-/** Is this an OpenAPI 3 at all? Swagger 2 is named — it would need converting first. */
+/** Is this an OpenAPI 3 at all? A Swagger 2.0 is converted first (see swagger2.ts), an older one is named. */
 export function apiProblem(raw: unknown): string | null {
-  const d = raw as Doc | null;
+  const d = asOpenApi3(raw) as Doc | null;
   if (!d || typeof d !== 'object') return 'keine OpenAPI (kein Objekt)';
   if (d.swagger) return `Swagger ${d.swagger} wird nicht unterstützt — bitte als OpenAPI 3 exportieren`;
   if (!d.openapi) return 'keine OpenAPI 3 (Feld «openapi» fehlt)';
@@ -159,7 +160,7 @@ function nameOf(method: string, path: string, op: Operation): string {
 }
 
 export function readApi(raw: unknown): ApiImport {
-  const doc = raw as Doc;
+  const doc = asOpenApi3(raw) as Doc;
   const operations: ApiOperation[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
     // parameters on the path apply to all its operations

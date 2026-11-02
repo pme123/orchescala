@@ -54,7 +54,9 @@ const doc = {
 
 test('only OpenAPI 3 is read', () => {
   assert.equal(apiProblem(doc), null);
-  assert.match(apiProblem({ swagger: '2.0', paths: {} }) ?? '', /Swagger/);
+  assert.match(apiProblem({ swagger: '1.2', paths: {} }) ?? '', /Swagger/);
+  // a Swagger 2.0 is converted first — then its own problems count
+  assert.match(apiProblem({ swagger: '2.0', paths: {} }) ?? '', /Pfade/);
   assert.match(apiProblem({ openapi: '3.0.0' }) ?? '', /Pfade/);
 });
 
