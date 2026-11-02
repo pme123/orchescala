@@ -7,10 +7,11 @@ import orchescala.engine.services.{MessageService, ProcessInstanceService}
 import zio.test.*
 import zio.{IO, Ref, UIO, ZIO}
 
-/** The fall-through of the gateway to the next engine: a 409 is the answer of the engine that has
-  * the case - no other engine is tried. Errors that say "not on this engine" still fall through.
+/** The fall-through of the gateway to the next engine (`tryServicesWithErrorCollection`), through
+  * GProcessInstanceService and GMessageService: a 409 is the answer of the engine that has the
+  * case - no other engine is tried. Errors that say "not on this engine" still fall through.
   */
-object GProcessInstanceServiceTest extends ZIOSpecDefault:
+object GatewayFallThroughTest extends ZIOSpecDefault:
 
   case class MockProcessInstanceService(
       engineType: EngineType,
@@ -93,7 +94,7 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
   /** A business key - no id, so without a cache entry the engines are tried in the given order. */
   private val newBusinessKey: UIO[String] = newUuidKey.map(id => s"order-$id")
 
-  def spec = suite("GProcessInstanceService")(
+  def spec = suite("Gateway fall-through")(
     suite("startProcessByMessage")(
       test("a 409 of the first engine is the answer - the second engine is not tried") {
         for
@@ -164,6 +165,17 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           c7Calls.length == 1,
           c8Calls.length == 1
         )
+      },
+      test("a 409 of the second engine after an engine that is not reachable is the answer") {
+        for
+          c7Service <- MockProcessInstanceService.make(
+                         EngineType.C7,
+                         Left(EngineError.ProcessError("C7: connection refused"))
+                       )
+          c8Service <- MockProcessInstanceService.make(EngineType.C8, Left(landedInRunningInstance))
+          gService   = GProcessInstanceService(using Seq(c7Service, c8Service))
+          error     <- gService.startProcessByMessage("start-order", businessKey = Some("order-1")).flip
+        yield assertTrue(error == landedInRunningInstance)
       }
     ),
     suite("startProcessAsync")(
@@ -245,6 +257,16 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           c8Calls.isEmpty
         )
       },
+      test("a 409 writes nothing to the cache") {
+        for
+          key       <- newBusinessKey
+          c7Service <- MockMessageService.make(EngineType.C7, Left(alreadyPublished))
+          // a success would cache its result id - here the key itself
+          c8Service <- MockMessageService.make(EngineType.C8, Right(key))
+          gService   = GMessageService(using Seq(c7Service, c8Service))
+          _         <- gService.sendMessage("order-paid", businessKey = Some(key)).flip
+        yield assertTrue(EngineCache.getIfPresent(key).isEmpty)
+      },
       test("a 404 of the first engine still falls through") {
         for
           c7Service <- MockMessageService.make(EngineType.C7, Right("c7-execution"))
@@ -276,4 +298,4 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
       }
     )
   )
-end GProcessInstanceServiceTest
+end GatewayFallThroughTest

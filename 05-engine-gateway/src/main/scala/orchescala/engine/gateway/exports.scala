@@ -41,7 +41,8 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
                         val before =
                           if errors.isEmpty then ""
                           else s" (before: ${errors.map(_.errorMsg).mkString("; ")})"
-                        ZIO.logWarning(
+                        // info, not warning: e.g. a refused second start is a business outcome
+                        ZIO.logInfo(
                           s"$operationName refused by ${service.engineType} - no other engine is tried: ${error.errorMsg}$before"
                         ) *> ZIO.fail(error)
                       case error                         =>

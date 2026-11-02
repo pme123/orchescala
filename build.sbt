@@ -454,8 +454,8 @@ lazy val engineGateway = project
       scaffeineDependency,
       logbackDependency
     ),
-    // the EngineCache is a global singleton - a suite that clears it must not run at the
-    // same time as one that relies on its entries
+    // the EngineCache is a global singleton - SortingServicesTest clears it, so it must not
+    // run at the same time as GatewayFallThroughTest, which relies on its entries
     Test / parallelExecution := false
   )
   .dependsOn(engineC7, engineC8, engineOp, worker)
