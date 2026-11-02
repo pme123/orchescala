@@ -297,24 +297,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const runningKeyRef = useRef<string>(''); // IDs MSAL is running with
   const msalReadyRef = useRef(false); // account for these IDs resolved (return from the sign-in handled)
   const startRef = useRef<Promise<PublicClientApplication | null> | null>(null); // the start for runningKeyRef
+  const wantedRef = useRef(false); // the current folder requires the sign-in — only then a start sets the status
 
   const effectiveIds = (cfg: AuthConfig | null) =>
     isValidIds(cfg) ? { tenantId: cfg.tenantId, clientId: cfg.clientId } : null;
 
+  // status and user from the known account — only while the folder requires the
+  // sign-in: a start that ends after a switch to a folder without it leaves 'disabled'
+  const showAccount = useCallback(() => {
+    if (!msalReadyRef.current || !wantedRef.current) return;
+    const account = accountRef.current;
+    setUser(account ? toUser(account, configRef.current) : null);
+    setStatus(account ? 'signedIn' : 'signedOut');
+  }, []);
+
   // start MSAL: handle the return from sign-in, otherwise use an existing account
   const startMsal = useCallback((ids: { tenantId: string; clientId: string }) => {
     const key = `${ids.tenantId}|${ids.clientId}`;
+    wantedRef.current = true;
     if (runningKeyRef.current === key && startRef.current) {
       // MSAL already runs (or starts) with these IDs. Meanwhile the sign-in may
       // have been off (a folder without it, status 'disabled') — then status and
       // user come back from the known account, otherwise a folder that requires
-      // the sign-in would stay open. A start still in flight is awaited, not repeated.
+      // the sign-in would stay open. A start still in flight is awaited, not
+      // repeated, and the status is set once it is done.
       if (msalReadyRef.current) {
-        const account = accountRef.current;
-        setUser(account ? toUser(account, configRef.current) : null);
-        setStatus(account ? 'signedIn' : 'signedOut');
+        showAccount();
+        return startRef.current;
       }
-      return startRef.current;
+      return startRef.current.then(pca => {
+        if (runningKeyRef.current === key) showAccount();
+        return pca;
+      });
     }
     runningKeyRef.current = key;
     msalReadyRef.current = false;
@@ -342,17 +356,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const all = pca.getAllAccounts();
         const account = result?.account ?? all.find(a => a.tenantId === ids.tenantId) ?? all[0] ?? null;
         if (!current()) return pca;
-        if (account) {
-          pca.setActiveAccount(account);
-          accountRef.current = account;
-          setUser(toUser(account, configRef.current));
-          setStatus('signedIn');
-        } else {
-          accountRef.current = null;
-          setUser(null);
-          setStatus('signedOut');
-        }
+        if (account) pca.setActiveAccount(account);
+        accountRef.current = account;
         msalReadyRef.current = true;
+        showAccount();
         return pca;
       } catch (e) {
         console.error('[orch-ops] auth:', e);
@@ -361,14 +368,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           runningKeyRef.current = '';
           startRef.current = null;
           setError(e instanceof Error ? e.message : String(e));
-          setStatus('error');
+          if (wantedRef.current) setStatus('error');
         }
         return null;
       }
     })();
     startRef.current = start;
     return start;
-  }, []);
+  }, [showAccount]);
 
   const applyConfig = useCallback((raw: AuthSettings | null | undefined) => {
     let cfg = normalize(raw);
@@ -382,16 +389,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     configRef.current = cfg;
     // recompute the level with the new roles
     if (accountRef.current) setUser(toUser(accountRef.current, cfg));
-    if (devBypass()) { setStatus('disabled'); return; }
+    // no sign-in for this folder — a start still in flight then leaves the status alone
+    const disable = () => { wantedRef.current = false; setStatus('disabled'); };
+    if (devBypass()) { disable(); return; }
     const needLogin = cfg?.enabled === true || sharePointMode();
-    if (!needLogin) { setStatus('disabled'); return; }
+    if (!needLogin) { disable(); return; }
     const ids = effectiveIds(cfg);
     if (!ids) {
       if (cfg?.enabled) {
         setError('Anmeldung ist aktiviert, aber Tenant-ID/Client-ID sind keine gültigen IDs (Admin → Anmeldung).');
         setStatus('error');
       } else {
-        setStatus('disabled');
+        disable();
       }
       return;
     }
