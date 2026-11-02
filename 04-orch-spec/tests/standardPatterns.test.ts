@@ -510,7 +510,7 @@ const STOP_FEEL = '"Kunde " + customerName + " ist gesperrt."';
 const messageOf = (xml: string, id: string, engine: EngineId) => {
   const doc = parse(xml);
   const el = [...elements(doc, 'bpmn:endEvent'), ...elements(doc, 'bpmn:intermediateThrowEvent')].find(e => e.getAttribute('id') === id)!;
-  if (engine === 'c7') return { message: elements(el, 'camunda:inputParameter').find(p => p.getAttribute('name') === '_errorMessage')?.textContent ?? '', async: el.getAttribute('camunda:asyncBefore'), script: elements(el, 'camunda:script')[0]?.textContent ?? '' };
+  if (engine === 'c7') return { message: elements(el, 'camunda:inputParameter').find(p => p.getAttribute('name') === '_errorMessage')?.textContent ?? '', async: el.getAttribute('camunda:asyncBefore'), script: elements(el, 'camunda:script')[0]?.textContent ?? '', retries: elements(el, 'camunda:failedJobRetryTimeCycle')[0]?.textContent ?? '' };
   const outs = elements(el, 'zeebe:output');
   return { message: outs[0]?.getAttribute('source') ?? '', assert: outs[1]?.getAttribute('source') ?? '', targets: outs.map(o => o.getAttribute('target')) };
 };
@@ -526,6 +526,7 @@ for (const engine of ['c7', 'c8'] as const) {
       if (engine === 'c7') {
         assert.equal(m.message, 'Kunde gesperrt.');
         assert.equal(m.async, 'true', 'the incident is on the event');
+        assert.equal(m.retries, 'R1/PT0S', 'one attempt - the incident at once, whatever the engine is configured to');
         assert.ok(m.script.includes('throw new IllegalArgumentException'), m.script);
       } else {
         assert.equal(m.message, '="Kunde gesperrt."');
