@@ -1155,7 +1155,8 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
   const all = found.map(({ match: _, fr: __, ...h }) => h);
   const taken = found.map((h, i) => (take(all[i], i) ? i : -1)).filter(i => i >= 0);
   if (!taken.length) return { xml, all, taken };
-  const kept = new Set(found.filter((_, i) => !taken.includes(i)).flatMap(h => h.match.items));
+  const takenSet = new Set(taken);
+  const kept = new Set(found.filter((_, i) => !takenSet.has(i)).flatMap(h => h.match.items));
   for (const i of taken) {
     for (const el of found[i].match.items) {
       // two hits on one element may share an item - it is gone already, or the other keeps it

@@ -8,7 +8,7 @@ import { importBpmn } from '../src/bpmn';
 import { juelOptions } from '../src/feel';
 import { convertWithPatterns } from '../src/patternConvert';
 import { exportBpmnFor } from '../src/exporters';
-import { STANDARD_PATTERNS, applyPattern, detectPatterns } from '../src/patterns';
+import { STANDARD_PATTERNS, applyPattern, detectPatterns, stripPatternItems } from '../src/patterns';
 import type { EngineId, Model, PatternDef } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -239,4 +239,18 @@ test('two definitions with the same ID: the first counts (own before standard, a
   assert.ok(ownFirst.issues.some(i => i.stepId === 'End' && i.text.includes('war «succeeded»')), ownFirst.issues.map(i => i.text).join('; '));
   const standardFirst = convertWithPatterns(withPatterns('c7'), 'c8', [...STANDARD_PATTERNS, own]);
   assert.deepEqual(standardFirst.issues, []);
+});
+
+test('stripPatternItems takes out only the chosen hits - the others keep what they carry', () => {
+  const xml = withPatterns('c7');
+  const all = stripPatternItems(xml, STANDARD_PATTERNS, 'c7').all;
+  const reset = all.findIndex(h => h.patternId === 'identity-reset');
+  assert.ok(reset >= 0);
+  const res = stripPatternItems(xml, STANDARD_PATTERNS, 'c7', (_, i) => i === reset);
+  assert.deepEqual(res.taken, [reset]);
+  assert.deepEqual(setsOf(res.xml, 'Reset').listeners, [], 'the chosen one is taken out');
+  assert.deepEqual(setsOf(res.xml, 'TakeOver').listeners, setsOf(xml, 'TakeOver').listeners, 'the others stay');
+  assert.deepEqual(setsOf(res.xml, 'End').listeners, setsOf(xml, 'End').listeners);
+  // what is left is still recognised
+  assert.deepEqual(hitsOf(res.xml, 'c7'), hitsOf(xml, 'c7').filter(([id]) => id !== 'identity-reset'));
 });

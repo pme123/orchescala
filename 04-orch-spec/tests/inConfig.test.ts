@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
+import { acceptedEverywhere } from '../src/bpmn';
 import { domainInputNames, inConfigFields } from '../src/feel';
 import { collectFindings, withServiceRows } from '../src/findings';
 import type { Mapping, Model, ProcessSpec, Step } from '../src/types';
@@ -73,4 +74,10 @@ test('on Camunda 7 a call accepts businessKey too - an input with that name reac
   const s = { ...callSpec([{ name: 'businessKey', expression: '= businessKey' }, { name: 'clientKey', expression: '= 1' }]), engine: 'c7' } as ProcessSpec;
   const found = [...collectFindings(s, model, s.steps).values()].flatMap(f => f.warnings);
   assert.ok(!found.some(w => w.includes('noch nicht im')), found.join(' / '));
+});
+
+test('businessKey is accepted only by a call - a service task still reports it as an extension', () => {
+  assert.equal(acceptedEverywhere('businessKey', 'call'), true);
+  assert.equal(acceptedEverywhere('businessKey', 'service'), false);
+  assert.equal(acceptedEverywhere('_idempotentId', 'service'), true);
 });

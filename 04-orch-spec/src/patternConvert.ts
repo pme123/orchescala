@@ -28,18 +28,21 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
   const unique = defs.filter((d, i) => defs.findIndex(x => x.id === d.id) === i);
   const byId = new Map(unique.map(d => [d.id, d]));
   // a pattern that could not be inserted again is converted like the rest in the next pass - it
-  // is not lost, and the others still go over in their target form. Each pass skips more, so it
-  // ends after at most one pass per pattern.
+  // is not lost, and the others still go over in their target form. Each pass skips at least one
+  // more hit, so it ends after at most one pass per hit; should it not, the plain conversion.
   const failed: Failed = new Map();
   let result: (WriteResult & { changed: boolean }) | null = null;
-  for (let pass = 0; pass <= unique.length + 1; pass++) {
+  let settled = false;
+  for (let pass = 0, hits = 1; pass <= hits; pass++) {
     const run = attempt(xml, target, byId, unique, opts, new Set(failed.keys()));
+    hits = run.hits;
     result = run.result;
-    if (!run.failed.size) break;
+    if (!run.failed.size) { settled = true; break; }
     for (const [i, f] of run.failed) failed.set(i, f);
   }
-  // nothing left to do with patterns (all failed, or none): the plain conversion - with the notes
-  result ??= convertBpmn(xml, target, opts);
+  // nothing left to do with patterns (all failed, or none) or not settled: the plain conversion -
+  // with the notes
+  if (!settled || !result) result = convertBpmn(xml, target, opts);
   if (!failed.size) return result;
   const note = [...failed.values()].map(({ h, why }) => ({
     stepId: h.targetId ?? '', where: 'Pattern',
@@ -54,12 +57,12 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
  * not come back on their element; `result` is null if there is nothing to do with patterns.
  */
 function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: Opts, skip: ReadonlySet<number>):
-  { result: (WriteResult & { changed: boolean }) | null; failed: Failed } {
+  { result: (WriteResult & { changed: boolean }) | null; failed: Failed; hits: number } {
   const hasTarget = (h: PatternHit) => !!fragmentFor(byId.get(h.patternId)!, target);
   const strip = stripPatternItems(xml, defs, detectEngine(xml), (h, i) => hasTarget(h) && !skip.has(i));
   const without = strip.all.filter(h => !hasTarget(h));
   const failed: Failed = new Map();
-  if (!strip.taken.length && !without.length) return { result: null, failed };
+  if (!strip.taken.length && !without.length) return { result: null, failed, hits: strip.all.length };
 
   const conv = convertBpmn(strip.xml, target, opts);
   let out = conv.xml;
@@ -81,13 +84,15 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     }
   }
 
-  // each pattern on its element again - with the same parameters; a hit is matched only once
-  // (two of the same pattern on one element), the one with the same parameters first
+  // each pattern on its element again - with the same parameters; a hit is matched only once,
+  // the one with the same parameters first. Another one of the pattern on the element counts only
+  // if it is the only one there - with several, a different one could pass for it
   const pool = [...detectPatterns(out, defs, target).hits];
+  const samePlace = (a: PatternHit, b: PatternHit) => a.patternId === b.patternId && (a.targetId ?? '') === (b.targetId ?? '');
   const take1 = (h: PatternHit) => {
-    const same = (x: PatternHit) => x.patternId === h.patternId && (x.targetId ?? '') === (h.targetId ?? '');
-    const k = pool.findIndex(x => same(x) && sameParams(x.params, h.params));
-    const j = k >= 0 ? k : pool.findIndex(same);
+    const k = pool.findIndex(x => samePlace(x, h) && sameParams(x.params, h.params));
+    const alone = strip.all.filter(x => samePlace(x, h)).length === 1;
+    const j = k >= 0 ? k : alone ? pool.findIndex(x => samePlace(x, h)) : -1;
     return j >= 0 ? pool.splice(j, 1)[0] : undefined;
   };
   for (const i of strip.taken) {
@@ -106,5 +111,5 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
       extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${h.params[k] ?? ''}», ist jetzt «${again.params[k] ?? ''}»`).join(', ')} — prüfen.` });
     }
   }
-  return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed };
+  return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
 }
