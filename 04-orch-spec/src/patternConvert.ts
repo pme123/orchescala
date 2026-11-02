@@ -78,7 +78,13 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     text: `«${byId.get(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} — umgewandelt wie der Rest, von Hand prüfen.`,
   }));
   // the parameters in the form of the target engine (`${…}` ⇄ `=…`, fixed text stays)
-  const checked = (h: PatternHit) => Object.entries(h.params).map(([k, v]) => [k, paramForChecked(v, target, opts.juel?.vars ?? [])] as const);
+  // translated once per hit
+  const cache = new Map<PatternHit, Array<readonly [string, { value: string; untranslated?: string }]>>();
+  const checked = (h: PatternHit) => {
+    let c = cache.get(h);
+    if (!c) { c = Object.entries(h.params).map(([k, v]) => [k, paramForChecked(v, target, opts.juel?.vars ?? [])] as const); cache.set(h, c); }
+    return c;
+  };
   const paramsIn = (h: PatternHit) => Object.fromEntries(checked(h).map(([k, c]) => [k, c.value]));
   const inserted = new Map<number, { changed: boolean; issues: string[] }>();
   for (const i of strip.taken) {

@@ -588,3 +588,13 @@ test('«Prozess mit Fehler stoppen» on C8: a text message with a quote is refus
   const feel = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: '="Kunde \\"X\\" gesperrt"' });
   assert.ok(feel.changed, feel.issues.join('; '));
 });
+
+test('«Prozess mit Fehler stoppen»: a backslash in a C8 text message is refused, < and & in a C7 message are escaped in the XML', () => {
+  const back = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: 'C:\\temp fehlt' });
+  assert.equal(back.changed, false);
+  assert.ok(back.issues.some(i => i.includes('«message»')), back.issues.join('; '));
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'Betrag < 0 & ungültig' });
+  assert.ok(c7.changed, c7.issues.join('; '));
+  assert.equal(messageOf(c7.xml, 'End', 'c7').message, 'Betrag < 0 & ungültig');
+  assert.ok(c7.xml.includes('Betrag &lt; 0 &amp; ungültig'), 'escaped in the XML');
+});

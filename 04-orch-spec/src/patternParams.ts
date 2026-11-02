@@ -10,28 +10,20 @@ import type { EngineId } from './types.ts';
 export const paramView = (stored: string): string => (isJuel(stored) || feelBody(stored) != null ? importExpression(stored) : stored);
 
 /**
- * Back into the form of the engine — FEEL that does not translate to JUEL stays as is (and is
- * reported where it is edited). `vars`: they determine how a Spin path ends (`numberValue()` …).
+ * Into the form of the engine, and why FEEL did not translate to JUEL - then the value stays FEEL
+ * (Camunda 7 would take it as fixed text; reported where it is edited and by the engine switch).
+ * `vars`: they determine how a Spin path ends (`numberValue()` …).
  */
-export function paramStored(view: string, engine: EngineId, vars: readonly VarNode[] = []): string {
+export function paramStoredChecked(view: string, engine: EngineId, vars: readonly VarNode[] = []): { value: string; untranslated?: string } {
   const body = feelBody(view);
-  if (body == null) return view;
-  if (engine === 'c8') return `=${body.trim()}`;
-  const r = feelToJuel(body, { vars });
-  return r.ok ? `\${${r.juel}}` : view;
-}
-
-/** A stored value of one engine in the form of the other */
-export const paramFor = (stored: string, engine: EngineId, vars: readonly VarNode[] = []): string => paramStored(paramView(stored), engine, vars);
-
-/**
- * Like paramFor, and why FEEL did not translate to JUEL - then the value stays FEEL, which
- * Camunda 7 would take as fixed text.
- */
-export function paramForChecked(stored: string, engine: EngineId, vars: readonly VarNode[] = []): { value: string; untranslated?: string } {
-  const view = paramView(stored);
-  const body = feelBody(view);
-  if (engine !== 'c7' || body == null) return { value: paramStored(view, engine, vars) };
+  if (body == null) return { value: view };
+  if (engine === 'c8') return { value: `=${body.trim()}` };
   const r = feelToJuel(body, { vars });
   return r.ok ? { value: `\${${r.juel}}` } : { value: view, untranslated: r.reason };
 }
+
+/** Back into the form of the engine (see paramStoredChecked) */
+export const paramStored = (view: string, engine: EngineId, vars: readonly VarNode[] = []): string => paramStoredChecked(view, engine, vars).value;
+
+/** A stored value of one engine in the form of the other - with the reason if FEEL did not translate */
+export const paramForChecked = (stored: string, engine: EngineId, vars: readonly VarNode[] = []) => paramStoredChecked(paramView(stored), engine, vars);
