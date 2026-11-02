@@ -612,11 +612,29 @@ const sameSlot = (a: Item, b: Item) => a.inExt === b.inExt && a.container === b.
  * `zeebe:input`/`output`, a Camunda 7 execution listener that is one
  * `execution.setVariable("x", …)`) — `null` for everything else and for `variables="all"`.
  */
+/**
+ * The variable of a listener expression that is exactly one `execution.setVariable("x", …)` -
+ * the call closed with its own bracket and nothing after it (`… ) + foo(b)` does more).
+ */
+function setVariableOnly(expression: string): string | null {
+  const head = /^\s*[$#]\{\s*execution\.setVariable\(\s*(["'])([\w.-]+)\1\s*,/.exec(expression);
+  if (!head) return null;
+  let depth = 1, quote = '';
+  for (let i = head[0].length; i < expression.length; i++) {
+    const ch = expression[i];
+    if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = ''; continue; }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return /^\s*\}\s*$/.test(expression.slice(i + 1)) ? head[2] : null;
+  }
+  return null;
+}
+
 function mappingKey(el: Element): string | null {
   const n = local(el);
   if (n === 'executionListener') {
-    const set = /^\s*[$#]\{\s*execution\.setVariable\(\s*(["'])([\w.-]+)\1\s*,[\s\S]*\)\s*\}\s*$/.exec(el.getAttribute('expression') ?? '');
-    return set ? `${el.namespaceURI ?? ''}|${n}:${el.getAttribute('event') ?? ''}|${set[2]}` : null;
+    const name = setVariableOnly(el.getAttribute('expression') ?? '');
+    return name ? `${el.namespaceURI ?? ''}|${n}:${el.getAttribute('event') ?? ''}|${name}` : null;
   }
   const by = n === 'inputParameter' || n === 'outputParameter' ? 'name'
     : n === 'in' || n === 'out' || n === 'input' || n === 'output' ? 'target' : null;
@@ -971,7 +989,9 @@ function blockItems(fn: Element, tn: Element, b: Binding): Set<Element> {
  * The pattern's block nodes with the diagram nodes of the same kind in its block. A block is
  * matched by its entry only (see matchBlocks), so there is no node-by-node mapping: each node of
  * a kind is paired with all of that kind. An item is still taken only if it matches an item of
- * the pattern's node - two ends with the same listener in one block both belong to it.
+ * the pattern's node - two ends with the same listener in one block both belong to it. So an own
+ * pattern that brings exactly such an item is not recognised on a node of that block either: what
+ * a block owns, it owns completely.
  */
 const blockPairs = (block: Fragment['blocks'][number], elements: Element[]): Array<[Element, Element]> =>
   block.nodes.flatMap(fn => elements.filter(e => local(e) === local(fn)).map(e => [fn, e] as [Element, Element]));
@@ -1050,13 +1070,15 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       if (id && (FLOW_NODES.has(local(e)) || local(e) === 'sequenceFlow')) res.owned.set(id, pid);
     }
   };
-  /** per node of a block or path: the items its pattern brings there - whatever order the patterns come in */
-  const ownItems = new Map<Element, { pid: string; items: Set<Element> }>();
+  /** per node of a block or path and per pattern: the items it brings there - whatever order the patterns come in */
+  const ownItems: OwnItems = new Map();
   const ownBlock = (pid: string, pairs: Array<[Element, Element]>, b: Binding) => {
     for (const [fn, tn] of pairs) {
       const items = blockItems(fn, tn, b);
-      const prev = ownItems.get(tn);
-      ownItems.set(tn, { pid, items: new Set([...(prev?.pid === pid ? prev.items : []), ...items]) });
+      if (!items.size) continue;
+      const byPattern = ownItems.get(tn) ?? new Map<string, Set<Element>>();
+      byPattern.set(pid, new Set([...(byPattern.get(pid) ?? []), ...items]));
+      ownItems.set(tn, byPattern);
       items.forEach(i => claimed.add(i));
     }
   };
@@ -1118,12 +1140,14 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
   return res;
 }
 
+type OwnItems = Map<Element, Map<string, Set<Element>>>;
+
 /** Is the hit only what the block or path of another pattern carries on its element? */
-function inBlockOnly(h: InternalHit, ownItems: Map<Element, { pid: string; items: Set<Element> }>, all: Element[]): boolean {
+function inBlockOnly(h: InternalHit, ownItems: OwnItems, all: Element[]): boolean {
   if (!h.targetId || h.match.attrs.length || h.match.attached.size || !h.match.items.length) return false;
   const t = all.find(e => e.getAttribute('id') === h.targetId);
-  const o = t ? ownItems.get(t) : undefined;
-  return !!o && o.pid !== h.patternId && h.match.items.every(i => o.items.has(i));
+  const owners = t ? ownItems.get(t) : undefined;
+  return !!owners && [...owners].some(([pid, items]) => pid !== h.patternId && h.match.items.every(i => items.has(i)));
 }
 
 // ── Inserting ────────────────────────────────────────────────────────────────
