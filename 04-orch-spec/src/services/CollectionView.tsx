@@ -781,10 +781,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
       </Section>
 
       <Section id="out" title="Out" hint="was der Prozess vom Service bekommt" isDark={isDark}>
-        <NothingChoice nothing={!!s.noOut} cls="case class Out" none="type Out = NoOutput" noneHint="der Prozess bekommt nichts zurück"
+        <NothingChoice nothing={!!s.noOut} cls={outType?.kind === 'enum' ? 'enum Out' : 'case class Out'} none="type Out = NoOutput" noneHint="der Prozess bekommt nichts zurück"
           canEdit={canEdit} isDark={isDark} onChange={noOut => onPatch({ noOut: noOut || undefined })} />
         {s.noOut ? null : outType
-          ? <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
+          ? <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed adtSwitch onTypes={onTypes} onOpenType={onOpenType} />
           : <p className={`text-[11px] ${c.muted}`}>kein Out</p>}
       </Section>
     </div>

@@ -20,7 +20,7 @@ import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
 } from './orchestration.ts';
-import { descr, indent, workerPackageClause } from './scalaCollection.ts';
+import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -149,6 +149,7 @@ const startWithGenerator = (lines: string[]): string[] =>
 function outValue(o: ServiceOrchestrationSpec, vars: OrchVar[], ctx: Ctx, pre: string[]): string {
   if (o.noOut) return 'NoOutput()';
   const out = o.types.find(t => t.id === o.outTypeId);
+  if (out?.kind === 'enum' && (out.values ?? []).length) return adtTodo(out);
   const fields = (out?.fields ?? []).filter(f => isFinished(f, ctx.idx));
   if (!fields.length) return 'NoOutput()';
   const sv = scalaVars(vars);

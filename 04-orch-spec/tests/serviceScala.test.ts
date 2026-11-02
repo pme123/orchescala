@@ -340,3 +340,23 @@ test('FEEL if x != null with x of some cases of an ADT In: one match on the case
   assert.equal(feelToScala('= if clientKey != null then [ clientKey ] else clientKeys', varsOf(optional), [], seq).scala,
     '(in match { case v: In.ClientKey => (v.clientKey match { case Some(clientKey) => Some(Seq(clientKey)); case None => None }); case v: In.Standard => Some(v.clientKeys) })');
 });
+
+test('an Out with cases (ADT): enum Out in the domain, the outputMapper a TODO that names the cases', () => {
+  const c = collection();
+  const adt: ServiceCollectionSpec = {
+    ...c,
+    types: c.types.map(t => (t.id !== 't-out' ? t : {
+      ...t, kind: 'enum', fields: [],
+      values: [
+        { name: 'Found', fields: [{ id: 'f', name: 'client', type: 't-client' }] },
+        { name: 'NotFound' },
+      ],
+    })),
+  };
+  const files = collectionFiles(adt);
+  const domain = files.find(f => f.path.endsWith('/GetClient.scala') && f.path.startsWith('01-domain'))!.content;
+  assert.match(domain, /enum Out:/, domain);
+  assert.doesNotMatch(domain, /type Out = NoOutput/, domain);
+  const worker = files.find(f => f.path.endsWith('GetClientWorker.scala'))!.content;
+  assert.match(worker, /\?\?\? \/\* TODO Out ist eine Auswahl \(enum\) — den Fall wählen: Out\.Found\(…\), Out\.NotFound \*\//, worker);
+});

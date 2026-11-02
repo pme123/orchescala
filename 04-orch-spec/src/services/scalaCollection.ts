@@ -157,6 +157,12 @@ function inVars(inType: TypeDef | undefined): Map<string, ScalaVar> {
   }]));
 }
 
+/** an ADT `Out` the code cannot build by itself: a TODO that names its cases */
+export function adtTodo(t: TypeDef): string {
+  const cases = (t.values ?? []).filter(v => v.name).map(v => `Out.${v.name}${(v.fields ?? []).length ? '(…)' : ''}`);
+  return `??? /* TODO Out ist eine Auswahl (enum) — den Fall wählen: ${cases.join(', ') || 'noch keine Fälle'} */`;
+}
+
 /** a sure value for a place that needs one (path, required header) — an optional one is a TODO */
 function sure(t: Translated, what: string): string {
   if (t.todo || !t.optional) return t.scala;
@@ -175,7 +181,8 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
   const fromBase = basePathParams(c, s);
   const params = s.params.filter(p => !p.disabled && p.name && !(p.in === 'path' && fromBase.has(p.name)));
   const translate = (expr: string, target?: Pick<Field, 'type' | 'optional' | 'collection'>) => feelToScala(expr, vars, types, target);
-  const hasOut = !!(outType?.fields ?? []).some(f => isFinished(f, idx));
+  // an ADT (`enum Out`) has its content in the cases — as in the domain object
+  const hasOut = !!(outType?.fields ?? []).some(f => isFinished(f, idx)) || (outType?.kind === 'enum' && (outType.values ?? []).some(v => v.name));
 
   // the path: `{clientKey}` → `${in.clientKey}` — without the base the company's serviceBasePath has
   const byName = new Map(params.filter(p => p.in === 'path').map(p => [p.name, p]));
@@ -256,7 +263,8 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     outVars.set('headers', { scala: 'headers', headers: s.responseHeaders ?? [] });
     const steps: string[] = [];
     const args: string[] = [];
-    for (const f of (outType?.fields ?? []).filter(x => isFinished(x, idx))) {
+    // an ADT Out is a TODO as a whole — its fields are not mapped one by one
+    for (const f of (outType?.kind === 'enum' ? [] : outType?.fields ?? []).filter(x => isFinished(x, idx))) {
       const m = (s.outMappings ?? []).find(x => x.name === f.name)?.expression ?? '';
       if (!m.trim()) { args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — aus body, headers oder dem In */`}`); continue; }
       const v = forTarget(feelToScala(m, outVars, types, f), !!f.optional);
@@ -267,7 +275,10 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     }
     // `type ServiceOut = Out` — the response is the Out as it is
     const isOut = !!s.serviceOut && !s.serviceOut.collection && !!s.outTypeId && s.serviceOut.type === s.outTypeId && !s.noOut;
-    const out = hasOut ? `Out(\n${indent(args.join(',\n'), '        ')}\n      )` : 'NoOutput()';
+    // an ADT Out: which case the response is, the mapper cannot know — a TODO with the cases
+    const out = !hasOut ? 'NoOutput()'
+      : outType?.kind === 'enum' ? adtTodo(outType)
+        : `Out(\n${indent(args.join(',\n'), '        ')}\n      )`;
     const lines = ['  override def outputMapper(', '      out: ServiceResponse[ServiceOut],', '      in: In', '  ): Either[ServiceMappingError, Out] ='];
     if (isOut) {
       lines.push('    Right(out.outputBody)', '  end outputMapper', '');

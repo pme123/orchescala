@@ -415,11 +415,11 @@ function Overview({ spec, refs, types, collections, steps, issues, flowError, ca
 
       <div className="space-y-1">
         <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Out — was der Worker zurückgibt</div>
-        <NothingChoice nothing={!!spec.noOut} cls="case class Out" none="type Out = NoOutput" noneHint="gibt nichts zurück"
+        <NothingChoice nothing={!!spec.noOut} cls={outType?.kind === 'enum' ? 'enum Out' : 'case class Out'} none="type Out = NoOutput" noneHint="gibt nichts zurück"
           canEdit={canEdit} isDark={isDark} onChange={noOut => update(o => ({ ...o, noOut: noOut || undefined }))} />
         {!spec.noOut && outType && (
           <>
-            <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={() => {}} />
+            <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed adtSwitch onTypes={onTypes} onOpenType={() => {}} />
             <div className={`text-[10px] ${c.muted}`}>Je Feld des Out, woher es kommt — FEEL auf das In und die Ergebnisse</div>
             {(outType.fields ?? []).filter(f => f.name).map(f => {
               const m = (spec.outMappings ?? []).find(x => x.name === f.name);
