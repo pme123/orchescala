@@ -102,6 +102,12 @@ export function projectWinners(user: Model, gen: CatalogFile, projectOf: (t: Dom
   };
 }
 
+/** the dependencies of the catalog's projects — those it read a `PROJECT.conf` of */
+const dependenciesOf = (gen: CatalogFile): Record<string, string[]> | null => {
+  const known = (gen.projects ?? []).filter(p => Array.isArray(p.dependencies));
+  return known.length ? Object.fromEntries(known.map(p => [p.name, p.dependencies!])) : null;
+};
+
 export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Model {
   // ProcessStatus & co. from orchescala.domain always exist — as «generated», so never in the model.json
   const user = { ...user0, services: user0.services.map(feelParams), domainTypes: withOrchescalaTypes(user0.domainTypes) };
@@ -132,6 +138,7 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
   const projectOfDefault = (d: DomainDefault) => projectOf({ pkg: d.pkg } as DomainType);
   const genDefaults = (gen.domainDefaults ?? []).filter(d => !defaultFromUser(d)).map(d => ({ ...d, generated: true }));
   const defaultIds = new Set(genDefaults.map(d => `${d.pkg}.${d.name}`));
+  const genDeps = dependenciesOf(gen);
   return {
     ...user,
     services: [
@@ -148,5 +155,6 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
       (projectOfDefault(d) != null ? defaultFromUser(d) : !defaultIds.has(`${d.pkg}.${d.name}`)))],
     domainSources: gen.domainSources ?? user.domainSources,
     ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),
+    ...(genDeps ? { projectDependencies: genDeps } : {}),
   };
 }

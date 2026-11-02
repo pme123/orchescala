@@ -188,6 +188,7 @@ function stripGenerated(m: Model): Model {
     domainTypes: m.domainTypes?.filter(t => !t.generated),
     domainDefaults: m.domainDefaults?.filter(d => !d.generated),
     projectColors: undefined,
+    projectDependencies: undefined,
   };
 }
 

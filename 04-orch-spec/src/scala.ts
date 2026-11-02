@@ -21,6 +21,7 @@ import { interactionOrigin, loopSettings, mockableSteps } from './interactions.t
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
 import { importName, isFixedCaseDefault } from './scalaTypes.ts';
+import { seesPackage, visibleRoots } from './projectConf.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -154,9 +155,13 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     // a referenced class is named as in the catalog — `ResolveTimerDueDateWithOverwrite.DueDateSpec`
     return referenced.get(ref)?.name ?? byId.get(ref)?.name ?? ref;
   };
-  // Precedence: company library (without import), own project, then the order of the catalog
+  // Precedence: company library (without import), own project, then the order of the catalog.
+  // With a project, only what its code sees: the own project and its dependencies
+  // (`PROJECT.conf`, transitively) — a default from elsewhere would be an import that does not compile.
   const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);
+  const roots = home ? visibleRoots(model, home) : null;
   const ranked = (model?.domainDefaults ?? [])
+    .filter(d => !roots || isAutoImported(d.pkg) || seesPackage(model, roots, d.pkg))
     .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
   const defaults = ranked.filter(d => d.type);
   const defaultOf = (f: Field): DomainDefault | null => {

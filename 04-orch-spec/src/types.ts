@@ -859,6 +859,12 @@ export interface ProjectFolder {
    */
   scannedAt?: string;
   /**
+   * The projects it depends on — `dependencies` and `workerDependencies` of its
+   * `PROJECT.conf`, at the last build. Generated code takes example values
+   * (`default…`) only from these, transitively (see `projectConf.ts`).
+   */
+  dependencies?: string[];
+  /**
    * Color of the project (`#rrggbb`) — like `ProjectConfig.color` in Orchescala.
    * A worker or subprocess from this project gets it in the diagram.
    */
@@ -927,5 +933,11 @@ export interface Model {
    * only in memory, never in the model.json. A color on the project folder takes precedence.
    */
   projectColors?: Record<string, string>;
+  /**
+   * Project → the projects it depends on (`PROJECT.conf`), from the generated
+   * catalog — only in memory, never in the model.json. `dependencies` on the
+   * project folder takes precedence.
+   */
+  projectDependencies?: Record<string, string[]>;
   [key: string]: unknown;
 }
