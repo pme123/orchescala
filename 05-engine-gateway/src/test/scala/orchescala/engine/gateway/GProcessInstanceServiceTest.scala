@@ -85,10 +85,13 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
   private def notOnThisEngine(engine: EngineType) =
     EngineError.ServiceRequestError(404, s"$engine: no start event for message 'start-order'")
 
-  // no id - without a cache entry the engines are tried in the given order
-  private val cachedKey     = "order-cache-test"
-  // a UUID - routed to C8 first without a cache entry
-  private val uuidKey       = "6f1c2a3e-1b2c-4d5e-8f90-123456789abc"
+  // A new key per test: the EngineCache is a global singleton - no test sees an entry of another.
+
+  /** A UUID - without a cache entry it is routed to C8 first (see `engineTypeForKey`). */
+  private val newUuidKey: UIO[String] = ZIO.succeed(java.util.UUID.randomUUID().toString)
+
+  /** A business key - no id, so without a cache entry the engines are tried in the given order. */
+  private val newBusinessKey: UIO[String] = newUuidKey.map(id => s"order-$id")
 
   def spec = suite("GProcessInstanceService")(
     suite("startProcessByMessage")(
@@ -177,6 +180,35 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           error == landedInRunningInstance,
           c8Calls.isEmpty
         )
+      },
+      test("the same with C8 first - a 409 of C8 is the answer, C7 is not tried") {
+        for
+          c8Service <- MockProcessInstanceService.make(EngineType.C8, Left(landedInRunningInstance))
+          c7Service <- MockProcessInstanceService.make(EngineType.C7, Right("c7-new-instance"))
+          gService   = GProcessInstanceService(using Seq(c8Service, c7Service))
+          error     <- gService
+                         .startProcessAsync("order-process", JsonObject.empty, Some("order-1"), None, None)
+                         .flip
+          c7Calls   <- c7Service.calls.get
+        yield assertTrue(
+          error == landedInRunningInstance,
+          c7Calls.isEmpty
+        )
+      },
+      test("a 404 of the first engine falls through to the second one") {
+        for
+          c7Service <- MockProcessInstanceService.make(
+                         EngineType.C7,
+                         Left(EngineError.ServiceRequestError(404, "C7: process definition 'order-process' not found"))
+                       )
+          c8Service <- MockProcessInstanceService.make(EngineType.C8, Right("c8-new-instance"))
+          gService   = GProcessInstanceService(using Seq(c7Service, c8Service))
+          info      <- gService.startProcessAsync("order-process", JsonObject.empty, Some("order-1"), None, None)
+          c8Calls   <- c8Service.calls.get
+        yield assertTrue(
+          info.engineType == EngineType.C8,
+          c8Calls == List("order-process")
+        )
       }
     ),
     // the stop on 409 is in the shared fall-through - it holds for the other operations too
@@ -186,6 +218,7 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           c7Service <- MockMessageService.make(EngineType.C7, Right("c7-execution"))
           c8Service <- MockMessageService.make(EngineType.C8, Left(alreadyPublished))
           gService   = GMessageService(using Seq(c7Service, c8Service))
+          uuidKey   <- newUuidKey
           error     <- gService.sendMessage("order-paid", processInstanceId = Some(uuidKey)).flip
           c7Calls   <- c7Service.calls.get
           c8Calls   <- c8Service.calls.get
@@ -201,6 +234,7 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           c8Service <- MockMessageService.make(EngineType.C8, Right("c8-execution"))
           gService   = GMessageService(using Seq(c8Service, c7Service))
           // C8 is first in the list - the cache entry sends it to C7 first
+          cachedKey <- newBusinessKey
           _         <- ZIO.succeed(EngineCache.updateCache(cachedKey, EngineType.C7))
           error     <- gService.sendMessage("order-paid", businessKey = Some(cachedKey)).flip
           c7Calls   <- c7Service.calls.get
@@ -210,7 +244,7 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           c7Calls == List("order-paid"),
           c8Calls.isEmpty
         )
-      } @@ TestAspect.flaky(3), // another suite may clear the shared cache in between
+      },
       test("a 404 of the first engine still falls through") {
         for
           c7Service <- MockMessageService.make(EngineType.C7, Right("c7-execution"))
@@ -219,6 +253,7 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
                          Left(EngineError.ServiceRequestError(404, "C8: no subscription"))
                        )
           gService   = GMessageService(using Seq(c7Service, c8Service))
+          uuidKey   <- newUuidKey
           result    <- gService.sendMessage("order-paid", processInstanceId = Some(uuidKey))
           c7Calls   <- c7Service.calls.get
         yield assertTrue(
@@ -234,7 +269,9 @@ object GProcessInstanceServiceTest extends ZIOSpecDefault:
           !isFinalAnswer(EngineError.ServiceRequestError(404, "not found")),
           !isFinalAnswer(EngineError.ServiceRequestError(400, "bad request")),
           !isFinalAnswer(EngineError.ServiceRequestError(401, "unauthorized")),
-          !isFinalAnswer(EngineError.ProcessError("connection refused"))
+          !isFinalAnswer(EngineError.ProcessError("connection refused")),
+          // only a ServiceRequestError carries a status - a 409 in the text of another error is none
+          !isFinalAnswer(EngineError.ProcessError("C7: 409 Conflict"))
         )
       }
     )

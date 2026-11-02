@@ -35,6 +35,8 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
                 operation(service)
                   .foldZIO(
                     {
+                      // no cache update: its key comes from the result (e.g. the process instance
+                      // id) - a 409 has none
                       case error if isFinalAnswer(error) =>
                         val before =
                           if errors.isEmpty then ""
