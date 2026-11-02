@@ -760,6 +760,14 @@ und Doku stehen in `democompany-patterns`:
 - **Mocks und Identität weitergeben** (`propagate-mocks`, Call Activity):
   `_servicesMocked`, `_mockedWorkers` und `_identityCorrelation` gehen an den
   Teilprozess.
+- **Einmalige Ausführung** (`unique-execution`, am Prozess): Start über ein
+  Nachrichten-Startereignis mit `businessKey`; ein zweiter Start mit demselben
+  `businessKey` landet in der laufenden Instanz.
+- **Prozess-Status am Ende** (`process-status`, Endereignis): setzt
+  `processStatus` auf den Parameter (Vorgabe `succeeded`). Das Ende
+  `output-mocked` von «Init Process» setzt ihn auch, gehört aber zu jenem
+  Pattern — was ein Pattern in seinem Block oder Pfad trägt, bekommt kein
+  anderes.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):

@@ -43,7 +43,7 @@ const targetFor = (type: string) => (type === 'process' ? null : 'Target');
 
 test('the standard patterns are there without a company pattern', () => {
   const ids = patternDefs(null).map(p => p.id);
-  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution']) assert.ok(ids.includes(id), id);
+  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution', 'process-status']) assert.ok(ids.includes(id), id);
   assert.ok(STANDARD_PATTERNS.every(p => isStandardPattern(p) && !p.builtin));
   // a copy (an own pattern from a file) is not a standard pattern, whatever it carries
   assert.ok(!isStandardPattern({ ...STANDARD_PATTERNS[0], standard: true }));
@@ -299,3 +299,46 @@ test('«Einmalige Ausführung» on C8: a start message with another correlation 
   assert.deepEqual(subscriptionOf(message), ['=clientKey']);
   assert.ok(res.issues.some(i => i.includes('=clientKey') && i.includes('=businessKey')), res.issues.join('; '));
 });
+
+// «Prozess-Status am Ende» - an end event sets processStatus; the end `output-mocked` of
+// «Init Process» sets it too, but as part of that pattern
+const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
+const init = STANDARD_PATTERNS.find(p => p.id === 'init-process')!;
+const hitsOf = (xml: string, engine: EngineId) =>
+  detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId, h.params.processStatus ?? null]);
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: the status is set as text and read back`, () => {
+    const res = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'canceled' });
+    assert.ok(res.changed, res.issues.join('; '));
+    assert.ok(!res.xml.includes('{{'), 'no placeholder left');
+    const end = one(parse(res.xml), 'bpmn:endEvent');
+    if (engine === 'c7') {
+      assert.equal(one(end, 'camunda:executionListener').getAttribute('expression'), '${execution.setVariable("processStatus", "canceled")}');
+    } else {
+      const out = one(end, 'zeebe:output');
+      assert.deepEqual([out.getAttribute('source'), out.getAttribute('target')], ['="canceled"', 'processStatus']);
+    }
+    assert.deepEqual(hitsOf(res.xml, engine), [['process-status', 'End', 'canceled']]);
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: with «Init Process» - its end output-mocked is not the pattern, the own end is`, () => {
+    const withInit = applyPattern(diagram(engine, 'serviceTask'), init, engine, 'Target');
+    assert.ok(withInit.changed, withInit.issues.join('; '));
+    assert.ok(withInit.xml.includes('output-mocked'), 'the block of «Init Process» is there');
+    // the end of the block sets processStatus = output-mocked - it belongs to «Init Process»
+    assert.deepEqual(hitsOf(withInit.xml, engine), [['init-process', 'Target', null]]);
+    const both = applyPattern(withInit.xml, status, engine, 'End', { processStatus: 'succeeded' });
+    assert.ok(both.changed, both.issues.join('; '));
+    assert.deepEqual(hitsOf(both.xml, engine).sort(), [['init-process', 'Target', null], ['process-status', 'End', 'succeeded']]);
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: removed again - the end stays, without the status`, () => {
+    const applied = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'canceled' }).xml;
+    const res = removePattern(applied, status, engine, 'End', STANDARD_PATTERNS);
+    assert.ok(res.changed, res.issues.join('; '));
+    assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits, []);
+    assert.ok(!res.xml.includes('processStatus'), 'the status is gone');
+    assert.equal(elements(parse(res.xml), 'bpmn:endEvent').length, 1, 'the end stays');
+  });
+}

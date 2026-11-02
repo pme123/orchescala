@@ -946,6 +946,26 @@ function matchBlocks(fr: Fragment, tg: Graph, claimed: Set<Element>, base: Bindi
   });
 }
 
+/**
+ * What the pattern's own nodes carry belongs to it too: a listener on the end of its block or
+ * path is not free for another pattern. So the end `output-mocked` of «Init Process» is not also
+ * «Prozess-Status am Ende» - it sets `processStatus` because «Init Process» does. A block node
+ * still gets another pattern for what it carries beyond its block.
+ */
+function claimItems(pairs: Iterable<[Element, Element]>, b: Binding, claimed: Set<Element>): void {
+  for (const [fn, tn] of pairs) {
+    const tItems = itemsOf(tn);
+    for (const fi of itemsOf(fn)) {
+      const ti = tItems.find(x => sameSlot(fi, x) && !claimed.has(x.el) && matchEl(fi.el, x.el, b));
+      if (ti) claimed.add(ti.el);
+    }
+  }
+}
+
+/** The pattern's block nodes with the diagram nodes of the same kind in its block */
+const blockPairs = (block: Fragment['blocks'][number], elements: Element[]): Array<[Element, Element]> =>
+  block.nodes.flatMap(fn => elements.filter(e => local(e) === local(fn)).map(e => [fn, e] as [Element, Element]));
+
 const builtins = (t: Element | null, proc: Element | null): Map<string, string> => {
   const m = new Map<string, string>();
   if (t) { m.set('targetId', t.getAttribute('id') ?? ''); m.set('targetName', t.getAttribute('name') ?? ''); }
@@ -1031,7 +1051,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       let b = m.b;
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
-      for (const x of blocks) own(x!.elements, def.id);
+      blocks.forEach((x, i) => { own(x!.elements, def.id); claimItems(blockPairs(fr.blocks[i], x!.elements), b, claimed); });
       res.hits.push({ patternId: def.id, targetId: null, params: paramsOf(b, def), match: { ...m, b }, fr });
       continue;
     }
@@ -1057,10 +1077,15 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
         }
         m.items.forEach(e => claimed.add(e));
         own(m.attached.values(), def.id);
+        claimItems(m.attached, m.b, claimed);
         res.hits.push({ patternId: def.id, targetId: t.getAttribute('id'), params: paramsOf(m.b, def), match: m, fr });
         // assign shared blocks once per scope
         if (fr.blocks.length) {
-          for (const x of matchBlocks(fr, tg, claimed, m.b)) if (x) own(x.elements, def.id);
+          matchBlocks(fr, tg, claimed, m.b).forEach((x, i) => {
+            if (!x) return;
+            own(x.elements, def.id);
+            claimItems(blockPairs(fr.blocks[i], x.elements), x.b, claimed);
+          });
         }
         if (!m.items.length && !m.attached.size) break;
       }
