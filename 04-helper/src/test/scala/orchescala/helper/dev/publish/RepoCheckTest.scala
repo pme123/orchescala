@@ -485,6 +485,14 @@ class RepoCheckTest extends FunSuite:
     assert(container.getMessage.contains("docker buildx use default"), container.getMessage)
     assertEquals(DockerCheck.builderDriver("Name: x\n Driver:   docker\nLast Activity: now"), Some("docker"))
     assertEquals(DockerCheck.builderDriver(""), None)
+    // the daemon is not reachable: `Driver:` is empty - the next line is no driver
+    val unreachable =
+      "Name:          default\n" +
+        "Driver:        \n" +
+        "Last Activity: 2026-11-02 05:40:07 +0000 UTC\n" +
+        "Error:         failed to connect to the docker API at unix:///nonexistent.sock\n"
+    assertEquals(DockerCheck.builderDriver(unreachable), None)
+    DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 0, _ => unreachable)
     // `--platform=...` is a platform too
     var askedEq = false
     DockerCheck.verifyBuildx(Seq("--platform=linux/amd64"), _ => { askedEq = true; 0 }, _ => "Driver: docker")

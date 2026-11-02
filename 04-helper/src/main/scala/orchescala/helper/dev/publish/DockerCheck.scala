@@ -34,14 +34,17 @@ object DockerCheck:
             s"The current buildx builder uses the `$other` driver - an image built for a platform does not " +
               "land in the local daemon, the push would find none. Use the default builder: `docker buildx use default`."
           )
-        case None           => println("docker buildx is there (its builder's driver is unknown - `docker buildx inspect` said nothing).")
+        case None           => println("docker buildx is there (its builder's driver is unknown - `docker buildx inspect` names none).")
   end verifyBuildx
 
-  /** The `Driver:` of `docker buildx inspect` - None when there is none in the output. */
+  /** The `Driver:` of `docker buildx inspect` - None when there is none in the output, or it is empty (as when
+    * the daemon is not reachable). Only spaces and tabs around it: `\s` would run into the next line and read
+    * `Last` of `Last Activity:` as the driver.
+    */
   def builderDriver(inspect: String): Option[String] =
     Driver.findFirstMatchIn(inspect).map(_.group(1))
 
-  private val Driver = """(?m)^\s*Driver:\s*(\S+)""".r
+  private val Driver = """(?m)^[ \t]*Driver:[ \t]*(\S+)""".r
 
   private def out(cmd: Seq[String]): String =
     try os.proc(cmd).call(check = false, stdout = os.Pipe, stderr = os.Pipe).out.text()
