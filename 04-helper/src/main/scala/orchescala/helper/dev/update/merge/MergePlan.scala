@@ -31,7 +31,7 @@ case class Conflict(line: Int, spec: String, code: String)
   * @param codeHash hash of the file in the project at the check - None if it does not exist
   * @param content  what `merge` writes: the new content (create, update, merged) - for a conflict
   *                 the content with conflict markers (`OnConflict.Markers`)
-  * @param note     why - e.g. «in orch-spec entfernt, im Code geändert»
+  * @param note     why - e.g. «removed in orch-spec, changed in the code»
   */
 case class PlannedFile(
     path: String,

@@ -179,8 +179,8 @@ object SpecMerge:
 
   // ── deciding ────────────────────────────────────────────────────────────────────────────
 
-  private val removedInSpec  = "in orch-spec entfernt, im Code geändert"
-  private val deletedInCode  = "im Code gelöscht, in orch-spec geändert"
+  private val removedInSpec  = "removed in orch-spec, changed in the code"
+  private val deletedInCode  = "deleted in the code, changed in orch-spec"
 
   /** One generated file: base and new export against the code - see the table above. */
   private[merge] def decide(
@@ -208,14 +208,14 @@ object SpecMerge:
         else file(Action.conflict, conflicts = Seq(Conflict(1, "", firstLines(c))), note = Some(removedInSpec))
       case (Some(b), Some(n), None)     =>
         // the developer deleted it - that stays, unless Orch Spec changed it
-        if same(b.content, n.content) then file(Action.unchanged, note = Some("im Code gelöscht"))
+        if same(b.content, n.content) then file(Action.unchanged, note = Some("deleted in the code"))
         else file(Action.conflict, Some(n.content), Seq(Conflict(1, firstLines(n.content), "")), Some(deletedInCode))
       case (None, Some(n), Some(c))     =>
         if same(c, n.content) then file(Action.unchanged)
         else
           n.kind match
             case FileKind.Simulation    => file(Action.update, Some(n.content))
-            case FileKind.Scaffold      => file(Action.unchanged, note = Some("existiert - einmal erzeugt, bleibt"))
+            case FileKind.Scaffold      => file(Action.unchanged, note = Some("exists - created once, it stays"))
             case FileKind.ProcessObject =>
               val merged = n.structural.fold(c)(_(c))
               if same(merged, c) then file(Action.unchanged) else file(Action.merged, Some(merged))

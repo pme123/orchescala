@@ -198,7 +198,7 @@ class SpecMergeTest extends FunSuite:
       val (plan, _) = run(project, Seq(order), Seq(withoutObject(order, "ApproveOrderUT")))
       val approve   = plan.files.find(_.path == path(project, "ApproveOrderUT.scala")).get
       assertEquals(approve.action, Action.conflict)
-      assertEquals(approve.note, Some("in orch-spec entfernt, im Code geändert"))
+      assertEquals(approve.note, Some("removed in orch-spec, changed in the code"))
       assert(os.exists(file(project, "ApproveOrderUT.scala")))
 
   test("a new step (custom task): its object and worker created, the worker registered"):
