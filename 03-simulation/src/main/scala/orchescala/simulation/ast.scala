@@ -129,11 +129,19 @@ case class SUserTask(
     inOut: UserTask[?, ?],
     testOverrides: Option[TestOverrides] = None,
     // after getting a task, you can wait - used for intermediate events running something.
-    waitForSec: Option[Int] = None
+    waitForSec: Option[Int] = None,
+    // who completes the task - default: the identity that started the process
+    identity: Option[IdentityCorrelation] = None
 ) extends SInOutServiceStep:
+
+  lazy val identityCorrelation: IdentityCorrelation = identity.getOrElse(testIdentityCorrelation)
 
   def add(testOverride: TestOverride): SUserTask =
     copy(testOverrides = addOverride(testOverride))
+
+  /** Completes the task as this identity - the engine passes it as `_identityCorrelationOfActor`. */
+  def actingAs(identity: IdentityCorrelation): SUserTask =
+    copy(identity = Some(identity))
 end SUserTask
 
 sealed trait SEvent extends SInOutServiceStep:
@@ -148,10 +156,20 @@ case class SMessageEvent(
     readyValue: Any = true,
     processInstanceId: Boolean = true,
     testOverrides: Option[TestOverrides] = None,
-    businessKey: Option[String] = None
+    businessKey: Option[String] = None,
+    // who sends the message - default: the identity that started the process
+    identity: Option[IdentityCorrelation] = None
 ) extends SEvent:
 
   lazy val readyVariable: String = optReadyVariable.getOrElse(notSet)
+
+  lazy val identityCorrelation: IdentityCorrelation = identity.getOrElse(testIdentityCorrelation)
+
+  /** Sends the message as this identity - to a process instance the engine passes it as
+    * `_identityCorrelationOfActor`.
+    */
+  def actingAs(identity: IdentityCorrelation): SMessageEvent =
+    copy(identity = Some(identity))
 
   def add(testOverride: TestOverride): SMessageEvent =
     copy(testOverrides = addOverride(testOverride))

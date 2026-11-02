@@ -1,6 +1,3 @@
-{%
-helium.site.pageNavigation.enabled = false
-%}
 # Init Company
 **Experimental**
 
@@ -17,13 +14,12 @@ myProject1  myProject2  ...
 
 The idea is that you have a company layer, where you can override Company specific settings.
 
-@:callout(info)
-**Be aware** that one of the main advantages is the concept of _Convention over Configuration_.
-
-At the moment not everything is configurable.
-
-So try to stick to the conventions, whenever possible.
-@:@
+> [!NOTE]
+> **Be aware** that one of the main advantages is the concept of _Convention over Configuration_.
+>
+> At the moment not everything is configurable.
+>
+> So try to stick to the conventions, whenever possible.
 
 
 1. Create a directory for your company development:

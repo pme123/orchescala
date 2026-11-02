@@ -23,7 +23,7 @@ import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions } from '../feel';
 import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
-import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields } from '../patterns';
+import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields, patternDefs } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
 import { conversionNote, engineLabel } from '../engineLabels';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
@@ -740,11 +740,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     // An open modeler reloads the aligned XML.
     const renamed = from === 'Diagramm' && !!xmlRef.current && poolNames(xmlRef.current) !== poolNames(raw);
     let text = alignPoolIds(raw, { renameProcess: renamed }).xml;
-    const { spec: fresh } = importBpmn(text, from, { patterns: modelRef.current?.patterns });
+    const { spec: fresh } = importBpmn(text, from, { patterns: patternDefs(modelRef.current) });
     // the previous BPMN as reference: what the diagram did not change stays
     // as in the specification (service, mappings — they only go in on export)
     let base = null;
-    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: modelRef.current?.patterns }).spec : null; } catch { /* unreadable — without reference */ }
+    try { base = xmlRef.current ? importBpmn(xmlRef.current, from, { patterns: patternDefs(modelRef.current) }).spec : null; } catch { /* unreadable — without reference */ }
     const { spec: merged0, report } = mergeSpec(fresh, current, base, st);
     // Steps renamed in the diagram: the ID follows the name (convention).
     // If the change comes from the modeler, it renames — that triggers the
@@ -900,7 +900,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   // Afterwards the sync reads the diagram again: so the step shows what is in the
   // diagram, and an open modeler reloads the new XML.
   const changePattern = useCallback(async (targetId: string | null, patternId: string, action: 'add' | 'remove' | 'update', params: Record<string, string> = {}, previous?: Record<string, string>) => {
-    const x = xmlRef.current, cur = specRef.current, defs = modelRef.current?.patterns ?? [];
+    const x = xmlRef.current, cur = specRef.current, defs = patternDefs(modelRef.current);
     const def = defs.find(d => d.id === patternId);
     if (!x || !cur || !def) {
       setNotice({ tone: 'warn', message: !x ? 'Pattern brauchen das Diagramm — zuerst ein BPMN laden.' : `Pattern «${patternId}» ist im Admin nicht (mehr) definiert.` });
@@ -921,13 +921,13 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   // Pattern changed in the admin (or the specification dates from before):
   // update the pattern details from the diagram, nothing else
-  const patternDefs = model?.patterns;
+  const modelPatterns = patternDefs(model);
   const loaded = !!spec;
   useEffect(() => {
     const cur = specRef.current;
     if (!loaded || !xml || !cur) return;
     try {
-      const fresh = importBpmn(xml, cur.slug, { patterns: patternDefs }).spec;
+      const fresh = importBpmn(xml, cur.slug, { patterns: modelPatterns }).spec;
       const withPatterns = syncPatterns(cur, fresh);
       // a specification from before the import of timers gets them from the diagram
       const withTimers = syncTimers(withPatterns ?? cur, fresh);
@@ -939,7 +939,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       const what = [withPatterns && 'Pattern', withTimers && 'Timer', withKeys && 'Korrelations', withEvents && 'Ereignis'].filter(Boolean).join('- und ');
       if (next) update(next, { source: 'load', note: `${what}-Angaben aus dem Diagramm nachgezogen` });
     } catch { /* unreadable BPMN — the sync reports it */ }
-  }, [loaded, xml, patternDefs, update]);
+  }, [loaded, xml, modelPatterns, update]);
 
   // Switch engine: the converted diagram goes the way of every change —
   // the sync reads engine, topics and mappings from it again
@@ -1251,7 +1251,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                   serviceOf={s => catalogEntry(s, model)}
                   processId={spec.processId ?? ''}
                   hasCatalog={!!model?.services?.length}
-                  patternName={id => model?.patterns?.find(d => d.id === id)?.name ?? id}
+                  patternName={id => patternDefs(model).find(d => d.id === id)?.name ?? id}
                   onOpenInteraction={ia => { setFocusType(ia.inTypeId ?? ia.outTypeId ?? null); setTab('model'); }}
                   onOpenType={id => { setFocusType(id); setTab('model'); }} />
                 {!spec.steps.length && (

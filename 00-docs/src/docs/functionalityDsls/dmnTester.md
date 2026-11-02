@@ -100,17 +100,16 @@ That said, you only need to define the rest of your inputs, like
 
 It starts with the name of the input (`_.amount`) and is followed by all test values with the according type.
 
-@:callout(info)
-The underline in `_.amount` is the input of the DMN (_for the coder: it is a function:_ `In => DmnValueType`). 
-This makes sure the compiler checks if there is such an attribute.
-
-```log
-[error] -- [E008] Not Found Error: /Users/mpa/dev/Github/pme123/orchescala/examples/invoice/camunda7/src/main/scala/orchescala/examples/invoice/dmn/InvoiceDmnTesterConfigCreator.scala:27:20 
-[error] 27 |      .testValues(_.amounts, 249, 250, 999, 1000, 1001),
-[error]    |                  ^^^^^^^^^
-[error]    |value amounts is not a member of orchescala.examples.invoice.domain.SelectApproverGroup - did you mean _$1.amount?
-```
-@:@
+> [!NOTE]
+> The underline in `_.amount` is the input of the DMN (_for the coder: it is a function:_ `In => DmnValueType`). 
+> This makes sure the compiler checks if there is such an attribute.
+>
+> ```log
+> [error] -- [E008] Not Found Error: /Users/mpa/dev/Github/pme123/orchescala/examples/invoice/camunda7/src/main/scala/orchescala/examples/invoice/dmn/InvoiceDmnTesterConfigCreator.scala:27:20 
+> [error] 27 |      .testValues(_.amounts, 249, 250, 999, 1000, 1001),
+> [error]    |                  ^^^^^^^^^
+> [error]    |value amounts is not a member of orchescala.examples.invoice.domain.SelectApproverGroup - did you mean _$1.amount?
+> ```
 
 ### Object Inputs
 An input does not have to be a simple value - it may be an object, whose fields
@@ -149,12 +148,11 @@ values=[
 The DMN engine gets such a value as a FEEL Context - so the input expressions
 of your table address the fields: `selectedFond.id` / `selectedFond.percentage`.
 
-@:callout(info)
-Objects may be nested and optional fields (_Option_) are the value itself or
-_null_.
-
-Collections are **not** supported as an input value.
-@:@
+> [!NOTE]
+> Objects may be nested and optional fields (_Option_) are the value itself or
+> _null_.
+>
+> Collections are **not** supported as an input value.
 
 ### .testUnit
 By default, a DMN Test is integrated - meaning that it will take all dependent inputs into account.
@@ -196,16 +194,15 @@ If you have dynamic content in your DMN (input or output), you need to add them 
 
 To distinguish them from testing inputs, we wrap them in a _DmnVariable_ class.
 
-@:callout(info)
-Camunda DMN Engine handles Variables and Test Inputs exactly the same.
-
-We distinguish them, because Variables are not important for the matching process.
-So we do not need to have different values for them.
-
-We recommend not to use dynamic values in inputs of rules. 
-If you do the variable will rather be a test input.
-
-@:@
+> [!NOTE]
+> Camunda DMN Engine handles Variables and Test Inputs exactly the same.
+>
+> We distinguish them, because Variables are not important for the matching process.
+> So we do not need to have different values for them.
+>
+> We recommend not to use dynamic values in inputs of rules. 
+> If you do the variable will rather be a test input.
+>
 
 Example:
 
@@ -223,10 +220,9 @@ So it is a corner case if this is rather a test input.
 
 The output variable can be whatever you want.
 
-@:callout(info)
-Be aware that you must run the DMN Tester again, whenever you made changes
-(stop it with Ctrl-C and run `dmn/runMain ...ProjectDmnTester` again).
-@:@
+> [!NOTE]
+> Be aware that you must run the DMN Tester again, whenever you made changes
+> (stop it with Ctrl-C and run `dmn/runMain ...ProjectDmnTester` again).
 
 ## Configuration
 See [03-dmn].

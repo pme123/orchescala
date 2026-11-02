@@ -654,6 +654,7 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
   const selectOp = onSelectOp ?? ((id: string) => navigate(href.api(docs.company, project, id)));
   const [q, setQ] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const opsRef = useRef<HTMLDivElement>(null);
 
   const selected = useMemo(() => {
     if (!api) return undefined;
@@ -667,8 +668,19 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
     return all.find(o => o.path.includes(name) || o.operationId.endsWith(name)) ?? all[0];
   }, [api, op]);
   useEffect(() => {
-    listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+    // only the list scrolls - scrollIntoView would also scroll the page down to the list
+    const list = listRef.current;
+    const item = list?.querySelector('[data-active="true"]');
+    if (!list || !item) return;
+    const listBox = list.getBoundingClientRect(), itemBox = item.getBoundingClientRect();
+    if (itemBox.top < listBox.top) list.scrollTop -= listBox.top - itemBox.top;
+    else if (itemBox.bottom > listBox.bottom) list.scrollTop += itemBox.bottom - listBox.bottom;
   }, [selected]);
+  // a link to an operation (a click in the list or `?op=`): jump to the list and the details - they
+  // are below the project text (README …), which can be long; without `op` the app starts at the top
+  useEffect(() => {
+    if (api && op) opsRef.current?.scrollIntoView({ block: 'start' });
+  }, [api, project, op]);
 
   if (error) return (
     <div>
@@ -697,7 +709,7 @@ export default function ApiDoc({ docs, isDark, project, op, standalone, onSelect
 
       <ProjectPanel docs={docs} api={api} p={p} project={project} base={base} isDark={isDark} standalone={standalone} rewrite={rewrite} />
 
-      <div className="grid md:grid-cols-[20rem_1fr] gap-4 items-start">
+      <div ref={opsRef} className="grid md:grid-cols-[20rem_1fr] gap-4 items-start scroll-mt-[60px]">
         {/* operation list */}
         <Card isDark={isDark} className="p-2 md:sticky md:top-[52px] md:max-h-[calc(100vh-70px)] flex flex-col">
           <div className="relative mb-2 flex-shrink-0">

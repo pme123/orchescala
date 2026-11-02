@@ -281,6 +281,11 @@ export interface PatternDef {
    */
   variants?: Partial<Record<EngineId, string[]>>;
   /**
+   * What the pattern does not do yet on an engine — said when it is inserted (in `issues`) and in
+   * the admin, not only in the description.
+   */
+  limitations?: Partial<Record<EngineId, string>>;
+  /**
    * Where the pattern appears on the step. `assignment`: it determines the
    * responsibility (e.g. a task listener that assigns the advisor) — it is shown under
    * «Zuständigkeit», and groups/person are then not editable.

@@ -56,11 +56,10 @@ You will get a warning, but the file will not be replaced.
 
 Creates a new Release for the BPMN project and publishes to the repository(e.g. Artifactory)
 
-@:callout(info)
-If you want to provide the documentation on a WebDAV server, 
-you need a `CompanyDevHelper.devConfig.publishConfig` configuration.
-
-@:@
+> [!NOTE]
+> If you want to provide the documentation on a WebDAV server, 
+> you need a `CompanyDevHelper.devConfig.publishConfig` configuration.
+>
 
 Usage:
 ```
@@ -153,11 +152,10 @@ The following steps are executed:
 ## deploy
 Deploys the BPMN project to the local Camunda server and runs the Simulation you're working on.
 
-@:callout(info)
-**Be aware** that `CompanyDevHelper.devConfig.postmanConfig` must be defined.
-
-At the moment, only deployment via _Postman Collection_ is supported (using Camunda REST API to deploy).
-@:@
+> [!NOTE]
+> **Be aware** that `CompanyDevHelper.devConfig.postmanConfig` must be defined.
+>
+> At the moment, only deployment via _Postman Collection_ is supported (using Camunda REST API to deploy).
 
 Usage:
 ```
@@ -507,20 +505,18 @@ This creates the following files:
 ## Docker
 To run the Camunda Server locally, you can use `docker-compose`.
 
-@:callout(info)
-**Precondition**: 
-- You have to have `docker` and `docker-compose` installed.
-- You need to have a `docker-compose.yml` in `dev-company/docker` directory.
-- Adjust the `CompanyDevHelper.devConfig.dockerConfig` configuration.
-
-@:@
+> [!NOTE]
+> **Precondition**: 
+> - You have to have `docker` and `docker-compose` installed.
+> - You need to have a `docker-compose.yml` in `dev-company/docker` directory.
+> - Adjust the `CompanyDevHelper.devConfig.dockerConfig` configuration.
+>
 
 ### dockerUp
 Starts the server with `docker-compose`.
 
-@:callout(info)
-Check your company settings in `DockerHelper` before running this command.
-@:@
+> [!NOTE]
+> Check your company settings in `DockerHelper` before running this command.
 
 Usage / example:
 ```

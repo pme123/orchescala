@@ -9,9 +9,8 @@ cd ~/dev-mycompany/mycompany-orchescala
 chmod +x helper.scala
 ```
 
-@:callout(info)
-To update this project, use `cd ..` and then `./helperCompany init` - see  [Init Company].
-@:@
+> [!NOTE]
+> To update this project, use `cd ..` and then `./helperCompany init` - see  [Init Company].
 
 ## update
 
@@ -45,11 +44,10 @@ See [project publish](../development/projectDev.md#publish).
 ## Company Documentation
 This is a semi-automatic process. This should be done either to prepare a Release or after a Release.
 
-@:callout(info)
-At the moment this is based on using **Postman** and a **WebDAV** server.
-
-So get in touch if you have a different setup.
-@:@
+> [!NOTE]
+> At the moment this is based on using **Postman** and a **WebDAV** server.
+>
+> So get in touch if you have a different setup.
 
 Do the following steps:
 
@@ -76,9 +74,8 @@ Prepare the company documentation.
 ```bash
 ./helper.scala prepareDocs
 ```
-@:callout(warning)
-Be aware that this overwrites `release.md`
-@:@
+> [!WARNING]
+> Be aware that this overwrites `release.md`
 
 `prepareDocs` ends with a local preview of the documentation site: the site is assembled into
 `00-docs/site` (this company and its siblings, the project APIs at their released versions,
@@ -127,11 +124,10 @@ The site links two apps in its top bar: **Spec** (`spec/`, process specification
 status tags, screenshots). Orch Ops keeps its data in a shared folder of its own (local or
 SharePoint), chosen in the app - the site only serves the app.
 
-@:callout(info)
-The documentation apps (Orch Doc, Orch Spec, Orch Ops) are licensed under the
-[Business Source License 1.1](https://github.com/pme123/orchescala/blob/master/04-orch-doc/LICENSE):
-non-production use is free, production use - publishing the site for a company - needs a license
-from z9nai GmbH.
-@:@
+> [!NOTE]
+> The documentation apps (Orch Doc, Orch Spec, Orch Ops) are licensed under the
+> [Business Source License 1.1](https://github.com/pme123/orchescala/blob/master/04-orch-doc/LICENSE):
+> non-production use is free, production use - publishing the site for a company - needs a license
+> from z9nai GmbH.
 
 - Check the result on your Company Documentation Page (`<documentationUrl>/site/#/<company>`).

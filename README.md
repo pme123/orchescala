@@ -38,12 +38,12 @@ sbt persistencePostgres/test
 ```
 
 ## Documentation
-We use [mdoc](https://scalameta.org/mdoc/) to verify the documentation
-and [laika](https://typelevel.org/Laika/) to generate the htmls.
+The pages are markdown files in [00-docs/src/docs](00-docs/src/docs). A small Vite/React app in
+[00-docs](00-docs) renders them - see [00-docs/README.md](00-docs/README.md).
 
-Run mdoc:   `sbt "docs/mdoc --watch"`
-And laika:  `sbt "~docs/laikaPreview"`
-Check the result in http://localhost:4242
+Preview:  `cd 00-docs && npm install && npm run dev` - then http://localhost:3020/orchescala/
+
+We use [mdoc](https://scalameta.org/mdoc/) to compile the Scala snippets (` ```scala mdoc `): `sbt docs/mdoc`
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

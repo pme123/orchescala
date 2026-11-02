@@ -10,3 +10,11 @@ lazy val testIdentityCorrelation = IdentityCorrelation(
   email = Some("admin@orchescala.ch"),
   impersonateProcessValue = Some("1234567890")
 )
+
+/** A second test identity - to complete a user task or send a message as another person than the
+  * one who started the process: `MyUT.actingAs(testActorIdentityCorrelation)`.
+  */
+lazy val testActorIdentityCorrelation = IdentityCorrelation(
+  username = "actor",
+  email = Some("actor@orchescala.ch")
+)

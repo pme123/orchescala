@@ -128,7 +128,7 @@ object DefaultEngineContext:
   *
   * @param rootId
   *   looks the root process instance up - only evaluated if the correlation is not bound to `id`
-  *   itself (C8 delivers it with the job, C7 / Operaton look it up in the history, cached)
+  *   itself (C7 / Operaton look it up in the history, C8 in the engine if the job lacks it; cached)
   */
 final case class JobProcessInstance(id: String, rootId: IO[String, Option[String]])
 
