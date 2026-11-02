@@ -6,11 +6,14 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern, setVariableOnly } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
+import { convertWithPatterns } from '../src/patternConvert';
+import { installXmlNamespaces } from './xmlNamespaces';
 import type { EngineId, PatternDef } from '../src/types';
 
 const g = globalThis as unknown as Record<string, unknown>;
 g.DOMParser ??= DOMParser;
 g.XMLSerializer ??= class { serializeToString(doc: { toString(): string }) { return doc.toString(); } };
+installXmlNamespaces();
 
 const BPMN = 'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"';
 const NS: Record<EngineId, string> = {
@@ -497,4 +500,66 @@ test('setVariableOnly: one setVariable call and nothing after it - brackets and 
     ['${execution.getVariable("x")}', null],
   ];
   for (const [expr, name] of cases) assert.equal(setVariableOnly(expr), name, expr);
+});
+
+// «Prozess mit Fehler stoppen» - the message as text or FEEL; C7 a Groovy exception after
+// asyncBefore, C8 FEEL assert in an output mapping
+const stop = STANDARD_PATTERNS.find(p => p.id === 'stop-with-error')!;
+const STOP_FEEL = '"Kunde " + customerName + " ist gesperrt."';
+/** the message the event carries: C7 the input parameter, C8 the first output */
+const messageOf = (xml: string, id: string, engine: EngineId) => {
+  const doc = parse(xml);
+  const el = [...elements(doc, 'bpmn:endEvent'), ...elements(doc, 'bpmn:intermediateThrowEvent')].find(e => e.getAttribute('id') === id)!;
+  if (engine === 'c7') return { message: elements(el, 'camunda:inputParameter').find(p => p.getAttribute('name') === '_errorMessage')?.textContent ?? '', async: el.getAttribute('camunda:asyncBefore'), script: elements(el, 'camunda:script')[0]?.textContent ?? '' };
+  const outs = elements(el, 'zeebe:output');
+  return { message: outs[0]?.getAttribute('source') ?? '', assert: outs[1]?.getAttribute('source') ?? '', targets: outs.map(o => o.getAttribute('target')) };
+};
+/** start → an intermediate throw event → end */
+const withThrow = (engine: EngineId) => diagram(engine, 'intermediateThrowEvent');
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess mit Fehler stoppen» on ${engine.toUpperCase()}: a text message - on an end event and on an intermediate throw event`, () => {
+    for (const [xml, target] of [[diagram(engine, 'task'), 'End'], [withThrow(engine), 'Target']] as const) {
+      const res = applyPattern(xml, stop, engine, target, { message: 'Kunde gesperrt.' });
+      assert.ok(res.changed, res.issues.join('; '));
+      const m = messageOf(res.xml, target, engine);
+      if (engine === 'c7') {
+        assert.equal(m.message, 'Kunde gesperrt.');
+        assert.equal(m.async, 'true', 'the incident is on the event');
+        assert.ok(m.script.includes('throw new IllegalArgumentException'), m.script);
+      } else {
+        assert.equal(m.message, '="Kunde gesperrt."');
+        assert.equal(m.assert, '=assert(false, false, string(_errorMessage))');
+        // two targets: Zeebe merges the outputs into one context - one name twice would be there once
+        assert.deepEqual(m.targets, ['_errorMessage', '_stopped'], 'first the message, then the assert');
+      }
+      const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'stop-with-error');
+      assert.deepEqual(hits.map(h => [h.targetId, h.params.message]), [[target, 'Kunde gesperrt.']]);
+    }
+  });
+}
+
+test('«Prozess mit Fehler stoppen»: a FEEL message - JUEL on C7, the FEEL expression on C8, read back the same', () => {
+  // as the step stores it: in the form of the engine (see patternParams)
+  const c7Value = '${"Kunde ".concat(customerName).concat(" ist gesperrt.")}';
+  const c8Value = `=${STOP_FEEL}`;
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: c7Value }).xml;
+  assert.equal(messageOf(c7, 'End', 'c7').message, c7Value);
+  assert.deepEqual(detectPatterns(c7, STANDARD_PATTERNS, 'c7').hits.filter(h => h.patternId === 'stop-with-error').map(h => h.params.message), [c7Value]);
+  const c8 = applyPattern(diagram('c8', 'task'), stop, 'c8', 'End', { message: c8Value }).xml;
+  assert.equal(messageOf(c8, 'End', 'c8').message, c8Value);
+  assert.deepEqual(detectPatterns(c8, STANDARD_PATTERNS, 'c8').hits.filter(h => h.patternId === 'stop-with-error').map(h => h.params.message), [c8Value]);
+});
+
+test('«Prozess mit Fehler stoppen»: switching engine translates the FEEL message - and back', () => {
+  const c7Value = '${"Kunde ".concat(customerName).concat(" ist gesperrt.")}';
+  const c7 = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: c7Value }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(messageOf(c8.xml, 'End', 'c8').message, '="Kunde " + string(customerName) + " ist gesperrt."');
+  assert.equal(messageOf(c8.xml, 'End', 'c8').assert, '=assert(false, false, string(_errorMessage))');
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(back.issues, []);
+  assert.equal(messageOf(back.xml, 'End', 'c7').message, c7Value);
+  assert.equal(messageOf(back.xml, 'End', 'c7').async, 'true');
 });

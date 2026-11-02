@@ -769,6 +769,10 @@ und Doku stehen in `democompany-patterns`:
   Pattern: Was ein Pattern in seinem Block oder Pfad mitbringt, macht dort
   kein anderes Pattern aus — gleich, welches zuerst erkannt wird. Was ein
   Element darüber hinaus trägt, kann ein anderes Pattern sein.
+- **Prozess mit Fehler stoppen** (`stop-with-error`, End- oder werfendes
+  Zwischenereignis): der Prozess bleibt mit einem Incident stehen; die
+  Meldung (`message`) ist Text oder FEEL. Camunda 7: Groovy-Exception nach
+  `asyncBefore`, Camunda 8: `assert(false, false, …)` im Output-Mapping.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):

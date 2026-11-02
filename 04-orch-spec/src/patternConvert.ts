@@ -13,6 +13,7 @@
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
 import { applyPattern, detectPatterns, fragmentFor, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
+import { paramFor, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import type { EngineId, PatternDef } from './types.ts';
 
@@ -76,11 +77,13 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     stepId: h.targetId ?? '', where: 'Pattern',
     text: `«${byId.get(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} — umgewandelt wie der Rest, von Hand prüfen.`,
   }));
+  // the parameters in the form of the target engine (`${…}` ⇄ `=…`, fixed text stays)
+  const paramsIn = (h: PatternHit) => Object.fromEntries(Object.entries(h.params).map(([k, v]) => [k, paramFor(v, target, opts.juel?.vars ?? [])]));
   const inserted = new Map<number, { changed: boolean; issues: string[] }>();
   for (const i of strip.taken) {
     const h = strip.all[i];
     try {
-      const res = applyPattern(out, byId.get(h.patternId)!, target, h.targetId, h.params);
+      const res = applyPattern(out, byId.get(h.patternId)!, target, h.targetId, paramsIn(h));
       if (res.changed) out = res.xml;
       inserted.set(i, res);
     } catch (e) {
@@ -95,7 +98,7 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   const pool = [...detectPatterns(out, defs, target).hits];
   const samePlace = (a: PatternHit, b: PatternHit) => a.patternId === b.patternId && (a.targetId ?? '') === (b.targetId ?? '');
   const take1 = (h: PatternHit) => {
-    const k = pool.findIndex(x => samePlace(x, h) && sameParams(x.params, h.params));
+    const k = pool.findIndex(x => samePlace(x, h) && sameParams(x.params, paramsIn(h)));
     const alone = strip.all.filter(x => samePlace(x, h)).length === 1;
     const j = k >= 0 ? k : alone ? pool.findIndex(x => samePlace(x, h)) : -1;
     return j >= 0 ? pool.splice(j, 1)[0] : undefined;
@@ -111,9 +114,11 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
-    if (!sameParams(h.params, again.params)) {
-      const keys = Object.keys({ ...h.params, ...again.params }).filter(k => (h.params[k] ?? '') !== (again.params[k] ?? ''));
-      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${h.params[k] ?? ''}», ist jetzt «${again.params[k] ?? ''}»`).join(', ')} — prüfen.` });
+    const wanted = paramsIn(h);
+    if (!sameParams(wanted, again.params)) {
+      const keys = Object.keys({ ...wanted, ...again.params }).filter(k => (wanted[k] ?? '') !== (again.params[k] ?? ''));
+      const shown = (v: string | undefined) => paramView(v ?? '');
+      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(again.params[k])}»`).join(', ')} — prüfen.` });
     }
   }
   return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
