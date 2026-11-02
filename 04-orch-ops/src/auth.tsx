@@ -320,54 +320,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     msalReadyRef.current = false;
     setStatus('loading');
     setError(null);
-    const start = runMsal(ids, key);
+    // a start overtaken by one with other IDs touches nothing of it
+    const current = () => runningKeyRef.current === key;
+    const start = (async (): Promise<PublicClientApplication | null> => {
+      try {
+        const { PublicClientApplication } = await import('@azure/msal-browser');
+        const pca = new PublicClientApplication({
+          auth: {
+            clientId: ids.clientId,
+            authority: `https://login.microsoftonline.com/${ids.tenantId}`,
+            redirectUri: redirectUri(),
+            postLogoutRedirectUri: redirectUri(),
+          },
+          cache: { cacheLocation: 'localStorage' },
+        });
+        await pca.initialize();
+        if (!current()) return pca;
+        pcaRef.current = pca;
+        const result = await pca.handleRedirectPromise();
+        // prefer the account of the configured tenant (the browser may know several)
+        const all = pca.getAllAccounts();
+        const account = result?.account ?? all.find(a => a.tenantId === ids.tenantId) ?? all[0] ?? null;
+        if (!current()) return pca;
+        if (account) {
+          pca.setActiveAccount(account);
+          accountRef.current = account;
+          setUser(toUser(account, configRef.current));
+          setStatus('signedIn');
+        } else {
+          accountRef.current = null;
+          setUser(null);
+          setStatus('signedOut');
+        }
+        msalReadyRef.current = true;
+        return pca;
+      } catch (e) {
+        console.error('[orch-ops] auth:', e);
+        if (current()) {
+          // the next start with these IDs tries again instead of reusing a failed one
+          runningKeyRef.current = '';
+          startRef.current = null;
+          setError(e instanceof Error ? e.message : String(e));
+          setStatus('error');
+        }
+        return null;
+      }
+    })();
     startRef.current = start;
     return start;
   }, []);
-
-  const runMsal = async (ids: { tenantId: string; clientId: string }, key: string): Promise<PublicClientApplication | null> => {
-    try {
-      const { PublicClientApplication } = await import('@azure/msal-browser');
-      const pca = new PublicClientApplication({
-        auth: {
-          clientId: ids.clientId,
-          authority: `https://login.microsoftonline.com/${ids.tenantId}`,
-          redirectUri: redirectUri(),
-          postLogoutRedirectUri: redirectUri(),
-        },
-        cache: { cacheLocation: 'localStorage' },
-      });
-      await pca.initialize();
-      pcaRef.current = pca;
-      const result = await pca.handleRedirectPromise();
-      // prefer the account of the configured tenant (the browser may know several)
-      const all = pca.getAllAccounts();
-      const account = result?.account ?? all.find(a => a.tenantId === ids.tenantId) ?? all[0] ?? null;
-      if (runningKeyRef.current !== key) return pca; // other IDs meanwhile
-      if (account) {
-        pca.setActiveAccount(account);
-        accountRef.current = account;
-        setUser(toUser(account, configRef.current));
-        setStatus('signedIn');
-      } else {
-        accountRef.current = null;
-        setUser(null);
-        setStatus('signedOut');
-      }
-      msalReadyRef.current = true;
-      return pca;
-    } catch (e) {
-      console.error('[orch-ops] auth:', e);
-      if (runningKeyRef.current === key) {
-        // the next start with these IDs tries again instead of reusing a failed one
-        runningKeyRef.current = '';
-        startRef.current = null;
-        setError(e instanceof Error ? e.message : String(e));
-        setStatus('error');
-      }
-      return null;
-    }
-  };
 
   const applyConfig = useCallback((raw: AuthSettings | null | undefined) => {
     let cfg = normalize(raw);
