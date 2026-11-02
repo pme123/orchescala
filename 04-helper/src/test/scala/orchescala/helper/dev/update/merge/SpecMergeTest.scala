@@ -303,6 +303,20 @@ class SpecMergeTest extends FunSuite:
       assert(!os.exists(project / "old.txt"))
       assert(!os.exists(project / "d.txt"))
 
+  test("two processes give the same file with different contents: the first one's taken - with a note"):
+    inProject: project =>
+      val copy       = order.copy(slug = "order-copy")
+      val plan       = SpecMerge.plan(project, Seq.empty, Seq(order, editScala(copy)(_.replace("ok = true", "ok = false"))))
+      val checkOrder = plan.files.find(_.path.endsWith("CheckOrder.scala")).get
+      assert(checkOrder.content.exists(_.contains("ok = true")))
+      assert(
+        plan.notes.contains(s"${checkOrder.path}: ${order.slug}, order-copy give it with different contents - the one of ${order.slug} is taken."),
+        plan.notes.mkString("\n")
+      )
+      // the same contents: no note
+      val same       = SpecMerge.plan(project, Seq.empty, Seq(order, copy))
+      assert(!same.notes.exists(_.contains("different contents")), same.notes.mkString("\n"))
+
   test("the plan as JSON - read back the same"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
@@ -476,6 +490,8 @@ class SpecMergeTest extends FunSuite:
     inProject: project =>
       val (plan, _) = run(project, Seq.empty, Seq(collection(), orchestration))
       assertEquals(plan.withAction(Action.conflict), Seq.empty)
+      // the files both give are the same
+      assertEquals(plan.notes.filter(_.contains("different contents")), Seq.empty)
       for name <- Seq("ClientV1.scala", "GetClient.scala", "GetClientWorker.scala", "UpdateClient.scala", "UpdateClientWorker.scala")
       do assertEquals(actionOf(plan, project, name), Action.create, name)
       assert(path(project, "GetClient.scala").startsWith("01-domain/src/main/scala/acme/demo/domain/client/v1/"))

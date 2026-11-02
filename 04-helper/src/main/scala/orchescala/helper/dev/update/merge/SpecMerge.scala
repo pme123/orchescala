@@ -90,20 +90,30 @@ object SpecMerge:
           case p: ProcessExport  => Try(processes.plan(p))
           case s: ServicesExport => Try(services.plan(s))
         files match
-          case Success(files)                   => Some(files)
+          case Success(files)                   => Some(e.slug -> files)
           case Failure(ex) if strict            => throw ex
           case Failure(ex)                      =>
             messages += s"${e.slug}$which: ${ex.getMessage} - left out."
             None
-    val base     = planned(before, " (before)")
-    val neu      = planned(after, "")
+    val basePlanned = planned(before, " (before)")
+    val newPlanned  = planned(after, "")
+    val base        = basePlanned.map(_._2)
+    val neu         = newPlanned.map(_._2)
     messages ++= neu.flatMap(_.notes)
 
-    // a file two processes give is taken from the first
-    def byPath(files: Seq[ProcessFiles]): Map[os.RelPath, GeneratedFile] =
-      files.flatMap(_.files).groupBy(_.rel).view.mapValues(_.head).toMap
-    val baseFiles = byPath(base)
-    val newFiles  = byPath(neu)
+    // a file two entries give is taken from the first - if they give it with different contents,
+    // a note (for the new export: that is what is written)
+    def byPath(planned: Seq[(String, ProcessFiles)], note: Boolean): Map[os.RelPath, GeneratedFile] =
+      planned.flatMap((slug, p) => p.files.map(slug -> _)).groupBy(_._2.rel).toSeq.sortBy(_._1.toString).map:
+        (rel, all) =>
+          val (first, file) = all.head
+          val others        = all.tail.filterNot((_, f) => same(f.content, file.content)).map(_._1).distinct
+          if note && others.nonEmpty then
+            messages += s"$rel: ${(first +: others).mkString(", ")} give it with different contents - the one of $first is taken."
+          rel -> file
+      .toMap
+    val baseFiles = byPath(basePlanned, note = false)
+    val newFiles  = byPath(newPlanned, note = true)
     val rels      = (baseFiles.keySet ++ newFiles.keySet).toSeq.sortBy(_.toString)
     // BPMN and DMN: the three sides in the Modeler's form - in one run of the formatter
     val xml       = rels.filter(isXml).flatMap: rel =>
