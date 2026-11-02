@@ -19,8 +19,8 @@ import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Stat
 import { PanelWidthHandle, StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
-  API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiKey, apiList, apiName, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
-  renameApi, serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
+  API_NAME, apiKey, apiList, apiName, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
+  renameApi, renameProject, serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
@@ -32,6 +32,8 @@ import { headerVar } from './names';
 import { useServices } from './store';
 import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
 import { fieldsOnce } from '../scala';
+import { ProjectSelect } from '../components/SpecMeta';
+import { knownPrefixes } from '../stepIds';
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
 
@@ -380,13 +382,16 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   onChange: (patch: Partial<ServiceCollectionSpec>) => void;
   onUpdate: (fn: (s: ServiceCollectionSpec) => ServiceCollectionSpec) => void;
 }) {
-  const { isDark, model } = useStore();
+  const { isDark, model, specs } = useStore();
+  const { services } = useServices();
   const c = cls(isDark);
   const input = `w-full text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
   const suggested = useMemo(() => suggestPathBase(spec), [spec]);
-  // the projects of the catalog and of the project folders, the APIs the catalog knows of this project
+  // company/project as for a process: those of the catalog, the processes and the services; the APIs the catalog knows of this project
   const catalog = useMemo(() => catalogProjects(model), [model]);
-  const projects = useMemo(() => [...new Set([...(model?.projects ?? []).map(p => p.name), ...catalog.map(p => p.project)].filter(Boolean))].sort(), [model, catalog]);
+  const prefixes = useMemo(() => knownPrefixes(model, [
+    ...specs.map(s => s.data.project), ...services.map(s => s.data.project), ...catalog.map(p => p.project),
+  ]), [model, specs, services, catalog]);
   const knownApis = useMemo(() => [...new Set((catalog.find(p => p.project === spec.project)?.apis ?? []).map(a => a.api))].sort(), [catalog, spec.project]);
   const apis = apisOf(spec).length ? apisOf(spec) : [{ project: spec.project, api: spec.api, apiVersion: spec.apiVersion }];
   return (
@@ -395,7 +400,10 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
       <div className="grid grid-cols-3 gap-2 text-[11px] items-start">
         <div className={`rounded border px-2 py-1 ${c.border2}`}>
           <div className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Projekt</div>
-          <ProjectField value={spec.project} options={projects} canEdit={canEdit} onCommit={project => onChange({ project })} />
+          <div className="pt-0.5" title="Firma und Projekt — wie bei einem Prozess wird das alte Präfix überall ersetzt (IDs, Titel, Texte); der Dateiname bleibt">
+            <ProjectSelect value={spec.project} prefixes={prefixes} isDark={isDark} canEdit={canEdit}
+              onChange={project => { if (project) onUpdate(s => renameProject(s, project)); }} />
+          </div>
         </div>
         <div className={`rounded border px-2 py-1 ${c.border2}`}>
           <div className={`text-[9px] uppercase tracking-widest ${c.muted}`} title="Name und Version je API — ein Wechsel gilt für alle Services dieser API">APIs</div>
@@ -528,28 +536,6 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & 
         </div>
       </div>
     </div>
-  );
-}
-
-/** the project of the collection — one of the catalog or a new one; taken over on leaving the field */
-function ProjectField({ value, options, canEdit, onCommit }: { value: string; options: string[]; canEdit: boolean; onCommit: (project: string) => void }) {
-  const { isDark } = useStore();
-  const c = cls(isDark);
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const ok = PROJECT_NAME.test(draft.trim());
-  const commit = () => {
-    const v = draft.trim();
-    if (ok && v !== value) onCommit(v);
-    else if (!ok) setDraft(value);
-  };
-  return (
-    <>
-      <input value={draft} disabled={!canEdit} list="collection-projects" title={ok ? 'Projekt — aus dem Katalog wählen oder eintippen' : PROJECT_NAME_RULE}
-        onChange={e => setDraft(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-        className={`w-full bg-transparent outline-none font-mono ${ok ? c.text : 'text-rose-500'}`} />
-      <datalist id="collection-projects">{options.map(p => <option key={p} value={p} />)}</datalist>
-    </>
   );
 }
 

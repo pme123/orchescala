@@ -11,6 +11,7 @@
 import { STATUSES, type Field, type Mapping, type ProcessSpec, type Status, type TypeDef } from '../types.ts';
 import { nowIsoWithTimezone, slugify } from '../util.ts';
 import { capitalize, headerVar } from './names.ts';
+import { renamePrefixIn } from '../stepIds.ts';
 import type { CollectionService, ServiceCollectionSpec } from './types';
 
 /** One API of a project — what package, trait and topics are derived from. */
@@ -304,4 +305,15 @@ export function renameApi(c: ServiceCollectionSpec, from: Pick<ApiRef, 'api' | '
     services: c.services.map(s => (sameApi(apiOf(c, s), from) ? { ...s, api: to.api, apiVersion: to.apiVersion } : s)),
     serviceBasePaths: Object.keys(paths).length ? paths : undefined,
   };
+}
+
+/**
+ * Another company/project for the collection — as for a process: the old prefix
+ * is replaced in all of it (`acme-crm-…` IDs, a title «acme-crm Kunden»). The
+ * file name stays; the app does not rename files.
+ */
+export function renameProject(c: ServiceCollectionSpec, project: string): ServiceCollectionSpec {
+  const old = c.project;
+  if (!project || project === old) return c;
+  return { ...(old ? renamePrefixIn(c, old, project) : c), slug: c.slug, project };
 }

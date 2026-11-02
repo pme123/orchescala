@@ -36,3 +36,22 @@ test('renameApi: the services of the API, the default and its serviceBasePath fo
   assert.deepEqual(v3.services.map(s => s.apiVersion), [1, 3]);
   assert.equal(v3.api, 'clientMaster');
 });
+
+test('renameProject: as for a process the old prefix goes everywhere - IDs and a title, the file name stays', async () => {
+  const { newCollection, renameProject } = await import('../src/services/collection.ts');
+  const c = { ...newCollection({ title: 'acme-crm ClientMaster', project: 'acme-crm', api: 'client', apiVersion: 1 }), description: 'Topics acme-crm-clientV1.GetClient; acme-crm2 bleibt' };
+  const r = renameProject(c, 'acme-sales');
+  assert.equal(r.project, 'acme-sales');
+  assert.equal(r.title, 'acme-sales ClientMaster');
+  assert.equal(r.description, 'Topics acme-sales-clientV1.GetClient; acme-crm2 bleibt');
+  assert.equal(r.slug, c.slug);
+  assert.equal(renameProject(c, 'acme-crm'), c);
+});
+
+test('replacePrefix: the prefix as a whole - before -, a blank, a dot or at the end', async () => {
+  const { replacePrefix } = await import('../src/stepIds.ts');
+  assert.equal(replacePrefix('acme-crm', 'acme-crm', 'acme-x'), 'acme-x');
+  assert.equal(replacePrefix('acme-crm-clientV1', 'acme-crm', 'acme-x'), 'acme-x-clientV1');
+  assert.equal(replacePrefix('«acme-crm Kunden»', 'acme-crm', 'acme-x'), '«acme-x Kunden»');
+  assert.equal(replacePrefix('acme-crm2', 'acme-crm', 'acme-x'), 'acme-crm2');
+});

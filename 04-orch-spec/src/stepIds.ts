@@ -227,11 +227,24 @@ export function knownPrefixes(model: Model | null, specProjects: Array<string | 
  * the app deliberately does not rename files.
  */
 export function renamePrefix(spec: ProcessSpec, oldPrefix: string, newPrefix: string): ProcessSpec {
-  const alt = `${oldPrefix}-`;
-  const neu = `${newPrefix}-`;
-  const ersetzen = (v: string) => (v === oldPrefix ? newPrefix : v.split(alt).join(neu));
+  return { ...renamePrefixIn(spec, oldPrefix, newPrefix), slug: spec.slug };
+}
+
+/**
+ * The prefix in a text: wherever it stands as a whole — before `-` (an ID,
+ * `acme-crm-clientV1`), a blank, a dot or at the end (a title, «acme-crm Kunden»);
+ * not where it goes on as a longer name (`acme-crm2`).
+ */
+export function replacePrefix(text: string, oldPrefix: string, newPrefix: string): string {
+  if (!oldPrefix) return text;
+  const esc = oldPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(`${esc}(?=[^A-Za-z0-9_]|$)`, 'g'), newPrefix);
+}
+
+/** `renamePrefix` for any specification — a process, a service collection: every text of it */
+export function renamePrefixIn<T>(value: T, oldPrefix: string, newPrefix: string): T {
   const walk = (val: unknown): unknown => {
-    if (typeof val === 'string') return ersetzen(val);
+    if (typeof val === 'string') return replacePrefix(val, oldPrefix, newPrefix);
     if (Array.isArray(val)) return val.map(walk);
     if (val && typeof val === 'object') {
       const out: Record<string, unknown> = {};
@@ -240,7 +253,7 @@ export function renamePrefix(spec: ProcessSpec, oldPrefix: string, newPrefix: st
     }
     return val;
   };
-  return { ...(walk(spec) as ProcessSpec), slug: spec.slug };
+  return walk(value) as T;
 }
 
 /**
@@ -252,9 +265,7 @@ export function renamePrefixInXml(xml: string, oldPrefix: string, newPrefix: str
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const root = doc.documentElement;
   if (!root || doc.querySelector?.('parsererror')) return null;
-  const alt = `${oldPrefix}-`;
-  const neu = `${newPrefix}-`;
-  const ersetzen = (v: string) => (v === oldPrefix ? newPrefix : v.split(alt).join(neu));
+  const ersetzen = (v: string) => replacePrefix(v, oldPrefix, newPrefix);
   let found = false;
   const walk = (el: Element) => {
     for (const attr of Array.from(el.attributes)) {
