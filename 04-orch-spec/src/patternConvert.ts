@@ -17,7 +17,7 @@ import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import type { EngineId, PatternDef } from './types.ts';
 
 type Opts = Parameters<typeof convertBpmn>[2];
-const keyOf = (h: PatternHit) => `${h.patternId}@${h.targetId ?? ''}`;
+type Failed = Map<number, { h: PatternHit; why: string }>;
 const sameParams = (a: Record<string, string>, b: Record<string, string>) =>
   Object.keys({ ...a, ...b }).every(k => (a[k] ?? '') === (b[k] ?? ''));
 
@@ -26,13 +26,15 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
   if (from === target || !defs?.length) return convertBpmn(xml, target, opts);
   const byId = new Map(defs.map(d => [d.id, d]));
   const hasTarget = (h: PatternHit) => !!fragmentFor(byId.get(h.patternId)!, target);
-  const first = attempt(xml, target, byId, defs, opts, h => hasTarget(h));
-  if (!first) return convertBpmn(xml, target, opts);
-  // a pattern that could not be inserted again: convert it like the rest instead - it is not lost
+  const first = attempt(xml, target, byId, defs, opts, new Set());
+  if (!first.result) return convertBpmn(xml, target, opts);
   if (!first.failed.size) return first.result;
-  const second = attempt(xml, target, byId, defs, opts, h => hasTarget(h) && !first.failed.has(keyOf(h)));
-  const result = second?.result ?? convertBpmn(xml, target, opts);
-  const note = [...first.failed.values()].map(({ h, why }) => ({
+  // a pattern that could not be inserted again is converted like the rest instead - it is not
+  // lost. If another one fails then too, everything is converted like before.
+  const second = attempt(xml, target, byId, defs, opts, new Set(first.failed.keys()));
+  const failed: Failed = new Map([...first.failed, ...second.failed]);
+  const result = second.result && !second.failed.size ? second.result : convertBpmn(xml, target, opts);
+  const note = [...failed.values()].filter(({ h }) => hasTarget(h)).map(({ h, why }) => ({
     stepId: h.targetId ?? '', where: 'Pattern',
     text: `«${byId.get(h.patternId)!.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen${why ? ` (${why})` : ''} - umgewandelt wie der Rest, von Hand prüfen.`,
   }));
@@ -40,14 +42,17 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
 }
 
 /**
- * One conversion: take out the patterns `take` chooses, convert the rest, insert them again.
- * `failed`: the patterns that did not come back on their element - null if there is nothing to do.
+ * One conversion: take out the patterns that have a target form and are not skipped (by their
+ * position, see stripPatternItems), convert the rest, insert them again. `failed`: those that did
+ * not come back on their element; `result` is null if there is nothing to do with patterns.
  */
-function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: Opts, take: (h: PatternHit) => boolean):
-  { result: WriteResult & { changed: boolean }; failed: Map<string, { h: PatternHit; why: string }> } | null {
-  const strip = stripPatternItems(xml, defs, detectEngine(xml), take);
-  const without = strip.all.filter(h => !fragmentFor(byId.get(h.patternId)!, target));
-  if (!strip.hits.length && !without.length) return null;
+function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: Opts, skip: ReadonlySet<number>):
+  { result: (WriteResult & { changed: boolean }) | null; failed: Failed } {
+  const hasTarget = (h: PatternHit) => !!fragmentFor(byId.get(h.patternId)!, target);
+  const strip = stripPatternItems(xml, defs, detectEngine(xml), (h, i) => hasTarget(h) && !skip.has(i));
+  const without = strip.all.filter(h => !hasTarget(h));
+  const failed: Failed = new Map();
+  if (!strip.taken.length && !without.length) return { result: null, failed };
 
   const conv = convertBpmn(strip.xml, target, opts);
   let out = conv.xml;
@@ -55,15 +60,15 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     stepId: h.targetId ?? '', where: 'Pattern',
     text: `«${byId.get(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} - umgewandelt wie der Rest, von Hand prüfen.`,
   }));
-  const inserted = new Map<PatternHit, { changed: boolean; issues: string[] }>();
-  const failed = new Map<string, { h: PatternHit; why: string }>();
-  for (const h of strip.hits) {
+  const inserted = new Map<number, { changed: boolean; issues: string[] }>();
+  for (const i of strip.taken) {
+    const h = strip.all[i];
     try {
       const res = applyPattern(out, byId.get(h.patternId)!, target, h.targetId, h.params);
       if (res.changed) out = res.xml;
-      inserted.set(h, res);
+      inserted.set(i, res);
     } catch (e) {
-      failed.set(keyOf(h), { h, why: e instanceof Error ? e.message : String(e) });
+      failed.set(i, { h, why: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -72,17 +77,18 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   const pool = [...detectPatterns(out, defs, target).hits];
   const take1 = (h: PatternHit) => {
     const same = (x: PatternHit) => x.patternId === h.patternId && (x.targetId ?? '') === (h.targetId ?? '');
-    const i = pool.findIndex(x => same(x) && sameParams(x.params, h.params));
-    const j = i >= 0 ? i : pool.findIndex(same);
+    const k = pool.findIndex(x => same(x) && sameParams(x.params, h.params));
+    const j = k >= 0 ? k : pool.findIndex(same);
     return j >= 0 ? pool.splice(j, 1)[0] : undefined;
   };
-  for (const h of strip.hits) {
-    if (failed.has(keyOf(h))) continue;
+  for (const i of strip.taken) {
+    if (failed.has(i)) continue;
+    const h = strip.all[i];
     const def = byId.get(h.patternId)!;
     const stepId = h.targetId ?? '';
-    const res = inserted.get(h)!;
+    const res = inserted.get(i)!;
     const again = take1(h);
-    if (!again) { failed.set(keyOf(h), { h, why: res.issues.join(' ') }); continue; }
+    if (!again) { failed.set(i, { h, why: res.issues.join(' ') }); continue; }
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });

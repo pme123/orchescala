@@ -1144,21 +1144,23 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
  * Take out what the recognised patterns carry on their element (or the process) - their
  * listeners, mappings, definitions -, not their paths and blocks. For a switch of engine: the
  * rest is converted as it is, then each pattern is inserted again in the form of the target
- * engine (see patternConvert.ts), so no old form stays beside the new one. `take` chooses the
- * patterns that are taken out; `hits` are those taken out, `all` every recognised one.
+ * engine (see patternConvert.ts), so no old form stays beside the new one. `take` chooses by the
+ * position of the hit in `all` (stable for the same diagram); `taken` are those positions. An item
+ * that also belongs to a hit not taken stays - otherwise that one would lose it.
  */
-export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit) => boolean = () => true): { xml: string; hits: PatternHit[]; all: PatternHit[] } {
+export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit, index: number) => boolean = () => true): { xml: string; all: PatternHit[]; taken: number[] } {
   const doc = parseXml(xml);
-  if (!doc) return { xml, hits: [], all: [] };
+  if (!doc) return { xml, all: [], taken: [] };
   const found = detectIn(doc, defs, engine).hits;
   const all = found.map(({ match: _, fr: __, ...h }) => h);
-  const hits = found.filter(h => take(h));
-  if (!hits.length) return { xml, hits: [], all };
-  for (const h of hits) {
-    for (const el of h.match.items) {
-      // two hits on one element may share an item - it is gone already
+  const taken = found.map((h, i) => (take(all[i], i) ? i : -1)).filter(i => i >= 0);
+  if (!taken.length) return { xml, all, taken };
+  const kept = new Set(found.filter((_, i) => !taken.includes(i)).flatMap(h => h.match.items));
+  for (const i of taken) {
+    for (const el of found[i].match.items) {
+      // two hits on one element may share an item - it is gone already, or the other keeps it
       const parent: Element | null = el.parentElement;
-      if (!parent) continue;
+      if (!parent || kept.has(el)) continue;
       removeEl(el);
       // the container (inputOutput, ioMapping …) and extensionElements this removal emptied go
       // too - only up the chain of the removed item, and each held at least that item before
@@ -1169,7 +1171,7 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
       }
     }
   }
-  return { xml: new Writer(doc).serialize(xml), hits: hits.map(({ match: _, fr: __, ...h }) => h), all };
+  return { xml: new Writer(doc).serialize(xml), all, taken };
 }
 
 type OwnItems = Map<Element, Map<string, Set<Element>>>;

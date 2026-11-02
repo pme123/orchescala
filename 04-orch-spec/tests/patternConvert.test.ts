@@ -9,7 +9,7 @@ import { juelOptions } from '../src/feel';
 import { convertWithPatterns } from '../src/patternConvert';
 import { exportBpmnFor } from '../src/exporters';
 import { STANDARD_PATTERNS, applyPattern, detectPatterns } from '../src/patterns';
-import type { EngineId, PatternDef } from '../src/types';
+import type { EngineId, Model, PatternDef } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -191,4 +191,31 @@ test('the export for the other engine takes the patterns over too', () => {
   const out = exportBpmnFor(spec, c7, 'c8', null);
   assert.ok(!out.issues.some(i => i.text.includes('nicht nach FEEL')), out.issues.map(i => i.text).join('; '));
   assert.deepEqual(setsOf(out.xml, 'TakeOver').outputs, setsOf(withPatterns('c8'), 'TakeOver').outputs);
+});
+
+test('one pattern fails to come back, the others still go over in their target form', () => {
+  const take = std('identity-take-over');
+  // «Identität übernehmen» with a C8 form that does not fit the element - the rest are standard
+  const misfit: PatternDef = { ...take, bpmn: { c7: take.bpmn.c7, c8: std('unique-execution').bpmn.c8 } };
+  const defs = [misfit, ...STANDARD_PATTERNS.filter(p => p.id !== 'identity-take-over')];
+  const res = convertWithPatterns(withPatterns('c7'), 'c8', defs);
+  // the failing one: said, converted like the rest (its outputs are there)
+  assert.ok(res.issues.some(i => i.stepId === 'TakeOver' && i.text.includes('liess sich nicht')), res.issues.map(i => i.text).join('; '));
+  assert.equal(setsOf(res.xml, 'TakeOver').outputs.length, 2);
+  // the others: in their C8 form, recognised, nothing to do by hand for them
+  assert.deepEqual(setsOf(res.xml, 'Reset').outputs, setsOf(withPatterns('c8'), 'Reset').outputs);
+  assert.deepEqual(setsOf(res.xml, 'End').outputs, setsOf(withPatterns('c8'), 'End').outputs);
+  assert.ok(!res.issues.some(i => i.stepId === 'Reset' || i.stepId === 'End'), res.issues.map(i => `${i.stepId}: ${i.text}`).join('; '));
+});
+
+test('the export for the other engine takes the patterns of the model', () => {
+  const status = std('process-status');
+  // an own pattern of the company with the ID of the standard one - its C8 form names the parameter differently
+  const own: PatternDef = { ...status, bpmn: { c7: status.bpmn.c7, c8: status.bpmn.c8!.replace('{{processStatus}}', '{{state}}') } };
+  const c7 = withPatterns('c7');
+  const spec = { ...importBpmn(c7, 'x.bpmn', { patterns: STANDARD_PATTERNS }).spec, engine: 'c7' as const };
+  const withModel = exportBpmnFor(spec, c7, 'c8', { patterns: [own] } as unknown as Model);
+  assert.ok(withModel.issues.some(i => i.stepId === 'End' && i.text.includes('war «succeeded»')), withModel.issues.map(i => i.text).join('; '));
+  const withoutModel = exportBpmnFor(spec, c7, 'c8', null);
+  assert.ok(!withoutModel.issues.some(i => i.text.includes('war «succeeded»')));
 });
