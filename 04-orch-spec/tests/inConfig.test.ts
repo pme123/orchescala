@@ -54,3 +54,16 @@ test('a call gets no row inConfig - an old unchecked one goes, a checked one is 
   assert.ok(found.some(w => w.includes('«inConfig» nicht mitgeben')), found.join(' / '));
   assert.ok(!found.some(w => w.includes('noch nicht im')), found.join(' / '));
 });
+
+test('a call accepts businessKey without its In - in Camunda 8 the business key goes to the subprocess as this variable', () => {
+  const model = { domainTypes: scanScala(source), services: [] } as unknown as Model;
+  const warningsOf = (inputs: Mapping[]) => {
+    const s = { ...callSpec(inputs), engine: 'c8' } as ProcessSpec;
+    return [...collectFindings(s, model, s.steps).values()].flatMap(f => f.warnings);
+  };
+  const ok = warningsOf([{ name: 'businessKey', expression: '= businessKey' }, { name: 'clientKey', expression: '= 1' }]);
+  assert.ok(!ok.some(w => w.includes('noch nicht im')), ok.join(' / '));
+  // another unknown input is still an extension
+  const other = warningsOf([{ name: 'businessKey', expression: '= businessKey' }, { name: 'clientKey', expression: '= 1' }, { name: 'somethingElse', expression: '= 1' }]);
+  assert.ok(other.some(w => w.includes('«somethingElse» noch nicht im') && !w.includes('businessKey')), other.join(' / '));
+});

@@ -242,6 +242,14 @@ export const GENERAL_VARIABLES = new Set([
   'manualOutMapping', 'outputVariables', 'handledErrors', 'regexHandledErrors',
 ]);
 
+/**
+ * An input every callee accepts without having it in its In: the general variables - and on a
+ * call activity `businessKey`. Camunda 8 has no `camunda:in businessKey`; the conversion and
+ * Orchescala pass it to the subprocess as this variable.
+ */
+export const acceptedEverywhere = (name: string, stepKind: string): boolean =>
+  GENERAL_VARIABLES.has(name) || (stepKind === 'call' && name === 'businessKey');
+
 interface IoResult {
   inputs: Mapping[];
   outputs: Mapping[];

@@ -14,7 +14,7 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
 import { dmnIssues, packageOf } from './scala';
-import { GENERAL_VARIABLES, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
+import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
 import { patternMappings, patternDefs } from './patterns';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
@@ -354,8 +354,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       // plus what the domain has in the In — also `inConfig` and the fields of the `InConfig` (mocks)
       const known = refFields ? refFields.map(f => f.name) : [...(service?.inputs ?? []).map(p => p.name), ...domainInputNames(dom, model)];
       if (refFields || known.length) {
-        // a general variable (`_idempotentId` …) is accepted by every worker — not an extension
-        const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name) && !GENERAL_VARIABLES.has(m.name));
+        // a general variable (`_idempotentId` …) is accepted by every worker, `businessKey` by every
+        // subprocess — not an extension
+        const ext = rows.filter(m => m.name.trim() && !fromPattern.inputs.has(m.name) && allowed(m.name) && !known.includes(m.name) && !acceptedEverywhere(m.name, step.kind));
         if (ext.length) {
           warnings.push(`${ext.map(m => `«${m.name}»`).join(', ')} noch nicht im ${refFields ? 'Modell' : 'Katalog'} — Erweiterung, dort nachziehen.`);
         }
