@@ -2,6 +2,7 @@ package orchescala.helper.dev.update.merge
 
 import scala.concurrent.duration.*
 import scala.util.Try
+import scala.util.control.NonFatal
 
 /** The export of a spec folder (`tools/spec2export.ts` of Orch Spec, format v1):
   * the processes, the services and what could not be exported.
@@ -97,9 +98,15 @@ object SpecSources:
 
   /** `spec/` of the project in a commit - `git archive <rev>:<path of the project>/spec`, run in
     * the root of the repository (in a subfolder git archive keeps only what lies below that
-    * folder). None if the commit has no spec.
+    * folder). None if the commit has no spec. The temporary folder is removed again if the
+    * extraction fails.
+    * @param extract the command that extracts the tar from stdin into the folder
     */
-  private def fromGit(project: os.Path, rev: String): Option[os.Path] =
+  private[merge] def fromGit(
+      project: os.Path,
+      rev: String,
+      extract: os.Path => Seq[String] = dir => Seq("tar", "-x", "-C", dir.toString)
+  ): Option[os.Path] =
     def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project)
     // the path of the project in the repository (`projects/my-project/` - empty in its root)
     val root    = git("rev-parse", "--show-toplevel")
@@ -115,12 +122,18 @@ object SpecSources:
       if archive.exitCode != 0 then None
       else
         val dir = os.temp.dir(prefix = "orch-spec-")
-        val tar = ExternalTool.call(Seq("tar", "-x", "-C", dir.toString), ExternalTool.gitTimeout, stdin = archive.out.bytes)
-        if tar.exitCode != 0 then throw os.SubprocessException(tar)
-        if os.list(dir).isEmpty then
-          os.remove.all(dir)
-          None
-        else Some(dir)
+        try
+          val tar = ExternalTool.call(extract(dir), ExternalTool.gitTimeout, stdin = archive.out.bytes)
+          if tar.exitCode != 0 then throw os.SubprocessException(tar)
+          if os.list(dir).isEmpty then
+            os.remove.all(dir)
+            None
+          else Some(dir)
+        catch
+          case NonFatal(e) =>
+            os.remove.all(dir)
+            throw e
+        end try
     end if
   end fromGit
 
