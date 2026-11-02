@@ -102,7 +102,7 @@ function toFeelSource(text: string, where: string, issue: Issue): string {
  * (see convertBpmn) - so a Spin path ends right: `_identityCorrelation.username` →
  * `….prop("username").stringValue()`.
  */
-function toJuel(text: string, where: string, issue: Issue, juel: JuelOptions = {}): string {
+function toJuel(text: string, where: string, issue: Issue, juel: JuelOptions): string {
   const t = text.trim();
   const body = feelBody(t);
   if (body == null) return t;
@@ -113,7 +113,7 @@ function toJuel(text: string, where: string, issue: Issue, juel: JuelOptions = {
 }
 
 /** Value of a `camunda:inputParameter` from a zeebe source: a FEEL string becomes fixed text again */
-function toJuelValue(source: string, where: string, issue: Issue, juel: JuelOptions = {}): string {
+function toJuelValue(source: string, where: string, issue: Issue, juel: JuelOptions): string {
   const body = feelBody(source.trim());
   const lit = body != null ? /^"((?:[^"\\]|\\.)*)"$/.exec(body) : null;
   if (lit) return lit[1].replace(/\\(["\\])/g, '$1');
@@ -920,7 +920,7 @@ function setVariableOf(expression: string): { name: string; value: string } | nu
   return m ? { name: m[2], value: m[3] } : null;
 }
 
-function toJuelAttr(v: string | null, where: string, issue: Issue, juel: JuelOptions = {}): string | undefined {
+function toJuelAttr(v: string | null, where: string, issue: Issue, juel: JuelOptions): string | undefined {
   if (!v) return undefined;
   return v.trim().startsWith('=') ? toJuel(v, where, issue, juel) : v;
 }

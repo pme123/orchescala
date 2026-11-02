@@ -16,12 +16,11 @@ import { engineLabel } from './engineLabels.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import type { EngineId, PatternDef } from './types.ts';
 
-type Opts = ConvertOptions;
 type Failed = Map<number, { h: PatternHit; why: string }>;
 const sameParams = (a: Record<string, string>, b: Record<string, string>) =>
   Object.keys({ ...a, ...b }).every(k => (a[k] ?? '') === (b[k] ?? ''));
 
-export function convertWithPatterns(xml: string, target: EngineId, defs: PatternDef[] | undefined, opts: Opts = {}): WriteResult & { changed: boolean } {
+export function convertWithPatterns(xml: string, target: EngineId, defs: PatternDef[] | undefined, opts: ConvertOptions = {}): WriteResult & { changed: boolean } {
   const from = detectEngine(xml);
   if (from === target || !defs?.length) return convertBpmn(xml, target, opts);
   // one definition per ID - the first, as in patternDefs (own before standard)
@@ -56,7 +55,7 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
  * position, see stripPatternItems), convert the rest, insert them again. `failed`: those that did
  * not come back on their element; `result` is null if there is nothing to do with patterns.
  */
-function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: Opts, skip: ReadonlySet<number>):
+function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: ConvertOptions, skip: ReadonlySet<number>):
   { result: (WriteResult & { changed: boolean }) | null; failed: Failed; hits: number } {
   const hasTarget = (h: PatternHit) => !!fragmentFor(byId.get(h.patternId)!, target);
   const strip = stripPatternItems(xml, defs, detectEngine(xml), (h, i) => hasTarget(h) && !skip.has(i));
@@ -78,8 +77,7 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
       if (res.changed) out = res.xml;
       inserted.set(i, res);
     } catch (e) {
-      // not a misfit but a fault of inserting - logged, and the pattern goes over like the rest
-      console.warn(`[orch-spec] inserting «${h.patternId}» at ${h.targetId ?? 'the process'} failed:`, e);
+      // a fault of inserting - the pattern goes over like the rest, the reason is in the note
       failed.set(i, { h, why: e instanceof Error ? e.message : String(e) });
     }
   }
@@ -102,7 +100,7 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     const stepId = h.targetId ?? '';
     const res = inserted.get(i)!;
     const again = take1(h);
-    if (!again) { failed.set(i, { h, why: res.issues.join(' ') }); continue; }
+    if (!again) { failed.set(i, { h, why: res.issues.join(' ') || 'nach dem Einsetzen nicht wiedererkannt' }); continue; }
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
