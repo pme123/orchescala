@@ -7,8 +7,8 @@
 //
 // Same head as the other lists (search, epics, groups per project); deleting
 // only with the admin role or without mandatory login, as for processes.
-import { AlertTriangle, Boxes, Library, Loader2, MessageSquare, Plus, Trash2, Workflow } from 'lucide-react';
-import { useState } from 'react';
+import { AlertTriangle, Boxes, FileUp, Library, Loader2, MessageSquare, Plus, Trash2, Workflow, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../components/SpecList';
@@ -18,6 +18,7 @@ import { EpicChip, StatusChip, cls } from '../ui';
 import { API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiList, apiName, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
 import { useServices, type ServiceListItem } from './store';
 import CollectionImport from './CollectionImport';
+import { collectionSuggestion, handOverOpenApi, readOpenApiFile, type OpenApiFile } from './openApiFile';
 import { newOrchestration, orchestrationTopic } from './orchestration';
 import { isCollection } from './types';
 import { slugify } from '../util';
@@ -91,10 +92,14 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
       )}
       {creating && (
         <NewCollection existing={services.map(s => s.slug)} onClose={() => setCreating(false)}
-          onCreate={async input => {
+          onCreate={async (input, openApi) => {
             const spec = newCollection(input);
             const r = await createService(spec);
-            if (r.ok) { setCreating(false); onOpen(spec.slug); }
+            if (r.ok) {
+              // the new collection opens with the import of the chosen OpenAPI
+              if (openApi) handOverOpenApi(spec.slug, openApi);
+              setCreating(false); onOpen(spec.slug);
+            }
             return r;
           }} />
       )}
@@ -191,7 +196,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
 
 function NewCollection({ existing, onCreate, onClose }: {
   existing: string[];
-  onCreate: (input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string }) => Promise<{ ok: true } | { ok: false; message: string }>;
+  onCreate: (input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string }, openApi: OpenApiFile | null) => Promise<{ ok: true } | { ok: false; message: string }>;
   onClose: () => void;
 }) {
   const { isDark, model } = useStore();
@@ -203,6 +208,18 @@ function NewCollection({ existing, onCreate, onClose }: {
   const [pathPrefix, setPathPrefix] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // an OpenAPI right away: it suggests title and API, the new collection opens with its import
+  const [openApi, setOpenApi] = useState<OpenApiFile | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pickOpenApi = async (f: File) => {
+    setError('');
+    const r = await readOpenApiFile(f);
+    if (!r.ok) { setError(r.message); return; }
+    setOpenApi(r.value);
+    const s = collectionSuggestion(r.value, pathPrefix);
+    if (!title.trim() && s.title) setTitle(s.title);
+    if (!api.trim() && s.api) setApi(s.api);
+  };
   // the projects of the catalog as suggestions — the services usually belong to an existing one
   const projects = [...new Set((model?.projects ?? []).map(p => p.name).filter(Boolean))] as string[];
   const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, pathPrefix: pathPrefix.trim() };
@@ -246,17 +263,31 @@ function NewCollection({ existing, onCreate, onClose }: {
             : input.project && input.api ? `services/${slug}.json · neue Services in ${collectionPackage(input)}` : 'Paket und Topics folgen aus Projekt, API und Version — je Service'}
         </span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
-        <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
+        <input ref={fileRef} type="file" accept=".yml,.yaml,.json" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) void pickOpenApi(f); e.target.value = ''; }} />
+        {openApi ? (
+          <span className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded border ${c.border2} ${c.text}`}
+            title="Nach dem Anlegen öffnet sich der Import mit dieser Datei">
+            <FileUp size={11} className={c.muted} /> {openApi.file}
+            <button onClick={() => setOpenApi(null)} title="ohne OpenAPI anlegen" className={c.muted}><X size={11} /></button>
+          </span>
+        ) : (
+          <button onClick={() => fileRef.current?.click()} title="Titel und API aus der OpenAPI — nach dem Anlegen gleich die Operationen wählen (auch Swagger 2.0)"
+            className={`ml-auto flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+            <FileUp size={12} /> OpenAPI-Datei …
+          </button>
+        )}
+        <button onClick={onClose} className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
         <button disabled={!!problem || busy}
           onClick={async () => {
             setBusy(true);
             try {
-              const r = await onCreate(input);
+              const r = await onCreate(input, openApi);
               if (!r.ok) setError(r.message);
             } finally { setBusy(false); }
           }}
           className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
-          Anlegen
+          {openApi ? 'Anlegen und importieren' : 'Anlegen'}
         </button>
       </div>
     </div>

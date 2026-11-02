@@ -13,14 +13,14 @@
 //   · «⌁ Katalog» — a service with the same topic is known (domain catalog or
 //     service catalog): it exists in a project already
 import { AlertTriangle, Check, FileUp, Search, X } from 'lucide-react';
-import { load } from 'js-yaml';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ownFolders } from '../projectImport';
 import { projectOpenApis } from './projectOpenApis';
 import type { Model } from '../types';
 import { cls } from '../ui';
 import { API_NAME, apiName, apiOf, sameApi, serviceTopic } from './collection';
-import { addOperations, apiProblem, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
+import { readOpenApiFile, type OpenApiFile } from './openApiFile';
+import { addOperations, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
 import type { ServiceCollectionSpec } from './types';
 import { MethodChip } from './ui';
 
@@ -34,10 +34,12 @@ export function catalogTopics(model: Model | null): Set<string> {
 
 type ApiChoice = { api: string; apiVersion: number };
 
-export default function OpenApiImport({ spec, model, isDark, onClose, onApply }: {
+export default function OpenApiImport({ spec, model, isDark, initial, onClose, onApply }: {
   spec: ServiceCollectionSpec;
   model: Model | null;
   isDark: boolean;
+  /** a file already read — chosen when the collection was created */
+  initial?: OpenApiFile;
   onClose: () => void;
   onApply: (next: ServiceCollectionSpec, added: string[]) => void;
 }) {
@@ -71,21 +73,18 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
     if (h) await read(await h.getFile());
   };
 
+  const open = (o: OpenApiFile) => {
+    setFile(o.file);
+    setApi(readApi(o.doc));
+  };
   const read = async (f: File) => {
     setError(''); setApi(null); setPicked(new Set()); setApis({});
-    let doc: unknown;
-    try {
-      const text = await f.text();
-      doc = /\.json$/i.test(f.name) ? JSON.parse(text) : load(text);
-    } catch (e) {
-      setError(`«${f.name}» ist nicht lesbar: ${e instanceof Error ? e.message : String(e)}`);
-      return;
-    }
-    const problem = apiProblem(doc);
-    if (problem) { setError(`«${f.name}»: ${problem}`); return; }
-    setFile(f.name);
-    setApi(readApi(doc));
+    const r = await readOpenApiFile(f);
+    if (r.ok) open(r.value);
+    else setError(r.message);
   };
+  // the file chosen at «Neue Collection» — read already, shown right away
+  useEffect(() => { if (initial) open(initial); }, [initial]);
 
   // the suggestion per operation: an existing service under the same sub path gives its API
   const suggested = useMemo(() => api ? suggestApis(api.operations, { api: spec.api, apiVersion: spec.apiVersion }) : new Map(), [api, spec.api, spec.apiVersion]);

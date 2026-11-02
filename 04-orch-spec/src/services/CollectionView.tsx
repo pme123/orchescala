@@ -23,6 +23,7 @@ import {
   serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
+import { takeOpenApi, type OpenApiFile } from './openApiFile';
 import { syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
 import { findSyncDomainFor, readProjectDir, readProjectZip, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
@@ -50,6 +51,13 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [saveError, setSaveError] = useState('');
   const [selection, setSelection] = useState<Selection>({ kind: 'overview' });
   const [importOpen, setImportOpen] = useState(false);
+  // the OpenAPI chosen at «Neue Collection» — the import opens with it once the collection is there
+  const [importFile, setImportFile] = useState<OpenApiFile | undefined>(undefined);
+  useEffect(() => {
+    if (!spec) return;
+    const o = takeOpenApi(slug);
+    if (o) { setImportFile(o); setImportOpen(true); }
+  }, [spec?.slug, slug]);
   const [exportOpen, setExportOpen] = useState(false);
   /** the Abgleich to look at before it applies */
   const [syncPreview, setSyncPreview] = useState<(CatalogSync & { source: string; note?: string }) | null>(null);
@@ -230,7 +238,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       {syncPreview && <SyncPreview sync={syncPreview} isDark={isDark} onCancel={() => setSyncPreview(null)} onApply={() => applySync(syncPreview)} />}
       {exportOpen && <CollectionExport spec={spec} model={model} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
-        <OpenApiImport spec={spec} model={model} isDark={isDark} onClose={() => setImportOpen(false)}
+        <OpenApiImport spec={spec} model={model} isDark={isDark} initial={importFile} onClose={() => { setImportOpen(false); setImportFile(undefined); }}
           onApply={(next, added) => {
             update(() => next);
             setImportOpen(false);
