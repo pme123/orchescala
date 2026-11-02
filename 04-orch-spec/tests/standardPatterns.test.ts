@@ -342,3 +342,88 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.equal(elements(parse(res.xml), 'bpmn:endEvent').length, 1, 'the end stays');
   });
 }
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: a value with " or \\ is refused - it would end the string in the BPMN`, () => {
+    for (const bad of ['can"celed', 'can\\celed']) {
+      const res = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: bad });
+      assert.equal(res.changed, false, bad);
+      assert.ok(res.issues.some(i => i.includes('«processStatus»')), res.issues.join('; '));
+    }
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: several ends - each with its own status`, () => {
+    // a second end on the start: Start → Target → End, Start → End2
+    const two = diagram(engine, 'task')
+      .replace('<bpmn:outgoing>f1</bpmn:outgoing>', '<bpmn:outgoing>f1</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing>')
+      .replace('</bpmn:process>', '<bpmn:endEvent id="End2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent><bpmn:sequenceFlow id="f3" sourceRef="Start" targetRef="End2" /></bpmn:process>');
+    const a = applyPattern(two, status, engine, 'End', { processStatus: 'succeeded' });
+    const b = applyPattern(a.xml, status, engine, 'End2', { processStatus: 'canceled' });
+    assert.ok(a.changed && b.changed, [...a.issues, ...b.issues].join('; '));
+    assert.deepEqual(hitsOf(b.xml, engine).sort(), [['process-status', 'End', 'succeeded'], ['process-status', 'End2', 'canceled']]);
+  });
+
+  test(`«Prozess-Status am Ende» on ${engine.toUpperCase()}: applied again with another status - one status, the new one`, () => {
+    const once = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'succeeded' }).xml;
+    const same = applyPattern(once, status, engine, 'End', { processStatus: 'succeeded' });
+    assert.equal(same.changed, false, 'the same status again changes nothing');
+    const other = applyPattern(once, status, engine, 'End', { processStatus: 'canceled' });
+    assert.ok(other.changed, other.issues.join('; '));
+    const end = one(parse(other.xml), 'bpmn:endEvent');
+    const set = engine === 'c7'
+      ? elements(end, 'camunda:executionListener').map(l => l.getAttribute('expression'))
+      : elements(end, 'zeebe:output').map(o => `${o.getAttribute('target')}=${o.getAttribute('source')}`);
+    assert.deepEqual(set, engine === 'c7' ? ['${execution.setVariable("processStatus", "canceled")}'] : ['processStatus=="canceled"']);
+    assert.deepEqual(hitsOf(other.xml, engine), [['process-status', 'End', 'canceled']]);
+  });
+
+  test(`a node of the block of «Init Process» still gets another pattern for what it carries beyond the block (${engine.toUpperCase()})`, () => {
+    // an own pattern on end events that sets something else
+    const audit: PatternDef = {
+      ...status, id: 'acme-audit', name: 'Audit', params: [],
+      bpmn: { [engine]: status.bpmn[engine]!.replace(/processStatus/g, 'audited').replace(/\{\{audited\}\}/g, 'yes') },
+    };
+    const withInit = applyPattern(diagram(engine, 'serviceTask'), init, engine, 'Target').xml;
+    const blockEnd = elements(parse(withInit), 'bpmn:endEvent').find(e => e.getAttribute('name') === 'output-mocked')!.getAttribute('id')!;
+    const res = applyPattern(withInit, audit, engine, blockEnd);
+    assert.ok(res.changed, res.issues.join('; '));
+    const hits = detectPatterns(res.xml, patternDefs({ patterns: [audit] }), engine).hits.map(h => [h.patternId, h.targetId]);
+    assert.deepEqual(hits.sort(), [['acme-audit', blockEnd], ['init-process', 'Target']]);
+  });
+}
+
+// the order of recognition follows the score of a pattern - the block must win whatever comes first
+test('a status pattern that is recognised before a block pattern does not get the end of that block (C7)', () => {
+  const long = `output-mocked-${'x'.repeat(200)}`;
+  const NS7 = 'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn"';
+  const listener = `<bpmn:extensionElements><camunda:executionListener expression="\${execution.setVariable(&#34;processStatus&#34;, &#34;${long}&#34;)}" event="start" /></bpmn:extensionElements>`;
+  const shape = (id: string, x: number, y: number, w = 36, h = 36) => `<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}"><dc:Bounds x="${x}" y="${y}" width="${w}" height="${h}" /></bpmndi:BPMNShape>`;
+  // a small pattern with a block: error boundary → link; link target → end with the long status
+  const block: PatternDef = {
+    id: 'acme-mocked', name: 'Gemockt', appliesTo: ['serviceTask'],
+    bpmn: { c7: `<bpmn:definitions ${NS7} id="P"><bpmn:process id="PP">
+      <bpmn:serviceTask id="PatternTarget" />
+      <bpmn:boundaryEvent id="B" attachedToRef="PatternTarget"><bpmn:outgoing>bf</bpmn:outgoing><bpmn:errorEventDefinition id="BE" /></bpmn:boundaryEvent>
+      <bpmn:intermediateThrowEvent id="T" name="acme-mocked"><bpmn:incoming>bf</bpmn:incoming><bpmn:linkEventDefinition id="TL" name="acme-mocked" /></bpmn:intermediateThrowEvent>
+      <bpmn:sequenceFlow id="bf" sourceRef="B" targetRef="T" />
+      <bpmn:intermediateCatchEvent id="C" name="acme-mocked"><bpmn:outgoing>cf</bpmn:outgoing><bpmn:linkEventDefinition id="CL" name="acme-mocked" /></bpmn:intermediateCatchEvent>
+      <bpmn:endEvent id="E" name="acme-mocked">${listener}<bpmn:incoming>cf</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="cf" sourceRef="C" targetRef="E" />
+    </bpmn:process><bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="PL" bpmnElement="PP">
+      ${shape('PatternTarget', 200, 100, 100, 80)}${shape('B', 262, 162)}${shape('T', 262, 242)}${shape('C', 422, 342)}${shape('E', 522, 342)}
+    </bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>` },
+  };
+  // an own status pattern with the same long status, fixed in the BPMN
+  const longStatus: PatternDef = {
+    id: 'acme-long-status', name: 'Langer Status', appliesTo: ['endEvent'],
+    bpmn: { c7: `<bpmn:definitions ${NS7} id="P"><bpmn:process id="PP"><bpmn:endEvent id="PatternTarget">${listener}</bpmn:endEvent></bpmn:process>
+      <bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="PL" bpmnElement="PP">${shape('PatternTarget', 200, 100)}</bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>` },
+  };
+  const score = (d: PatternDef) => { const fr = parseFragment(d.bpmn.c7!); assert.ok(!('error' in fr)); return (fr as { score: number }).score; };
+  // the precondition of this test: the status pattern is recognised first
+  assert.ok(score(longStatus) > score(block), `${score(longStatus)} > ${score(block)}`);
+  const xml = applyPattern(diagram('c7', 'serviceTask'), block, 'c7', 'Target');
+  assert.ok(xml.changed, xml.issues.join('; '));
+  const hits = detectPatterns(xml.xml, [block, longStatus], 'c7').hits.map(h => [h.patternId, h.targetId]);
+  assert.deepEqual(hits, [['acme-mocked', 'Target']]);
+});

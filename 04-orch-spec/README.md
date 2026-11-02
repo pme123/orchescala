@@ -766,8 +766,9 @@ und Doku stehen in `democompany-patterns`:
 - **Prozess-Status am Ende** (`process-status`, Endereignis): setzt
   `processStatus` auf den Parameter (Vorgabe `succeeded`). Das Ende
   `output-mocked` von «Init Process» setzt ihn auch, gehört aber zu jenem
-  Pattern — was ein Pattern in seinem Block oder Pfad trägt, bekommt kein
-  anderes.
+  Pattern: Was ein Pattern in seinem Block oder Pfad mitbringt, macht dort
+  kein anderes Pattern aus — gleich, welches zuerst erkannt wird. Was ein
+  Element darüber hinaus trägt, kann ein anderes Pattern sein.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
@@ -814,7 +815,8 @@ Block, wenn ihn kein anderes Element mehr braucht. Ein Parameter, der nur im
 gemeinsamen Block steht, gilt beim ersten Einfügen; danach gehört der Block
 dem Prozess. Belegt das Element eine Variable des Patterns schon anders
 (`camunda:in`/`out` gleichen Ziels, Input-/Output-Parameter gleichen Namens,
-`zeebe:input`/`output`), gilt das Pattern: die bisherige Zuordnung wird
+`zeebe:input`/`output`, ein Execution Listener `execution.setVariable("x", …)`
+für dieselbe Variable), gilt das Pattern: die bisherige Zuordnung wird
 ersetzt, statt doppelt dazustehen. Ein schon doppeltes Element bereinigt das
 Anpassen eines Parameters. Gibt es einen gemeinsamen Block schon (sein
 Einstieg, z. B. das Link-Ziel `output-mocked`), ergänzt das Einfügen an seinen
@@ -835,7 +837,8 @@ ist der Wert Text, kein FEEL — das Feld am Schritt ist ein einfaches Textfeld,
 `= ProcessStatus.succeeded` bzw. `= "succeeded"` wird zu `succeeded`. Zur Auswahl
 stehen die Werte, die der Admin beim Parameter nennt (`values`), für
 `processStatus` die Status von Orchescala; ein eigener Status (`ordered`) lässt
-sich trotzdem eintippen. Im Datenmodell steht `ProcessStatus` (Orchescala) in der
+sich trotzdem eintippen. `"` und `\` nimmt ein solches Feld nicht — sie
+beendeten die Zeichenkette im BPMN; das Einfügen sagt das. Im Datenmodell steht `ProcessStatus` (Orchescala) in der
 Typ-Auswahl in einer eigenen Gruppe, immer sichtbar.
 
 **Der Import erkennt Pattern** — aus demselben BPMN: ein Element trägt ein
