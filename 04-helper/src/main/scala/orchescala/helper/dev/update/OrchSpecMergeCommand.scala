@@ -78,19 +78,29 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
     print(s"\nMerge into ${config.projectName}$what? [y/N] ")
     Option(StdIn.readLine()).exists(a => Seq("y", "yes", "j", "ja").contains(a.trim.toLowerCase))
 
-  /** Orch Spec's comparison in business terms (`spec2diff.js`) - None without Node.js. */
-  private def specDiff(before: Option[os.Path], after: os.Path): Option[String] =
+  /** Orch Spec's comparison in business terms (`spec2diff.js`) - None without Node.js. If it
+    * fails, why - the plan does not depend on it, so the command goes on.
+    * @param script the tool - Orch Spec's, bundled in the orchescala-orch-doc jar
+    */
+  private[update] def specDiff(
+      before: Option[os.Path],
+      after: os.Path,
+      script: => Array[Byte] = os.read.bytes(os.resource / "orch-doc-tools" / "spec2diff.js")
+  ): Option[String] =
     Option.when(NodeSpecExporter.hasNode):
       Try:
-        val dir    = os.temp.dir(prefix = "orch-spec-tools")
-        val script = dir / "spec2diff.js"
-        os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / "spec2diff.js"))
+        val dir  = os.temp.dir(prefix = "orch-spec-tools")
+        val tool = dir / "spec2diff.js"
         try
+          os.write(tool, script)
           val missing = dir / "no-spec-before"
-          val r       = ExternalTool.call(Seq("node", script.toString, before.getOrElse(missing).toString, after.toString), ExternalTool.nodeTimeout)
-          if r.exitCode != 0 then throw os.SubprocessException(r)
+          val r       = ExternalTool.call(Seq("node", tool.toString, before.getOrElse(missing).toString, after.toString), ExternalTool.nodeTimeout)
+          if r.exitCode != 0 then
+            throw IllegalStateException(s"spec2diff.js failed (exit code ${r.exitCode}): ${r.err.text().trim}")
           r.out.text()
         finally os.remove.all(dir)
-      .getOrElse("(the comparison of the spec is not available)\n")
+      .recover:
+        case e => s"(the comparison of the spec is not available: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)})\n"
+      .get
 
 end OrchSpecMergeCommand

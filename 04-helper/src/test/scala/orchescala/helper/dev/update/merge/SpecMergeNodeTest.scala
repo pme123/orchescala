@@ -67,6 +67,18 @@ class SpecMergeNodeTest extends FunSuite:
       val merged     = os.read(checkOrder)
       assert(merged.contains("ok: String") && merged.contains("lazy val own = 1"), merged)
 
+  test("processFromSpec: the comparison of the spec fails - why it is not available, the command goes on"):
+    inGitProject: project =>
+      val failing = "process.stderr.write('cannot read the spec'); process.exit(3);".getBytes
+      assertEquals(
+        OrchSpecMergeCommand().specDiff(None, fixture, failing),
+        Some("(the comparison of the spec is not available: spec2diff.js failed (exit code 3): cannot read the spec)\n")
+      )
+      // the tool itself is missing (no orch-doc-tools in the jar)
+      val missing = OrchSpecMergeCommand().specDiff(None, fixture, throw IllegalStateException("no spec2diff.js"))
+      assertEquals(missing, Some("(the comparison of the spec is not available: no spec2diff.js)\n"))
+      assert(OrchSpecMergeCommand().specDiff(None, fixture).exists(_.nonEmpty))
+
   test("Orch Spec's formatter: a BPMN of the Modeler (other indentation, attribute order, <a></a>) is no change"):
     inGitProject: project =>
       val order    = SpecExport.fromJson(os.read(os.resource / "orch-spec" / "order-export.json")).processes.head
