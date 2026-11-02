@@ -397,8 +397,8 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   return (
     <div className="p-4 space-y-3 max-w-3xl">
       <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>Collection</div>
-      <div className="grid grid-cols-3 gap-2 text-[11px] items-start">
-        <div className={`rounded border px-2 py-1 ${c.border2}`}>
+      <div className="grid grid-cols-4 gap-2 text-[11px] items-start">
+        <div className={`col-span-2 rounded border px-2 py-1 ${c.border2}`}>
           <div className={`text-[9px] uppercase tracking-widest ${c.muted}`}>Projekt</div>
           <div className="pt-0.5" title="Firma und Projekt — wie bei einem Prozess wird das alte Präfix überall ersetzt (IDs, Titel, Texte); der Dateiname bleibt">
             <ProjectSelect value={spec.project} prefixes={prefixes} isDark={isDark} canEdit={canEdit}
