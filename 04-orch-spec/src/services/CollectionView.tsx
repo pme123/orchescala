@@ -728,7 +728,8 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
       <Section id="inputMapper" title="inputMapper(in): ServiceIn" hint="der Body der Anfrage aus dem In" isDark={isDark}>
         <BodyPicker label="type ServiceIn" none="kein Body — NoInput" value={s.serviceIn} spec={spec} canEdit={canEdit} isDark={isDark}
           self={s.inTypeId && !s.noIn ? { id: s.inTypeId, label: 'In — das In, wie es ist' } : undefined}
-          onChange={serviceIn => onPatch({ serviceIn })} onOpenType={onOpenType} />
+          onChange={serviceIn => onPatch({ serviceIn })} onOpenType={onOpenType}
+          onPasteType={(types, id) => { onTypes(types); onPatch({ serviceIn: { type: id } }); }} />
         {inIsBody && <p className={`text-[10px] ${c.muted}`}>Der Body ist das In, wie es ist — <span className="font-mono">inputMapper = Some(in)</span>.</p>}
         {bodyType && (
           <div className="space-y-1 pl-3">
@@ -748,7 +749,8 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
       <Section id="serviceOut" title="ServiceResponse[ServiceOut]" hint="die Antwort der API — der Body (ServiceOut), Status und Header" isDark={isDark}>
         <BodyPicker label="type ServiceOut" none="kein Body — NoOutput" value={s.serviceOut} spec={spec} canEdit={canEdit} isDark={isDark} allowOptional
           self={s.outTypeId && !s.noOut ? { id: s.outTypeId, label: 'Out — die Antwort ist das Out' } : undefined}
-          onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType} />
+          onChange={serviceOut => onPatch({ serviceOut })} onOpenType={onOpenType}
+          onPasteType={(types, id) => { onTypes(types); onPatch({ serviceOut: { ...(s.serviceOut?.optional ? { optional: true } : {}), type: id } }); }} />
         <div className="flex items-center gap-2 text-[11px]">
           <span className={c.muted}>Status</span>
           <input type="number" value={s.responseStatus ?? 200} disabled={!canEdit} onChange={e => onPatch({ responseStatus: Number(e.target.value) || undefined })}
@@ -906,12 +908,14 @@ function TypeSelect({ value, spec, disabled, className, onChange, self }: {
   );
 }
 
-function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, self, onChange, onOpenType }: {
+function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, self, onChange, onOpenType, onPasteType }: {
   label: string; none: string; value: BodyRef | undefined; spec: ServiceCollectionSpec; canEdit: boolean; isDark: boolean;
   allowOptional?: boolean;
   /** the In or Out of the service — the body as it is */
   self?: { id: string; label: string };
   onChange: (v: BodyRef | undefined) => void; onOpenType: (id: string) => void;
+  /** a copied class becomes a type of the collection — and the body */
+  onPasteType?: (types: TypeDef[], id: string) => void;
 }) {
   const c = cls(isDark);
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
@@ -939,6 +943,7 @@ function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, 
           {own && <button onClick={() => onOpenType(own.id)} className={`text-[10px] hover:underline ${isDark ? 'text-sky-300' : 'text-sky-700'}`}>{own.name} öffnen →</button>}
         </>
       )}
+      {canEdit && onPasteType && <PasteTypeButton spec={processFrame(spec)} isDark={isDark} label="als Body einfügen" onPaste={onPasteType} />}
     </div>
   );
 }

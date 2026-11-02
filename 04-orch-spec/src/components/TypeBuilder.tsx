@@ -32,7 +32,7 @@ import { useConfirm } from './Confirm';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../clipboard';
-import { pasteField, pasteType, typeClosure } from '../copyPaste';
+import { pasteField, pasteType, replaceType, typeClosure } from '../copyPaste';
 import { patternOfField } from '../patterns';
 import { interactionStatus } from '../status';
 import { searchByName } from '../typeSearch';
@@ -63,6 +63,8 @@ interface ClipActions {
   copyField: (f: Field) => void;
   /** into the class — for a choice into case number `valueIndex` */
   pasteField: (typeId: string, valueIndex?: number) => void;
+  /** the copied class into this one — for an In/Out that cannot be removed and pasted anew */
+  replaceType: (typeId: string) => void;
 }
 const ClipContext = createContext<ClipActions | null>(null);
 /** the whole specification — for the field row (does a field belong to a pattern?) */
@@ -75,6 +77,30 @@ function ClipCopyButton({ onCopy, title, className }: { onCopy: () => void; titl
     <button onClick={() => { onCopy(); setDone(true); window.setTimeout(() => setDone(false), 1200); }}
       title={title} className={className}>
       {done ? <Check size={11} /> : <Copy size={11} />}
+    </button>
+  );
+}
+
+/**
+ * «Ersetzen» — the copied class into an In/Out that cannot be removed: only while a
+ * class is in the clipboard, and with a question while the type has content.
+ */
+function ReplaceTypeButton({ type: t, isDark, onReplace }: { type: TypeDef; isDark: boolean; onReplace: () => void }) {
+  const m = useClipboard().model;
+  const confirm = useConfirm();
+  const c = cls(isDark);
+  if (m?.kind !== 'type' || m.typeId === t.id) return null;
+  const copy = m.types.find(x => x.id === m.typeId);
+  const what = `${copy?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${copy?.name ?? ''}» aus «${m.source.title || m.source.slug}»`;
+  const hasContent = (t.fields ?? []).some(f => f.name) || (t.values ?? []).length > 0;
+  return (
+    <button title={`Inhalt durch die kopierte ${what} ersetzen — Name und Rolle von «${t.name}» bleiben`}
+      onClick={async () => {
+        if (hasContent && !(await confirm({ title: `«${t.name}» ersetzen?`, text: `Felder und Fälle von «${t.name}» werden durch die der ${what} ersetzt.`, confirmLabel: "Ersetzen" }))) return;
+        onReplace();
+      }}
+      className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded border whitespace-nowrap ${c.btn}`}>
+      <ClipboardPaste size={11} /> «{copy?.name}» übernehmen
     </button>
   );
 }
@@ -352,6 +378,12 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       if (m?.kind !== 'field') return;
       const r = pasteField(spec, typeId, m, valueIndex);
       if (r) setTypes(r.types);
+    },
+    replaceType: typeId => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'type') return;
+      const r = replaceType(spec, typeId, m);
+      if (r) setTypes(r);
     },
   };
   const pasteTypeClip = () => {
@@ -994,9 +1026,9 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   return (
     <div className="p-4 space-y-4">
       {/* header */}
-      <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
+      <div data-cframe={typeTarget(t.id)} className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <div className="min-w-[14rem] flex-1">
+          <div className={`text-[10px] uppercase tracking-widest flex flex-wrap items-center gap-2 ${c.muted}`}>
             {t.root ? 'Prozess-Eingabe' : t.inConfig ? 'Prozess-Konfiguration' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
             <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
             {/* The In of a process (or of a service, an orchestration) is mostly
@@ -1026,6 +1058,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
             title={`${t.kind === 'enum' ? 'Auswahl' : 'Klasse'} kopieren — mit den eigenen Klassen, auf die sie verweist. Einfügen links unten im Datenmodell, auch eines anderen Prozesses oder Tabs.`}
             className={`p-1.5 rounded border ${c.btn}`} />
         )}
+        {clip && canEdit && (t.root || fixed) && <ReplaceTypeButton type={t} isDark={isDark} onReplace={() => clip.replaceType(t.id)} />}
         {canEdit && !t.root && !fixed && (
           <button onClick={async () => { if (await confirm({ title: `Typ «${t.name || 'ohne Namen'}» löschen?` })) onRemove(); }}
             title="Typ löschen" className={`p-1.5 rounded border ${c.btn}`}>
@@ -1618,6 +1651,12 @@ function standaloneClip(spec: ProcessSpec, latest: { current: TypeDef[] }, apply
       const r = pasteField({ ...spec, types: latest.current }, typeId, m, valueIndex);
       if (r) apply(() => r.types);
     },
+    replaceType: typeId => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'type') return;
+      const r = replaceType({ ...spec, types: latest.current }, typeId, m);
+      if (r) apply(() => r);
+    },
   };
 }
 
@@ -1626,7 +1665,11 @@ function standaloneClip(spec: ProcessSpec, latest: { current: TypeDef[] }, apply
  * (a collection, an orchestration) — only while a class is in the clipboard.
  * `onPaste` gets all types and the id of the pasted class.
  */
-export function PasteTypeButton({ spec, isDark, onPaste }: { spec: ProcessSpec; isDark: boolean; onPaste: (types: TypeDef[], id: string) => void }) {
+export function PasteTypeButton({ spec, isDark, onPaste, label }: {
+  spec: ProcessSpec; isDark: boolean; onPaste: (types: TypeDef[], id: string) => void;
+  /** a button with text (`als Body`) — without: only the icon */
+  label?: string;
+}) {
   const m = useClipboard().model;
   const c = cls(isDark);
   if (m?.kind !== 'type') return null;
@@ -1635,8 +1678,8 @@ export function PasteTypeButton({ spec, isDark, onPaste }: { spec: ProcessSpec; 
   return (
     <button onClick={() => { const r = pasteType(spec, m); onPaste(r.types, r.id); }}
       title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist` : ''}`}
-      className={`p-0.5 rounded ${c.hover} ${c.muted}`}>
-      <ClipboardPaste size={11} />
+      className={label ? `flex items-center gap-1 text-[11px] px-2 py-1 rounded border ${c.btn}` : `p-0.5 rounded ${c.hover} ${c.muted}`}>
+      <ClipboardPaste size={11} />{label && <span>«{t?.name}» {label}</span>}
     </button>
   );
 }
