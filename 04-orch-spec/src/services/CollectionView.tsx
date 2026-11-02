@@ -16,7 +16,7 @@ import { checkFeel, expectedFor, fieldVariables, isFeel, type VarNode } from '..
 import { useStore } from '../store';
 import { parseDomainRef } from '../serviceTypes';
 import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Status, type TypeDef } from '../types';
-import { StatusChip, cls } from '../ui';
+import { PanelWidthHandle, StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
   API_NAME, apiKey, apiName, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
@@ -33,12 +33,18 @@ import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type 
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
 
+/** width of the list of services and types — dragged at its edge, kept per browser */
+const LIST_W_KEY = 'orch-spec.serviceListWidth';
+
 export default function CollectionView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const { isDark, model } = useStore();
   const { loadService, saveService } = useServices();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
   const [spec, setSpec] = useState<ServiceCollectionSpec | null>(null);
+  const [listW, setListW] = useState(() => {
+    try { const n = Number(localStorage.getItem(LIST_W_KEY)); return n >= 240 && n <= 720 ? n : 320; } catch { return 320; }
+  });
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'dirty' | 'saving' | 'conflict' | 'error'>('saved');
   const [saveError, setSaveError] = useState('');
@@ -235,7 +241,12 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
 
       <div className="flex flex-1 min-h-0">
         {/* services and types */}
-        <div className={`w-80 flex-shrink-0 border-r ${c.border} overflow-y-auto p-2 space-y-3`}>
+        <div style={{ width: listW }} className="relative flex-shrink-0 flex">
+          <PanelWidthHandle isDark={isDark} side="right" width={listW} min={240} max={720} onWidth={w => {
+            setListW(w);
+            try { localStorage.setItem(LIST_W_KEY, String(w)); } catch { /* not kept then */ }
+          }} />
+          <div className={`flex-1 min-w-0 border-r ${c.border} overflow-y-auto p-2 space-y-3`}>
           <button onClick={() => setSelection({ kind: 'overview' })}
             className={`w-full text-left px-2 py-1 rounded text-[11px] ${c.hover} ${selection.kind === 'overview' ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''} ${c.text}`}>
             Übersicht
@@ -298,6 +309,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
               </button>
             ))}
           </div>
+        </div>
         </div>
 
         {/* the chosen service, type or the overview */}

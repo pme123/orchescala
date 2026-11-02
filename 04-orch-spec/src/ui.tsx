@@ -159,11 +159,12 @@ export const BRANCH_COLORS = [
 export const GATEWAY_ICON = { exclusive: Split, parallel: Merge, inclusive: Split, eventBased: Zap };
 
 /**
- * Handle on the left edge of a panel: dragging changes the width
- * (between `min` and `max`). The panel needs `relative`.
+ * Handle on the edge of a panel: dragging changes the width (between `min`
+ * and `max`). On the left edge (default) for a panel on the right, on the
+ * right edge (`side="right"`) for a list on the left. The panel needs `relative`.
  */
-export function PanelWidthHandle({ isDark, width, onWidth, min = 320, max = 800 }: {
-  isDark: boolean; width: number; onWidth: (w: number) => void; min?: number; max?: number;
+export function PanelWidthHandle({ isDark, width, onWidth, min = 320, max = 800, side = 'left' }: {
+  isDark: boolean; width: number; onWidth: (w: number) => void; min?: number; max?: number; side?: 'left' | 'right';
 }) {
   const c = cls(isDark);
   const start = useRef<{ x: number; w: number } | null>(null);
@@ -175,14 +176,15 @@ export function PanelWidthHandle({ isDark, width, onWidth, min = 320, max = 800 
       }}
       onPointerMove={e => {
         if (!start.current) return;
-        onWidth(Math.min(max, Math.max(min, start.current.w - (e.clientX - start.current.x))));
+        const moved = e.clientX - start.current.x;
+        onWidth(Math.min(max, Math.max(min, start.current.w + (side === 'right' ? moved : -moved))));
       }}
       onPointerUp={e => {
         start.current = null;
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       }}
       title="Breite ziehen"
-      className={`absolute top-0 bottom-0 -left-1 w-2 cursor-col-resize z-10 select-none touch-none flex items-center justify-center ${c.muted} hover:opacity-100 opacity-40`}>
+      className={`absolute top-0 bottom-0 ${side === 'right' ? '-right-1' : '-left-1'} w-2 cursor-col-resize z-10 select-none touch-none flex items-center justify-center ${c.muted} hover:opacity-100 opacity-40`}>
       <GripVertical size={12} />
     </div>
   );
