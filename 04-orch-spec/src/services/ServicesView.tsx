@@ -15,7 +15,7 @@ import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../com
 import { epicsOf } from '../epics';
 import { useStore } from '../store';
 import { EpicChip, StatusChip, cls } from '../ui';
-import { API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiList, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
+import { API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiList, apiName, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
 import { useServices, type ServiceListItem } from './store';
 import CollectionImport from './CollectionImport';
 import { newOrchestration, orchestrationTopic } from './orchestration';
@@ -233,7 +233,7 @@ function NewCollection({ existing, onCreate, onClose }: {
         </label>
         <label className="space-y-0.5" title="Die API neuer Services — je Service änderbar; die OpenAPI schlägt sie je Teilpfad vor">
           <span className={`text-[10px] ${c.muted}`}>API</span>
-          <input className={`${field} font-mono`} value={api} onChange={e => setApi(e.target.value)} placeholder="client" />
+          <input className={`${field} font-mono`} value={api} onChange={e => setApi(apiName(e.target.value))} placeholder="client" />
         </label>
         <label className="space-y-0.5">
           <span className={`text-[10px] ${c.muted}`}>Version</span>
@@ -305,7 +305,7 @@ function NewOrchestration({ existing, projects, onCreate, onClose }: {
         </label>
         <label className="space-y-0.5" title="Die API, in deren Paket der CustomTask und sein Worker liegen">
           <span className={`text-[10px] ${c.muted}`}>API</span>
-          <input className={`${field} font-mono`} value={api} onChange={e => setApi(e.target.value)} placeholder="client" />
+          <input className={`${field} font-mono`} value={api} onChange={e => setApi(apiName(e.target.value))} placeholder="client" />
         </label>
         <label className="space-y-0.5">
           <span className={`text-[10px] ${c.muted}`}>Version</span>

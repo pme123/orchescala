@@ -82,6 +82,8 @@ export function collectionSlug(c: Pick<ServiceCollectionSpec, 'project' | 'title
 
 /** A valid Scala identifier for the API (`client`, `paymentRules`). */
 export const API_NAME = /^[a-z][A-Za-z0-9]*$/;
+/** What is typed as API, as a name: `NaturalPerson` (an OpenAPI tag) → `naturalPerson` */
+export const apiName = (typed: string): string => typed.trim().replace(/^[A-Z]/, c => c.toLowerCase());
 /**
  * `acme-crm`, `z9nai-finnovaNeo_2` — at least two parts joined by `-` (company
  * and project). A part is letters, digits and `_`, not starting with a digit:

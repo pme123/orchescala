@@ -19,7 +19,7 @@ import { ownFolders } from '../projectImport';
 import { projectOpenApis } from './projectOpenApis';
 import type { Model } from '../types';
 import { cls } from '../ui';
-import { API_NAME, apiOf, sameApi, serviceTopic } from './collection';
+import { API_NAME, apiName, apiOf, sameApi, serviceTopic } from './collection';
 import { addOperations, apiProblem, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
 import type { ServiceCollectionSpec } from './types';
 import { MethodChip } from './ui';
@@ -205,7 +205,7 @@ export default function OpenApiImport({ spec, model, isDark, onClose, onApply }:
                         <span className={`text-[11px] font-mono font-semibold ${c.text}`}>{subPath}</span>
                         <span className={`text-[10px] ${c.muted}`}>{rows.length}</span>
                         <span className={`ml-auto text-[10px] ${c.muted}`} title="API (Paket) und Version der neuen Services dieses Teilpfads">API</span>
-                        <input value={choice.api} onChange={e => setChoice({ api: e.target.value.trim() })}
+                        <input value={choice.api} onChange={e => setChoice({ api: apiName(e.target.value) })}
                           className={`w-32 px-1.5 py-0.5 rounded border text-[11px] font-mono outline-none ${API_NAME.test(choice.api) ? c.input : 'border-rose-400 text-rose-500'}`} />
                         <span className={`text-[10px] ${c.muted}`}>v</span>
                         <input type="number" min={1} value={choice.apiVersion} onChange={e => setChoice({ apiVersion: Math.max(1, Number(e.target.value) || 1) })}

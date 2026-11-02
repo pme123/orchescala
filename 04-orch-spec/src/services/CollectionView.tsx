@@ -19,7 +19,7 @@ import { SCALA_TYPES, STATUSES, STATUS_META, type Field, type Mapping, type Stat
 import { StatusChip, cls } from '../ui';
 import { nowIsoWithTimezone, uid } from '../util';
 import {
-  API_NAME, apiKey, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
+  API_NAME, apiKey, apiName, apiList, apiOf, apisOf, basePathParams, collectionPackage, collectionStatus, collectionTrait, inPathBase, membersOf, normalPathBase, processFrame, sameApi,
   serviceIssues, serviceTopic, suggestPathBase, typeHome, withoutService, workerPath,
 } from './collection';
 import OpenApiImport from './OpenApiImport';
@@ -570,7 +570,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
         </div>
         <label className={`flex items-center gap-1 text-[10px] ${c.muted}`} title={`API (Paket ${collectionPackage(apiOf(spec, s))}) und Version des Services`}>
           API
-          <input value={s.api} disabled={!canEdit} onChange={e => onPatch({ api: e.target.value.trim() })}
+          <input value={s.api} disabled={!canEdit} onChange={e => onPatch({ api: apiName(e.target.value) })}
             className={`w-28 font-mono ${input} ${API_NAME.test(s.api) ? '' : 'text-rose-500'}`} />
           v
           <input type="number" min={1} value={s.apiVersion} disabled={!canEdit} onChange={e => onPatch({ apiVersion: Math.max(1, Number(e.target.value) || 1) })}

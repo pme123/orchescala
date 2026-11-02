@@ -13,3 +13,10 @@ test('project names that give no Scala package are refused', () => {
   for (const name of ['z9nai', 'acme-', '-crm', 'acme--crm', '9acme-crm', 'acme-2crm', 'acme crm', 'acme.crm'])
     assert.ok(!PROJECT_NAME.test(name), name);
 });
+
+test('an API typed with upper case becomes its name in camelCase', async () => {
+  const { API_NAME, apiName } = await import('../src/services/collection.ts');
+  assert.equal(apiName('NaturalPerson'), 'naturalPerson');
+  assert.equal(apiName(' client '), 'client');
+  assert.ok(API_NAME.test(apiName('NaturalPerson')));
+});
