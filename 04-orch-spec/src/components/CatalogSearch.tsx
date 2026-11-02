@@ -50,7 +50,8 @@ const serviceKind = (s: ServiceDef): CatalogKind => {
 export function catalogCounts(model: Model): Array<[CatalogKind, number]> {
   const m = new Map<CatalogKind, number>();
   for (const s of model.services ?? []) m.set(serviceKind(s), (m.get(serviceKind(s)) ?? 0) + 1);
-  for (const t of model.domainTypes ?? []) m.set(t.kind, (m.get(t.kind) ?? 0) + 1);
+  // a `def` (serviceBasePath of a worker package) is no type — not in the search
+  for (const t of model.domainTypes ?? []) if (t.kind !== 'def') m.set(t.kind, (m.get(t.kind) ?? 0) + 1);
   return KIND_ORDER.filter(k => m.has(k)).map(k => [k, m.get(k)!]);
 }
 
@@ -76,7 +77,8 @@ export default function CatalogSearch({ model, isDark }: { model: Model; isDark:
   const treffer = useMemo(() => {
     if (!worte.length) return { services: [] as ServiceDef[], types: [] as DomainType[], mehr: 0 };
     const s = services.filter(x => passt(`${x.id} ${x.name} ${x.group ?? ''} ${x.description ?? ''} ${x.topic ?? ''}`));
-    const t = types.filter(x => passt(
+    // a `def` (serviceBasePath of a worker package) is no type
+    const t = types.filter(x => x.kind !== 'def' && passt(
       `${x.name} ${x.pkg} ${(x.fields ?? []).map(f => `${f.name} ${f.type}`).join(' ')} ${(x.values ?? []).join(' ')}`));
     return {
       services: s.slice(0, GRENZE),
@@ -148,7 +150,7 @@ export default function CatalogSearch({ model, isDark }: { model: Model; isDark:
               <button onClick={() => setOpen(open === t.id ? null : t.id)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left ${c.hover}`}>
                 {open === t.id ? <ChevronDown size={11} className={c.muted} /> : <ChevronRight size={11} className={c.muted} />}
-                <KindChip kind={t.kind} isDark={isDark} />
+                <KindChip kind={t.kind as CatalogKind} isDark={isDark} />
                 <span className={`font-mono text-[11px] truncate ${c.text}`}>{t.name}</span>
                 {t.dsl && <span className={`text-[9px] ${c.muted}`}>{t.dsl.replace(/^CompanyBpmn|Dsl$/g, '')}</span>}
                 <span className={`ml-auto text-[9px] font-mono truncate max-w-[22rem] ${c.muted}`}>{t.pkg}</span>

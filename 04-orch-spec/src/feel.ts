@@ -19,18 +19,18 @@
 // for them the check stays silent instead of warning wrongly.
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
-import { C7_LABEL } from './engineLabels';
+import { C7_LABEL } from './engineLabels.ts';
 import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
-import { FEEL_DOCS, type FeelDoc } from './feelDocs';
-import { SCALA_TYPES, isAdt } from './types';
-import { indexTypes, type TypeIndex } from './scala';
-import { typeShape } from './scalaTypes';
-import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions';
-import { packageOf } from './scala';
-import { catalogObject, domainRef, parseDomainRef } from './serviceTypes';
-import { allSteps, isInitWorker } from './bpmn';
+import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
+import { SCALA_TYPES, isAdt } from './types.ts';
+import { indexTypes, type TypeIndex } from './scala.ts';
+import { typeShape } from './scalaTypes.ts';
+import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSettings, originMember, resolveType } from './interactions.ts';
+import { packageOf } from './scala.ts';
+import { catalogObject, domainRef, parseDomainRef } from './serviceTypes.ts';
+import { allSteps, isInitWorker } from './bpmn.ts';
 import type { JuelOptions } from './feelJuel';
-import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants';
+import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants.ts';
 
 export type FeelType =
   | 'string' | 'number' | 'boolean' | 'date' | 'date time' | 'time' | 'duration'
@@ -81,6 +81,10 @@ export const conditionExpected = (_engine?: EngineId): ExpectedType =>
 export interface FeelIssue {
   level: 'error' | 'warn';
   text: string;
+  /** `optional`: an optional value on a required field — where a step guards it, only a note */
+  code?: 'optional';
+  /** the optional path, for `optional` */
+  path?: string;
 }
 
 const isScalar = (t: string): boolean => (SCALA_TYPES as readonly string[]).includes(t);
@@ -105,8 +109,8 @@ const SCALAR_ACCEPTS: Record<string, FeelType[]> = {
 
 const MAX_DEPTH = 6;
 
-export { enumHasCase, splitEnumCase } from './scalaTypes';
-import { enumHasCase, splitEnumCase } from './scalaTypes';
+export { enumHasCase, splitEnumCase } from './scalaTypes.ts';
+import { enumHasCase, splitEnumCase } from './scalaTypes.ts';
 
 interface Builder { idx: TypeIndex; model: Model | null }
 
@@ -211,6 +215,15 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
  * its required twin with a default there), then the `InConfig` (always with
  * default), then the `In`, the process variables and the outputs.
  */
+/**
+ * Variables from the fields of a type — for the services: the `In`, the body of
+ * the response and its headers are what a mapping there can read.
+ */
+export function fieldVariables(fields: Field[], source: string, types: TypeDef[], model: Model | null): VarNode[] {
+  const b: Builder = { idx: indexTypes(types, model), model };
+  return fields.filter(f => f.name).map(f => nodeOfField(f, source, b, 0, new Set()));
+}
+
 export function processVariables(spec: ProcessSpec, model: Model | null): VarNode[] {
   const types = spec.types ?? [];
   const b: Builder = { idx: indexTypes(types, model), model };
@@ -885,7 +898,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
     const opt = optionalOnPath(body, vars);
     if (opt) {
       issues.push({
-        level: 'warn',
+        level: 'warn', code: 'optional', path: opt.path,
         text: `«${opt.path}» ist optional (${opt.label}) — «${expected.label}» verlangt aber einen Wert. Vorgabe setzen oder absichern (\`if … != null then … else …\`).`,
       });
     }

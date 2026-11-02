@@ -12,14 +12,28 @@ import scala.util.Try
 /** What «Process from Spec» brings: the BPMN (if the spec has a diagram), the Scala classes and
   * the tables of the DMN decisions (file name in the project -> XML).
   */
-case class OrchSpecCommand(bpmn: Option[String], scala: String, dmns: Seq[(String, String)] = Seq.empty)
+case class OrchSpecCommand(
+    bpmn: Option[String],
+    scala: String,
+    dmns: Seq[(String, String)] = Seq.empty,
+    kind: OrchSpecKind = OrchSpecKind.Process
+)
+
+/** What the export of Orch Spec is: a process (version 1), a service collection (version 2 with
+  * `kind: "serviceCollection"`) - its ServiceTasks and ServiceWorkers, without a BPMN - or a service
+  * orchestration (`kind: "serviceOrchestration"`) - a CustomTask and its CustomWorker that calls
+  * service workers. Both are written per API, the same way.
+  */
+enum OrchSpecKind:
+  case Process, ServiceCollection, ServiceOrchestration
 
 object OrchSpecInput:
 
   val commandPrefix = "orchspec:"
 
   /** The argument of «Process from Spec» in Orch Spec: `orchspec:` + base64url(gzip(JSON)) with
-    * `{ v: 1, bpmn?: String, scala: String, dmns?: [{ file: String, xml: String }] }`.
+    * `{ v: 1, bpmn?: String, scala: String, dmns?: [{ file: String, xml: String }] }` - or, for a
+    * service collection or orchestration, `{ v: 2, kind: "serviceCollection" | "serviceOrchestration", scala: String }`.
     */
   def fromCommand(argument: String): OrchSpecCommand =
     val json = Try:
@@ -43,6 +57,16 @@ object OrchSpecInput:
               xml  <- d.hcursor.get[String]("xml").toOption
             yield file -> xml
         )
+      case Right(2) =>
+        cursor.get[String]("kind") match
+          case Right("serviceCollection")    =>
+            OrchSpecCommand(None, cursor.get[String]("scala").getOrElse(""), kind = OrchSpecKind.ServiceCollection)
+          case Right("serviceOrchestration") =>
+            OrchSpecCommand(None, cursor.get[String]("scala").getOrElse(""), kind = OrchSpecKind.ServiceOrchestration)
+          case kind                          =>
+            throw IllegalArgumentException(
+              s"Kind ${kind.getOrElse("?")} of the Orch Spec export is not known - update the orchescala helper."
+            )
       case other    =>
         throw IllegalArgumentException(
           s"Version ${other.getOrElse("?")} of the Orch Spec export is not known - update the orchescala helper."

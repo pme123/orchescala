@@ -24,7 +24,7 @@
 // cases are allowed, only the shared ones are mandatory.
 
 import type { DomainField, Field, Mapping, Model, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
-import { stepDomainMember } from './feel';
+import { stepDomainMember } from './feel.ts';
 
 export type MappingList = 'inputs' | 'outputs';
 

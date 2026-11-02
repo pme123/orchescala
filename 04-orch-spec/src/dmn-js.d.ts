@@ -13,3 +13,15 @@ declare module 'dmn-js/lib/Modeler' {
     destroy(): void;
   }
 }
+
+// the serializers of the Modeler - without types of their own (see modelerXml.ts)
+declare module 'bpmn-moddle' {
+  export class BpmnModdle { constructor(packages?: Record<string, unknown>); }
+}
+declare module 'dmn-moddle' {
+  export class DmnModdle { constructor(packages?: Record<string, unknown>); }
+}
+declare module 'zeebe-bpmn-moddle/resources/zeebe.json' {
+  const descriptor: Record<string, unknown>;
+  export default descriptor;
+}

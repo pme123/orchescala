@@ -32,6 +32,9 @@ import { domainRef } from './serviceTypes.ts';
 import { enumHasCase, splitEnumCase } from './feel.ts';
 import { handleFor, readSources } from './projects.ts';
 import { uid } from './util.ts';
+import { shareCaseFields, sharedFields } from './enumCases.ts';
+
+export { sharedFields };
 import { catalogIndex } from './orchescalaTypes.ts';
 
 export interface ProjectFile { path: string; text: string }
@@ -102,8 +105,37 @@ const isDetailed = (domain: DomainType[]): boolean => domain.some(t => t.dsl || 
  * per folder); otherwise an older catalog with a caveat. `null` = nothing.
  */
 export async function findDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
-  const r = await searchDomain(processId, model, onProgress, false);
+  const r = await searchDomain(processTarget(processId), model, onProgress, false);
   return r && 'blocked' in r ? null : r;
+}
+
+/**
+ * What the search looks for: the ID that names the own project folder (a folder
+ * `acme-crm` for `acme-crm` or `acme-crm-…`) and how to tell that a domain has it.
+ */
+export interface DomainTarget {
+  id: string;
+  has: (domain: DomainType[]) => boolean;
+}
+
+/** A process — via `val processName`. */
+export const processTarget = (processId: string): DomainTarget => ({ id: processId, has: d => hasProcess(d, processId) });
+
+/** The services of a project — via their `topicName` (`acme-crm-clientV1.GetClient`). */
+export const serviceProjectTarget = (project: string): DomainTarget => ({
+  id: project,
+  has: d => d.some(t => !!t.owner && !!t.topicName?.startsWith(`${project}-`)),
+});
+
+/** The same search for anything a domain holds — the services of a project, see `findSyncDomain`. */
+export async function findDomainFor(target: DomainTarget, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | null> {
+  const r = await searchDomain(target, model, onProgress, false);
+  return r && 'blocked' in r ? null : r;
+}
+
+/** `findSyncDomain` for anything a domain holds. */
+export function findSyncDomainFor(target: DomainTarget, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
+  return searchDomain(target, model, onProgress, true);
 }
 
 /**
@@ -114,14 +146,25 @@ export async function findDomain(processId: string, model: Model | null, onProgr
  * renamed) is no question of access: the search goes on, the catalog included.
  */
 export function findSyncDomain(processId: string, model: Model | null, onProgress?: (text: string) => void): Promise<DomainHit | DomainBlocked | null> {
-  return searchDomain(processId, model, onProgress, true);
+  return searchDomain(processTarget(processId), model, onProgress, true);
+}
+
+/**
+ * The own project folders of an ID (a process, a service project): the remembered folder
+ * whose name is the longest prefix — `acme` is not the project of `acme-bpmn-…` when
+ * `acme-bpmn` is listed too (folders of the same name all count).
+ */
+export function ownFolders(model: Model | null, id: string): ProjectFolder[] {
+  const matching = (model?.projects ?? []).filter(p => id === p.name || id.startsWith(`${p.name}-`));
+  const longest = Math.max(0, ...matching.map(p => p.name.length));
+  return matching.filter(p => p.name.length === longest);
 }
 
 async function searchDomain(
-  processId: string, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
+  target: DomainTarget, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
 ): Promise<DomainHit | DomainBlocked | null> {
   const catalog = model?.domainTypes ?? [];
-  const inCatalog = hasProcess(catalog, processId);
+  const inCatalog = target.has(catalog);
   const roots = new Map<string, FileSystemDirectoryHandle | null>();
   const unreadable: string[] = [];
   const fromFolder = async (p: ProjectFolder, own = false): Promise<DomainHit | null> => {
@@ -145,17 +188,13 @@ async function searchDomain(
       return null;
     }
     const domain = scanDomain(files);
-    return hasProcess(domain, processId) ? { domain, source: `Ordner ${p.name}` } : null;
+    return target.has(domain) ? { domain, source: `Ordner ${p.name}` } : null;
   };
   // First the own project folder: it holds the current state — the
   // catalog is as old as its last build (Admin → Katalog, prepareDocs),
   // otherwise the sync would only see a change to the domain after that.
   const folders = model?.projects ?? [];
-  // the project whose name is the longest prefix — `acme` is not the project of
-  // `acme-bpmn-…` when `acme-bpmn` is listed too (folders of the same name all count)
-  const matching = folders.filter(p => processId.startsWith(`${p.name}-`));
-  const longest = Math.max(0, ...matching.map(p => p.name.length));
-  const own = matching.filter(p => p.name.length === longest);
+  const own = ownFolders(model, target.id);
   for (const p of own) {
     const hit = await fromFolder(p, true);
     if (hit) return hit;
@@ -193,7 +232,7 @@ function inProject(t: DomainType, pkg: string): boolean {
  * Translates domain types of the project into types of the specification. What belongs
  * to the project becomes an own type; foreign ones point into the catalog.
  */
-class Converter {
+export class Converter {
   readonly types: TypeDef[] = [];
   readonly unresolved = new Set<string>();
   /** what the import has to say about what was recognized, e.g. recognized shared fields */
@@ -427,14 +466,13 @@ class Converter {
       }));
       // What appears in **all** cases with the same name and the same type is
       // shared as well — even if the domain does not declare it as `def`
-      const shared = sharedFields(perCase.filter(c => c.fields.length).map(c => c.fields));
+      const split = shareCaseFields(common, perCase);
+      const shared = split.shared;
       if (shared.length) {
-        const names = new Set(shared.map(f => f.name));
-        for (const c of perCase) c.fields = c.fields.filter(f => !names.has(f.name));
         this.notes.push(`${name}: ${shared.length} gemeinsame Feld${shared.length === 1 ? '' : 'er'} erkannt (${shared.map(f => f.name).join(', ')}) — stehen in jedem Fall gleich.`);
       }
-      if (common.length || shared.length) t.fields = [...common, ...shared];
-      t.values = perCase.map(c => ({
+      if (split.fields.length) t.fields = split.fields;
+      t.values = split.cases.map(c => ({
         name: c.name,
         ...(c.fields.length ? { fields: c.fields } : {}),
         ...(c.order.length ? { order: c.order } : {}),
@@ -485,29 +523,6 @@ export function referenceExistingClasses(spec: ProcessSpec, model: Model | null)
   }));
   const moved = (spec.types ?? []).filter(t => refs.has(t.id)).map(t => `${t.name} → ${refs.get(t.id)!.pkg}`);
   return { spec: { ...spec, types }, moved };
-}
-
-/**
- * Fields that are the same in all cases: same name, same type and
- * the same wrappers (optional, multiple, map, variant, constraint).
- * Description and default come from the first case that has them. With a
- * single case there is nothing shared to recognize.
- */
-export function sharedFields(cases: Field[][]): Field[] {
-  if (cases.length < 2) return [];
-  const key = (f: Field) => JSON.stringify([f.type, !!f.optional, !!f.collection, !!f.map, f.enumCase ?? '', f.constraint ?? '']);
-  return cases[0].flatMap(f => {
-    const k = key(f);
-    const twins = cases.map(c => c.find(x => x.name === f.name && key(x) === k));
-    if (twins.some(x => !x)) return [];
-    const described = twins.find(x => x!.description);
-    const dflt = twins.map(x => x!.default).find(Boolean);
-    return [{
-      ...f,
-      ...(described ? { description: described.description, descriptionExpr: described.descriptionExpr } : {}),
-      ...(dflt ? { default: dflt } : {}),
-    }];
-  });
 }
 
 // ── Enrich the specification ─────────────────────────────────────────────────

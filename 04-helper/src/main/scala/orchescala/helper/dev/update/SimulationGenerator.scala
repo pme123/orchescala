@@ -16,53 +16,75 @@ case class SimulationGenerator()(using config: DevConfig):
     * simulation of the other engine is split that way; its scenarios stay as they are.
     */
   def createSimulation(setupElement: SetupElement, c8: Boolean = false): Unit =
+    val dir  = config.projectDir
+    val plan = simulationFiles(
+      setupElement,
+      c8,
+      rel => Option.when(os.isFile(dir / rel))(os.read(dir / rel)),
+      rel => if os.isDir(dir / rel) then os.list(dir / rel).map(_.last) else Seq.empty
+    )
+    // in the order of the plan - the classes of the engines before a split base
+    plan.files.foreach: (rel, content) =>
+      val file = dir / rel
+      if !os.exists(file) then createIfNotExists(file, content)
+      else if os.read(file) != content then
+        os.write.over(file, content)
+        println(s"${Console.BLUE} - SPLIT: $file - scenarios for both engines${Console.RESET}")
+      else println(s"EXISTS: $file")
+    plan.notes.foreach(n => println(s"${Console.YELLOW}$n${Console.RESET}"))
+  end createSimulation
+
+  /** The files of the simulation as they are to be - relative to the project, in the order to
+    * write them; an existing file as it is, unless it is split. Nothing is written.
+    * @param read  a file of the project
+    * @param names the names in a folder of the project
+    */
+  private[update] def simulationFiles(
+      setupElement: SetupElement,
+      c8: Boolean,
+      read: os.RelPath => Option[String],
+      names: os.RelPath => Seq[String]
+  ): SimulationFiles =
     import SimulationGenerator.*
+    val dir      = simulationTestRel
     val name     = setupElement.bpmnName
-    val baseFile = simulationTestPath / s"${name}Simulation.scala"
+    val baseFile = dir / s"${name}Simulation.scala"
     val pkg      = config.projectPackage
     // C7 directly (CompanyC7Simulation, newer company projects) - or as before over CompanySimulation;
     // only looked up when a C7 class is written, and before a split rewrites the base
     lazy val c7Trait =
-      val known = os.exists(simulationTestPath) &&
-        os.list(simulationTestPath).filter(_.ext == "scala").exists(f => os.read(f).contains(C7Trait))
+      val known = names(dir).filter(_.endsWith(".scala")).exists(n => read(dir / n).exists(_.contains(C7Trait)))
       if known then C7Trait else "CompanySimulation"
-    def engineFile(c8: Boolean): Unit =
-      createIfNotExists(
-        simulationTestPath / s"$name${engineSuffix(c8)}Simulation.scala",
-        engineSimulation(pkg, name, c8, c7Trait)
-      )
-    if !os.exists(baseFile) then
-      if c8 then
-        engineFile(c8 = true)
-        createIfNotExists(baseFile, process(setupElement, asAbstract = true))
-      else createIfNotExists(baseFile, process(setupElement))
-    else
-      val base = os.read(baseFile)
-      engineOf(base, name) match
-        case Some(`c8`)  => println(s"EXISTS: $baseFile")
-        case Some(other) =>
-          abstractSimulation(base, name) match
-            case Some(abstractBase) =>
+    def engineFile(c8: Boolean): (os.RelPath, String) =
+      val rel = dir / s"$name${engineSuffix(c8)}Simulation.scala"
+      rel -> read(rel).getOrElse(engineSimulation(pkg, name, c8, c7Trait))
+    read(baseFile) match
+      case None       =>
+        if c8 then SimulationFiles(Seq(engineFile(c8 = true), baseFile -> process(setupElement, asAbstract = true)))
+        else SimulationFiles(Seq(baseFile -> process(setupElement)))
+      case Some(base) =>
+        val keep = baseFile -> base
+        engineOf(base, name) match
+          case Some(`c8`)  => SimulationFiles(Seq(keep))
+          case Some(other) =>
+            abstractSimulation(base, name) match
               // the classes of the engines first - the base is only rewritten when they are there
-              engineFile(other)
-              engineFile(c8)
-              os.write.over(baseFile, abstractBase)
-              println(s"${Console.BLUE} - SPLIT: $baseFile - scenarios for both engines${Console.RESET}")
-            case None               =>
-              println(s"${Console.YELLOW}EXISTS: $baseFile - not split for ${engineSuffix(c8)}, do it by hand.${Console.RESET}")
-        case None        =>
-          if isAbstract(base, name) then
-            println(s"EXISTS: $baseFile")
-            engineFile(c8)
-          else if c8 then
-            println(s"${Console.YELLOW}EXISTS: $baseFile - unknown form, not split for C8 - do it by hand.${Console.RESET}")
-          else println(s"EXISTS: $baseFile")
-      end match
-    end if
-  end createSimulation
+              case Some(abstractBase) => SimulationFiles(Seq(engineFile(other), engineFile(c8), baseFile -> abstractBase))
+              case None               =>
+                SimulationFiles(Seq(keep), Seq(s"EXISTS: $baseFile - not split for ${engineSuffix(c8)}, do it by hand."))
+          case None        =>
+            if isAbstract(base, name) then SimulationFiles(Seq(keep, engineFile(c8)))
+            else if c8 then SimulationFiles(Seq(keep), Seq(s"EXISTS: $baseFile - unknown form, not split for C8 - do it by hand."))
+            else SimulationFiles(Seq(keep))
+        end match
+    end match
+  end simulationFiles
+
+  private lazy val simulationTestRel =
+    ModuleConfig.simulationModule.packagePath(config.projectPath, mainOrTest = "test")
 
   /** The simulation with its scenarios - `asAbstract`: the base of the classes per engine */
-  private def process(
+  private[update] def process(
       setupElement: SetupElement,
       asAbstract: Boolean = false
   ) =
@@ -111,15 +133,6 @@ case class SimulationGenerator()(using config: DevConfig):
        |end ${name}Simulation""".stripMargin
   end process
 
-  private lazy val simulationTestPath =
-    val dir = config.projectDir / ModuleConfig.simulationModule.packagePath(
-      config.projectPath,
-      mainOrTest = "test"
-    )
-    os.makeDir.all(dir)
-    dir
-  end simulationTestPath
-
   private lazy val simulationConfigTestPath =
     val dir = config.projectDir / ModuleConfig.simulationModule.packagePath(
       config.projectPath,
@@ -131,6 +144,9 @@ case class SimulationGenerator()(using config: DevConfig):
   end simulationConfigTestPath
 
 end SimulationGenerator
+
+/** The files of a simulation (relative to the project) and what to tell. */
+case class SimulationFiles(files: Seq[(os.RelPath, String)], notes: Seq[String] = Seq.empty)
 
 object SimulationGenerator:
 

@@ -21,6 +21,7 @@ import { interactionOrigin, loopSettings, mockableSteps } from './interactions.t
 import { DOMAIN_PREFIX, deriveObject, objectOf } from './serviceTypes.ts';
 import { allSteps, blockIndex, blockStart, mockFieldOf } from './bpmn.ts';
 import { importName, isFixedCaseDefault } from './scalaTypes.ts';
+import { seesPackage, visibleRoots } from './projectConf.ts';
 import {
   domainNameOf, domainTypeOf, parseDomainRef, parseServiceRef, serviceTypeOf,
   type ServiceType,
@@ -154,9 +155,13 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     // a referenced class is named as in the catalog — `ResolveTimerDueDateWithOverwrite.DueDateSpec`
     return referenced.get(ref)?.name ?? byId.get(ref)?.name ?? ref;
   };
-  // Precedence: company library (without import), own project, then the order of the catalog
+  // Precedence: company library (without import), own project, then the order of the catalog.
+  // With a project, only what its code sees: the own project and its dependencies
+  // (`PROJECT.conf`, transitively) — a default from elsewhere would be an import that does not compile.
   const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);
+  const roots = home ? visibleRoots(model, home) : null;
   const ranked = (model?.domainDefaults ?? [])
+    .filter(d => !roots || isAutoImported(d.pkg) || seesPackage(model, roots, d.pkg))
     .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
   const defaults = ranked.filter(d => d.type);
   const defaultOf = (f: Field): DomainDefault | null => {
@@ -735,8 +740,10 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     ...(companions.length ? ['', companions.join('\n\n')] : []),
     '',
     // typed with the enum: the example of a case is typed with the case (for `.copy`) — as the
-    // example of the type it is passed to `process(…)`, which needs the codec of the enum
+    // example of the type it is passed to `process(…)`, which needs the codec of the enum.
+    // `exampleMinimal` too, like a class has it (a service task takes both).
     `  lazy val example: ${t.name} = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.example` : `${t.name}.${first}`}`,
+    `  lazy val exampleMinimal: ${t.name} = ${cases[0] && fieldsOf(cases[0]).length ? `${first}.exampleMinimal` : `${t.name}.${first}`}`,
     `end ${t.name}`,
   ].join('\n');
 }
@@ -1084,6 +1091,59 @@ export function allFields(t: TypeDef): Field[] {
   return t.kind === 'enum' ? [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])] : (t.fields ?? []);
 }
 
+/** `allFields`, each name once (the first) — what a mapping of an In can read, as for the In of a process. */
+export function fieldsOnce(t: TypeDef | undefined): Field[] {
+  const seen = new Set<string>();
+  return (t ? allFields(t) : []).filter(f => f.name && !seen.has(f.name) && !!seen.add(f.name));
+}
+
+/**
+ * How the code reads each field of an In (`in`): a field of the class, or a
+ * shared field of an ADT, directly — `in.clientKey`. A field of some cases only
+ * through a match, optional where a case does not have it:
+ * `(in match { case v: In.ByKeys => Some(v.clientKeys); case _ => None })`.
+ */
+export function fieldAccess(t: TypeDef | undefined, typeName = 'In', at = 'in'): Array<{ field: Field; scala: string; optional: boolean; byCase?: CaseAccess }> {
+  if (!t) return [];
+  const shared = (t.fields ?? []).filter(f => f.name);
+  const out: Array<{ field: Field; scala: string; optional: boolean; byCase?: CaseAccess }> =
+    shared.map(f => ({ field: f, scala: `${at}.${scalaIdent(f.name)}`, optional: !!f.optional }));
+  if (t.kind !== 'enum') return out;
+  const cases = (t.values ?? []).filter(v => v.name);
+  const caseRef = (c: EnumValue) => `${typeName}.${caseIdent(c.name)}`;
+  const seen = new Set(shared.map(f => f.name));
+  for (const v of cases) for (const f of v.fields ?? []) {
+    if (!f.name || seen.has(f.name)) continue;
+    seen.add(f.name);
+    const holders = cases.flatMap(c => { const g = (c.fields ?? []).find(x => x.name === f.name); return g ? [{ c, g }] : []; });
+    const everywhere = holders.length === cases.length;
+    const optional = !everywhere || holders.some(h => h.g.optional);
+    const arms = holders.map(({ c, g }) => `case v: ${caseRef(c)} => ${optional && !g.optional ? `Some(v.${scalaIdent(f.name)})` : `v.${scalaIdent(f.name)}`}`);
+    if (!everywhere) arms.push('case _ => None');
+    const byCase: CaseAccess = {
+      at,
+      cases: cases.map(caseRef),
+      own: Object.fromEntries(holders.map(({ c, g }) => [caseRef(c), { scala: `v.${scalaIdent(f.name)}`, optional: !!g.optional }])),
+    };
+    out.push({ field: { ...f, optional }, scala: `(${at} match { ${arms.join('; ')} })`, optional, byCase });
+  }
+  return out;
+}
+
+/**
+ * A field of some cases of an ADT, case by case: in a match on the cases
+ * (`case v: In.ByKey => …`) each case reads it as `v.clientKey` — or knows it
+ * is not there. FEEL `if clientKey != null then … else …` becomes one match.
+ */
+export interface CaseAccess {
+  /** what is matched: `in` */
+  at: string;
+  /** all cases of the ADT: `In.ByKey`, `In.Standard` */
+  cases: string[];
+  /** the cases that have the field — its Scala in such a case (`v.clientKey`) */
+  own: Record<string, { scala: string; optional: boolean }>;
+}
+
 /**
  * The package lines of a file: split at `domain` — `package acme.product.domain`
  * and `package lilaSet.v2` —, so that everything from `acme.product.domain` is visible
@@ -1163,6 +1223,8 @@ function imports(t: TypeDef, idx: TypeIndex): string {
  * hyphen would not be allowed in a package name.
  */
 export function packageOf(spec: ProcessSpec, model: Model | null = null): string {
+  // a frame with a package of its own — the API of a service collection
+  if (typeof spec.ownPackage === 'string' && spec.ownPackage) return spec.ownPackage;
   const echt = domainHome(spec, model);
   if (echt) return echt.pkg;
   const project = (spec.project ?? '').split('-').filter(Boolean);

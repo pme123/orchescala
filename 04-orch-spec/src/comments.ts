@@ -17,7 +17,7 @@
 // should see what was discussed.
 
 import type { CommentEntry, CommentThread, DirectoryUser, Interaction, ProcessSpec, Step, TypeDef } from './types.ts';
-import { KIND_LABEL } from './ui.tsx';
+import { KIND_LABEL } from './kindLabels.ts';
 import { nowIsoWithTimezone, uid } from './util.ts';
 
 /** The target of a thread. */

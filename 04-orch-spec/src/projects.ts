@@ -13,6 +13,7 @@
 import { isDomainSource, isSkippedDir, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
 import { delHandle, ensureRead, getHandle, putHandle } from './handles.ts';
 import type { DomainDefault, DomainType, ProjectFolder } from './types.ts';
+import { dependenciesOfConf } from './projectConf.ts';
 import { uid } from './util.ts';
 
 /** Key of the remembered folder access. */
@@ -159,6 +160,16 @@ export async function intoProject(dir: FileSystemDirectoryHandle, name: string):
   }
 }
 
+/** the dependencies of the project from its `PROJECT.conf` — undefined without one */
+async function readDependencies(dir: FileSystemDirectoryHandle): Promise<string[] | undefined> {
+  try {
+    const f = await dir.getFileHandle('PROJECT.conf');
+    return dependenciesOfConf(await (await f.getFile()).text());
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Build the catalog from the projects **anew** — not extend it. Only this way
  * does reordering take effect: when extending, what was read earlier would
@@ -202,7 +213,9 @@ export async function rebuild(
     const zusammen = mergeDomainTypes(types, gelesen.types);
     types = zusammen.types;
     discarded.push(...zusammen.discarded);
-    gezaehlt.push({ ...p, types: types.length - vorher, scannedAt });
+    const { dependencies: _d, ...rest } = p;
+    const dependencies = await readDependencies(handle);
+    gezaehlt.push({ ...rest, types: types.length - vorher, scannedAt, ...(dependencies ? { dependencies } : {}) });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
   return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped };

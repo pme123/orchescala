@@ -25,7 +25,7 @@
 
 import type { Branch, ErrorHandling, Field, Interaction, Mapping, ProcessSpec, Step, TypeDef, Variable } from './types.ts';
 import { STATUS_META, type Status } from './types.ts';
-import { KIND_LABEL } from './ui.tsx';
+import { KIND_LABEL } from './kindLabels.ts';
 import { iaTarget, processTarget, stepTarget, sub, typeTarget } from './comments.ts';
 import { lcs, nowIsoWithTimezone, uid } from './util.ts';
 import { blockName, flatten } from './pages/designer/model.ts';

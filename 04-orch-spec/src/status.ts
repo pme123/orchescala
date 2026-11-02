@@ -2,8 +2,8 @@
 // of its parts (order STATUSES): the steps of the flow and whatever carries a status
 // in the data model (classes, interactions). If a step is still
 // at «Entwurf», the whole specification is a draft.
-import { STATUSES, type Interaction, type ProcessSpec, type Status, type Step, type TypeDef } from './types';
-import { allSteps } from './bpmn';
+import { STATUSES, type Interaction, type ProcessSpec, type Status, type Step, type TypeDef } from './types.ts';
+import { allSteps } from './bpmn.ts';
 
 const rank = (s: Status) => STATUSES.indexOf(s);
 

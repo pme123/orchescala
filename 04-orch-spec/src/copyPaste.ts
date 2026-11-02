@@ -100,6 +100,31 @@ export function pasteType(spec: ProcessSpec, clip: { typeId: string; types: Type
 }
 
 /**
+ * The content of a copied class into the class `targetId` — for one that cannot be
+ * removed and pasted anew (the In/Out of a process or a service): it keeps its ID,
+ * name and role, takes kind, fields, cases and description of the copy. Classes the
+ * copy refers to come along as copies; a reference to the copy itself points to the
+ * target. `null` if the target does not exist.
+ */
+export function replaceType(spec: ProcessSpec, targetId: string, clip: { typeId: string; types: TypeDef[] }): TypeDef[] | null {
+  const target = (spec.types ?? []).find(t => t.id === targetId);
+  if (!target) return null;
+  const { types: added, idMap } = pasteTypes(spec.types, clip.types);
+  const copyId = idMap.get(clip.typeId)!;
+  const copy = added.find(t => t.id === copyId)!;
+  const toTarget = (f: Field): Field => (f.type === copyId ? { ...f, type: targetId } : f);
+  const retarget = (t: TypeDef): TypeDef => ({
+    ...t,
+    ...(t.fields ? { fields: t.fields.map(toTarget) } : {}),
+    ...(t.values ? { values: t.values.map(v => (v.fields ? { ...v, fields: v.fields.map(toTarget) } : v)) } : {}),
+  });
+  const { id: _id, name: _name, status: _status, interactionId: _ia, ...content } = retarget(copy);
+  const { fields: _f, values: _v, description: _d, kind: _k, ...role } = target;
+  const next: TypeDef = { ...role, ...content, id: targetId, name: target.name, ...(target.status ? { status: target.status } : {}) };
+  return [...(spec.types ?? []).map(t => (t.id === targetId ? next : t)), ...added.filter(t => t.id !== copyId).map(retarget)];
+}
+
+/**
  * Attach a copied field to the class `typeId` — for a choice to
  * case number `valueIndex`, not to the shared fields. The name becomes unique in the
  * class (`street2`); classes the field refers to come along as a

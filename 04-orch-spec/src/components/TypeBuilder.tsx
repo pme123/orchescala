@@ -4,7 +4,7 @@
 // generated from them (live). `InConfig` mostly results from the flow
 // (loops, mocks); own adjusting knobs can be maintained, as with the `InitIn`,
 // as fields.
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Braces, ChevronDown, ChevronRight, ClipboardPaste, Copy, Check, ListOrdered,
   Plus, Puzzle, Trash2, Workflow, X,
@@ -32,9 +32,10 @@ import { useConfirm } from './Confirm';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../clipboard';
-import { pasteField, pasteType, typeClosure } from '../copyPaste';
+import { pasteField, pasteType, replaceType, typeClosure } from '../copyPaste';
 import { patternOfField } from '../patterns';
 import { interactionStatus } from '../status';
+import { searchByName } from '../typeSearch';
 
 interface Props {
   spec: ProcessSpec;
@@ -62,6 +63,8 @@ interface ClipActions {
   copyField: (f: Field) => void;
   /** into the class — for a choice into case number `valueIndex` */
   pasteField: (typeId: string, valueIndex?: number) => void;
+  /** the copied class into this one — for an In/Out that cannot be removed and pasted anew */
+  replaceType: (typeId: string) => void;
 }
 const ClipContext = createContext<ClipActions | null>(null);
 /** the whole specification — for the field row (does a field belong to a pattern?) */
@@ -74,6 +77,30 @@ function ClipCopyButton({ onCopy, title, className }: { onCopy: () => void; titl
     <button onClick={() => { onCopy(); setDone(true); window.setTimeout(() => setDone(false), 1200); }}
       title={title} className={className}>
       {done ? <Check size={11} /> : <Copy size={11} />}
+    </button>
+  );
+}
+
+/**
+ * «Ersetzen» — the copied class into an In/Out that cannot be removed: only while a
+ * class is in the clipboard, and with a question while the type has content.
+ */
+function ReplaceTypeButton({ type: t, isDark, onReplace }: { type: TypeDef; isDark: boolean; onReplace: () => void }) {
+  const m = useClipboard().model;
+  const confirm = useConfirm();
+  const c = cls(isDark);
+  if (m?.kind !== 'type' || m.typeId === t.id) return null;
+  const copy = m.types.find(x => x.id === m.typeId);
+  const what = `${copy?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${copy?.name ?? ''}» aus «${m.source.title || m.source.slug}»`;
+  const hasContent = (t.fields ?? []).some(f => f.name) || (t.values ?? []).length > 0;
+  return (
+    <button title={`Inhalt durch die kopierte ${what} ersetzen — Name und Rolle von «${t.name}» bleiben`}
+      onClick={async () => {
+        if (hasContent && !(await confirm({ title: `«${t.name}» ersetzen?`, text: `Felder und Fälle von «${t.name}» werden durch die der ${what} ersetzt.`, confirmLabel: "Ersetzen" }))) return;
+        onReplace();
+      }}
+      className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded border whitespace-nowrap ${c.btn}`}>
+      <ClipboardPaste size={11} /> «{copy?.name}» übernehmen
     </button>
   );
 }
@@ -351,6 +378,12 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
       if (m?.kind !== 'field') return;
       const r = pasteField(spec, typeId, m, valueIndex);
       if (r) setTypes(r.types);
+    },
+    replaceType: typeId => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'type') return;
+      const r = replaceType(spec, typeId, m);
+      if (r) setTypes(r);
     },
   };
   const pasteTypeClip = () => {
@@ -822,11 +855,7 @@ function MemberCard({ ia, member, types, interactions, model, ownPkg, isDark, ca
   const [query, setQuery] = useState<string | null>(null);
   const catalog = useMemo(() => (query == null ? [] : catalogMembers(model, member, ownPkg,
     new Set(interactions.map(i => i.name).filter(Boolean)))), [query == null, model, member, ownPkg, interactions]);
-  const hits = query == null ? [] : catalog.filter(d => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const hay = `${d.name} ${d.pkg}`.toLowerCase();
-    return words.every(w => hay.includes(w));
-  }).slice(0, 12);
+  const hits = query == null ? [] : searchByName(catalog, query, d => d.name, d => `${d.name} ${d.pkg}`.toLowerCase()).slice(0, 12);
   const pick = async (v: string) => {
     // the own class gets lost — with fields, ask first
     if (own && (t?.fields?.length ?? 0) > 0
@@ -944,8 +973,12 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 }
 
 // ── Type editor ──────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRenameValue, onRemove, onAddType, onOpenType }: {
+function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRenameValue, onRemove, onAddType, onOpenType, fixed, adtSwitch }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
+  /** name and existence are given (the In/Out of a service) — no renaming, no deleting */
+  fixed?: boolean;
+  /** class ↔ ADT can be switched — like the In of a process (the In of a service or an orchestration) */
+  adtSwitch?: boolean;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   idx: ReturnType<typeof indexTypes>;
@@ -993,15 +1026,15 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
   return (
     <div className="p-4 space-y-4">
       {/* header */}
-      <div data-cframe={typeTarget(t.id)} className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
+      <div data-cframe={typeTarget(t.id)} className="flex flex-wrap items-start gap-x-3 gap-y-2">
+        <div className="min-w-[14rem] flex-1">
+          <div className={`text-[10px] uppercase tracking-widest flex flex-wrap items-center gap-2 ${c.muted}`}>
             {t.root ? 'Prozess-Eingabe' : t.inConfig ? 'Prozess-Konfiguration' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
             <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
-            {/* The In of a process is mostly a class — but it can be an ADT
-                (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
-                if the same process starts with different inputs. */}
-            {t.root && canEdit && (
+            {/* The In of a process (or of a service, an orchestration) is mostly
+                a class — but it can be an ADT (`enum In: case Standard(…)
+                case VermoegensVerwaltung(…)`), if it starts with different inputs. */}
+            {(t.root || adtSwitch) && canEdit && (
               <select value={t.kind} onChange={e => onPatch(switchKind(t, e.target.value as 'case' | 'enum'))}
                 title="Klasse oder Auswahl mit Fällen (ADT) — die Felder der Klasse werden die gemeinsamen Felder, und zurück"
                 className={`text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
@@ -1010,7 +1043,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
               </select>
             )}
           </div>
-          <input value={t.name} disabled={!canEdit || t.root || t.inConfig}
+          <input value={t.name} disabled={!canEdit || t.root || t.inConfig || fixed}
             onChange={e => onPatch({ name: e.target.value })}
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
         </div>
@@ -1025,7 +1058,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
             title={`${t.kind === 'enum' ? 'Auswahl' : 'Klasse'} kopieren — mit den eigenen Klassen, auf die sie verweist. Einfügen links unten im Datenmodell, auch eines anderen Prozesses oder Tabs.`}
             className={`p-1.5 rounded border ${c.btn}`} />
         )}
-        {canEdit && !t.root && (
+        {clip && canEdit && (t.root || fixed) && <ReplaceTypeButton type={t} isDark={isDark} onReplace={() => clip.replaceType(t.id)} />}
+        {canEdit && !t.root && !fixed && (
           <button onClick={async () => { if (await confirm({ title: `Typ «${t.name || 'ohne Namen'}» löschen?` })) onRemove(); }}
             title="Typ löschen" className={`p-1.5 rounded border ${c.btn}`}>
             <Trash2 size={12} />
@@ -1546,6 +1580,106 @@ function CopyButton({ text, isDark }: { text: string; isDark: boolean }) {
       }}
       className={`ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
       {done ? <><Check size={10} /> Kopiert</> : <><Copy size={10} /> Kopieren</>}
+    </button>
+  );
+}
+
+/**
+ * One type on its own, outside the data model of a process — for the services
+ * (src/services): the schema types of a collection and the `In`/`Out` of each
+ * service. `spec` is the frame the checks and the Scala preview need (types,
+ * project); copy and paste stay with the data model of the processes.
+ */
+export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed, adtSwitch, onTypes, onOpenType }: {
+  type: TypeDef;
+  spec: ProcessSpec;
+  isDark: boolean;
+  canEdit: boolean;
+  model: Model | null;
+  fixed?: boolean;
+  /** class ↔ ADT can be switched (the In of a service or an orchestration) */
+  adtSwitch?: boolean;
+  /** all types after a change — a new type (from the type picker) included */
+  onTypes: (types: TypeDef[]) => void;
+  onOpenType: (id: string) => void;
+}) {
+  const types = useMemo(() => spec.types ?? [], [spec.types]);
+  const idx = useMemo(() => indexTypes(types, model, homeOf(spec)), [types, model, spec]);
+  const issues = useMemo(() => checkTypes(types, model).filter(i => i.typeId === type.id), [types, model, type.id]);
+  // a new type from the type picker and the field that points to it come in one go —
+  // the second change builds on the first, not on the state of the last render
+  const latest = useRef(types);
+  latest.current = types;
+  const apply = (fn: (ts: TypeDef[]) => TypeDef[]) => { const next = fn(latest.current); latest.current = next; onTypes(next); };
+  // copy and paste as in the data model of a process — classes and fields, also across tabs
+  const clipActions = standaloneClip(spec, latest, apply);
+  return (
+    <ClipContext.Provider value={clipActions}>
+    <SpecContext.Provider value={spec}>
+      <TypeEditor type={type} types={types} spec={spec} isDark={isDark} canEdit={canEdit} model={model}
+        issues={issues} idx={idx} fixed={fixed} adtSwitch={adtSwitch}
+        onPatch={patch => apply(ts => ts.map(t => (t.id === type.id ? { ...t, ...patch } : t)))}
+        onRenameValue={(index, name) => apply(ts => renameEnumValue(ts, type.id, index, name))}
+        onRemove={() => apply(ts => ts.filter(t => t.id !== type.id))}
+        onAddType={kind => {
+          const id = uid(kind === 'enum' ? 'e' : 't');
+          apply(ts => [...ts, {
+            id, kind, name: kind === 'enum' ? 'NeueAuswahl' : 'NeueKlasse', status: 'draft',
+            ...(kind === 'enum' ? { values: [{ name: 'wert1' }] } : { fields: [emptyField()] }),
+          }]);
+          return id;
+        }}
+        onOpenType={onOpenType} />
+    </SpecContext.Provider>
+    </ClipContext.Provider>
+  );
+}
+
+/**
+ * The copy and paste of the data model of a process for a type edited on its
+ * own (the In/Out of a service, a type of a collection): the same actions, on
+ * the latest types.
+ */
+function standaloneClip(spec: ProcessSpec, latest: { current: TypeDef[] }, apply: (fn: (ts: TypeDef[]) => TypeDef[]) => void): ClipActions {
+  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine };
+  return {
+    copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(latest.current, [t.id]) }),
+    copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(latest.current, [f.type]) }),
+    pasteField: (typeId, valueIndex) => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'field') return;
+      const r = pasteField({ ...spec, types: latest.current }, typeId, m, valueIndex);
+      if (r) apply(() => r.types);
+    },
+    replaceType: typeId => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'type') return;
+      const r = replaceType({ ...spec, types: latest.current }, typeId, m);
+      if (r) apply(() => r);
+    },
+  };
+}
+
+/**
+ * «Klasse einfügen» for a list of types outside the data model of a process
+ * (a collection, an orchestration) — only while a class is in the clipboard.
+ * `onPaste` gets all types and the id of the pasted class.
+ */
+export function PasteTypeButton({ spec, isDark, onPaste, label }: {
+  spec: ProcessSpec; isDark: boolean; onPaste: (types: TypeDef[], id: string) => void;
+  /** a button with text (`als Body`) — without: only the icon */
+  label?: string;
+}) {
+  const m = useClipboard().model;
+  const c = cls(isDark);
+  if (m?.kind !== 'type') return null;
+  const t = m.types.find(x => x.id === m.typeId);
+  const mit = m.types.length - 1;
+  return (
+    <button onClick={() => { const r = pasteType(spec, m); onPaste(r.types, r.id); }}
+      title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist` : ''}`}
+      className={label ? `flex items-center gap-1 text-[11px] px-2 py-1 rounded border ${c.btn}` : `p-0.5 rounded ${c.hover} ${c.muted}`}>
+      <ClipboardPaste size={11} />{label && <span>«{t?.name}» {label}</span>}
     </button>
   );
 }

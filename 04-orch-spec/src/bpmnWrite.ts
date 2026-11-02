@@ -19,13 +19,13 @@
 // (`_handledErrors`, `_outputMock` …) stay as they are in the diagram.
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
-import { C8_LABEL } from './engineLabels';
-import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn';
-import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel';
-import { catalogEntry } from './interactions';
-import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel';
-import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel';
-import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat';
+import { C8_LABEL } from './engineLabels.ts';
+import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
+import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
+import { catalogEntry } from './interactions.ts';
+import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel.ts';
+import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
+import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';

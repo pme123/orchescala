@@ -24,9 +24,9 @@ case class SetupElement(
     s"${setupConfig.projectName}-$processName${version.versionLabel}$bpmnIdentifier"
   lazy val identifierShort =
     s"${setupConfig.projectShortName}-$processName${version.versionLabel}$bpmnIdentifier"
-  println(
+  /** What is created - the commands print it, the merge from Orch Spec does not. */
+  lazy val description: String =
     s"Create $label: $bpmnName in ${setupConfig.projectName} / process: $processName ${version.versionLabel}"
-  )
   private lazy val bpmnIdentifier =
     if processName.toLowerCase == bpmnName.toLowerCase then "" else s"-$bpmnName"
 

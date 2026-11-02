@@ -58,13 +58,19 @@ trait DevHelper:
           // copy & paste: first the BPMN, then the Scala classes
           case Seq()                        =>
             createProcessFromSpec(Some(OrchSpecInput.bpmn()), OrchSpecInput.scalaClasses())
+          // the merge from Orch Spec: the spec of the project (or --from) against HEAD:spec
+          case arguments if arguments.exists(a => a == "--check" || a == "--merge") =>
+            OrchSpecMergeCommand().run(arguments)
           // «Process from Spec» in Orch Spec: BPMN and Scala classes in one argument.
           // The copied text is the whole command - pasted after a typed `./helper.scala processFromSpec`
           // the command is doubled: so take the `orchspec:` argument wherever it is.
           case arguments if arguments.exists(_.trim.startsWith(OrchSpecInput.commandPrefix)) =>
             val argument             = arguments.find(_.trim.startsWith(OrchSpecInput.commandPrefix)).get
             val spec     = OrchSpecInput.fromCommand(argument.trim)
-            createProcessFromSpec(spec.bpmn, spec.scala, spec.dmns)
+            spec.kind match
+              case OrchSpecKind.Process           => createProcessFromSpec(spec.bpmn, spec.scala, spec.dmns)
+              case OrchSpecKind.ServiceCollection | OrchSpecKind.ServiceOrchestration =>
+                OrchSpecGenerator().createServices(spec.scala)
           case Seq(bpmnExport, scalaExport) =>
             createProcessFromSpec(Some(readFile(bpmnExport)), readFile(scalaExport))
           case Seq(file) if file.endsWith(".bpmn")     =>
@@ -73,10 +79,12 @@ trait DevHelper:
             createProcessFromSpec(None, readFile(scalaExport))
           case other                        =>
             println(s"Invalid arguments for command $command: $other")
-            println(s"Usage: $command [bpmnExport] [scalaExport] | orchspec:…")
+            println(s"Usage: $command [bpmnExport] [scalaExport] | orchspec:… | --check [--from <dir>] [--json <file>] | --merge [--from <dir>] [--markers] [--yes]")
             println(s"Example: $command                    (copy & paste the BPMN and the Scala classes)")
             println(s"Example: $command orchspec:H4sI…     (Orch Spec: Export > Process from Spec)")
             println(s"Example: $command my-process-bpmn-c7.bpmn my-process-scala.scala")
+            println(s"Example: $command --check            (the plan of the merge: HEAD:spec -> spec/)")
+            println(s"Example: $command --merge --markers  (merge it - conflicts with conflict markers)")
       case Command.customTask   =>
         args match
           case Seq(processName, bpmnName)                                           =>

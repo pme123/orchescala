@@ -1791,6 +1791,117 @@ weg), Formate `|date`, `|time`, `|datetime`, `|day`, `|label:<name>` (Texte aus 
 Bedingungen (`visible`): `pfad`, `!pfad`, `pfad == 'wert'`, `pfad != 'wert'`, mit `&&` und `||`.
 Fehlertexte nach HTTP-Status – der Gateway gibt Anonymen nur den Status weiter.
 
+### Services — Collections von REST-Services
+
+Neben **Prozesse** und **Seiten** steht **Services**. Eine **Service Collection**
+ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein **Teilpfad**
+(`/clients`) —, so wie Orchescala es einpackt: je Operation ein ServiceTask mit
+`In`/`Out` für den Prozess und `ServiceIn`/`ServiceOut` für den HTTP-Aufruf, dazu ein
+ServiceWorker. Eine Collection kann **mehrere APIs** haben (`client v1`, `crm v2` …):
+jeder Service gehört zu einer, und Projekt, API und Version ergeben seine Namen:
+
+```
+Projekt acme-crm · API client · Version 1
+  → Paket        acme.crm.domain.client.v1
+  → Super-Trait  ClientV1 (extends CompanyBpmnServiceTaskDsl)
+  → Topics       acme-crm-clientV1.GetClient   (auch die Kennung im Service-Katalog)
+```
+
+- **OpenAPI importieren** liest eine OpenAPI 3 (YAML oder JSON) und listet die
+  Operationen zum Ankreuzen — auf Wunsch nur die eines Teilpfads (die Collection
+  merkt ihn sich). Gruppiert sind sie nach dem Teilpfad, der ihre API nennt: das
+  erste feste Segment nach dem, was alle Pfade teilen (`/banks/{bankNumber}/clients/…`
+  → `client`, `/crm/v2/…` → `crm v2`); API und Version sind je Gruppe änderbar. Was schon in der Collection ist, ist markiert und
+  bleibt, wie es ist; was der Katalog schon kennt (gleiches Topic), steht als
+  «⌁ Katalog» da. Je gewählter Operation entsteht ein Service: Pfad-, Query- und
+  Header-Parameter mit Typen, Body von Anfrage und Antwort mit den Typen aus den
+  Schemas (unter «Typen der API», einmal je Schema), ein erstes `In` (die Parameter
+  und die Felder des Body) und `Out` (der Body unter eigenem Namen, das `etag`,
+  wenn die API es sendet) — mit den Mappings `= name`.
+- **In und Out ergänzen** mit dem Klassenbauer — zusätzliche Variablen, andere
+  Typen, Beschreibungen.
+- **Der Service** ist gegliedert wie die `ServiceWorkerDsl`, in der Reihenfolge, in
+  der der Worker läuft: `In` → `apiUri(in)` (Methode, Pfad, Pfad-Parameter) →
+  `querySegments(in)` → `inputHeaders(in)` → `inputMapper(in): ServiceIn` (der
+  Body der Anfrage) → `ServiceResponse[ServiceOut]` (Body, Status und Header der Antwort) →
+  `outputMapper(serviceOut, in): Out` → `Out` — links unter dem gewählten Service
+  als Gliederung mit dem Wichtigsten je Teil (Felder, Body-Typ, gemappt/total), ein
+  Klick springt hin. Die Mappings sind FEEL, geprüft wie
+  im Prozess: Parameter und `ServiceIn` aus dem `In`, das `Out` aus `body`,
+  `headers` und dem `In`.
+- **Basispfad der Firma** (Übersicht): der Anfang jedes Pfads, den die Firma schon
+  im `serviceBasePath` hat (`/banks/{bankNumber}` mit
+  `serviceBasePath = s"…/banks/$bankNumber"`). Seine Platzhalter sind keine
+  Parameter der Services, `apiUri` hängt nur den Rest an.
+- **`def serviceBasePath` je API** (Übersicht): der Ausdruck aus dem `exports.scala`
+  des Workers (`s"$filIsBasePath/…/banks/$bankNumber"`) — der Abgleich aus dem
+  Projekt-Ordner übernimmt ihn, der Export schreibt ihn so. Leer: aus Basis-URL und
+  Basispfad, mit `???` für die Platzhalter.
+- **Header der Antwort** stehen unter `ServiceResponse` mit ihrem echten Namen; in
+  FEEL heissen sie camelCase (`X-Core-Transaction-Id` → `headers.xCoreTransactionId`),
+  der Worker findet sie unabhängig von Gross/Klein. Ein Out-Feld, dessen Name ein
+  Header ist oder auf den er endet (`transactionId`), ist vorbelegt.
+- **Bestehende importieren** übernimmt ein Projekt, dessen Services es schon gibt:
+  aus dem Katalog mit allen oder einzelnen seiner APIs (die Service-Worker nach
+  ihrem Topic `projekt-apiVn.Name`, `In`/`Out` aus dem Domain-Katalog) — APIs, die
+  schon in einer Collection beschrieben sind, sind markiert —, oder als Datei aus
+  einem anderen Ordner.
+  Aus dem ServiceTask kommen Methode und Pfad (`val path`), die Bodies (`type
+  ServiceIn`/`ServiceOut`) und die Typen der API (ihr Paket, z. B. `crm.v2.schema`);
+  der Basispfad der Firma wird erkannt, CustomWorker ohne eigenen REST-Aufruf
+  bleiben weg. Query und Header kennt der Katalog nicht — eine danach importierte
+  OpenAPI **ergänzt** den Service gleichen Namens, statt einen zweiten anzulegen.
+- **Abgleich** bringt eine Collection auf den Stand der Domain, ohne sie neu
+  anzulegen. Gelesen wird wie beim Abgleich eines Prozesses: zuerst der eigene
+  Projekt-Ordner (Admin → Katalog → Projekt-Ordner — er hat den aktuellen Stand),
+  sonst der Katalog; ist der Ordner gemerkt, aber nicht lesbar, fragt der Abgleich
+  nach Ordner oder ZIP, statt still den Katalog zu nehmen. «Bestehende importieren»
+  liest ebenso zuerst den Projekt-Ordner. Was die Domain kennt, gilt (Anfrage, Bodies, Felder von In und
+  Out, Typen der API); Mappings, eigene Felder, Query und Header, Status und
+  Beschreibung bleiben. Ein Dialog zeigt vorher, was neu dazukommt, sich ändert
+  oder wegfällt.
+- **Export**: der Scala-Code im Hausstil von `./helper.scala serviceTask` —
+  Super-Trait, je Service der ServiceTask (Topic, Pfad, In/Out, ServiceIn/Out,
+  Mock, Beispiele) und der ServiceWorker (Methode, `apiUri`, Query, Header,
+  `inputMapper`, `outputMapper`), die Typen unter `schema/`, `serviceBasePath`
+  aus `servers` der OpenAPI. Die FEEL-Mappings werden Scala: Pfade mit `Option`
+  unterwegs (`body.address.flatMap(_.city)`), `headers.etag` →
+  `headers.get("etag")`, Literale nach dem Zieltyp. Ein Pflichtfeld des `Out` aus
+  einem optionalen Wert wird ein Schritt, der mit `ServiceMappingError` scheitert.
+  Was sich nicht übersetzen lässt, steht als `???` mit dem FEEL im Kommentar —
+  der Dialog nennt die Stellen. Je API ein Paket mit eigenem Super-Trait; ein Typ
+  der API liegt im `schema/` der ersten API, die ihn braucht, die anderen
+  importieren ihn. **Services from Spec** kopiert
+  `./helper.scala processFromSpec orchspec:…` (Format v2, `kind:
+  serviceCollection`): der Helper legt an, was fehlt, vergleicht Bestehendes
+  (überschreibt nie) und registriert je API die Worker in der `WorkerApp`
+  (`clientV1Workers`) und die Services als Gruppe in der API-Doku (`clientV1Api`).
+
+Ablage: `services/<projekt>[-<titel>].json`, gespeichert wie ein Prozess
+(automatisch, mit Konflikterkennung).
+
+**Service-Orchestrierung** («Neue Orchestrierung»): ein Worker, der Services der
+Collections aufruft — modelliert wie ein Prozess, mit demselben BPMN-Modeler, aber
+nur mit Service- und Script-Tasks, parallelen und exklusiven Gateways (anderes
+meldet die Übersicht).
+
+- **Service-Task:** der Service (aus den Collections), je Feld seines `In` ein
+  FEEL-Mapping auf das In und die Ergebnisse davor, der Name seines Ergebnisses
+  (ohne Angabe: der Service-Name, `getClient`).
+- **Script-Task:** Zuweisungen in FEEL — danach unter ihrem Namen bekannt.
+- **Exklusives Gateway:** je Zweig eine Bedingung in FEEL; der Standardfluss oder der
+  eine Zweig ohne Bedingung ist das `else`. Was ein Zweig liefert, ist danach optional.
+- **Übersicht:** Name (das Objekt des CustomTasks), `descr`, `In` und `Out` (auch
+  `NoInput`/`NoOutput`), je Out-Feld sein Mapping, und was noch fehlt.
+- **Export:** ein CustomTask (`CompanyBpmnCustomTaskDsl`) und sein CustomWorker im
+  Paket der API. `runWorkZIO` ist ein `for`: ein Service-Aufruf
+  `XWorker().runWorkFromWorkerUnsafe(X.In(…)).mapError(…)`, parallele Zweige mit
+  `fork`/`join`, ein exklusives Gateway als `if … then … else …`, am Ende `yield Out(…)`.
+  Bedingungen werden Scala (Vergleiche, `null`, `and`/`or`/`not`, mit `Option`:
+  `segment = 3` → `segment.contains(3)`); ein Pflichtwert, der unterwegs optional ist,
+  wird ein Schritt, der mit `CustomError` scheitert. Der Helper schreibt und registriert
+  ihn wie eine Collection (`processFromSpec`, Format v2, `kind: serviceOrchestration`).
+
 ### KI-Modus – Seiten und Prozesse mit Claude
 
 Mit einem persönlichen Key der Claude API (Symbol ✦ oben rechts, nur in diesem Browser gespeichert)
@@ -1808,6 +1919,8 @@ Schalter, welche Daten an Anthropic gehen und die gemessenen Kosten: [docs/KI-MO
 ├── pages/
 │   ├── app.json              Titel, Startseite und Texte für Werte der App
 │   └── <slug>.json           eine Seite (siehe «Seiten der App»)
+├── services/
+│   └── <slug>.json           eine Service Collection (siehe «Services»)
 └── processes/
     ├── <slug>.json           die Spezifikation
     ├── <slug>.bpmn           das Diagramm dazu (im Editor bearbeitbar)

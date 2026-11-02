@@ -1,0 +1,370 @@
+// The services next to the processes — one file per collection in `services/`.
+//
+// A **service collection** is one REST API of a service project: its
+// operations (from an OpenAPI, ticked one by one), each with `In`/`Out` for the
+// process and the mappings to the request and from the response. The export
+// creates one ServiceTask per operation and its ServiceWorker.
+//
+// Same head as the other lists (search, epics, groups per project); deleting
+// only with the admin role or without mandatory login, as for processes.
+import { AlertTriangle, Boxes, FileUp, Library, Loader2, MessageSquare, Plus, Trash2, Workflow, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { usePermissions } from '../auth';
+import { useConfirm } from '../components/Confirm';
+import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../components/SpecList';
+import { epicsOf } from '../epics';
+import { useStore } from '../store';
+import { EpicChip, StatusChip, cls } from '../ui';
+import { API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiList, apiName, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
+import { useServices, type ServiceListItem } from './store';
+import CollectionImport from './CollectionImport';
+import { collectionSuggestion, handOverOpenApi, readOpenApiFile, type OpenApiFile } from './openApiFile';
+import { newOrchestration, orchestrationTopic } from './orchestration';
+import { isCollection } from './types';
+import { knownProjects } from './catalogCollections';
+import { slugify } from '../util';
+
+const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
+  title: data.title,
+  terms: isCollection(data)
+    ? [slug, data.pathPrefix ?? '', ...apisOf(data).map(a => `${a.api} ${topicPrefix(a)}`), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)]
+    : [slug, data.name, orchestrationTopic(data), 'Orchestrierung'],
+  project: data.project, epics: data.epics, updatedAt: data.updatedAt,
+});
+
+export default function ServicesView({ onOpen }: { onOpen: (slug: string) => void }) {
+  const { isDark, model, specs } = useStore();
+  const { services, servicesLoading, servicesUnreadable, createService, deleteService } = useServices();
+  // as for a process: the projects of the catalog, the processes and the services
+  const projects = useMemo(() => knownProjects(model, [...specs.map(s => s.data.project), ...services.map(s => s.data.project)]), [model, specs, services]);
+  const { canEdit, canDelete } = usePermissions();
+  const confirm = useConfirm();
+  const c = cls(isDark);
+  const [creating, setCreating] = useState(false);
+  const [orchestrating, setOrchestrating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const list = useSpecList(services, serviceEntry, model);
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 py-6">
+      <div className="flex items-center gap-3 mb-1">
+        <h1 className={`text-sm font-semibold uppercase tracking-widest ${c.muted2}`}>Services</h1>
+        {canEdit && (
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => setImporting(true)} title="Eine API, deren Services es schon gibt — aus dem Katalog oder einer Datei"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <Library size={12} /> Bestehende importieren
+            </button>
+            <button onClick={() => setOrchestrating(true)} title="Ein Worker, der Services aufruft — nacheinander, parallel oder je nach Bedingung"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <Workflow size={12} /> Neue Orchestrierung
+            </button>
+            <button onClick={() => setCreating(true)}
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>
+              <Plus size={12} /> Neue Collection
+            </button>
+          </div>
+        )}
+      </div>
+      <p className={`text-[11px] mb-4 ${c.muted}`}>
+        Eine <b>Service Collection</b> ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein Teilpfad, mit ihren
+        APIs (<span className="font-mono">client v1</span>, <span className="font-mono">crm v2</span> …): die Operationen wählen,
+        je Service <span className="font-mono">In</span> und <span className="font-mono">Out</span> ergänzen und die Mappings
+        festlegen. Daraus entstehen ServiceTasks und ServiceWorker. Eine <b>Service-Orchestrierung</b> ist ein Worker, der
+        solche Services aufruft — modelliert wie ein Prozess, aber nur mit Service- und Script-Tasks und Gateways.
+      </p>
+
+      {importing && (
+        <CollectionImport model={model} existing={services.map(s => s.data).filter(isCollection)} isDark={isDark} onClose={() => setImporting(false)}
+          onCreate={async spec => {
+            const r = await createService(spec);
+            if (r.ok) { setImporting(false); onOpen(spec.slug); }
+            return r;
+          }} />
+      )}
+      {orchestrating && (
+        <NewOrchestration existing={services.map(s => s.slug)} onClose={() => setOrchestrating(false)}
+          projects={projects}
+          onCreate={async input => {
+            const spec = newOrchestration(input);
+            const r = await createService(spec);
+            if (r.ok) { setOrchestrating(false); onOpen(spec.slug); }
+            return r;
+          }} />
+      )}
+      {creating && (
+        <NewCollection existing={services.map(s => s.slug)} projects={projects} onClose={() => setCreating(false)}
+          onCreate={async (input, openApi) => {
+            const spec = newCollection(input);
+            const r = await createService(spec);
+            if (r.ok) {
+              // the new collection opens with the import of the chosen OpenAPI
+              if (openApi) handOverOpenApi(spec.slug, openApi);
+              setCreating(false); onOpen(spec.slug);
+            }
+            return r;
+          }} />
+      )}
+
+      {services.length > 0 && <SpecListHead isDark={isDark} list={list} placeholder="Titel, Projekt, Service, Pfad …" noun="Services" />}
+      {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
+      {servicesUnreadable.length > 0 && (
+        <div className={`mb-3 rounded border p-2.5 space-y-1 ${isDark ? 'border-rose-500/30 bg-rose-500/10' : 'border-rose-300 bg-rose-50'}`}>
+          {servicesUnreadable.map(u => (
+            <div key={u.file} className="flex items-start gap-1.5 text-[11px] text-rose-500">
+              <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+              <span><span className="font-mono">services/{u.file}</span> ist nicht lesbar – {u.problem}.</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {servicesLoading ? (
+        <div className={`text-xs ${c.muted} py-10 text-center flex items-center justify-center gap-2`}><Loader2 size={12} className="animate-spin" /> Lade Services …</div>
+      ) : services.length === 0 ? (
+        <div className={`rounded border p-6 text-center ${c.border2}`}>
+          <Boxes size={20} className={`mx-auto mb-2 ${c.muted}`} />
+          <p className={`text-xs ${c.muted2}`}>Noch keine Services – «Neue Collection» oder «Bestehende importieren» legt die erste an (<span className="font-mono">services/</span>).</p>
+        </div>
+      ) : !list.visible.length ? (
+        <div className={`text-xs ${c.muted} py-10 text-center`}>
+          Nichts passt zu Suche und Filter.
+          <button onClick={list.reset} className="ml-1.5 hover:underline">Filter aus</button>
+        </div>
+      ) : (
+        <ProjectGroups isDark={isDark} groups={list.groups} noun={['Eintrag', 'Einträge']} render={({ slug, data, version }) => {
+          const open = (data.comments ?? []).filter(t => !t.resolved).length;
+          if (!isCollection(data)) return (
+            <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
+              <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
+                <Workflow size={14} className={isDark ? 'text-violet-300' : 'text-violet-700'} />
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
+                  <div className={`text-[10px] font-mono truncate ${c.muted}`}>{orchestrationTopic(data)}</div>
+                </div>
+                {epicsOf({ epics: data.epics }, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
+                <span className={`hidden sm:inline text-[9px] ${c.muted}`}>Orchestrierung</span>
+                <StatusChip status={data.status} isDark={isDark} />
+              </button>
+              {canDelete && (
+                <button title="Orchestrierung löschen"
+                  onClick={async () => {
+                    if (!(await confirm({ title: `Orchestrierung «${data.title || slug}» löschen?` }))) return;
+                    const r = await deleteService(slug, version);
+                    setDeleteError(r.ok ? null : r.message);
+                  }}
+                  className={`p-2 mr-1 rounded ${c.muted} hover:text-rose-500`}>
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          );
+          return (
+            <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
+              <button onClick={() => onOpen(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
+                <Boxes size={14} className={isDark ? 'text-teal-300' : 'text-teal-700'} />
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
+                  <div className={`text-[10px] font-mono truncate ${c.muted}`}>{data.project}{data.pathPrefix ? ` · ${data.pathPrefix}` : ''}{data.services.length ? ` · ${apiList(data)}` : ''}</div>
+                </div>
+                {epicsOf({ epics: data.epics }, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
+                <span className={`hidden sm:inline text-[9px] ${c.muted}`}>{data.services.length} Service{data.services.length === 1 ? '' : 's'}</span>
+                {open > 0 && (
+                  <span title={`${open} offene${open === 1 ? 'r Kommentar' : ' Kommentare'}`}
+                    className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${isDark ? 'border-blue-500/30 text-blue-300' : 'border-blue-300 text-blue-700'}`}>
+                    <MessageSquare size={9} />{open}
+                  </span>
+                )}
+                <StatusChip status={collectionStatus(data)} isDark={isDark} title="tiefster Status der Services" />
+              </button>
+              {canDelete && (
+                <button title="Collection löschen"
+                  onClick={async () => {
+                    if (!(await confirm({ title: `Collection «${data.title || slug}» löschen?` }))) return;
+                    const r = await deleteService(slug, version);
+                    setDeleteError(r.ok ? null : r.message);
+                  }}
+                  className={`p-2 mr-1 rounded ${c.muted} hover:text-rose-500`}>
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          );
+        }} />
+      )}
+    </div>
+  );
+}
+
+function NewCollection({ existing, projects, onCreate, onClose }: {
+  existing: string[];
+  /** the projects to choose from (`knownProjects`) */
+  projects: string[];
+  onCreate: (input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string }, openApi: OpenApiFile | null) => Promise<{ ok: true } | { ok: false; message: string }>;
+  onClose: () => void;
+}) {
+  const { isDark, model } = useStore();
+  const c = cls(isDark);
+  const [title, setTitle] = useState('');
+  const [project, setProject] = useState('');
+  const [api, setApi] = useState('');
+  const [apiVersion, setApiVersion] = useState(1);
+  const [pathPrefix, setPathPrefix] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  // an OpenAPI right away: it suggests title and API, the new collection opens with its import
+  const [openApi, setOpenApi] = useState<OpenApiFile | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pickOpenApi = async (f: File) => {
+    setError('');
+    const r = await readOpenApiFile(f);
+    if (!r.ok) { setError(r.message); return; }
+    setOpenApi(r.value);
+    const s = collectionSuggestion(r.value, pathPrefix);
+    if (!title.trim() && s.title) setTitle(s.title);
+    if (!api.trim() && s.api) setApi(s.api);
+  };
+  const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, pathPrefix: pathPrefix.trim() };
+  const slug = collectionSlug(input);
+  const taken = existing.includes(slug);
+  const problem = !input.title ? 'Titel fehlt'
+    : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
+      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
+        : apiVersion < 1 ? 'Version ab 1'
+          : input.pathPrefix && !input.pathPrefix.startsWith('/') ? 'Teilpfad beginnt mit «/»'
+            : taken ? `services/${slug}.json gibt es schon` : '';
+  const field = `w-full px-2 py-1 rounded border bg-transparent text-[11px] outline-none ${c.border2} ${c.text}`;
+  return (
+    <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
+      <div className="grid grid-cols-[2fr_1.5fr_1.5fr_1fr_4rem] gap-2">
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Titel</span>
+          <input className={field} value={title} onChange={e => setTitle(e.target.value)} placeholder="Kunden-API" autoFocus />
+        </label>
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Projekt</span>
+          <input className={`${field} font-mono`} value={project} onChange={e => setProject(e.target.value)} placeholder="acme-crm" list="service-projects" />
+          <datalist id="service-projects">{projects.map(p => <option key={p} value={p} />)}</datalist>
+        </label>
+        <label className="space-y-0.5" title="Nur dieser Teil der OpenAPI — leer: die ganze">
+          <span className={`text-[10px] ${c.muted}`}>Teilpfad (optional)</span>
+          <input className={`${field} font-mono`} value={pathPrefix} onChange={e => setPathPrefix(e.target.value)} placeholder="/clients" />
+        </label>
+        <label className="space-y-0.5" title="Die API neuer Services — je Service änderbar; die OpenAPI schlägt sie je Teilpfad vor">
+          <span className={`text-[10px] ${c.muted}`}>API</span>
+          <input className={`${field} font-mono`} value={api} onChange={e => setApi(apiName(e.target.value))} placeholder="client" />
+        </label>
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Version</span>
+          <input className={`${field} font-mono`} type="number" min={1} value={apiVersion} onChange={e => setApiVersion(Math.max(1, Number(e.target.value) || 1))} />
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className={`text-[10px] font-mono ${problem && input.title ? 'text-rose-500' : c.muted}`}>
+          {problem && (input.title || input.project || input.api) ? problem
+            : input.project && input.api ? `services/${slug}.json · neue Services in ${collectionPackage(input)}` : 'Paket und Topics folgen aus Projekt, API und Version — je Service'}
+        </span>
+        {error && <span className="text-[10px] text-rose-500">{error}</span>}
+        <input ref={fileRef} type="file" accept=".yml,.yaml,.json" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) void pickOpenApi(f); e.target.value = ''; }} />
+        {openApi ? (
+          <span className={`ml-auto flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded border ${c.border2} ${c.text}`}
+            title="Nach dem Anlegen öffnet sich der Import mit dieser Datei">
+            <FileUp size={11} className={c.muted} /> {openApi.file}
+            <button onClick={() => setOpenApi(null)} title="ohne OpenAPI anlegen" className={c.muted}><X size={11} /></button>
+          </span>
+        ) : (
+          <button onClick={() => fileRef.current?.click()} title="Titel und API aus der OpenAPI — nach dem Anlegen gleich die Operationen wählen (auch Swagger 2.0)"
+            className={`ml-auto flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+            <FileUp size={12} /> OpenAPI-Datei …
+          </button>
+        )}
+        <button onClick={onClose} className={`text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
+        <button disabled={!!problem || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await onCreate(input, openApi);
+              if (!r.ok) setError(r.message);
+            } finally { setBusy(false); }
+          }}
+          className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+          {openApi ? 'Anlegen und importieren' : 'Anlegen'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NewOrchestration({ existing, projects, onCreate, onClose }: {
+  existing: string[];
+  /** the projects of the collections — the orchestration usually belongs to one of them */
+  projects: string[];
+  onCreate: (input: { title: string; project: string; api: string; apiVersion: number; name: string }) => Promise<{ ok: true } | { ok: false; message: string }>;
+  onClose: () => void;
+}) {
+  const { isDark } = useStore();
+  const c = cls(isDark);
+  const [title, setTitle] = useState('');
+  const [project, setProject] = useState(projects.length === 1 ? projects[0] : '');
+  const [api, setApi] = useState('');
+  const [apiVersion, setApiVersion] = useState(1);
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, name: name.trim() };
+  const slug = slugify(`${input.project}-${input.name}`);
+  const problem = !input.title ? 'Titel fehlt'
+    : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
+      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
+        : !/^[A-Z][A-Za-z0-9]*$/.test(input.name) ? 'Name: ein Scala-Objekt, z. B. UpdateClient'
+          : existing.includes(slug) ? `services/${slug}.json gibt es schon` : '';
+  const field = `w-full px-2 py-1 rounded border bg-transparent text-[11px] outline-none ${c.border2} ${c.text}`;
+  return (
+    <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
+      <div className="grid grid-cols-[2fr_1.5fr_1.5fr_1fr_4rem] gap-2">
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Titel</span>
+          <input className={field} value={title} onChange={e => setTitle(e.target.value)} placeholder="Kunde ändern" autoFocus />
+        </label>
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Projekt</span>
+          <input className={`${field} font-mono`} value={project} onChange={e => setProject(e.target.value)} placeholder="acme-crm" list="orch-projects" />
+          <datalist id="orch-projects">{projects.map(p => <option key={p} value={p} />)}</datalist>
+        </label>
+        <label className="space-y-0.5" title="Das Objekt des CustomTasks — auch der letzte Teil des Topics">
+          <span className={`text-[10px] ${c.muted}`}>Name</span>
+          <input className={`${field} font-mono`} value={name} onChange={e => setName(e.target.value)} placeholder="UpdateClient" />
+        </label>
+        <label className="space-y-0.5" title="Die API, in deren Paket der CustomTask und sein Worker liegen">
+          <span className={`text-[10px] ${c.muted}`}>API</span>
+          <input className={`${field} font-mono`} value={api} onChange={e => setApi(apiName(e.target.value))} placeholder="client" />
+        </label>
+        <label className="space-y-0.5">
+          <span className={`text-[10px] ${c.muted}`}>Version</span>
+          <input className={`${field} font-mono`} type="number" min={1} value={apiVersion} onChange={e => setApiVersion(Math.max(1, Number(e.target.value) || 1))} />
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className={`text-[10px] font-mono ${problem && input.title ? 'text-rose-500' : c.muted}`}>
+          {problem && (input.title || input.project || input.api || input.name) ? problem
+            : input.project && input.api && input.name ? `services/${slug}.json · Topic ${orchestrationTopic(input)}` : 'Ein CustomTask mit seinem Worker, im Paket der API'}
+        </span>
+        {error && <span className="text-[10px] text-rose-500">{error}</span>}
+        <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
+        <button disabled={!!problem || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await onCreate(input);
+              if (!r.ok) setError(r.message);
+            } finally { setBusy(false); }
+          }}
+          className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+          Anlegen
+        </button>
+      </div>
+    </div>
+  );
+}

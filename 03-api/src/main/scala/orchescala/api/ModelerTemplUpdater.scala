@@ -145,7 +145,7 @@ case class ModelerTemplUpdater(apiConfig: ApiConfig, apiProjectConfig: ApiProjec
   private def changeColor(project: String, id: String) = new RewriteRule:
     override def transform(n: Node): Seq[Node] = n match
       case e: Elem if e.label == "BPMNShape" && (e \@ "bpmnElement").equals(id) =>
-        e % Attribute("color", "background-color", Text(s"${colorMap(project)}"), Null)
+        ModelerTemplUpdater.withColor(e, colorMap(project))
       case x                                                                    => x
 
 end ModelerTemplUpdater
@@ -189,8 +189,17 @@ object ModelerTemplUpdater:
       case e: Elem
           if e.label == "BPMNShape" && generatedIds(e \@ "bpmnElement") &&
             !e.attributes.exists(_.key == "background-color") =>
-        e % Attribute("color", "background-color", Text(generatedGrey), Null)
+        withColor(e, generatedGrey)
       case x => x
+
+  /** The shape with `color:background-color` as the Camunda Modeler writes it: after its other
+    * attributes (`id`, `bpmnElement`, …). A colour it has already goes there too - so a BPMN the
+    * merge from Orch Spec wrote in the Modeler's form stays as it is. (`%` would put it first.)
+    */
+  def withColor(e: Elem, color: String): Elem =
+    val others = e.attributes.toList.filterNot(_.key == "background-color")
+    val colour = Attribute("color", "background-color", Text(color), Null)
+    e.copy(attributes = (others :+ colour).foldRight(Null: MetaData)((a, next) => a.copy(next)))
 
   /** The file `api/run` writes: serialized as the Modeler does, with `xmlns:color` if a colour needs
     * it - and parsed again first, so a broken BPMN is never written (it throws).

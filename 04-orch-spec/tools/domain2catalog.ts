@@ -23,6 +23,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { join } from 'node:path';
 import { isDomainSource, isSkippedDir, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from '../src/domainScan.ts';
 import type { DomainDefault, DomainType, ProjectFolder } from '../src/types.ts';
+import { dependenciesOfConf } from '../src/projectConf.ts';
 
 const args = process.argv.slice(2);
 const pick = (flag: string) => {
@@ -107,10 +108,14 @@ for (const dir of dirs) {
   const zusammen = mergeDomainTypes(types, gelesen.types);
   types = zusammen.types;
   discarded.push(...zusammen.discarded);
+  const conf = `${dir.replace(/\/+$/, '')}/PROJECT.conf`;
+  const { dependencies: _d, ...known } = bekannt.get(name) ?? { id: `p-${name}`, name };
   projects.push({
-    ...(bekannt.get(name) ?? { id: `p-${name}`, name }),
+    ...known,
     path: dir,
     types: types.length - vorher,
+    // generated code takes example values only from these projects (see projectConf.ts)
+    ...(existsSync(conf) ? { dependencies: dependenciesOfConf(readFileSync(conf, 'utf8')) } : {}),
     // orch-spec lets the later scan of a project win over the other side's
     scannedAt: new Date().toISOString(),
   });

@@ -762,7 +762,7 @@ export interface DomainType {
   name: string;
   pkg: string;
   /** `member` = In/Out of a service (comes from the trait), `alias` = `type X = …` */
-  kind: 'case' | 'enum' | 'member' | 'alias';
+  kind: 'case' | 'enum' | 'member' | 'alias' | 'def';
   /** enclosing object for `In` / `Out` */
   owner?: string;
   /** what has to be imported (for members the object) */
@@ -797,6 +797,10 @@ export interface DomainType {
   decisionResult?: DecisionResult;
   /** `val descr` of the enclosing object */
   ownerDescr?: string;
+  /** `def`: the expression of a top-level definition — `def serviceBasePath: String = s"…/banks/$bankNumber"` in a worker package */
+  expression?: string;
+  /** `val path` of a ServiceTask object: method and path of the wrapped service — `GET: /clients/{clientKey}` */
+  ownerPath?: string;
   /** `val descr` as a Scala expression, if it is not plain text (`s"…${X}…"`) */
   ownerDescrExpr?: string;
   /** for `alias`: the target expression, e.g. `Int :| any.In[(11, 15)]` or `AdjustOrderUT.In` */
@@ -854,6 +858,12 @@ export interface ProjectFolder {
    * catalog, the later scan of a project wins (see `catalogMerge.ts`).
    */
   scannedAt?: string;
+  /**
+   * The projects it depends on — `dependencies` and `workerDependencies` of its
+   * `PROJECT.conf`, at the last build. Generated code takes example values
+   * (`default…`) only from these, transitively (see `projectConf.ts`).
+   */
+  dependencies?: string[];
   /**
    * Color of the project (`#rrggbb`) — like `ProjectConfig.color` in Orchescala.
    * A worker or subprocess from this project gets it in the diagram.
@@ -923,5 +933,11 @@ export interface Model {
    * only in memory, never in the model.json. A color on the project folder takes precedence.
    */
   projectColors?: Record<string, string>;
+  /**
+   * Project → the projects it depends on (`PROJECT.conf`), from the generated
+   * catalog — only in memory, never in the model.json. `dependencies` on the
+   * project folder takes precedence.
+   */
+  projectDependencies?: Record<string, string[]>;
   [key: string]: unknown;
 }
