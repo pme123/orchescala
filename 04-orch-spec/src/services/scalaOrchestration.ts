@@ -25,7 +25,7 @@ import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec
 
 /** Scala variables for the FEEL translation. */
 const scalaVars = (vars: OrchVar[]): Map<string, ScalaVar> =>
-  new Map(vars.map(v => [v.name, { scala: v.scala, type: v.type, optional: !!v.optional, collection: !!v.collection }]));
+  new Map(vars.map(v => [v.name, { scala: v.scala, type: v.type, optional: !!v.optional, collection: !!v.collection, ...(v.byCase ? { byCase: v.byCase } : {}) }]));
 
 const todo = (why: string) => `??? /* TODO ${why.replace(/\*\//g, '* /')} */`;
 

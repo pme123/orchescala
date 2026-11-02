@@ -16,10 +16,14 @@
 //                                                case Some(key) => Some(Seq(key))
 //                                                case None => in.keys
 //     (an optional variable checked against null is there in `then` — no `.get`)
+//   = if key != null then [ key ] else keys  → in match          (key, keys: fields of some cases of an ADT In)
+//                                                case v: In.ByKey => Seq(v.key)
+//                                                case v: In.Standard => v.keys
 //
 // Everything else stays FEEL for a human: `??? /* TODO FEEL: … */` — the project
 // compiles and the place is easy to find.
 import type { Field, TypeDef } from '../types';
+import type { CaseAccess } from '../scala.ts';
 import { headerVar } from './names.ts';
 
 /** A variable a mapping can read — its Scala expression and its shape. */
@@ -36,6 +40,8 @@ export interface ScalaVar {
    * as `headers.xFinnovaTransactionId`)
    */
   headers?: string[];
+  /** a field of some cases of an ADT In — how each case reads it */
+  byCase?: CaseAccess;
 }
 
 export interface Translated {
@@ -234,9 +240,48 @@ function splitIf(body: string): [string, string, string] | null {
 
 /** One of two values, as the target needs it: `Some(…)` where only the other one may be missing. */
 function sameShape(a: Translated, b: Translated): [string, string, boolean] {
-  if (a.optional === b.optional) return [a.scala, b.scala, a.optional];
-  const some = (t: Translated) => (t.optional ? t.scala : t.scala === 'None' ? 'None' : `Some(${t.scala})`);
-  return [some(a), some(b), true];
+  const [all, optional] = sameShapes([a, b]);
+  return [all[0], all[1], optional];
+}
+
+/** `sameShape` for several values — the arms of a match */
+function sameShapes(ts: Translated[]): [string[], boolean] {
+  const optional = ts.some(t => t.optional);
+  const some = (t: Translated) => (t.optional || !optional ? t.scala : t.scala === 'None' ? 'None' : `Some(${t.scala})`);
+  return [ts.map(some), optional];
+}
+
+/**
+ * `if x != null then A else B` with `x` a field of some cases of an ADT In: one
+ * match on the cases. A case with `x` takes `A`, the others `B`; in each case its
+ * own fields are `v.field` — a field it does not have is `None`. A case where `x`
+ * is optional decides by it.
+ */
+function byCases(x: string, v: ScalaVar & { byCase: CaseAccess }, present: string, missing: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated | null {
+  const { at, cases } = v.byCase;
+  // only vars of the same match — the cases of another In are not known here
+  if ([...vars.values()].some(o => o.byCase && o.byCase.at !== at)) return null;
+  const arms: Translated[] = [];
+  for (const c of cases) {
+    const inCase = new Map([...vars].map(([n, o]): [string, ScalaVar] => {
+      if (!o.byCase) return [n, o];
+      const { byCase: _b, ...plain } = o;
+      const own = o.byCase.own[c];
+      return [n, own ? { ...plain, scala: own.scala, optional: own.optional } : { ...plain, scala: 'None', optional: true }];
+    }));
+    const own = v.byCase.own[c];
+    if (!own) { arms.push(translate(`= ${missing}`, inCase, types, target)); continue; }
+    if (!own.optional) { arms.push(translate(`= ${present}`, inCase, types, target)); continue; }
+    const bound = new Map(inCase).set(x, { ...inCase.get(x)!, scala: ident(x), optional: false });
+    const a = translate(`= ${present}`, bound, types, target);
+    const b = translate(`= ${missing}`, inCase, types, target);
+    if (a.todo || b.todo) return null;
+    const [sa, sb, optional] = sameShape(a, b);
+    arms.push({ scala: `(${own.scala} match { case Some(${ident(x)}) => ${sa}; case None => ${sb} })`, optional });
+  }
+  if (arms.some(a => a.todo)) return null;
+  const [scalas, optional] = sameShapes(arms);
+  return { scala: `(${at} match { ${cases.map((c, i) => `case v: ${c} => ${scalas[i]}`).join('; ')} })`, optional };
 }
 
 function ifThenElse(body: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated | null {
@@ -246,6 +291,11 @@ function ifThenElse(body: string, vars: Map<string, ScalaVar>, types: TypeDef[],
   // `x != null` (or `x = null`) of an optional variable: in its branch x is there — a match binds it
   const known = /^([A-Za-z_][A-Za-z0-9_]*)\s*(!=|=)\s*null$/.exec(cond);
   const v = known ? vars.get(known[1]) : undefined;
+  if (known && v?.byCase) {
+    const [present, missing] = known[2] === '!=' ? [yes, no] : [no, yes];
+    const matched = byCases(known[1], v as ScalaVar & { byCase: CaseAccess }, present, missing, vars, types, target);
+    if (matched) return matched;
+  }
   if (known && v?.optional && !v.headers) {
     const [present, missing] = known[2] === '!=' ? [yes, no] : [no, yes];
     const bound = new Map(vars).set(known[1], { ...v, scala: ident(known[1]), optional: false });

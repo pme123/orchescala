@@ -152,8 +152,8 @@ export const workerPackageClause = (ref: ApiRef): string => {
 
 /** What a mapping of the request can read: the fields of the In — of an ADT also those of its cases. */
 function inVars(inType: TypeDef | undefined): Map<string, ScalaVar> {
-  return new Map(fieldAccess(inType).map(({ field: f, scala, optional }) => [f.name, {
-    scala, type: f.type, optional, collection: !!f.collection,
+  return new Map(fieldAccess(inType).map(({ field: f, scala, optional, byCase }) => [f.name, {
+    scala, type: f.type, optional, collection: !!f.collection, ...(byCase ? { byCase } : {}),
   }]));
 }
 

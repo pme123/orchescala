@@ -1103,12 +1103,14 @@ export function fieldsOnce(t: TypeDef | undefined): Field[] {
  * through a match, optional where a case does not have it:
  * `(in match { case v: In.ByKeys => Some(v.clientKeys); case _ => None })`.
  */
-export function fieldAccess(t: TypeDef | undefined, typeName = 'In', at = 'in'): Array<{ field: Field; scala: string; optional: boolean }> {
+export function fieldAccess(t: TypeDef | undefined, typeName = 'In', at = 'in'): Array<{ field: Field; scala: string; optional: boolean; byCase?: CaseAccess }> {
   if (!t) return [];
   const shared = (t.fields ?? []).filter(f => f.name);
-  const out = shared.map(f => ({ field: f, scala: `${at}.${scalaIdent(f.name)}`, optional: !!f.optional }));
+  const out: Array<{ field: Field; scala: string; optional: boolean; byCase?: CaseAccess }> =
+    shared.map(f => ({ field: f, scala: `${at}.${scalaIdent(f.name)}`, optional: !!f.optional }));
   if (t.kind !== 'enum') return out;
   const cases = (t.values ?? []).filter(v => v.name);
+  const caseRef = (c: EnumValue) => `${typeName}.${caseIdent(c.name)}`;
   const seen = new Set(shared.map(f => f.name));
   for (const v of cases) for (const f of v.fields ?? []) {
     if (!f.name || seen.has(f.name)) continue;
@@ -1116,11 +1118,30 @@ export function fieldAccess(t: TypeDef | undefined, typeName = 'In', at = 'in'):
     const holders = cases.flatMap(c => { const g = (c.fields ?? []).find(x => x.name === f.name); return g ? [{ c, g }] : []; });
     const everywhere = holders.length === cases.length;
     const optional = !everywhere || holders.some(h => h.g.optional);
-    const arms = holders.map(({ c, g }) => `case v: ${typeName}.${caseIdent(c.name)} => ${optional && !g.optional ? `Some(v.${scalaIdent(f.name)})` : `v.${scalaIdent(f.name)}`}`);
+    const arms = holders.map(({ c, g }) => `case v: ${caseRef(c)} => ${optional && !g.optional ? `Some(v.${scalaIdent(f.name)})` : `v.${scalaIdent(f.name)}`}`);
     if (!everywhere) arms.push('case _ => None');
-    out.push({ field: { ...f, optional }, scala: `(${at} match { ${arms.join('; ')} })`, optional });
+    const byCase: CaseAccess = {
+      at,
+      cases: cases.map(caseRef),
+      own: Object.fromEntries(holders.map(({ c, g }) => [caseRef(c), { scala: `v.${scalaIdent(f.name)}`, optional: !!g.optional }])),
+    };
+    out.push({ field: { ...f, optional }, scala: `(${at} match { ${arms.join('; ')} })`, optional, byCase });
   }
   return out;
+}
+
+/**
+ * A field of some cases of an ADT, case by case: in a match on the cases
+ * (`case v: In.ByKey => …`) each case reads it as `v.clientKey` — or knows it
+ * is not there. FEEL `if clientKey != null then … else …` becomes one match.
+ */
+export interface CaseAccess {
+  /** what is matched: `in` */
+  at: string;
+  /** all cases of the ADT: `In.ByKey`, `In.Standard` */
+  cases: string[];
+  /** the cases that have the field — its Scala in such a case (`v.clientKey`) */
+  own: Record<string, { scala: string; optional: boolean }>;
 }
 
 /**

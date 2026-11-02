@@ -14,7 +14,7 @@ import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
 import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
 import { lowerFirst } from './names.ts';
 import type { CollectionService, OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
-import { fieldAccess } from '../scala.ts';
+import { fieldAccess, type CaseAccess } from '../scala.ts';
 
 /** In and Out belong to the orchestration — not to the types of the API. */
 export const ORCH_MEMBER = 'orchestration';
@@ -170,6 +170,8 @@ export interface OrchVar {
   collection?: boolean;
   optional?: boolean;
   source: 'In' | 'Service' | 'Script';
+  /** a field of some cases of an ADT In — case by case (see `CaseAccess`) */
+  byCase?: CaseAccess;
 }
 
 /**
@@ -200,9 +202,10 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
 export function inVars(o: ServiceOrchestrationSpec): OrchVar[] {
   if (o.noIn) return [];
   const inType = o.types.find(t => t.id === o.inTypeId);
-  return fieldAccess(inType).map(({ field: f, scala, optional }) => ({
+  return fieldAccess(inType).map(({ field: f, scala, optional, byCase }) => ({
     name: f.name, scala, type: f.type, source: 'In' as const,
     ...(f.collection ? { collection: true } : {}), ...(optional ? { optional: true } : {}),
+    ...(byCase ? { byCase } : {}),
   }));
 }
 

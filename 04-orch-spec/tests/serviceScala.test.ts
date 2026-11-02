@@ -309,3 +309,34 @@ test('FEEL if/then/else and lists become Scala — a variable checked against nu
   // what is not understood stays FEEL
   assert.equal(feelToScala('= if upper case(name) = "X" then 1 else 2', vars, []).todo, true);
 });
+
+test('FEEL if x != null with x of some cases of an ADT In: one match on the cases', async () => {
+  const { fieldAccess } = await import('../src/scala.ts');
+  const inType = (extra: TypeDef['values'] = []): TypeDef => ({
+    id: 't', name: 'In', kind: 'enum',
+    fields: [{ id: 's', name: 'readFromFcs', type: 'Boolean' }],
+    values: [
+      { name: 'ClientKey', fields: [{ id: 'a', name: 'clientKey', type: 'String' }] },
+      { name: 'Standard', fields: [{ id: 'b', name: 'clientKeys', type: 'String', collection: true }] },
+      ...extra,
+    ],
+  });
+  const varsOf = (t: TypeDef) => new Map<string, ScalaVar>(fieldAccess(t).map(({ field: f, scala, optional, byCase }) =>
+    [f.name, { scala, type: f.type, optional, collection: !!f.collection, ...(byCase ? { byCase } : {}) }]));
+  const seq = { type: 'String', collection: true };
+  // the case of the user: each case gives its keys
+  assert.deepEqual(feelToScala('= if clientKey != null then [ clientKey ] else clientKeys', varsOf(inType()), [], seq), {
+    scala: '(in match { case v: In.ClientKey => Seq(v.clientKey); case v: In.Standard => v.clientKeys })',
+    optional: false,
+  });
+  // a case with neither: there the value is missing - the others become Some
+  assert.deepEqual(feelToScala('= if clientKey != null then [ clientKey ] else clientKeys', varsOf(inType([{ name: 'Empty' }])), [], seq), {
+    scala: '(in match { case v: In.ClientKey => Some(Seq(v.clientKey)); case v: In.Standard => Some(v.clientKeys); case v: In.Empty => None })',
+    optional: true,
+  });
+  // a case where the field is optional decides by it
+  const optional = inType();
+  optional.values![0].fields![0].optional = true;
+  assert.equal(feelToScala('= if clientKey != null then [ clientKey ] else clientKeys', varsOf(optional), [], seq).scala,
+    '(in match { case v: In.ClientKey => (v.clientKey match { case Some(clientKey) => Some(Seq(clientKey)); case None => None }); case v: In.Standard => Some(v.clientKeys) })');
+});
