@@ -453,7 +453,10 @@ lazy val engineGateway = project
     libraryDependencies ++= zioTestDependencies ++ Seq(
       scaffeineDependency,
       logbackDependency
-    )
+    ),
+    // the EngineCache is a global singleton - SortingServicesTest clears it, so it must not
+    // run at the same time as GatewayFallThroughTest, which relies on its entries
+    Test / parallelExecution := false
   )
   .dependsOn(engineC7, engineC8, engineOp, worker)
 

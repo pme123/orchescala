@@ -34,10 +34,22 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
               case (errors, None, _)                  =>
                 operation(service)
                   .foldZIO(
-                    error =>
-                      ZIO.logWarning(
-                        s"$operationName failed for ${service.engineType}: ${error.errorMsg}"
-                      ).as((errors :+ error, None, None)),
+                    {
+                      // no cache update: its key comes from the result (e.g. the process instance
+                      // id) - a 409 has none
+                      case error if isFinalAnswer(error) =>
+                        val before =
+                          if errors.isEmpty then ""
+                          else s" (before: ${errors.map(_.errorMsg).mkString("; ")})"
+                        // info, not warning: e.g. a refused second start is a business outcome
+                        ZIO.logInfo(
+                          s"$operationName refused by ${service.engineType} - no other engine is tried: ${error.errorMsg}$before"
+                        ) *> ZIO.fail(error)
+                      case error                         =>
+                        ZIO.logWarning(
+                          s"$operationName failed for ${service.engineType}: ${error.errorMsg}"
+                        ).as((errors :+ error, None, None))
+                    },
                     result => ZIO.succeed((errors, Some(result), Some(service.engineType)))
                   )
           .flatMap:
@@ -55,6 +67,27 @@ private[gateway] def tryServicesWithErrorCollection[S <: EngineService, A](
             case (errors, _, _)                      => ZIO.fail(allServicesFailed(operationName, errors))
   end match
 end tryServicesWithErrorCollection
+
+/** An error that is the answer of the engine that has the case - no other engine is tried.
+  *
+  * The fall-through to the next engine is for errors that say "not on this engine" (404 of an
+  * unknown id, a process not deployed there, an engine not reachable, ...). A 409 says the opposite:
+  * the engine has a conflicting state, e.g. a start by message that landed in a running instance
+  * («Einmalige Ausführung»). Trying the next engine would start a new instance there for a process
+  * deployed on both engines - the unique execution would be lost.
+  *
+  * This holds for every operation, not only the starts: a 409 of a message (e.g. C8: already
+  * published), a user task or a job also says the engine has it. The other engine does not know
+  * the id (it answered 404, and the 409 was the result anyway) or would do it a second time.
+  *
+  * Only a `ServiceRequestError` carries a status: both engine clients map an HTTP 4xx to it
+  * (`C7Service.withStatus`, `C8RestClient.problem`), and the 409s of the start by message are
+  * created as such.
+  */
+private[gateway] def isFinalAnswer(error: EngineError): Boolean =
+  error match
+    case EngineError.ServiceRequestError(409, _) => true
+    case _                                       => false
 
 /** The error when no engine could do it.
   *

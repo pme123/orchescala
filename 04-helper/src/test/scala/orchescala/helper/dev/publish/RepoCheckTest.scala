@@ -465,11 +465,18 @@ class RepoCheckTest extends FunSuite:
     assertEquals(RepoCheck.withoutUserInfo("https://repo.example.com/x"), "https://repo.example.com/x")
 
   test("buildx is checked before the first sbt run when the images are built for a platform"):
+    // every call gets its own `docker buildx inspect` output - the machine's docker setup must not matter
     var asked = Seq.empty[Seq[String]]
-    DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), cmd => { asked :+= cmd; 0 })
+    var inspected = Seq.empty[Seq[String]]
+    DockerCheck.verifyBuildx(
+      Seq("--platform", "linux/amd64"),
+      cmd => { asked :+= cmd; 0 },
+      cmd => { inspected :+= cmd; "Name: default\nDriver: docker\n" }
+    )
     assertEquals(asked, Seq(Seq("docker", "buildx", "version")))
+    assertEquals(inspected, Seq(Seq("docker", "buildx", "inspect")))
     val error = intercept[IllegalStateException]:
-      DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 1)
+      DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 1, _ => fail("not inspected"))
     assert(error.getMessage.contains("brew install docker-buildx"), error.getMessage)
     // the builder must keep the image in the daemon - the `docker` driver
     DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 0, _ => "Name: default\nDriver: docker\n")
@@ -478,12 +485,20 @@ class RepoCheckTest extends FunSuite:
     assert(container.getMessage.contains("docker buildx use default"), container.getMessage)
     assertEquals(DockerCheck.builderDriver("Name: x\n Driver:   docker\nLast Activity: now"), Some("docker"))
     assertEquals(DockerCheck.builderDriver(""), None)
+    // the daemon is not reachable: `Driver:` is empty - the next line is no driver
+    val unreachable =
+      "Name:          default\n" +
+        "Driver:        \n" +
+        "Last Activity: 2026-11-02 05:40:07 +0000 UTC\n" +
+        "Error:         failed to connect to the docker API at unix:///nonexistent.sock\n"
+    assertEquals(DockerCheck.builderDriver(unreachable), None)
+    DockerCheck.verifyBuildx(Seq("--platform", "linux/amd64"), _ => 0, _ => unreachable)
     // `--platform=...` is a platform too
     var askedEq = false
     DockerCheck.verifyBuildx(Seq("--platform=linux/amd64"), _ => { askedEq = true; 0 }, _ => "Driver: docker")
     assert(askedEq)
     // no platform asked for: nothing to check
-    DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"))
-    DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"))
+    DockerCheck.verifyBuildx(Seq.empty, _ => fail("not asked"), _ => fail("not inspected"))
+    DockerCheck.verifyBuildx(Seq("--no-cache"), _ => fail("not asked"), _ => fail("not inspected"))
 
 end RepoCheckTest
