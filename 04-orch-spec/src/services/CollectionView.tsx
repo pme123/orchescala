@@ -24,7 +24,7 @@ import {
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
-import { catalogProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
+import { catalogProjects, knownProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
 import { findSyncDomainFor, readProjectDir, readProjectZip, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
@@ -34,7 +34,6 @@ import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type 
 import { fieldsOnce } from '../scala';
 import { ProjectSelect } from '../components/SpecMeta';
 import { defaultServiceBasePath } from './scalaCollection';
-import { knownPrefixes } from '../stepIds';
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
 
@@ -390,9 +389,7 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   const suggested = useMemo(() => suggestPathBase(spec), [spec]);
   // company/project as for a process: those of the catalog, the processes and the services; the APIs the catalog knows of this project
   const catalog = useMemo(() => catalogProjects(model), [model]);
-  const prefixes = useMemo(() => knownPrefixes(model, [
-    ...specs.map(s => s.data.project), ...services.map(s => s.data.project), ...catalog.map(p => p.project),
-  ]), [model, specs, services, catalog]);
+  const prefixes = useMemo(() => knownProjects(model, [...specs.map(s => s.data.project), ...services.map(s => s.data.project)]), [model, specs, services]);
   const knownApis = useMemo(() => [...new Set((catalog.find(p => p.project === spec.project)?.apis ?? []).map(a => a.api))].sort(), [catalog, spec.project]);
   const apis = apisOf(spec).length ? apisOf(spec) : [{ project: spec.project, api: spec.api, apiVersion: spec.apiVersion }];
   // where the OpenAPI brings no URL (Swagger 2.0 without host): what the other collections of the project have

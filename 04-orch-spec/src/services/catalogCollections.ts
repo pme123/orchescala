@@ -25,6 +25,7 @@ import { isCompoundType, typeShape, type TypeShape } from '../scalaTypes';
 import { domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
+import { knownPrefixes } from '../stepIds';
 import { apiKey, apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, workerPackage, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
@@ -444,4 +445,13 @@ export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): 
     return fromBase.size ? { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) } : s;
   });
   return { spec, added: added.map(s => s.name), updated, removed, addedTypes };
+}
+
+/**
+ * The company/project prefixes to choose from for a collection or an orchestration —
+ * as for a process: the project folders of the catalog, its processes and services,
+ * and the projects of the specifications and services in the folder.
+ */
+export function knownProjects(model: Model | null, inFolder: Array<string | undefined>): string[] {
+  return knownPrefixes(model, [...inFolder, ...catalogProjects(model).map(p => p.project)]);
 }

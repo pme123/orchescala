@@ -8,7 +8,7 @@
 // Same head as the other lists (search, epics, groups per project); deleting
 // only with the admin role or without mandatory login, as for processes.
 import { AlertTriangle, Boxes, FileUp, Library, Loader2, MessageSquare, Plus, Trash2, Workflow, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../components/SpecList';
@@ -21,6 +21,7 @@ import CollectionImport from './CollectionImport';
 import { collectionSuggestion, handOverOpenApi, readOpenApiFile, type OpenApiFile } from './openApiFile';
 import { newOrchestration, orchestrationTopic } from './orchestration';
 import { isCollection } from './types';
+import { knownProjects } from './catalogCollections';
 import { slugify } from '../util';
 
 const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
@@ -32,8 +33,10 @@ const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
 });
 
 export default function ServicesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, model } = useStore();
+  const { isDark, model, specs } = useStore();
   const { services, servicesLoading, servicesUnreadable, createService, deleteService } = useServices();
+  // as for a process: the projects of the catalog, the processes and the services
+  const projects = useMemo(() => knownProjects(model, [...specs.map(s => s.data.project), ...services.map(s => s.data.project)]), [model, specs, services]);
   const { canEdit, canDelete } = usePermissions();
   const confirm = useConfirm();
   const c = cls(isDark);
@@ -82,7 +85,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
       )}
       {orchestrating && (
         <NewOrchestration existing={services.map(s => s.slug)} onClose={() => setOrchestrating(false)}
-          projects={[...new Set(services.map(s => s.data.project))]}
+          projects={projects}
           onCreate={async input => {
             const spec = newOrchestration(input);
             const r = await createService(spec);
@@ -91,7 +94,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
           }} />
       )}
       {creating && (
-        <NewCollection existing={services.map(s => s.slug)} onClose={() => setCreating(false)}
+        <NewCollection existing={services.map(s => s.slug)} projects={projects} onClose={() => setCreating(false)}
           onCreate={async (input, openApi) => {
             const spec = newCollection(input);
             const r = await createService(spec);
@@ -194,8 +197,10 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
   );
 }
 
-function NewCollection({ existing, onCreate, onClose }: {
+function NewCollection({ existing, projects, onCreate, onClose }: {
   existing: string[];
+  /** the projects to choose from (`knownProjects`) */
+  projects: string[];
   onCreate: (input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string }, openApi: OpenApiFile | null) => Promise<{ ok: true } | { ok: false; message: string }>;
   onClose: () => void;
 }) {
@@ -220,8 +225,6 @@ function NewCollection({ existing, onCreate, onClose }: {
     if (!title.trim() && s.title) setTitle(s.title);
     if (!api.trim() && s.api) setApi(s.api);
   };
-  // the projects of the catalog as suggestions — the services usually belong to an existing one
-  const projects = [...new Set((model?.projects ?? []).map(p => p.name).filter(Boolean))] as string[];
   const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, pathPrefix: pathPrefix.trim() };
   const slug = collectionSlug(input);
   const taken = existing.includes(slug);
