@@ -288,3 +288,20 @@ export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): s
   }
   return out;
 }
+
+/**
+ * Another name or version for an API of the collection: every service of it
+ * follows, and so do the default of the collection and its `serviceBasePath`.
+ */
+export function renameApi(c: ServiceCollectionSpec, from: Pick<ApiRef, 'api' | 'apiVersion'>, to: Pick<ApiRef, 'api' | 'apiVersion'>): ServiceCollectionSpec {
+  if (sameApi(from, to)) return c;
+  const paths = { ...(c.serviceBasePaths ?? {}) };
+  if (paths[apiKey(from)] !== undefined && paths[apiKey(to)] === undefined) paths[apiKey(to)] = paths[apiKey(from)];
+  delete paths[apiKey(from)];
+  return {
+    ...c,
+    ...(sameApi(c, from) ? { api: to.api, apiVersion: to.apiVersion } : {}),
+    services: c.services.map(s => (sameApi(apiOf(c, s), from) ? { ...s, api: to.api, apiVersion: to.apiVersion } : s)),
+    serviceBasePaths: Object.keys(paths).length ? paths : undefined,
+  };
+}
