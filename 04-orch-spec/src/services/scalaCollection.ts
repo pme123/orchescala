@@ -74,7 +74,9 @@ function domainObject(c: ServiceCollectionSpec, s: CollectionService, idx: TypeI
 
   const member = (t: TypeDef | undefined, name: 'In' | 'Out'): boolean => {
     const fields = (t?.fields ?? []).filter(f => isFinished(f, idx));
-    if (!t || !fields.length || (name === 'In' ? s.noIn : s.noOut)) {
+    // an ADT (`enum In`) has its content in the cases
+    const cases = t?.kind === 'enum' ? (t.values ?? []).filter(v => v.name) : [];
+    if (!t || (!fields.length && !cases.length) || (name === 'In' ? s.noIn : s.noOut)) {
       lines.push(`  type ${name} = ${name === 'In' ? 'NoInput' : 'NoOutput'}`, '');
       return false;
     }

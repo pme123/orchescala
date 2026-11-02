@@ -607,10 +607,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
 
       {/* the ServiceWorkerDsl in the order the worker runs: In → request → ServiceIn … ServiceOut → Out */}
       <Section id="in" title="In" hint="was der Prozess dem Service gibt — die Variablen dazu ergänzen" isDark={isDark}>
-        <NothingChoice nothing={!!s.noIn} cls="case class In" none="type In = NoInput" noneHint="der Service braucht nichts vom Prozess"
+        <NothingChoice nothing={!!s.noIn} cls={inType?.kind === 'enum' ? 'enum In' : 'case class In'} none="type In = NoInput" noneHint="der Service braucht nichts vom Prozess"
           canEdit={canEdit} isDark={isDark} onChange={noIn => onPatch({ noIn: noIn || undefined })} />
         {s.noIn ? null : inType
-          ? <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={onOpenType} />
+          ? <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed adtSwitch onTypes={onTypes} onOpenType={onOpenType} />
           : <p className={`text-[11px] ${c.muted}`}>kein In</p>}
       </Section>
 

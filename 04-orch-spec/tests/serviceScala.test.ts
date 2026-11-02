@@ -223,3 +223,35 @@ test('a header of the response maps to the Out field it ends with', async () => 
   const types = c.types.map(t => (t.id === out.id ? { ...t, fields: [{ id: 'x', name: 'transactionId', type: 'String' }] } : t));
   assert.deepEqual(suggestOutMappings({ types }, s), { mappings: [{ name: 'transactionId', expression: '= headers.xFinnovaTransactionId' }], headers: [] });
 });
+
+test('an In with cases (ADT): enum In with the shared fields as def, its examples typed with the enum', () => {
+  const c = collection();
+  // the In of GetClient: either one key or several — `requestId` in every case
+  const adt: ServiceCollectionSpec = {
+    ...c,
+    types: c.types.map(t => (t.id !== 't-in' ? t : {
+      ...t, kind: 'enum',
+      fields: [{ id: 'b', name: 'requestId', type: 'String', optional: true }],
+      values: [
+        { name: 'ByKey', fields: [{ id: 'a', name: 'clientKey', type: 'Long' }] },
+        { name: 'ByKeys', fields: [{ id: 'k', name: 'clientKeys', type: 'String', collection: true }] },
+      ],
+    })),
+  };
+  const files = collectionFiles(adt);
+  const domain = files.find(f => f.path.endsWith('/GetClient.scala') && f.path.startsWith('01-domain'))!.content;
+  assert.match(domain, /enum In:\n(.*\n)*?\s+def requestId: Option\[String\]/, domain);
+  assert.match(domain, /case ByKey\(/, domain);
+  assert.match(domain, /case ByKeys\(/, domain);
+  assert.match(domain, /lazy val example: In = ByKey\.example/, domain);
+  assert.match(domain, /lazy val exampleMinimal: In = ByKey\.exampleMinimal/, domain);
+  // not NoInput: the content of an ADT is in its cases
+  assert.doesNotMatch(domain, /type In = NoInput/, domain);
+  assert.match(domain, /in = In\.example,/, domain);
+  assert.match(domain, /in = In\.exampleMinimal,/, domain);
+
+  const worker = files.find(f => f.path.endsWith('GetClientWorker.scala'))!.content;
+  // a shared field is read as before; a field of one case only needs the case — a TODO
+  assert.match(worker, /in\.requestId/, worker);
+  assert.match(worker, /TODO[^\n]*clientKey/, worker);
+});

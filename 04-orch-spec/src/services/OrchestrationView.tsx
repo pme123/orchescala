@@ -408,9 +408,9 @@ function Overview({ spec, refs, types, collections, steps, issues, flowError, ca
 
       <div className="space-y-1">
         <div className={`text-[10px] uppercase tracking-widest ${c.muted}`}>In — was der Worker bekommt</div>
-        <NothingChoice nothing={!!spec.noIn} cls="case class In" none="type In = NoInput" noneHint="braucht nichts"
+        <NothingChoice nothing={!!spec.noIn} cls={inType?.kind === 'enum' ? 'enum In' : 'case class In'} none="type In = NoInput" noneHint="braucht nichts"
           canEdit={canEdit} isDark={isDark} onChange={noIn => update(o => ({ ...o, noIn: noIn || undefined }))} />
-        {!spec.noIn && inType && <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed onTypes={onTypes} onOpenType={() => {}} />}
+        {!spec.noIn && inType && <StandaloneTypeEditor type={inType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed adtSwitch onTypes={onTypes} onOpenType={() => {}} />}
       </div>
 
       <div className="space-y-1">

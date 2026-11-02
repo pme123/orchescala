@@ -941,10 +941,12 @@ function TypeGroup({ label, types, all, selected, onSelect, isDark, issuesOf }: 
 }
 
 // ── Type editor ──────────────────────────────────────────────────────────────
-function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRenameValue, onRemove, onAddType, onOpenType, fixed }: {
+function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model, onPatch, onRenameValue, onRemove, onAddType, onOpenType, fixed, adtSwitch }: {
   type: TypeDef; types: TypeDef[]; spec: ProcessSpec;
   /** name and existence are given (the In/Out of a service) — no renaming, no deleting */
   fixed?: boolean;
+  /** class ↔ ADT can be switched — like the In of a process (the In of a service or an orchestration) */
+  adtSwitch?: boolean;
   isDark: boolean; canEdit: boolean; model: Model | null;
   issues: { field?: string; message: string; warn?: boolean; suggestion?: string; value?: string }[];
   idx: ReturnType<typeof indexTypes>;
@@ -997,10 +999,10 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
           <div className={`text-[10px] uppercase tracking-widest flex items-center gap-2 ${c.muted}`}>
             {t.root ? 'Prozess-Eingabe' : t.inConfig ? 'Prozess-Konfiguration' : t.kind === 'enum' ? (isAdt(t) ? 'Auswahl mit Fällen (ADT)' : 'Auswahl (enum)') : 'Klasse (case class)'}
             <CommentBubble target={typeTarget(t.id)} title={`Kommentare zu «${t.name}»`} />
-            {/* The In of a process is mostly a class — but it can be an ADT
-                (`enum In: case Standard(…) case VermoegensVerwaltung(…)`),
-                if the same process starts with different inputs. */}
-            {t.root && canEdit && (
+            {/* The In of a process (or of a service, an orchestration) is mostly
+                a class — but it can be an ADT (`enum In: case Standard(…)
+                case VermoegensVerwaltung(…)`), if it starts with different inputs. */}
+            {(t.root || adtSwitch) && canEdit && (
               <select value={t.kind} onChange={e => onPatch(switchKind(t, e.target.value as 'case' | 'enum'))}
                 title="Klasse oder Auswahl mit Fällen (ADT) — die Felder der Klasse werden die gemeinsamen Felder, und zurück"
                 className={`text-[10px] normal-case tracking-normal px-1.5 py-0.5 rounded border outline-none ${c.input}`}>
@@ -1555,13 +1557,15 @@ function CopyButton({ text, isDark }: { text: string; isDark: boolean }) {
  * service. `spec` is the frame the checks and the Scala preview need (types,
  * project); copy and paste stay with the data model of the processes.
  */
-export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed, onTypes, onOpenType }: {
+export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed, adtSwitch, onTypes, onOpenType }: {
   type: TypeDef;
   spec: ProcessSpec;
   isDark: boolean;
   canEdit: boolean;
   model: Model | null;
   fixed?: boolean;
+  /** class ↔ ADT can be switched (the In of a service or an orchestration) */
+  adtSwitch?: boolean;
   /** all types after a change — a new type (from the type picker) included */
   onTypes: (types: TypeDef[]) => void;
   onOpenType: (id: string) => void;
@@ -1577,7 +1581,7 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
   return (
     <SpecContext.Provider value={spec}>
       <TypeEditor type={type} types={types} spec={spec} isDark={isDark} canEdit={canEdit} model={model}
-        issues={issues} idx={idx} fixed={fixed}
+        issues={issues} idx={idx} fixed={fixed} adtSwitch={adtSwitch}
         onPatch={patch => apply(ts => ts.map(t => (t.id === type.id ? { ...t, ...patch } : t)))}
         onRenameValue={(index, name) => apply(ts => renameEnumValue(ts, type.id, index, name))}
         onRemove={() => apply(ts => ts.filter(t => t.id !== type.id))}
