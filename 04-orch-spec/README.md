@@ -1607,7 +1607,15 @@ Ein Klick auf die Engine im Kopf («· Camunda 7 / Operaton») wandelt das Diagr
 andere Engine um — und zurück. Der Dialog wandelt erst zur Probe und zeigt,
 was danach von Hand zu prüfen ist; umgestellt wird erst auf «Umwandeln».
 Layout, IDs, Topics und Namen bleiben, nur die Erweiterungen wechseln die Form
-(`src/engineConvert.ts`, Regeln wie im Migrationsleitfaden `bpmn-c7-to-c8`):
+(`src/engineConvert.ts`, Regeln wie im Migrationsleitfaden `bpmn-c7-to-c8`).
+
+**Pattern gehen in ihrer Form für die andere Engine hinüber** (`src/patternConvert.ts`): was im
+Diagramm als Pattern erkannt ist, setzt die Umwandlung danach mit seinen Parametern im BPMN der
+Ziel-Engine neu ein — statt seine Ausdrücke einzeln zu übersetzen. So kommt «Identität übernehmen»
+mit seinen Output-Mappings nach Camunda 8, obwohl sich `execution.getVariableTyped(…)` nicht
+nach FEEL übersetzen lässt; was das Pattern ersetzt hat, steht nicht mehr unter «von Hand
+prüfen». Hat ein Pattern kein BPMN für die Ziel-Engine, sagt der Dialog das. Für alles übrige
+gelten die Regeln:
 
 | Camunda 7 | Camunda 8 |
 | --- | --- |

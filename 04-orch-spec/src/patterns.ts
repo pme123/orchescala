@@ -1140,6 +1140,33 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
   return res;
 }
 
+/**
+ * Take out what the recognised patterns carry on their element (or the process) - their
+ * listeners, mappings, definitions -, not their paths and blocks. For a switch of engine: the
+ * rest is converted as it is, then each pattern is inserted again in the form of the target
+ * engine (see patternConvert.ts), so no old form stays beside the new one. `take` chooses the
+ * patterns that are taken out; the hits are those taken out.
+ */
+export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit) => boolean = () => true): { xml: string; hits: PatternHit[] } {
+  const doc = parseXml(xml);
+  if (!doc) return { xml, hits: [] };
+  const hits = detectIn(doc, defs, engine).hits.filter(h => take(h));
+  if (!hits.length) return { xml, hits: [] };
+  for (const h of hits) {
+    for (const el of h.match.items) {
+      const parent: Element | null = el.parentElement;
+      removeEl(el);
+      // a container (inputOutput, ioMapping …) and extensionElements that became empty go too
+      for (let c: Element | null = parent; c && !c.children.length && ['extensionElements', ...CONTAINERS].includes(local(c)); ) {
+        const up: Element | null = c.parentElement;
+        removeEl(c);
+        c = up;
+      }
+    }
+  }
+  return { xml: new Writer(doc).serialize(xml), hits: hits.map(({ match: _, fr: __, ...h }) => h) };
+}
+
 type OwnItems = Map<Element, Map<string, Set<Element>>>;
 
 /** Is the hit only what the block or path of another pattern carries on its element? */

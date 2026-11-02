@@ -23,7 +23,7 @@
 
 import type { EngineId } from './types.ts';
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
-import { feelBody, feelToJuel } from './feelJuel.ts';
+import { feelBody, feelToJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -97,12 +97,18 @@ function toFeelSource(text: string, where: string, issue: Issue): string {
   return toFeel(t, where, issue);
 }
 
+/**
+ * What the specification knows about the variables while one conversion runs (see convertBpmn) -
+ * so a Spin path ends right: `_identityCorrelation.username` → `….prop("username").stringValue()`.
+ */
+let juelOpts: JuelOptions = {};
+
 /** FEEL → `${…}`; fixed text stays */
 function toJuel(text: string, where: string, issue: Issue): string {
   const t = text.trim();
   const body = feelBody(t);
   if (body == null) return t;
-  const r = feelToJuel(body);
+  const r = feelToJuel(body, juelOpts);
   if (r.ok) return `\${${r.juel}}`;
   issue(where, `«${t}» ist nicht nach JUEL übersetzbar (${r.reason}) — von Hand anpassen.`);
   return t;
@@ -130,8 +136,19 @@ const plainVar = (source: string): string | null => {
 /**
  * `correlationKeys`: the correlation key chosen at the step per element ID —
  * a waiting message without one gets the suggestion `=businessKey` in Camunda 8.
+ * `juel`: the variables of the specification (juelOptions) for FEEL → JUEL — without them a Spin
+ * path ends without `stringValue()` & co.
  */
-export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string> } = {}): WriteResult & { changed: boolean } {
+export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string>; juel?: JuelOptions } = {}): WriteResult & { changed: boolean } {
+  juelOpts = opts.juel ?? {};
+  try {
+    return convert(xml, target, opts);
+  } finally {
+    juelOpts = {};
+  }
+}
+
+function convert(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string> }): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
   if (detectEngine(xml) === target) return { xml, issues, changed: false };
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
