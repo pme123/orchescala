@@ -771,7 +771,9 @@ und Doku stehen in `democompany-patterns`:
   Element darüber hinaus trägt, kann ein anderes Pattern sein.
 - **Prozess mit Fehler stoppen** (`stop-with-error`, End- oder werfendes
   Zwischenereignis): unterbricht den Prozess mit einem Fehler, den DevOps im
-  Cockpit bzw. in Operate behandeln — sofort ein Incident, dessen Meldung
+  Cockpit bzw. in Operate behandeln — das Ereignis wird orange (ohne Blitz:
+  ein Fehler-Endereignis würfe in Camunda 8 den BPMN-Fehler, ohne die
+  Mappings auszuwerten), sofort ein Incident, dessen Meldung
   (`message`, Text oder FEEL) das Problem beschreibt. Ein Retry wirft ihn
   wieder; behandelt wird er durch Abbrechen der Instanz oder eine Process
   Instance Modification. Camunda 7: Groovy-Exception nach `asyncBefore` mit
@@ -814,6 +816,12 @@ Prozess (Admin → Pattern → «Im Editor bearbeiten»):
   `{{startMessage}}` (Nachricht des Nachrichten-Startereignisses — fehlt es,
   wird das leere Startereignis beim Einfügen dazu, mit der Prozess-ID als
   Nachricht); eine Vorgabe darf sie nennen (`{{processId}}-inform`).
+- **Farbe:** hat der Anker im Pattern eine Farbe (`bioc:fill`/`stroke`,
+  `color:background-color`/`border-color` — wie der Camunda Modeler sie
+  schreibt), bekommt das Element sie beim Einfügen — ausser es hat schon
+  eine eigene Farbe (die bleibt). Das Entfernen nimmt die Farbe des Patterns
+  wieder weg, wenn sie noch dieselbe ist. Erkannt wird ein Pattern nicht an
+  der Farbe.
 - **Je Engine ein BPMN** (Camunda 7 / 8): angeboten wird ein Pattern nur, wo
   es für die Engine der Spezifikation eines gibt.
 
