@@ -350,20 +350,23 @@ class C7ProcessInstanceService(
 
   /** The message landed in a running instance: fails with the 409 of `onlyStarted` - after the
     * pending marker it set there is removed. If that fails, the 409 says so.
+    *
+    * The removal runs uninterruptibly (it waits up to ~750 ms): a caller that times out meanwhile
+    * must not leave the marker behind - the workers of an instance without correlation would wait
+    * for one forever.
     */
   private def conflictWithPendingRemoved(
       conflict: EngineError.ServiceRequestError,
       processInstanceId: String,
       removePending: String => IO[EngineError, Unit]
   ): IO[EngineError, Nothing] =
-    removePending(processInstanceId).foldZIO(
-      err =>
+    removePending(processInstanceId).uninterruptible.foldZIO(
+      failure = err =>
         val notRemoved =
           s"its pending identity marker could not be removed, its workers wait for a correlation: ${err.errorMsg}"
         ZIO.logError(s"Process $processInstanceId: $notRemoved") *>
-          ZIO.fail(conflict.copy(errorMsg = s"${conflict.errorMsg} - $notRemoved"))
-      ,
-      _ => ZIO.fail(conflict)
+          ZIO.fail(conflict.copy(errorMsg = s"${conflict.errorMsg} - $notRemoved")),
+      success = _ => ZIO.fail(conflict)
     )
 
   /** The message landed in a running instance and set its pending marker there. Its workers would
@@ -425,14 +428,18 @@ class C7ProcessInstanceService(
   end clearIdentityPending
 
   /** C7 answers an instance that does not exist (any more) with a 404 - or, for its variables,
-    * with a 500 saying "execution ... doesn't exist" (see `setCorrelationVariable`).
+    * with a 500 saying "execution <id> doesn't exist" (see `setCorrelationVariable`). Any other
+    * error is a failure.
     */
   private def instanceEnded(err: Throwable): Boolean =
     err match
       case ex: ApiException =>
         ex.getCode == 404 ||
-        Seq(ex.getMessage, ex.getResponseBody).exists(text => Option(text).exists(_.contains("doesn't exist")))
-      case other            => Option(other.getMessage).exists(_.contains("doesn't exist"))
+        ex.getCode == 500 &&
+        Seq(ex.getMessage, ex.getResponseBody).exists(text =>
+          Option(text).exists(C7ProcessInstanceService.executionMissing.findFirstIn(_).isDefined)
+        )
+      case _                => false
 
   /** The C7 REST API cannot restrict a message to start events (no `startMessagesOnly`): it is
     * correlated to a running instance waiting for it first. That was reported as a started process
@@ -502,6 +509,9 @@ object C7ProcessInstanceService:
       correlationChecks: Int = 4,
       correlationCheckInterval: Duration = 250.millis
   )
+
+  /** C7's text for an execution (instance) that does not exist (any more). */
+  private val executionMissing = """execution \S+ doesn't exist""".r
 
   /** A running instance a start by message landed in - see `clearIdentityPending`. */
   private enum RunningInstance:

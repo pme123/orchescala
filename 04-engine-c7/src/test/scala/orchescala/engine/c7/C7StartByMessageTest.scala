@@ -176,6 +176,28 @@ object C7StartByMessageTest extends ZIOSpecDefault:
         !markerRemoved(requests)
       )
     },
+    test("a later check fails - nothing is removed, the 409 says so") {
+      for
+        (baseUrl, requests) <- engine(correlatedToRunning, Seq(noCorrelation, checkFails))
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        runningChecks(requests) == 2,
+        !markerRemoved(requests)
+      )
+    },
+    test("another 500 that says \"doesn't exist\" is a failure, no ended instance") {
+      for
+        (baseUrl, requests) <- engine(
+                                 correlatedToRunning,
+                                 Seq(500 -> """{"type":"ProcessEngineException","message":"Deployment d-1 doesn't exist"}""")
+                               )
+        exit                <- service(baseUrl).startProcessByMessage("msg", identityCorrelation = alice).exit
+      yield assertTrue(
+        conflict(exit)(msg => msg.contains("running-pi") && msg.contains("could not be removed")),
+        !markerRemoved(requests)
+      )
+    },
     test("removing the marker fails - the 409 says so") {
       for
         (baseUrl, requests) <- engine(correlatedToRunning, patch = 500 -> """{"type":"RestException","message":"boom"}""")
