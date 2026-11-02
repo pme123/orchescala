@@ -2,7 +2,7 @@ package orchescala.helper.dev.update.merge
 
 import munit.FunSuite
 import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
-import orchescala.helper.dev.update.{ModuleConfig, OrchSpecGenerator}
+import orchescala.helper.dev.update.{ModuleConfig, OrchSpecGenerator, OrchSpecMergeCommand}
 import orchescala.helper.util.DevConfig
 
 /** The merge from Orch Spec: the export of the spec before (base) and after (new) against the
@@ -394,6 +394,23 @@ class SpecMergeTest extends FunSuite:
       used = None
       assertEquals(SpecSources.fromGit(project, "no-such-rev", failing), None)
       assertEquals(used, None)
+
+  test("processFromSpec --check --from: a folder that is no spec folder - a message, nothing planned or written"):
+    inProject: project =>
+      val other  = project / "docs"
+      os.write(other / "readme.md", "# not a spec", createFolders = true)
+      val before = os.walk(project).toSet
+      def output(args: String*) =
+        val out = java.io.ByteArrayOutputStream()
+        Console.withOut(out)(OrchSpecMergeCommand().run(args))
+        out.toString
+      assert(output("--check", "--from", other.toString).contains("is no spec folder of Orch Spec - it has no config/model.json"))
+      assert(output("--merge", "--yes", "--from", (project / "nope").toString).contains("does not exist - give the spec folder with --from <dir>"))
+      assert(output("--check").contains(s"No spec folder ${project / "spec"}"))
+      assertEquals(os.walk(project).toSet, before)
+      assertEquals(SpecSources.whyNoSpecFolder(project / "docs" / "readme.md"), Some(s"${project / "docs" / "readme.md"} is no folder"))
+      os.write(project / "spec" / "config" / "model.json", "{}", createFolders = true)
+      assertEquals(SpecSources.whyNoSpecFolder(project / "spec"), None)
 
   test("ThreeWay - like git merge"):
     val base = "a\nb\nc\nd\ne\n"

@@ -26,9 +26,22 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
     val yes     = args.contains("--yes")
     def value(flag: String) = args.sliding(2).collectFirst { case Seq(`flag`, v) => v }
     val project = config.projectDir
-    val after   = value("--from").map(p => os.Path(p, os.pwd)).getOrElse(project / SpecSources.specDir)
-    if !os.isDir(after) then
-      throw IllegalArgumentException(s"No spec folder $after - give it with --from <dir>.")
+    val after   = value("--from") match
+      case Some(p) => Try(os.Path(p, os.pwd)).toEither.left.map(_ => s"--from $p is no path")
+      case None    => Right(project / SpecSources.specDir)
+    after.flatMap(dir => SpecSources.whyNoSpecFolder(dir).toLeft(dir)) match
+      case Left(why)  => println(Console.RED + s"$why - give the spec folder with --from <dir>." + Console.RESET)
+      case Right(dir) => checkAndMerge(project, dir, merge, markers, yes, value("--json"))
+  end run
+
+  private def checkAndMerge(
+      project: os.Path,
+      after: os.Path,
+      merge: Boolean,
+      markers: Boolean,
+      yes: Boolean,
+      json: Option[String]
+  ): Unit =
     // the spec before: in the last commit - extracted once for the comparison and the plan;
     // inside the try, so whatever fails after the extraction, the folder is removed
     var before  = Option.empty[os.Path]
@@ -41,7 +54,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       val plan = SpecMerge.checkMerge(project, before.fold(SpecSource.Empty)(SpecSource.Dir(_)), SpecSource.Dir(after))
       println()
       MergeReport.printPlan(plan)
-      value("--json").foreach: file =>
+      json.foreach: file =>
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
       if merge then
@@ -53,7 +66,8 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
           OrchSpecGenerator().linkDiagrams(project)
         else println("Not merged.")
     finally before.foreach(os.remove.all)
-  end run
+    end try
+  end checkAndMerge
 
   private def confirm(plan: MergePlan, markers: Boolean): Boolean =
     val conflicts = plan.withAction(Action.conflict).size

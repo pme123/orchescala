@@ -87,6 +87,16 @@ object SpecSources:
   /** The folder of the spec in a project. */
   val specDir: os.RelPath = os.rel / "spec"
 
+  /** Why the folder is no spec folder of Orch Spec - None if it is one: it has a
+    * `config/model.json` (in older folders `model.json`) or `processes/`.
+    */
+  def whyNoSpecFolder(dir: os.Path): Option[String] =
+    if !os.exists(dir) then Some(s"No spec folder $dir - it does not exist")
+    else if !os.isDir(dir) then Some(s"$dir is no folder")
+    else if !(os.isFile(dir / "config" / "model.json") || os.isFile(dir / "model.json") || os.isDir(dir / "processes")) then
+      Some(s"$dir is no spec folder of Orch Spec - it has no config/model.json and no processes/")
+    else None
+
   /** The folder with the spec of the source - `None` if there is none (no spec in the commit,
     * `Empty`). A commit is extracted into a temporary folder.
     */
