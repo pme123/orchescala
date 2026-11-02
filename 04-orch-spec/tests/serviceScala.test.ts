@@ -280,3 +280,32 @@ test('fieldAccess: a field in every case is read without None, an optional one w
   const noEmpty: TypeDef = { ...t, values: t.values!.slice(0, 2) };
   assert.equal(fieldAccess(noEmpty).find(a => a.field.name === 'both')?.scala, '(in match { case v: In.A => v.both; case v: In.B => v.both })');
 });
+
+test('FEEL if/then/else and lists become Scala — a variable checked against null is there in its branch', () => {
+  const vars = new Map<string, ScalaVar>([
+    ['clientKey', { scala: '(in match { case v: In.ByKey => Some(v.clientKey); case _ => None })', type: 'String', optional: true }],
+    ['clientKeys', { scala: '(in match { case v: In.ByKeys => Some(v.clientKeys); case _ => None })', type: 'String', optional: true, collection: true }],
+    ['count', { scala: 'in.count', type: 'Int' }],
+    ['name', { scala: 'in.name', type: 'String' }],
+  ]);
+  const seq = { type: 'String', collection: true };
+  // the case of the user: one key or several
+  assert.deepEqual(feelToScala('= if clientKey != null then [ clientKey ] else clientKeys', vars, [], seq), {
+    scala: '((in match { case v: In.ByKey => Some(v.clientKey); case _ => None }) match { case Some(clientKey) => Some(Seq(clientKey)); case None => (in match { case v: In.ByKeys => Some(v.clientKeys); case _ => None }) })',
+    optional: true,
+  });
+  // = null the other way round
+  assert.equal(feelToScala('= if clientKey = null then "none" else clientKey', vars, []).scala,
+    '((in match { case v: In.ByKey => Some(v.clientKey); case _ => None }) match { case Some(clientKey) => clientKey; case None => "none" })');
+  // a condition of its own — both sure
+  assert.deepEqual(feelToScala('= if count > 3 then "many" else name', vars, []), { scala: '(if in.count > 3 then "many" else in.name)', optional: false });
+  // nested
+  assert.equal(feelToScala('= if count > 3 then if count > 9 then "lots" else "many" else "few"', vars, []).scala,
+    '(if in.count > 3 then (if in.count > 9 then "lots" else "many") else "few")');
+  // lists: sure elements, a comma in a text, an optional element that falls away, empty
+  assert.deepEqual(feelToScala('= [ name, "a, b" ]', vars, [], seq), { scala: 'Seq(in.name, "a, b")', optional: false });
+  assert.equal(feelToScala('= [ name, clientKey ]', vars, [], seq).scala, 'Seq(Some(in.name), (in match { case v: In.ByKey => Some(v.clientKey); case _ => None })).flatten');
+  assert.equal(feelToScala('= []', vars, [], seq).scala, 'Seq.empty');
+  // what is not understood stays FEEL
+  assert.equal(feelToScala('= if upper case(name) = "X" then 1 else 2', vars, []).todo, true);
+});

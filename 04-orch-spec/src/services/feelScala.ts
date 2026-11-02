@@ -10,6 +10,12 @@
 //                            (the server decides the case: `ETag`, `X-Finnova-Transaction-Id`)
 //   = "CH" · = 3 · = true  → "CH" · 3L (for a Long) · true
 //   = "Account"            → ProductType.Account (for an enum field, as the process writes it)
+//   = [ clientKey ]        → Seq(in.clientKey)
+//   = if a > 3 then b else c                 → if in.a > 3 then in.b else in.c
+//   = if key != null then [ key ] else keys  → in.key match
+//                                                case Some(key) => Some(Seq(key))
+//                                                case None => in.keys
+//     (an optional variable checked against null is there in `then` — no `.get`)
 //
 // Everything else stays FEEL for a human: `??? /* TODO FEEL: … */` — the project
 // compiles and the place is easy to find.
@@ -64,6 +70,11 @@ function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeD
 
   const literal = literalOf(body, target, types);
   if (literal) return literal;
+
+  const choice = ifThenElse(body, vars, types, target);
+  if (choice) return choice;
+  const list = listOf(body, vars, types, target);
+  if (list) return list;
 
   const parts = splitPath(body);
   if (!parts || !parts.every(p => NAME.test(p))) return todo(body);
@@ -194,6 +205,92 @@ function condition(text: string, vars: Map<string, ScalaVar>, types: TypeDef[]):
   const b = feelToScala(`= ${t}`, vars, types, { type: 'Boolean' });
   if (b.todo) return null;
   return { scala: b.optional ? `${b.scala}.contains(true)` : b.scala, optional: false };
+}
+
+/**
+ * `if C then A else B` at the top (not inside parentheses, brackets or quotes) —
+ * the three parts; nested `if`s belong to their part.
+ */
+function splitIf(body: string): [string, string, string] | null {
+  if (!/^if\s/.test(body)) return null;
+  let depth = 0, quote = false, nested = 0, thenAt = -1;
+  const word = (i: number, w: string) => body.startsWith(w, i) && /\s/.test(body[i - 1] ?? ' ') && /\s/.test(body[i + w.length] ?? ' ');
+  for (let i = 2; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '"' && body[i - 1] !== '\\') quote = !quote;
+    if (quote) continue;
+    if (ch === '(' || ch === '[') depth++;
+    if (ch === ')' || ch === ']') depth--;
+    if (depth !== 0) continue;
+    if (word(i, 'if')) nested++;
+    else if (word(i, 'then') && nested === 0 && thenAt < 0) thenAt = i;
+    else if (word(i, 'else')) {
+      if (nested > 0) nested--;
+      else if (thenAt >= 0) return [body.slice(2, thenAt).trim(), body.slice(thenAt + 4, i).trim(), body.slice(i + 4).trim()];
+    }
+  }
+  return null;
+}
+
+/** One of two values, as the target needs it: `Some(…)` where only the other one may be missing. */
+function sameShape(a: Translated, b: Translated): [string, string, boolean] {
+  if (a.optional === b.optional) return [a.scala, b.scala, a.optional];
+  const some = (t: Translated) => (t.optional ? t.scala : t.scala === 'None' ? 'None' : `Some(${t.scala})`);
+  return [some(a), some(b), true];
+}
+
+function ifThenElse(body: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated | null {
+  const parts = splitIf(body);
+  if (!parts) return null;
+  const [cond, yes, no] = parts;
+  // `x != null` (or `x = null`) of an optional variable: in its branch x is there — a match binds it
+  const known = /^([A-Za-z_][A-Za-z0-9_]*)\s*(!=|=)\s*null$/.exec(cond);
+  const v = known ? vars.get(known[1]) : undefined;
+  if (known && v?.optional && !v.headers) {
+    const [present, missing] = known[2] === '!=' ? [yes, no] : [no, yes];
+    const bound = new Map(vars).set(known[1], { ...v, scala: ident(known[1]), optional: false });
+    const a = translate(`= ${present}`, bound, types, target);
+    const b = translate(`= ${missing}`, vars, types, target);
+    if (a.todo || b.todo) return todo(body);
+    const [sa, sb, optional] = sameShape(a, b);
+    return { scala: `(${v.scala} match { case Some(${ident(known[1])}) => ${sa}; case None => ${sb} })`, optional };
+  }
+  const c = condition(cond, vars, types);
+  if (!c || c.todo) return todo(body, 'Bedingung');
+  const a = translate(`= ${yes}`, vars, types, target);
+  const b = translate(`= ${no}`, vars, types, target);
+  if (a.todo || b.todo) return todo(body);
+  const [sa, sb, optional] = sameShape(a, b);
+  return { scala: `(if ${c.scala} then ${sa} else ${sb})`, optional };
+}
+
+/** the elements of a list — split at commas outside quotes, parentheses and brackets */
+function splitComma(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0, quote = false, start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' && text[i - 1] !== '\\') quote = !quote;
+    if (quote) continue;
+    if (ch === '(' || ch === '[') depth++;
+    if (ch === ')' || ch === ']') depth--;
+    if (ch === ',' && depth === 0) { out.push(text.slice(start, i)); start = i + 1; }
+  }
+  out.push(text.slice(start));
+  return out.map(x => x.trim()).filter(Boolean);
+}
+
+/** `[ a, b ]` → `Seq(a, b)`; optional elements fall away where they are missing (`.flatten`). */
+function listOf(body: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated | null {
+  if (!body.startsWith('[') || !body.endsWith(']')) return null;
+  const inner = body.slice(1, -1).trim();
+  if (!inner) return { scala: 'Seq.empty', optional: false };
+  const items = splitComma(inner);
+  const element = target ? { type: target.type } : undefined;
+  const each = items.map(x => translate(`= ${x}`, vars, types, element));
+  if (each.some(e => e.todo)) return todo(body);
+  if (each.every(e => !e.optional)) return { scala: `Seq(${each.map(e => e.scala).join(', ')})`, optional: false };
+  return { scala: `Seq(${each.map(e => (e.optional ? e.scala : `Some(${e.scala})`)).join(', ')}).flatten`, optional: false };
 }
 
 /** `a.b.c` → the names; null if it is not a plain path */
