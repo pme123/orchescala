@@ -29,9 +29,11 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
     val after   = value("--from").map(p => os.Path(p, os.pwd)).getOrElse(project / SpecSources.specDir)
     if !os.isDir(after) then
       throw IllegalArgumentException(s"No spec folder $after - give it with --from <dir>.")
-    // the spec before: in the last commit - extracted once for the comparison and the plan
-    val before  = SpecSources.folder(project, SpecSource.GitRev("HEAD"))
+    // the spec before: in the last commit - extracted once for the comparison and the plan;
+    // inside the try, so whatever fails after the extraction, the folder is removed
+    var before  = Option.empty[os.Path]
     try
+      before = SpecSources.folder(project, SpecSource.GitRev("HEAD"))
       println(s"Spec before: ${if before.isDefined then "HEAD:spec" else "(none - the first merge)"} - after: $after")
       specDiff(before, after).foreach: text =>
         println("\nWhat changed in the spec:")
