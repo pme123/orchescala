@@ -1578,7 +1578,10 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
   const latest = useRef(types);
   latest.current = types;
   const apply = (fn: (ts: TypeDef[]) => TypeDef[]) => { const next = fn(latest.current); latest.current = next; onTypes(next); };
+  // copy and paste as in the data model of a process — classes and fields, also across tabs
+  const clipActions = standaloneClip(spec, latest, apply);
   return (
+    <ClipContext.Provider value={clipActions}>
     <SpecContext.Provider value={spec}>
       <TypeEditor type={type} types={types} spec={spec} isDark={isDark} canEdit={canEdit} model={model}
         issues={issues} idx={idx} fixed={fixed} adtSwitch={adtSwitch}
@@ -1595,5 +1598,45 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
         }}
         onOpenType={onOpenType} />
     </SpecContext.Provider>
+    </ClipContext.Provider>
+  );
+}
+
+/**
+ * The copy and paste of the data model of a process for a type edited on its
+ * own (the In/Out of a service, a type of a collection): the same actions, on
+ * the latest types.
+ */
+function standaloneClip(spec: ProcessSpec, latest: { current: TypeDef[] }, apply: (fn: (ts: TypeDef[]) => TypeDef[]) => void): ClipActions {
+  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine };
+  return {
+    copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(latest.current, [t.id]) }),
+    copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(latest.current, [f.type]) }),
+    pasteField: (typeId, valueIndex) => {
+      const m = getClipboard().model;
+      if (m?.kind !== 'field') return;
+      const r = pasteField({ ...spec, types: latest.current }, typeId, m, valueIndex);
+      if (r) apply(() => r.types);
+    },
+  };
+}
+
+/**
+ * «Klasse einfügen» for a list of types outside the data model of a process
+ * (a collection, an orchestration) — only while a class is in the clipboard.
+ * `onPaste` gets all types and the id of the pasted class.
+ */
+export function PasteTypeButton({ spec, isDark, onPaste }: { spec: ProcessSpec; isDark: boolean; onPaste: (types: TypeDef[], id: string) => void }) {
+  const m = useClipboard().model;
+  const c = cls(isDark);
+  if (m?.kind !== 'type') return null;
+  const t = m.types.find(x => x.id === m.typeId);
+  const mit = m.types.length - 1;
+  return (
+    <button onClick={() => { const r = pasteType(spec, m); onPaste(r.types, r.id); }}
+      title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist` : ''}`}
+      className={`p-0.5 rounded ${c.hover} ${c.muted}`}>
+      <ClipboardPaste size={11} />
+    </button>
   );
 }

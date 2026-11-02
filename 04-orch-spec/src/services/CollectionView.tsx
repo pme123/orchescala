@@ -11,7 +11,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
 import FeelInput from '../components/FeelInput';
-import { StandaloneTypeEditor } from '../components/TypeBuilder';
+import { PasteTypeButton, StandaloneTypeEditor } from '../components/TypeBuilder';
 import { checkFeel, expectedFor, fieldVariables, isFeel, type VarNode } from '../feel';
 import { useStore } from '../store';
 import { parseDomainRef } from '../serviceTypes';
@@ -300,12 +300,24 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
           <div>
             <div className={`flex items-center text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>
               <span className="flex-1">Typen der API · {schemaTypes.length}</span>
+              {/* as in the data model of a process: a class, a choice, a class from the clipboard */}
               {canEdit && (
-                <button title="Klasse anlegen" onClick={() => {
-                  const id = uid('t');
-                  update(s => ({ ...s, types: [...s.types, { id, name: 'NeueKlasse', kind: 'case', status: 'draft', fields: [{ id: uid('f'), name: '', type: 'String' }] }] }));
-                  setSelection({ kind: 'type', id });
-                }} className={`p-0.5 rounded ${c.hover}`}><Plus size={11} /></button>
+                <>
+                  <PasteTypeButton spec={processFrame(spec)} isDark={isDark} onPaste={(types, id) => {
+                    update(s => ({ ...s, types }));
+                    setSelection({ kind: 'type', id });
+                  }} />
+                  <button title="Auswahl (enum) anlegen" onClick={() => {
+                    const id = uid('e');
+                    update(s => ({ ...s, types: [...s.types, { id, name: 'NeueAuswahl', kind: 'enum', status: 'draft', values: [{ name: 'wert1' }] }] }));
+                    setSelection({ kind: 'type', id });
+                  }} className={`p-0.5 rounded ${c.hover}`}><ListOrdered size={11} /></button>
+                  <button title="Klasse anlegen" onClick={() => {
+                    const id = uid('t');
+                    update(s => ({ ...s, types: [...s.types, { id, name: 'NeueKlasse', kind: 'case', status: 'draft', fields: [{ id: uid('f'), name: '', type: 'String' }] }] }));
+                    setSelection({ kind: 'type', id });
+                  }} className={`p-0.5 rounded ${c.hover}`}><Plus size={11} /></button>
+                </>
               )}
             </div>
             {schemaTypes.map(t => (
