@@ -82,8 +82,14 @@ export function collectionSlug(c: Pick<ServiceCollectionSpec, 'project' | 'title
 
 /** A valid Scala identifier for the API (`client`, `paymentRules`). */
 export const API_NAME = /^[a-z][A-Za-z0-9]*$/;
-/** `acme-crm` — lower case words joined by `-` */
-export const PROJECT_NAME = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)+$/;
+/**
+ * `acme-crm`, `z9nai-orch_spec2` — at least two parts joined by `-` (company and
+ * project). A part is lower case letters, digits and `_`, not starting with a
+ * digit: each part becomes a Scala package (`z9nai.orch_spec2`).
+ */
+export const PROJECT_NAME = /^[a-z_][a-z0-9_]*(-[a-z_][a-z0-9_]*)+$/;
+/** Why a project name is not valid — for the forms */
+export const PROJECT_NAME_RULE = 'Projekt: Kleinbuchstaben, Ziffern und «_», Teile mit «-» verbunden, z. B. acme-crm';
 
 export function newCollection(input: { title: string; project: string; api: string; apiVersion: number; pathPrefix?: string; description?: string }): ServiceCollectionSpec {
   const now = nowIsoWithTimezone();

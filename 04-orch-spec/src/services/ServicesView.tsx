@@ -15,7 +15,7 @@ import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../com
 import { epicsOf } from '../epics';
 import { useStore } from '../store';
 import { EpicChip, StatusChip, cls } from '../ui';
-import { API_NAME, PROJECT_NAME, apiList, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
+import { API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiList, apisOf, collectionPackage, collectionSlug, collectionStatus, newCollection, topicPrefix } from './collection';
 import { useServices, type ServiceListItem } from './store';
 import CollectionImport from './CollectionImport';
 import { newOrchestration, orchestrationTopic } from './orchestration';
@@ -209,7 +209,7 @@ function NewCollection({ existing, onCreate, onClose }: {
   const slug = collectionSlug(input);
   const taken = existing.includes(slug);
   const problem = !input.title ? 'Titel fehlt'
-    : !PROJECT_NAME.test(input.project) ? 'Projekt: Kleinbuchstaben mit «-», z. B. acme-crm'
+    : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
       : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
         : apiVersion < 1 ? 'Version ab 1'
           : input.pathPrefix && !input.pathPrefix.startsWith('/') ? 'Teilpfad beginnt mit «/»'
@@ -282,7 +282,7 @@ function NewOrchestration({ existing, projects, onCreate, onClose }: {
   const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, name: name.trim() };
   const slug = slugify(`${input.project}-${input.name}`);
   const problem = !input.title ? 'Titel fehlt'
-    : !PROJECT_NAME.test(input.project) ? 'Projekt: Kleinbuchstaben mit «-», z. B. acme-crm'
+    : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
       : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
         : !/^[A-Z][A-Za-z0-9]*$/.test(input.name) ? 'Name: ein Scala-Objekt, z. B. UpdateClient'
           : existing.includes(slug) ? `services/${slug}.json gibt es schon` : '';
