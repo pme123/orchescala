@@ -71,8 +71,7 @@ export default function App() {
       if (r === 'ready') {
         if (savedSharePoint) await reconnectSharePoint();
         else setSpOpen(true);
-      }
-      else if (r === 'setup') { setSetupError(''); setSetupRoles(peekPendingRoles() ?? { ...DEFAULT_ROLES }); setSetupOpen(true); }
+      } else if (r === 'setup') { setSetupError(''); setSetupRoles(peekPendingRoles() ?? { ...DEFAULT_ROLES }); setSetupOpen(true); }
     } finally {
       setSpPreparing(false);
     }

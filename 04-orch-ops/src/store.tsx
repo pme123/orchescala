@@ -283,6 +283,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const forgetSharePoint = useCallback(() => {
     storeSharePoint(null); setSavedSharePoint(null);
+    // a forgotten SharePoint folder must not come back through «Zurück zu …»
+    if (previousRef.current?.info.kind === 'sharepoint') {
+      previousRef.current = null;
+      setPreviousStorage(null);
+    }
   }, []);
 
   // «Anderen Ordner wählen» only closes the folder — it is kept in reserve
