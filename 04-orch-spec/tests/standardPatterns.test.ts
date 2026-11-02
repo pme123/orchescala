@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern, setVariableOnly } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import type { EngineId, PatternDef } from '../src/types';
 
@@ -481,4 +481,20 @@ test('C7: a listener that does more than set the variable is not replaced by the
   assert.ok(res.changed, res.issues.join('; '));
   const expressions = elements(one(parse(res.xml), 'bpmn:endEvent'), 'camunda:executionListener').map(l => l.getAttribute('expression'));
   assert.deepEqual(expressions, [more, '${execution.setVariable("processStatus", "canceled")}']);
+});
+
+test('setVariableOnly: one setVariable call and nothing after it - brackets and quotes in strings do not count', () => {
+  const cases: Array<[string, string | null]> = [
+    ['${execution.setVariable("processStatus", "succeeded")}', 'processStatus'],
+    ["#{execution.setVariable('processStatus', 'succeeded')}", 'processStatus'],
+    ['${execution.setVariable("x", ")")}', 'x'],
+    ['${execution.setVariable("x", "a \\" ) b")}', 'x'],
+    ['${execution.setVariable("x", foo(")", bar(1)))}', 'x'],
+    ['${execution.setVariable("x", foo(1)) + foo(b)}', null],
+    ['${execution.setVariable("x", "a") || execution.setVariable("y", 1)}', null],
+    ['${execution.setVariable("x", "unterminated)}', null],
+    ['${execution.setVariable("x", foo(1)}', null],
+    ['${execution.getVariable("x")}', null],
+  ];
+  for (const [expr, name] of cases) assert.equal(setVariableOnly(expr), name, expr);
 });

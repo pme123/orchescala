@@ -608,15 +608,10 @@ function itemsOf(el: Element): Item[] {
 }
 const sameSlot = (a: Item, b: Item) => a.inExt === b.inExt && a.container === b.container;
 /**
- * Which variable a mapping assigns (`camunda:in`/`out`, input/output parameter,
- * `zeebe:input`/`output`, a Camunda 7 execution listener that is one
- * `execution.setVariable("x", …)`) — `null` for everything else and for `variables="all"`.
- */
-/**
  * The variable of a listener expression that is exactly one `execution.setVariable("x", …)` -
  * the call closed with its own bracket and nothing after it (`… ) + foo(b)` does more).
  */
-function setVariableOnly(expression: string): string | null {
+export function setVariableOnly(expression: string): string | null {
   const head = /^\s*[$#]\{\s*execution\.setVariable\(\s*(["'])([\w.-]+)\1\s*,/.exec(expression);
   if (!head) return null;
   let depth = 1, quote = '';
@@ -630,6 +625,11 @@ function setVariableOnly(expression: string): string | null {
   return null;
 }
 
+/**
+ * Which variable a mapping assigns (`camunda:in`/`out`, input/output parameter,
+ * `zeebe:input`/`output`, a Camunda 7 execution listener that is one
+ * `execution.setVariable("x", …)`) — `null` for everything else and for `variables="all"`.
+ */
 function mappingKey(el: Element): string | null {
   const n = local(el);
   if (n === 'executionListener') {
