@@ -546,7 +546,7 @@ object C7ProcessInstanceService:
     *   how far apart these checks are
     * @param cleanupTimeout
     *   how long a start waits at most for these checks and the removal - see
-    *   `conflictWithPendingRemoved`
+    *   `conflictAfterRemoval`
     */
   final case class StartTimings(
       correlationChecks: Int = 4,
