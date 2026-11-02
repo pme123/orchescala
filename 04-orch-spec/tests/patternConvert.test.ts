@@ -254,3 +254,16 @@ test('stripPatternItems takes out only the chosen hits - the others keep what th
   // what is left is still recognised
   assert.deepEqual(hitsOf(res.xml, 'c7'), hitsOf(xml, 'c7').filter(([id]) => id !== 'identity-reset'));
 });
+
+test('the variables of the specification reach the conversion through convertWithPatterns too', () => {
+  // the pattern on TakeOver is taken out and inserted again, the output on End is converted
+  const c8 = withPatterns('c8').replace(/(<zeebe:output source="[^"]*" target="processStatus"\s*\/>)/,
+    '$1<zeebe:output source="=_identityCorrelation.username" target="who" />');
+  assert.ok(c8.includes('target="who"'), 'the extra output is in the C8 diagram');
+  const spec = { ...importBpmn(c8, 'x.bpmn', { patterns: STANDARD_PATTERNS }).spec, engine: 'c8' as const };
+  const res = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5', juel: juelOptions(spec, null) });
+  const end = elementOf(res.xml, 'End');
+  const who = [...setsOf(res.xml, 'End').listeners, ...named(end, 'camunda:outputParameter').map(o => `${o.getAttribute('name')}=${o.textContent}`)].find(t => t.includes('username')) ?? '';
+  assert.ok(who.includes('_identityCorrelation.prop("username").stringValue()'), who);
+  assert.deepEqual(hitsOf(res.xml, 'c7'), hitsOf(withPatterns('c7'), 'c7'));
+});

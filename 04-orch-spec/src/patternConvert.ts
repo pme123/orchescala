@@ -57,9 +57,10 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
  */
 function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, defs: PatternDef[], opts: ConvertOptions, skip: ReadonlySet<number>):
   { result: (WriteResult & { changed: boolean }) | null; failed: Failed; hits: number } {
-  const hasTarget = (h: PatternHit) => !!fragmentFor(byId.get(h.patternId)!, target);
+  // a hit only comes from one of the definitions - one without is left as it is
+  const hasTarget = (h: PatternHit) => { const d = byId.get(h.patternId); return !!d && !!fragmentFor(d, target); };
   const strip = stripPatternItems(xml, defs, detectEngine(xml), (h, i) => hasTarget(h) && !skip.has(i));
-  const without = strip.all.filter(h => !hasTarget(h));
+  const without = strip.all.filter(h => byId.has(h.patternId) && !hasTarget(h));
   const failed: Failed = new Map();
   if (!strip.taken.length && !without.length) return { result: null, failed, hits: strip.all.length };
 
