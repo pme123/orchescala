@@ -7,6 +7,7 @@ import { convertBpmn } from '../src/engineConvert';
 import { importBpmn } from '../src/bpmn';
 import { juelOptions } from '../src/feel';
 import { convertWithPatterns } from '../src/patternConvert';
+import { exportBpmnFor } from '../src/exporters';
 import { STANDARD_PATTERNS, applyPattern, detectPatterns } from '../src/patterns';
 import type { EngineId, PatternDef } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -47,6 +48,25 @@ const withPatterns = (engine: EngineId) => {
 const hitsOf = (xml: string, engine: EngineId) =>
   detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]).sort();
 
+/** the element with the ID - read with the DOM, attribute values unescaped */
+const below = (el: Element): Element[] => Array.from(el.children).flatMap(c => [c, ...below(c)]);
+const elementOf = (xml: string, id: string): Element => {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
+  const el = below(doc.documentElement).find(e => e.getAttribute('id') === id);
+  assert.ok(el, `${id} in the diagram`);
+  return el;
+};
+const named = (el: Element, tag: string): Element[] => below(el).filter(e => e.tagName === tag);
+/** what an element sets: zeebe outputs (target=source), C7 listener expressions, C7 output parameters */
+const setsOf = (xml: string, id: string) => {
+  const el = elementOf(xml, id);
+  return {
+    outputs: named(el, 'zeebe:output').map(o => `${o.getAttribute('target')}=${o.getAttribute('source')}`),
+    listeners: named(el, 'camunda:executionListener').map(l => l.getAttribute('expression') ?? ''),
+    outputParameters: named(el, 'camunda:outputParameter').map(o => o.getAttribute('name') ?? ''),
+  };
+};
+
 test('C7 → C8: the identity patterns go over in their C8 form - nothing to adjust by hand', () => {
   const c7 = withPatterns('c7');
   // without the patterns the listeners with getVariableTyped have no FEEL translation
@@ -57,16 +77,15 @@ test('C7 → C8: the identity patterns go over in their C8 form - nothing to adj
   assert.ok(!res.xml.includes('getVariableTyped'), 'no JUEL left');
   assert.deepEqual(hitsOf(res.xml, 'c8'), hitsOf(withPatterns('c8'), 'c8'));
   // the order of the outputs counts on C8: first save the identity, then take over
-  const take = /<bpmn:intermediateThrowEvent id="TakeOver"[\s\S]*?<\/bpmn:intermediateThrowEvent>/.exec(res.xml)![0];
-  assert.ok(take.indexOf('target="_identityCorrelationBefore"') < take.indexOf('target="_identityCorrelation"'), take);
-  assert.equal((take.match(/<zeebe:output /g) ?? []).length, 2, 'no output twice');
+  assert.deepEqual(setsOf(res.xml, 'TakeOver').outputs, setsOf(withPatterns('c8'), 'TakeOver').outputs);
+  assert.deepEqual(setsOf(res.xml, 'TakeOver').outputs.map(o => o.split('=')[0]), ['_identityCorrelationBefore', '_identityCorrelation']);
 });
 
 test('C8 → C7: the identity patterns go over in their C7 form', () => {
   const res = convertWithPatterns(withPatterns('c8'), 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
   assert.deepEqual(res.issues, []);
   assert.deepEqual(hitsOf(res.xml, 'c7'), hitsOf(withPatterns('c7'), 'c7'));
-  assert.ok(res.xml.includes('execution.getVariableTyped(&quot;_identityCorrelationBefore&quot;)') || res.xml.includes('execution.getVariableTyped("_identityCorrelationBefore")'), 'the C7 listener of the reset');
+  for (const id of ['TakeOver', 'Reset', 'End']) assert.deepEqual(setsOf(res.xml, id), setsOf(withPatterns('c7'), id), id);
 });
 
 test('without patterns the conversion is the same as before', () => {
@@ -87,6 +106,14 @@ test('a pattern without BPMN for the target engine is said - the rest is convert
   assert.ok(res.issues.some(i => i.stepId === 'TakeOver' && i.text.includes('nicht nach FEEL')));
 });
 
+test('a pattern whose target BPMN does not fit the element is said - it is missing there afterwards', () => {
+  const take = std('identity-take-over');
+  // its C8 form belongs to the process, not to an element: it cannot go back onto TakeOver
+  const misfit: PatternDef = { ...take, id: 'acme-misfit', bpmn: { c7: take.bpmn.c7, c8: std('unique-execution').bpmn.c8 } };
+  const res = convertWithPatterns(withPatterns('c7'), 'c8', [misfit]);
+  assert.ok(res.issues.some(i => i.stepId === 'TakeOver' && i.where === 'Pattern' && i.text.includes('liess sich nicht')), res.issues.map(i => i.text).join('; '));
+});
+
 test('C7 → C8 → C7: the patterns come back in their C7 form only - no output parameters beside the listeners', () => {
   const c7 = withPatterns('c7');
   const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
@@ -94,10 +121,8 @@ test('C7 → C8 → C7: the patterns come back in their C7 form only - no output
   assert.deepEqual([...c8.issues, ...back.issues], []);
   assert.deepEqual(hitsOf(back.xml, 'c7'), hitsOf(c7, 'c7'));
   for (const id of ['TakeOver', 'Reset', 'End']) {
-    const el = (x: string) => new RegExp(`<bpmn:\\w+ id="${id}"[\\s\\S]*?</bpmn:\\w+Event>`).exec(x)![0];
-    const listeners = (x: string) => (el(x).match(/<camunda:executionListener /g) ?? []).length;
-    assert.ok(!/outputParameter|inputOutput/.test(el(back.xml)), `${id}: ${el(back.xml)}`);
-    assert.equal(listeners(back.xml), listeners(c7), id);
+    assert.deepEqual(setsOf(back.xml, id).outputParameters, [], id);
+    assert.deepEqual(setsOf(back.xml, id).listeners, setsOf(c7, id).listeners, id);
   }
 });
 
@@ -105,18 +130,26 @@ test('C8 → C7 → C8: the identity outputs come back once each', () => {
   const c8 = withPatterns('c8');
   const back = convertWithPatterns(convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' }).xml, 'c8', STANDARD_PATTERNS);
   assert.deepEqual(back.issues, []);
-  const take = /<bpmn:intermediateThrowEvent id="TakeOver"[\s\S]*?<\/bpmn:intermediateThrowEvent>/.exec(back.xml)![0];
-  assert.equal((take.match(/<zeebe:output /g) ?? []).length, 2, take);
-  assert.ok(!take.includes('camunda:'), take);
+  assert.deepEqual(setsOf(back.xml, 'TakeOver'), setsOf(c8, 'TakeOver'));
 });
 
 test('C8 → C7 with the variables of the specification: a Spin path to a text ends with stringValue()', () => {
-  // an input that reads the user name of the identity
+  // an output that reads the user name of the identity
   const c8 = diagram('c8').replace('<bpmn:endEvent id="End">',
     '<bpmn:endEvent id="End"><bpmn:extensionElements><zeebe:ioMapping><zeebe:output source="=_identityCorrelation.username" target="who" /></zeebe:ioMapping></bpmn:extensionElements>');
   const spec = { ...importBpmn(c8, 'x.bpmn').spec, engine: 'c8' as const };
-  const plain = convertBpmn(c8, 'c7', { timeToLive: '5' }).xml;
-  const typed = convertBpmn(c8, 'c7', { timeToLive: '5', juel: juelOptions(spec, null) }).xml;
-  assert.ok(!plain.includes('stringValue()'), 'without the variables nobody knows the type');
-  assert.ok(typed.includes('_identityCorrelation.prop("username").stringValue()') || typed.includes('_identityCorrelation.prop(&quot;username&quot;).stringValue()'), typed);
+  const value = (xml: string) => {
+    const end = elementOf(xml, 'End');
+    return [...setsOf(xml, 'End').listeners, ...named(end, 'camunda:outputParameter').map(o => o.textContent ?? '')].find(t => t.includes('username')) ?? '';
+  };
+  assert.ok(!value(convertBpmn(c8, 'c7', { timeToLive: '5' }).xml).includes('stringValue()'), 'without the variables nobody knows the type');
+  assert.ok(value(convertBpmn(c8, 'c7', { timeToLive: '5', juel: juelOptions(spec, null) }).xml).includes('_identityCorrelation.prop("username").stringValue()'));
+});
+
+test('the export for the other engine takes the patterns over too', () => {
+  const c7 = withPatterns('c7');
+  const spec = { ...importBpmn(c7, 'x.bpmn', { patterns: STANDARD_PATTERNS }).spec, engine: 'c7' as const };
+  const out = exportBpmnFor(spec, c7, 'c8', null);
+  assert.ok(!out.issues.some(i => i.text.includes('nicht nach FEEL')), out.issues.map(i => i.text).join('; '));
+  assert.deepEqual(setsOf(out.xml, 'TakeOver').outputs, setsOf(withPatterns('c8'), 'TakeOver').outputs);
 });

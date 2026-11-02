@@ -11,7 +11,7 @@
 // So no old form stays beside the new one (C8 output mappings would otherwise become C7 output
 // parameters next to the pattern's listeners).
 import { convertBpmn, detectEngine } from './engineConvert.ts';
-import { applyPattern, detectPatterns, fragmentFor, stripPatternItems } from './patterns.ts';
+import { applyPattern, detectPatterns, fragmentFor, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import type { EngineId, PatternDef } from './types.ts';
@@ -22,9 +22,10 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
   const from = detectEngine(xml);
   if (from === target || !defs?.length) return convertBpmn(xml, target, opts);
   const defOf = (id: string) => defs.find(d => d.id === id);
+  const hasTarget = (h: PatternHit) => !!fragmentFor(defOf(h.patternId)!, target);
   // a pattern without BPMN for the target engine is converted like everything else
-  const strip = stripPatternItems(xml, defs, from, h => !!fragmentFor(defOf(h.patternId)!, target));
-  const without = detectPatterns(xml, defs, from).hits.filter(h => !fragmentFor(defOf(h.patternId)!, target));
+  const strip = stripPatternItems(xml, defs, from, hasTarget);
+  const without = strip.all.filter(h => !hasTarget(h));
   if (!strip.hits.length && !without.length) return convertBpmn(xml, target, opts);
 
   const conv = convertBpmn(strip.xml, target, opts);
@@ -33,15 +34,29 @@ export function convertWithPatterns(xml: string, target: EngineId, defs: Pattern
     stepId: h.targetId ?? '', where: 'Pattern',
     text: `«${defOf(h.patternId)!.name}» hat kein BPMN für ${engineLabel(target)} - umgewandelt wie der Rest, von Hand prüfen.`,
   }));
+  const inserted = new Map<PatternHit, { changed: boolean; issues: string[] }>();
+  for (const h of strip.hits) {
+    const res = applyPattern(out, defOf(h.patternId)!, target, h.targetId, h.params);
+    if (res.changed) out = res.xml;
+    inserted.set(h, res);
+  }
+
+  // each pattern on its element again - with the same parameters
+  const now = detectPatterns(out, defs, target).hits;
   for (const h of strip.hits) {
     const def = defOf(h.patternId)!;
-    const res = applyPattern(out, def, target, h.targetId, h.params);
-    if (res.changed) out = res.xml;
-    const there = detectPatterns(out, defs, target).hits.some(x => x.patternId === h.patternId && x.targetId === h.targetId);
-    // what inserting says (a limitation on the engine, a kept correlation key) - and if it failed:
-    // then the pattern is missing on its element
-    if (res.changed || !there) for (const text of res.issues) extra.push({ stepId: h.targetId ?? '', where: 'Pattern', text });
-    if (!there) extra.push({ stepId: h.targetId ?? '', where: 'Pattern', text: `«${def.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen - von Hand ergänzen.` });
+    const stepId = h.targetId ?? '';
+    const again = now.find(x => x.patternId === h.patternId && x.targetId === h.targetId);
+    // what inserting says (a limitation on the engine, a kept correlation key, why it failed) -
+    // not when it found everything there already
+    const res = inserted.get(h)!;
+    if (res.changed || !again) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
+    if (!again) {
+      extra.push({ stepId, where: 'Pattern', text: `«${def.name}» liess sich nicht in der Form für ${engineLabel(target)} einsetzen - von Hand ergänzen.` });
+      continue;
+    }
+    const changed = Object.keys({ ...h.params, ...again.params }).filter(k => (h.params[k] ?? '') !== (again.params[k] ?? ''));
+    if (changed.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${changed.map(k => `«${k}» war «${h.params[k] ?? ''}», ist jetzt «${again.params[k] ?? ''}»`).join(', ')} - prüfen.` });
   }
   return { xml: out, issues: [...conv.issues, ...extra], changed: true };
 }

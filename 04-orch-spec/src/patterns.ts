@@ -1145,13 +1145,15 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
  * listeners, mappings, definitions -, not their paths and blocks. For a switch of engine: the
  * rest is converted as it is, then each pattern is inserted again in the form of the target
  * engine (see patternConvert.ts), so no old form stays beside the new one. `take` chooses the
- * patterns that are taken out; the hits are those taken out.
+ * patterns that are taken out; `hits` are those taken out, `all` every recognised one.
  */
-export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit) => boolean = () => true): { xml: string; hits: PatternHit[] } {
+export function stripPatternItems(xml: string, defs: PatternDef[], engine: EngineId, take: (h: PatternHit) => boolean = () => true): { xml: string; hits: PatternHit[]; all: PatternHit[] } {
   const doc = parseXml(xml);
-  if (!doc) return { xml, hits: [] };
-  const hits = detectIn(doc, defs, engine).hits.filter(h => take(h));
-  if (!hits.length) return { xml, hits: [] };
+  if (!doc) return { xml, hits: [], all: [] };
+  const found = detectIn(doc, defs, engine).hits;
+  const all = found.map(({ match: _, fr: __, ...h }) => h);
+  const hits = found.filter(h => take(h));
+  if (!hits.length) return { xml, hits: [], all };
   for (const h of hits) {
     for (const el of h.match.items) {
       const parent: Element | null = el.parentElement;
@@ -1164,7 +1166,7 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
       }
     }
   }
-  return { xml: new Writer(doc).serialize(xml), hits: hits.map(({ match: _, fr: __, ...h }) => h) };
+  return { xml: new Writer(doc).serialize(xml), hits: hits.map(({ match: _, fr: __, ...h }) => h), all };
 }
 
 type OwnItems = Map<Element, Map<string, Set<Element>>>;

@@ -64,3 +64,11 @@ test('the identities of the gateway are known - _identityCorrelation always, _id
     }
   }
 });
+
+test('an own variable with the name of a gateway identity keeps its own description - the first one counts', () => {
+  const base = importBpmn(bpmn(PID), 'key.bpmn').spec;
+  const spec = { ...base, types: [...(base.types ?? []), { id: 'in', name: 'In', kind: 'case', root: true, fields: [{ id: 'f1', name: '_identityCorrelation', type: 'String' }] }] } as unknown as ProcessSpec;
+  const vars = processVariables(spec, null).filter(v => v.name === '_identityCorrelation');
+  assert.equal(vars.length, 1);
+  assert.equal(vars[0].source, 'In');
+});

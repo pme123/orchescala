@@ -67,3 +67,10 @@ test('a call accepts businessKey without its In - in Camunda 8 the business key 
   const other = warningsOf([{ name: 'businessKey', expression: '= businessKey' }, { name: 'clientKey', expression: '= 1' }, { name: 'somethingElse', expression: '= 1' }]);
   assert.ok(other.some(w => w.includes('«somethingElse» noch nicht im') && !w.includes('businessKey')), other.join(' / '));
 });
+
+test('on Camunda 7 a call accepts businessKey too - an input with that name reaches the subprocess as well', () => {
+  const model = { domainTypes: scanScala(source), services: [] } as unknown as Model;
+  const s = { ...callSpec([{ name: 'businessKey', expression: '= businessKey' }, { name: 'clientKey', expression: '= 1' }]), engine: 'c7' } as ProcessSpec;
+  const found = [...collectFindings(s, model, s.steps).values()].flatMap(f => f.warnings);
+  assert.ok(!found.some(w => w.includes('noch nicht im')), found.join(' / '));
+});

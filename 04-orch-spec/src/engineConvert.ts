@@ -98,28 +98,26 @@ function toFeelSource(text: string, where: string, issue: Issue): string {
 }
 
 /**
- * What the specification knows about the variables while one conversion runs (see convertBpmn) -
- * so a Spin path ends right: `_identityCorrelation.username` → `….prop("username").stringValue()`.
+ * FEEL → `${…}`; fixed text stays. `juel`: what the specification knows about the variables
+ * (see convertBpmn) - so a Spin path ends right: `_identityCorrelation.username` →
+ * `….prop("username").stringValue()`.
  */
-let juelOpts: JuelOptions = {};
-
-/** FEEL → `${…}`; fixed text stays */
-function toJuel(text: string, where: string, issue: Issue): string {
+function toJuel(text: string, where: string, issue: Issue, juel: JuelOptions = {}): string {
   const t = text.trim();
   const body = feelBody(t);
   if (body == null) return t;
-  const r = feelToJuel(body, juelOpts);
+  const r = feelToJuel(body, juel);
   if (r.ok) return `\${${r.juel}}`;
   issue(where, `«${t}» ist nicht nach JUEL übersetzbar (${r.reason}) — von Hand anpassen.`);
   return t;
 }
 
 /** Value of a `camunda:inputParameter` from a zeebe source: a FEEL string becomes fixed text again */
-function toJuelValue(source: string, where: string, issue: Issue): string {
+function toJuelValue(source: string, where: string, issue: Issue, juel: JuelOptions = {}): string {
   const body = feelBody(source.trim());
   const lit = body != null ? /^"((?:[^"\\]|\\.)*)"$/.exec(body) : null;
   if (lit) return lit[1].replace(/\\(["\\])/g, '$1');
-  return toJuel(source, where, issue);
+  return toJuel(source, where, issue, juel);
 }
 
 /** bare variable name (`=client`) — for `camunda:in source` */
@@ -140,15 +138,6 @@ const plainVar = (source: string): string | null => {
  * path ends without `stringValue()` & co.
  */
 export function convertBpmn(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string>; juel?: JuelOptions } = {}): WriteResult & { changed: boolean } {
-  juelOpts = opts.juel ?? {};
-  try {
-    return convert(xml, target, opts);
-  } finally {
-    juelOpts = {};
-  }
-}
-
-function convert(xml: string, target: EngineId, opts: { timeToLive?: string; correlationKeys?: Record<string, string> }): WriteResult & { changed: boolean } {
   const issues: WriteIssue[] = [];
   if (detectEngine(xml) === target) return { xml, issues, changed: false };
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -158,7 +147,7 @@ function convert(xml: string, target: EngineId, opts: { timeToLive?: string; cor
   }
   const bpmnPrefix = defs.prefix ? `${defs.prefix}:` : '';
   const ctx: Ctx = {
-    doc, issues, later: [], correlationKeys: opts.correlationKeys ?? {},
+    doc, issues, later: [], correlationKeys: opts.correlationKeys ?? {}, juel: opts.juel ?? {},
     bpmnEl: name => doc.createElementNS(defs.namespaceURI, `${bpmnPrefix}${name}`),
   };
 
@@ -198,6 +187,8 @@ interface Ctx {
   later: Array<[Element, Element[]]>;
   /** Element ID → chosen correlation key (see convertBpmn) */
   correlationKeys: Record<string, string>;
+  /** the variables of the specification for FEEL → JUEL (see convertBpmn) */
+  juel: JuelOptions;
 }
 
 function usesNs(root: Element, ns: string): boolean {
@@ -528,7 +519,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     // ── Job type → external task (for message events on the event definition)
     const task = z('taskDefinition');
     if (task) {
-      const type = toJuel(task.getAttribute('type') ?? '', 'Job-Typ', issue);
+      const type = toJuel(task.getAttribute('type') ?? '', 'Job-Typ', issue, ctx.juel);
       const med = firstNamed(el, 'messageEventDefinition');
       const holder = ['intermediateThrowEvent', 'endEvent'].includes(name) && med ? med : el;
       setC(holder, 'type', 'external');
@@ -542,7 +533,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     if (name === 'callActivity') {
       if (called) {
         const pid = called.getAttribute('processId') ?? '';
-        el.setAttribute('calledElement', pid.startsWith('=') ? toJuel(pid, 'Aufgerufener Prozess', issue) : pid);
+        el.setAttribute('calledElement', pid.startsWith('=') ? toJuel(pid, 'Aufgerufener Prozess', issue, ctx.juel) : pid);
         // Default in Camunda 8: both «true»
         if (called.getAttribute('propagateAllParentVariables') !== 'false') add.push(camunda('in', { variables: 'all' }));
         if (called.getAttribute('propagateAllChildVariables') !== 'false') add.push(camunda('out', { variables: 'all' }));
@@ -558,14 +549,14 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         const plain = plainVar(source);
         add.push(plain
           ? camunda(tag, { source: plain, target })
-          : camunda(tag, { sourceExpression: source.trim().startsWith('=') ? toJuel(source, where, issue) : source, target }));
+          : camunda(tag, { sourceExpression: source.trim().startsWith('=') ? toJuel(source, where, issue, ctx.juel) : source, target }));
       }
     } else if (io.length && EVENTS.has(name) && io.every(p => local(p) === 'output')) {
       // Camunda 7 knows no output mapping on events — there a
       // listener sets the variable (the pattern it came from in Camunda 8)
       for (const p of io) {
         const target = p.getAttribute('target') ?? '';
-        const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue);
+        const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, ctx.juel);
         const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
         add.push(camunda('executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event: 'start' }));
       }
@@ -579,7 +570,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
           e.textContent = errorListSource(parseErrorList(p.getAttribute('source') ?? ''), 'c7', (x, why) => issue(`Eingabe «${target}»`, `«${x}» ist nicht nach JUEL übersetzbar (${why}) — von Hand anpassen.`));
           return e;
         }
-        e.textContent = toJuelValue(p.getAttribute('source') ?? '', `${tag === 'inputParameter' ? 'Eingabe' : 'Ausgabe'} «${target}»`, issue);
+        e.textContent = toJuelValue(p.getAttribute('source') ?? '', `${tag === 'inputParameter' ? 'Eingabe' : 'Ausgabe'} «${target}»`, issue, ctx.juel);
         return e;
       });
       ctx.later.push([cio, params]);
@@ -597,14 +588,14 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     // ── User task
     const assign = z('assignmentDefinition');
     if (assign) {
-      setC(el, 'assignee', toJuelAttr(assign.getAttribute('assignee'), 'Zuständig', issue));
-      setC(el, 'candidateGroups', toJuelAttr(assign.getAttribute('candidateGroups'), 'Gruppen', issue));
-      setC(el, 'candidateUsers', toJuelAttr(assign.getAttribute('candidateUsers'), 'Benutzer', issue));
+      setC(el, 'assignee', toJuelAttr(assign.getAttribute('assignee'), 'Zuständig', issue, ctx.juel));
+      setC(el, 'candidateGroups', toJuelAttr(assign.getAttribute('candidateGroups'), 'Gruppen', issue, ctx.juel));
+      setC(el, 'candidateUsers', toJuelAttr(assign.getAttribute('candidateUsers'), 'Benutzer', issue, ctx.juel));
     }
     const sched = z('taskSchedule');
     if (sched) {
-      setC(el, 'dueDate', toJuelAttr(sched.getAttribute('dueDate'), 'Fälligkeit', issue));
-      setC(el, 'followUpDate', toJuelAttr(sched.getAttribute('followUpDate'), 'Wiedervorlage', issue));
+      setC(el, 'dueDate', toJuelAttr(sched.getAttribute('dueDate'), 'Fälligkeit', issue, ctx.juel));
+      setC(el, 'followUpDate', toJuelAttr(sched.getAttribute('followUpDate'), 'Wiedervorlage', issue, ctx.juel));
     }
     const form = z('formDefinition');
     if (form) {
@@ -618,21 +609,21 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       const lc = z('loopCharacteristics');
       if (lc) {
         const coll = lc.getAttribute('inputCollection');
-        if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? toJuel(coll, 'Sammlung', issue) : coll);
+        if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? toJuel(coll, 'Sammlung', issue, ctx.juel) : coll);
         setC(el, 'elementVariable', lc.getAttribute('inputElement') ?? '');
         if (lc.getAttribute('outputCollection')) issue('Mehrfachausführung', `outputCollection/outputElement gibt es in ${C7_LABEL} nicht — Ergebnisse von Hand sammeln.`);
       }
       const cc = firstNamed(el, 'completionCondition');
-      if (cc) cc.textContent = toJuel(cc.textContent ?? '', 'Abschlussbedingung', issue);
+      if (cc) cc.textContent = toJuel(cc.textContent ?? '', 'Abschlussbedingung', issue, ctx.juel);
     }
 
     // ── Conditions and timers
     // Camunda 7 does not need the wrapper `(…) = true` — there `null` is `false` anyway
-    if (name === 'conditionExpression') el.textContent = toJuel(stripNullSafe(el.textContent ?? '').replace(/^= /, '='), 'Bedingung', issue);
-    if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) el.textContent = toJuel(el.textContent ?? '', 'Timer', issue);
+    if (name === 'conditionExpression') el.textContent = toJuel(stripNullSafe(el.textContent ?? '').replace(/^= /, '='), 'Bedingung', issue, ctx.juel);
+    if (['timeDuration', 'timeDate', 'timeCycle'].includes(name)) el.textContent = toJuel(el.textContent ?? '', 'Timer', issue, ctx.juel);
     if (name === 'message' || name === 'signal') {
       const n = el.getAttribute('name');
-      if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue));
+      if (n?.startsWith('=')) el.setAttribute('name', toJuel(n, name === 'signal' ? 'Signalname' : 'Nachrichtenname', issue, ctx.juel));
     }
 
     // ── Process
@@ -927,7 +918,7 @@ function setVariableOf(expression: string): { name: string; value: string } | nu
   return m ? { name: m[2], value: m[3] } : null;
 }
 
-function toJuelAttr(v: string | null, where: string, issue: Issue): string | undefined {
+function toJuelAttr(v: string | null, where: string, issue: Issue, juel: JuelOptions = {}): string | undefined {
   if (!v) return undefined;
-  return v.trim().startsWith('=') ? toJuel(v, where, issue) : v;
+  return v.trim().startsWith('=') ? toJuel(v, where, issue, juel) : v;
 }
