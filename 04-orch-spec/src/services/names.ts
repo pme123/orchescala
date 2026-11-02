@@ -13,7 +13,7 @@ export function camelName(raw: string): string {
 }
 
 /**
- * A header of the response as FEEL reads it: `X-Finnova-Transaction-Id` → `headers.xFinnovaTransactionId`,
+ * A header of the response as FEEL reads it: `X-Core-Transaction-Id` → `headers.xCoreTransactionId`,
  * `etag` → `headers.etag`. The worker finds it by its real name, whatever the case.
  */
 export const headerVar = (header: string): string => camelName(header);

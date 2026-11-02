@@ -86,9 +86,9 @@ export const API_NAME = /^[a-z][A-Za-z0-9]*$/;
 /** What is typed as API, as a name: `NaturalPerson` (an OpenAPI tag) → `naturalPerson` */
 export const apiName = (typed: string): string => typed.trim().replace(/^[A-Z]/, c => c.toLowerCase());
 /**
- * `acme-crm`, `z9nai-finnovaNeo_2` — at least two parts joined by `-` (company
+ * `acme-crm`, `acme-coreNeo_2` — at least two parts joined by `-` (company
  * and project). A part is letters, digits and `_`, not starting with a digit:
- * each part becomes a Scala package (`z9nai.finnovaNeo_2`).
+ * each part becomes a Scala package (`acme.coreNeo_2`).
  */
 export const PROJECT_NAME = /^[A-Za-z_][A-Za-z0-9_]*(-[A-Za-z_][A-Za-z0-9_]*)+$/;
 /** Why a project name is not valid — for the forms */
@@ -152,7 +152,7 @@ export function suggestOutMappings(c: Pick<ServiceCollectionSpec, 'types'>, s: C
     if (!f.name || have.has(f.name)) continue;
     const bodyField = bodyCase?.fields?.find(b => b.name === f.name);
     const inField = inType?.fields?.find(i => i.name === f.name);
-    // a header of the response named like the field — or ending with it (`X-Finnova-Transaction-Id` → transactionId)
+    // a header of the response named like the field — or ending with it (`X-Core-Transaction-Id` → transactionId)
     const header = (s.responseHeaders ?? []).find(h => headerVar(h) === f.name)
       ?? (s.responseHeaders ?? []).find(h => headerVar(h).endsWith(capitalize(f.name)));
     const expression = header ? `= headers.${headerVar(header)}`

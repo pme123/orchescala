@@ -18,7 +18,7 @@ test('FEEL paths become Scala — with Option along the way', () => {
   const vars = new Map<string, ScalaVar>([
     ['clientKey', { scala: 'in.clientKey', type: 'Long' }],
     ['body', { scala: 'body', type: 't-client' }],
-    ['headers', { scala: 'headers', headers: ['ETag', 'X-Finnova-Transaction-Id'] }],
+    ['headers', { scala: 'headers', headers: ['ETag', 'X-Core-Transaction-Id'] }],
   ]);
   const types = [client, address];
   assert.deepEqual(feelToScala('= clientKey', vars, types), { scala: 'in.clientKey', optional: false });
@@ -27,7 +27,7 @@ test('FEEL paths become Scala — with Option along the way', () => {
   assert.deepEqual(feelToScala('= body.address.city', vars, types), { scala: 'body.address.flatMap(_.city)', optional: true });
   // a header by its real name, whatever the case the server sends
   assert.deepEqual(feelToScala('= headers.etag', vars, types), { scala: 'headers.find(_._1.equalsIgnoreCase("ETag")).map(_._2)', optional: true });
-  assert.equal(feelToScala('= headers.xFinnovaTransactionId', vars, types).scala, 'headers.find(_._1.equalsIgnoreCase("X-Finnova-Transaction-Id")).map(_._2)');
+  assert.equal(feelToScala('= headers.xCoreTransactionId', vars, types).scala, 'headers.find(_._1.equalsIgnoreCase("X-Core-Transaction-Id")).map(_._2)');
   assert.deepEqual(feelToScala('= 3', vars, types, { type: 'Long' }), { scala: '3L', optional: false });
   assert.deepEqual(feelToScala('= "CH"', vars, types), { scala: '"CH"', optional: false });
   assert.deepEqual(feelToScala('fix', vars, types), { scala: '"fix"', optional: false });
@@ -218,10 +218,10 @@ private[v1] def helper(c: Client): Client = c
 test('a header of the response maps to the Out field it ends with', async () => {
   const { suggestOutMappings } = await import('../src/services/collection');
   const c = collection();
-  const s = { ...c.services[0], outMappings: [], responseHeaders: ['X-Finnova-Transaction-Id'] };
+  const s = { ...c.services[0], outMappings: [], responseHeaders: ['X-Core-Transaction-Id'] };
   const out = c.types.find(t => t.id === s.outTypeId)!;
   const types = c.types.map(t => (t.id === out.id ? { ...t, fields: [{ id: 'x', name: 'transactionId', type: 'String' }] } : t));
-  assert.deepEqual(suggestOutMappings({ types }, s), { mappings: [{ name: 'transactionId', expression: '= headers.xFinnovaTransactionId' }], headers: [] });
+  assert.deepEqual(suggestOutMappings({ types }, s), { mappings: [{ name: 'transactionId', expression: '= headers.xCoreTransactionId' }], headers: [] });
 });
 
 test('an In with cases (ADT): enum In with the shared fields as def, its examples typed with the enum', () => {

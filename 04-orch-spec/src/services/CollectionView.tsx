@@ -757,7 +757,7 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
             className={`w-20 font-mono ${input}`} />
           <span className={c.muted}>Header</span>
           <input value={(s.responseHeaders ?? []).join(', ')} disabled={!canEdit} placeholder="etag, location"
-            title="wie die API sie nennt — in FEEL camelCase: X-Finnova-Transaction-Id → headers.xFinnovaTransactionId"
+            title="wie die API sie nennt — in FEEL camelCase: X-Core-Transaction-Id → headers.xCoreTransactionId"
             onChange={e => onPatch({ responseHeaders: e.target.value.split(',').map(h => h.trim()).filter(Boolean) })}
             className={`flex-1 font-mono ${input}`} />
         </div>

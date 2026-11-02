@@ -7,7 +7,7 @@
 //   = clientKey            → in.clientKey
 //   = body.address.city    → body.address.flatMap(_.city)     (address optional)
 //   = headers.etag         → headers.find(_._1.equalsIgnoreCase("etag")).map(_._2)
-//                            (the server decides the case: `ETag`, `X-Finnova-Transaction-Id`)
+//                            (the server decides the case: `ETag`, `X-Core-Transaction-Id`)
 //   = "CH" · = 3 · = true  → "CH" · 3L (for a Long) · true
 //   = "Account"            → ProductType.Account (for an enum field, as the process writes it)
 //   = [ clientKey ]        → Seq(in.clientKey)
@@ -36,8 +36,8 @@ export interface ScalaVar {
   collection?: boolean;
   /**
    * the headers: a `Map[String, String]` with the names as the server sends them — the
-   * headers of the response by their real name (`X-Finnova-Transaction-Id`, read in FEEL
-   * as `headers.xFinnovaTransactionId`)
+   * headers of the response by their real name (`X-Core-Transaction-Id`, read in FEEL
+   * as `headers.xCoreTransactionId`)
    */
   headers?: string[];
   /** a field of some cases of an ADT In — how each case reads it */

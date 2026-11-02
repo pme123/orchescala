@@ -1838,7 +1838,7 @@ Projekt acme-crm · API client · Version 1
   Projekt-Ordner übernimmt ihn, der Export schreibt ihn so. Leer: aus Basis-URL und
   Basispfad, mit `???` für die Platzhalter.
 - **Header der Antwort** stehen unter `ServiceResponse` mit ihrem echten Namen; in
-  FEEL heissen sie camelCase (`X-Finnova-Transaction-Id` → `headers.xFinnovaTransactionId`),
+  FEEL heissen sie camelCase (`X-Core-Transaction-Id` → `headers.xCoreTransactionId`),
   der Worker findet sie unabhängig von Gross/Klein. Ein Out-Feld, dessen Name ein
   Header ist oder auf den er endet (`transactionId`), ist vorbelegt.
 - **Bestehende importieren** übernimmt ein Projekt, dessen Services es schon gibt:
