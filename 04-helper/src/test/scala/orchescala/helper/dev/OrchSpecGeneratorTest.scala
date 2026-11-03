@@ -769,7 +769,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     // a second time: nothing to do
     assertEquals(obj.merge(m), m)
 
-  test("merge - an InConfig defined otherwise (type alias, import) is not added a second time"):
+  test("merge - an InConfig defined otherwise (type alias, import, used by In) is not added a second time"):
     val block    =
       """  case class In(
         |      customerName: String
@@ -779,16 +779,25 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |    given InOutCodec[In] = deriveInOutCodec
         |    lazy val example = In(customerName = "Peter Muster")
         |  end In""".stripMargin
-    def existing(imported: String, member: String) =
+    val plainIn  =
+      """  case class In(
+        |      customerName: String
+        |  )""".stripMargin
+    // the In already has the inConfig - its InConfig comes from elsewhere (a parent, a wildcard import)
+    val configIn =
+      """  case class In(
+        |      customerName: String,
+        |      inConfig: Option[InConfig] = None
+        |  ) extends WithConfig[InConfig]:
+        |    lazy val defaultConfig = InConfig()""".stripMargin
+    def existing(imported: String, member: String, in: String) =
       s"""package a.b
         |package domain.proc.v1
         |$imported
         |object Proc extends CompanyBpmnProcessDsl:
         |  val processName = "a-b-procV1"
         |$member
-        |  case class In(
-        |      customerName: String
-        |  )
+        |$in
         |  object In:
         |    given ApiSchema[In]  = deriveApiSchema
         |    given InOutCodec[In] = deriveInOutCodec
@@ -797,14 +806,18 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |end Proc
         |""".stripMargin
     val variants = Seq(
-      ("", "\n  type InConfig = Shared.InConfig\n"),       // type alias
-      ("\nimport a.b.domain.shared.InConfig\n", "")       // import
+      ("", "\n  type InConfig = Shared.InConfig\n", plainIn),  // type alias
+      ("\nimport a.b.domain.shared.InConfig\n", "", plainIn), // import
+      ("\nimport a.b.domain.shared.*\n", "", configIn)        // used by In before
     )
-    for (imported, member) <- variants do
-      val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block)
-        .merge(existing(imported, member))
+    for (imported, member, in) <- variants do
+      val obj = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block)
+      val ex  = existing(imported, member, in)
+      val m   = obj.merge(ex)
       assert(!m.contains("case class InConfig"), m)
       assert(m.contains("extends WithConfig[InConfig]"), m)
+      assert(!obj.differences(ex).contains("InConfig"), obj.differences(ex))
+      assertEquals(obj.merge(m), m)
 
   test("merge - InConfig only in a comment or inside another name still brings the empty InConfig"):
     val block    =

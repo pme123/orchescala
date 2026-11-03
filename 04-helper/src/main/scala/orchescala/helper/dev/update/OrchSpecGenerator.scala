@@ -671,11 +671,16 @@ case class OrchSpecProcessObject(
     // without its own `In` the export still gives the `inConfig` - so the generated `In` counts
     inBlock ++ Option.when(inBlock.nonEmpty && !inBlock.contains("In"))("In")
 
+  // `InConfig` as a whole word - not `MyInConfig`
+  private val inConfigWord = """\bInConfig\b""".r
+
   /** The types of the export that go into an existing object - and the empty `InConfig` when the
     * `In` brings `WithConfig[InConfig]` into an object that has no `InConfig` yet (otherwise it
     * does not compile). One the object knows already - its own class, an alias, an import, or one
     * the `In` used before (defined elsewhere) - stays as it is. Only the whole word counts (not
-    * `MyInConfig`), and not in a comment.
+    * `MyInConfig`), and not in a line comment or a line that starts a block comment. Not
+    * detected: an `InConfig` that only comes in with a wildcard import and that `In` did not use
+    * before - the empty `InConfig` then shadows it.
     */
   private def exportTypes(existing: Seq[String]): Seq[String] =
     blockTypes ++ Option.when(
@@ -685,18 +690,17 @@ case class OrchSpecProcessObject(
 
   // the code of a line (without a trailing `// …`) names `InConfig` - comment lines do not count
   private def knowsInConfig(line: String): Boolean =
-    val trimmed = line.trim
+    val trimmed   = line.trim
     val isComment = trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")
     val code      = trimmed.indexOf("//") match
       case -1 => trimmed
       case at => trimmed.take(at)
     !isComment && inConfigWord.findFirstIn(code).isDefined
 
-  private val inConfigWord = """\bInConfig\b""".r
-
   private lazy val inRefersToInConfig: Boolean =
     val generated = content.linesIterator.toSeq
-    ObjectSections(generated).find(_.name == "In").exists(_.lines(generated).exists(_.contains("InConfig")))
+    ObjectSections(generated).find(_.name == "In")
+      .exists(_.lines(generated).exists(inConfigWord.findFirstIn(_).isDefined))
 
   private def missingImports(lines: Seq[String]): Seq[String] =
     (imports ++ schemaImport).distinct.filterNot(OrchSpecImports.covered(lines, _))
