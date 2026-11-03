@@ -1351,7 +1351,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                         : (isDark ? 'border-amber-500/30 bg-amber-500/15 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700');
                       return (
                         <button onClick={() => setFindingsOnly(v => !v)}
-                          title={`${steps} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''}${atProcess ? ' — dazu der Prozess (Prozessvariablen, ohne Schritt auswählen)' : ''} — nur diese zeigen`}
+                          title={[
+                            steps ? `${steps} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''} — nur diese zeigen` : '',
+                            atProcess ? 'Befund am Prozess: Prozessvariablen (ohne Schritt auswählen)' : '',
+                          ].filter(Boolean).join('\n')}
                           className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${tone} ${
                             !findingsOnly && (statusFilter) ? 'opacity-30' : ''} ${findingsOnly ? 'ring-1 ring-current' : ''}`}>
                           <AlertTriangle size={9} /> {findings.size}
