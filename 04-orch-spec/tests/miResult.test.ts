@@ -104,3 +104,21 @@ test('after the step the process knows the list - with the fields of the entry',
   assert.deepEqual(results?.children?.map(c => c.name), ['aId', 'item']);
   assert.equal(variablesByStep(s, null).get('HandleItemsCall')!.some(v => v.name === 'results'), false, 'not yet at the step itself');
 });
+
+test('engine conversion: C8 → C7 generates the construct, C7 → C8 makes it native again', async () => {
+  const { convertBpmn } = await import('../src/engineConvert');
+  const spec = { ...importBpmn(c8(), 'items').spec, engine: 'c8' as const };
+  const xml8 = writeBpmn(c8(), withResult(spec)).xml;
+  const to7 = convertBpmn(xml8, 'c7');
+  assert.ok(to7.xml.includes(`${MI_RESULT_MARK}results = {aId: aId, item: item}`), to7.xml);
+  assert.ok(to7.xml.includes(`${MI_COLLECT_MARK}results`));
+  assert.match(to7.xml, /<camunda:inputParameter name="aId"\s*\/>/);
+  assert.doesNotMatch(to7.xml, /\$\{null\}/);
+  assert.deepEqual(to7.issues.filter(i => /outputCollection|Ergebnisse/.test(i.text + i.where)), []);
+  const back = convertBpmn(to7.xml, 'c8');
+  assert.match(back.xml, /outputCollection="results"/);
+  assert.match(back.xml, /outputElement="=\{aId: aId, item: item\}"/);
+  assert.ok(!back.xml.includes(MI_RESULT_MARK) && !back.xml.includes(MI_COLLECT_MARK));
+  assert.deepEqual(back.issues.filter(i => i.where === 'Listener'), [], back.issues.map(i => i.text).join(' / '));
+  assert.equal(back.xml.match(/target="aId"/g)?.length, 1);
+});
