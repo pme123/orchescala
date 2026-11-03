@@ -31,7 +31,9 @@ object ExternalTool:
     * with the processes it started, as far as they are found (see `started`); a tool that ended
     * while a process it started still holds its output (a credential helper, a child in the
     * background) is no result either. Without an input (`os.Pipe`) the tool's input is closed -
-    * a tool reading it does not wait. An input is given in a thread of its own (os-lib).
+    * a tool reading it does not wait. An input is given in a thread of its own (os-lib). The
+    * timeout is the tool's: stopping it and reading the rest of its output take a few seconds more
+    * (`stopWait`, `drainTime`).
     */
   def call(
       command: Seq[String],
