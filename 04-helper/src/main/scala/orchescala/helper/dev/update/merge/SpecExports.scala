@@ -127,8 +127,9 @@ object SpecSources:
       rev: String,
       extract: os.Path => Seq[String] = dir => Seq("tar", "-x", "-C", dir.toString)
   ): Option[os.Path] =
-    // git never asks for a credential: it fails at once instead of waiting for its timeout
-    val noPrompt           = Map("GIT_TERMINAL_PROMPT" -> "0")
+    // git never asks for a credential: it fails at once instead of waiting for its timeout; and it
+    // answers in English whatever the locale - its messages tell "no spec" from a failure
+    val noPrompt           = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C", "LANGUAGE" -> "C")
     def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project, env = noPrompt)
     // None only where git says there is no spec - any other failure (dubious ownership, a damaged
     // repository) is an error, not a first merge
