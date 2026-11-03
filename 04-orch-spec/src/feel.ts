@@ -742,6 +742,59 @@ export function withMultiInstance(vars: VarNode[], scopes: MultiInstanceSpec[] |
   return out;
 }
 
+/**
+ * What a step writes into the process variables — its outputs with their type, the
+ * `Out` of an own worker or user task, the result of a decision. Only what has a known
+ * type: an unknown one does not replace a known one (it would only stop the check).
+ */
+function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): VarNode[] {
+  const out: VarNode[] = [];
+  const add = (n: VarNode) => { if (n.name && n.type !== 'any' && !out.some(v => v.name === n.name)) out.push(n); };
+  let results: VarNode[] | null = null;
+  const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
+  for (const o of s.outputs ?? []) {
+    if (o.disabled || !o.name) continue;
+    const typed = outputNode(o, ofStep);
+    if (typed) add({ ...typed, name: o.name, source: `Ausgabe von ${s.name || s.id}`, ...(o.description ? { description: o.description } : {}) });
+  }
+  const kind = interactionKind(s, spec.processId ?? '');
+  if (kind === 'customTask' || kind === 'userTask') {
+    const source = `Ergebnis von ${s.name || s.id}`;
+    const ia = (spec.interactions ?? []).find(i => i.stepId === s.id);
+    const own = ia?.outTypeId ? (spec.types ?? []).find(t => t.id === ia.outTypeId) : undefined;
+    if (own) for (const f of own.fields ?? []) add({ ...nodeOfField(f, source, b, 0, new Set()), source });
+    else {
+      const dom = stepDomainMember(s, spec, model, 'Out');
+      if (dom) for (const n of domainNode(dom, b, 0, new Set([domainRef(dom.id)])).children ?? []) add({ ...n, source });
+    }
+  }
+  if (s.kind === 'rule' && s.resultVariable && !(spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name))) {
+    for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
+  }
+  return out;
+}
+
+/**
+ * The process variables as they are **at** each step: what a step before it wrote
+ * replaces what the process knew so far — the InitIn says `Seq[PrintDocument.In]`, a worker
+ * before the step writes `Seq[ContentForPrinting]`: at the step it is the worker's. The
+ * order is that of the flow (as the steps are listed); the step's own writes do not count
+ * for itself.
+ */
+export function variablesByStep(spec: ProcessSpec, model: Model | null, base: VarNode[] = processVariables(spec, model)): Map<string, VarNode[]> {
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  const out = new Map<string, VarNode[]>();
+  let now = base;
+  for (const s of allSteps(spec.steps)) {
+    out.set(s.id, now);
+    const writes = writesOf(s, spec, model, b);
+    if (!writes.length) continue;
+    const names = new Set(writes.map(w => w.name));
+    now = [...now.map(v => (names.has(v.name) ? writes.find(w => w.name === v.name)! : v)), ...writes.filter(w => !now.some(v => v.name === w.name))];
+  }
+  return out;
+}
+
 /** The variable a collection path points to (`order.items`) — undefined for any other expression or an unknown path */
 export function collectionNode(collection: string, vars: VarNode[]): VarNode | undefined {
   const coll = collection.trim();

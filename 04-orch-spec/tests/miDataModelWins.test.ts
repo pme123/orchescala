@@ -54,3 +54,24 @@ for (const [label, outputs] of [['without output rows', undefined], ['with an ou
     assert.deepEqual(checkFeel('= printContent.content.docId', inside, null).issues, []);
   });
 }
+
+// The InitIn still has the old type, the worker before the step writes the new one:
+// at the step the latest writer counts - before the worker the InitIn.
+test('latest writer before the step decides the type - not the InitIn', async () => {
+  const { variablesByStep } = await import('../src/feel');
+  const s0 = spec(undefined);
+  const s: ProcessSpec = {
+    ...s0,
+    steps: [{ id: 'EarlyTask', name: 'Early', kind: 'service', topic: 'acme-print-document' } as Step, ...s0.steps],
+    types: [
+      ...(s0.types ?? []),
+      { id: 't-init', name: 'InitIn', kind: 'case', initIn: true, fields: [{ id: 'f9', name: 'contentForPrinting', type: 't-old', collection: true }] },
+      { id: 't-old', name: 'OldDoc', kind: 'case', fields: [{ id: 'f8', name: 'docId', type: 'String' }] },
+    ],
+  } as ProcessSpec;
+  const at = variablesByStep(s, model);
+  assert.equal(collectionNode('contentForPrinting', at.get('EarlyTask')!)?.label, 'Seq[OldDoc]');
+  assert.equal(collectionNode('contentForPrinting', at.get('PrintTask')!)?.label, 'Seq[ContentForPrinting]');
+  const inside = withMultiInstance(at.get('PrintTask')!, [s.steps[2].multiInstance!]);
+  assert.deepEqual(checkFeel('= printContent.content.docId', inside, null).issues, []);
+});

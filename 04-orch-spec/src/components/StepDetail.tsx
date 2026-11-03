@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -259,7 +259,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // The process variables with their paths — for the FEEL check and suggestions;
   // for the outputs first the result of the service (the fields of its Out)
   const scopes = useMemo(() => multiInstanceScopes(spec.steps).get(step.id), [spec.steps, step.id]);
-  const baseVariables = useMemo(() => processVariables(spec, model), [spec, model]);
+  // as they are at this step: what a step before it wrote replaces the earlier type
+  const baseVariables = useMemo(() => variablesByStep(spec, model).get(step.id) ?? processVariables(spec, model), [spec, model, step.id]);
   const variables = useMemo(() => withMultiInstance(baseVariables, scopes), [baseVariables, scopes]);
   // the collection of a multi-instance is read before its instances — without its own element
   const outerVariables = useMemo(() => withMultiInstance(baseVariables, step.multiInstance ? scopes?.slice(0, -1) : scopes), [baseVariables, scopes, step.multiInstance]);

@@ -9,7 +9,7 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
@@ -40,11 +40,13 @@ const NONE: Finding = { errors: [], warnings: [], inline: [] };
 export function collectFindings(spec: ProcessSpec, model: Model | null, steps: Step[]): Map<string, Finding> {
   const out = new Map<string, Finding>();
   const variables = processVariables(spec, model);
+  // at each step what the steps before it wrote — the latest writer decides the type
+  const byStep = variablesByStep(spec, model, variables);
   const scopes = multiInstanceScopes(spec.steps);
   const wiring = wiringSteps(spec);
   const kinds = timerKinds(spec.steps);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables, { scopes, wiring, kinds });
+    const f = stepFindings(step, spec, model, byStep.get(step.id) ?? variables, { scopes, wiring, kinds });
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
