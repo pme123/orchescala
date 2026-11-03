@@ -1,6 +1,5 @@
 package orchescala.helper.dev.update.merge
 
-import scala.concurrent.duration.*
 import scala.util.Try
 import scala.util.control.NonFatal
 
@@ -64,7 +63,7 @@ object NodeSpecExporter extends SpecExporter:
 
   /** Node.js is on the PATH - checked once per run of the helper. */
   lazy val hasNode: Boolean =
-    Try(ExternalTool.call(Seq("node", "--version"), 30.seconds).exitCode == 0).getOrElse(false)
+    Try(ExternalTool.call(Seq("node", "--version"), ExternalTool.probeTimeout).exitCode == 0).getOrElse(false)
 
   def exportOf(specDir: os.Path): SpecExport =
     if !hasNode then

@@ -20,6 +20,12 @@ class ExternalToolTest extends FunSuite:
     assertEquals(timeout.tool, "sleep")
     assert((System.nanoTime() - start).nanos < 10.seconds, "not stopped")
 
+  test("a tool that hangs: its ToolTimeout shows what it wrote until then"):
+    val timeout = intercept[ToolTimeout]:
+      ExternalTool.call(Seq("sh", "-c", "echo 'Username for https://example.com:' >&2; sleep 30"), 1.second)
+    assertEquals(timeout.output, "Username for https://example.com:")
+    assert(timeout.getMessage.endsWith("Its output:\nUsername for https://example.com:"), timeout.getMessage)
+
   test("a tool that hangs: what it started is stopped too"):
     val pidFile = os.temp()
     intercept[ToolTimeout]:
