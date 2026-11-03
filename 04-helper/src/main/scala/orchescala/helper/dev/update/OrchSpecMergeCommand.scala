@@ -40,7 +40,8 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         try checkAndMerge(project, dir, merge, markers, yes, value("--json"))
         catch
           // what the user can act on: a message, no stack trace
-          case e @ (_: ToolTimeout | _: MergeAborted | _: java.io.IOException) =>
+          case e @ (_: ToolTimeout | _: MergeAborted | _: java.io.IOException | _: IllegalArgumentException |
+              _: IllegalStateException) =>
             println(Console.RED + e.getMessage + Console.RESET)
             false
   end run
