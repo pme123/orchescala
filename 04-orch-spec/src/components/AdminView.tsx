@@ -22,7 +22,7 @@
 // No browsing through the whole catalog: the classes of a process are
 // in its specification under «Datenmodell». What remains here is the search, for the one
 // question that comes up here — is it in there?
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink, usePermissions } from '../auth';
@@ -190,16 +190,20 @@ function CatalogOverrides({ model, generated, isDark, onSave }: {
   const c = cls(isDark);
   const confirm = useConfirm();
   const [msg, setMsg] = useState('');
+  // the model as it is after the confirm - a rebuild or an edit while it was open is not lost
+  const latest = useRef(model);
+  useEffect(() => { latest.current = model; }, [model]);
   const own = ownPart(model);
   const rows = localOverrides(own, generated);
   if (!rows.length && !msg) return null;
   const back = async (project: string) => {
+    setMsg('');
     if (!await confirm({
       title: `«${project}» zurück zur Auslieferung?`,
       text: 'Die lokal aufgebauten Services und Typen des Projekts gehen aus der model.json, mit den Beispielwerten der Packages, die nur dieses Projekt hat – und das Projekt aus der Liste «Projekt-Ordner». Danach gilt wieder der mitgelieferte Katalog.',
       confirmLabel: 'Zurück zur Auslieferung',
     })) return;
-    const res = await onSave(withoutLocalProject(own, project));
+    const res = await onSave(withoutLocalProject(ownPart(latest.current), project));
     setMsg(res.ok ? `«${project}»: wieder der mitgelieferte Stand.` : res.message);
   };
   return (

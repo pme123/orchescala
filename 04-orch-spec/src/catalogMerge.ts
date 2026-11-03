@@ -319,7 +319,12 @@ export function rebuiltServices(
    * group is not the folder; `types`: the model's types - those an OpenAPI gave a project whose
    * OpenAPI did not come in now stay (`keptTypes`) */
   opts: { listed?: Iterable<string>; types?: DomainType[] } = {},
-): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; keptTypes: DomainType[]; unreadable: Array<{ project: string; error: string }> } {
+): {
+  kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; keptTypes: DomainType[];
+  unreadable: Array<{ project: string; error: string }>;
+  /** listed projects without OpenAPI in this build that still have built services - they stay, reported */
+  withoutApi: string[];
+} {
   const incoming: ServiceDef[] = [];
   const types: DomainType[] = [];
   const unreadable: Array<{ project: string; error: string }> = [];
@@ -341,7 +346,9 @@ export function rebuiltServices(
   const listed = new Set(opts.listed ?? []);
   const kept = existing.filter(sv => !sv.generated && !projects.has(localProjectOf(sv, listed) ?? ''));
   const keptTypes = (opts.types ?? []).filter(t => !t.generated && fromOpenApi(t) && !projects.has(t.source!.split('/')[0]));
-  return { kept, incoming, types, keptTypes, unreadable };
+  const withoutApi = [...new Set(kept.map(sv => localProjectOf(sv, listed)).filter((p): p is string =>
+    !!p && listed.has(p) && !apis.some(a => a.project === p)))].sort();
+  return { kept, incoming, types, keptTypes, unreadable, withoutApi };
 }
 
 /**

@@ -293,6 +293,8 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
       const typen = mergeDomainTypes(mergeDomainTypes(r.types, built.types).types, built.keptTypes).types;
       const { incoming } = built;
       const unreadable = [...built.unreadable, ...r.apiErrors].map(e => `${e.project} (${e.error})`);
+      // no OpenApi.yml (any more): its services stay - said, so it is no surprise
+      const withoutApi = built.withoutApi.filter(p => !r.apiErrors.some(e => e.project === p));
       const res = await onSave({
         ...model,
         services: mergeServices(built.kept, incoming).services,
@@ -306,6 +308,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
         ? `${r.types.length} Typen und ${r.defaults.length} Beispielwerte aus ${r.files} Dateien in ${projects.length} Projekten`
           + ` · ${incoming.length} Services aus ${r.apis.length - built.unreadable.length} OpenAPI`
           + (unreadable.length ? ` (unlesbar: ${unreadable.join(', ')})` : '')
+          + (withoutApi.length ? ` · ohne 03-api/OpenApi.yml: ${withoutApi.join(', ')} — ihre früher gelesenen Services bleiben («zurück zur Auslieferung» nimmt sie heraus)` : '')
           + (r.skipped ? ` · ${r.skipped} ohne package übersprungen` : '')
         : res.message);
     } catch (e) {

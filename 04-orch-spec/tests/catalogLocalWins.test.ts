@@ -257,3 +257,19 @@ test('projectOfOpenApi: the project most services of the file belong to', () => 
   assert.equal(projectOfOpenApi([svc('x-a', { group: 'x' })], []), 'x');
   assert.equal(projectOfOpenApi([], []), NO_PROJECT);
 });
+
+test('rebuiltServices: a listed project without OpenAPI that still has built services is reported', () => {
+  const before = [svc('acme-cards-x', { group: 'acme-cards', builtAt: 'x' }), svc('acme-other-y', { group: 'acme-other', builtAt: 'x' })];
+  const r = rebuiltServices(before, [], () => ({ services: [], types: [] }), 't', { listed: ['acme-cards'] });
+  assert.deepEqual(r.kept.length, 2);
+  // only the listed one: the other was read with «OpenAPI einlesen», not by the build
+  assert.deepEqual(r.withoutApi, ['acme-cards']);
+});
+
+test('«OpenAPI einlesen» of a project not in the list: it overrides too - on purpose, with its own row and way back', () => {
+  const read = svc('acme-services-clientsV1-GetClient', { description: 'read', group: 'clientsV1', builtAt: '2026-11-03T08:00:00Z' });
+  const m = user({ services: [read] });
+  assert.deepEqual(byId(mergeGeneratedCatalog(m, delivered), read.id).map(s => s.description), ['read']);
+  assert.deepEqual(localOverrides(m, delivered).map(o => o.project), ['clientsV1']);
+  assert.deepEqual(byId(mergeGeneratedCatalog(withoutLocalProject(m, 'clientsV1'), delivered), read.id).map(s => s.description), ['delivered']);
+});
