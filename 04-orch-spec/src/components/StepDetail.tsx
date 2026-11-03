@@ -1683,9 +1683,6 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
         <div className="flex items-center gap-1.5">
           <span className="flex-1 min-w-0">Sammlung — je Element läuft der Schritt einmal</span>
           {hit && hit.type !== 'any' && (
-            <span className={`min-w-0 truncate text-[9px] ${c.muted}`} title={`Der Typ kommt von: ${hit.source}`}>{hit.source}</span>
-          )}
-          {hit && hit.type !== 'any' && (
             <span title={`${hit.label} — ${hit.source}`}
               className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(hit.type === 'list' ? 'list' : 'class', isDark).cls}`}>
               {kindStyle(hit.type === 'list' ? 'list' : 'class', isDark).icon}<span className="truncate">{hit.label}</span>
@@ -1701,6 +1698,9 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
           </p>
         ))}
+        {hit && hit.type !== 'any' && (
+          <p className={`text-[9px] ${c.muted}`}>Typ aus: {hit.source}</p>
+        )}
         {hit?.type === 'any' && (
           <p className={`flex items-start gap-1 ${warn}`}>
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
