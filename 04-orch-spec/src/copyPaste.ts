@@ -131,7 +131,9 @@ export function replaceType(spec: ProcessSpec, targetId: string, clip: { typeId:
 /**
  * What a pasted field relies on in a class: its kind, and per field (shared and per case) its
  * name, its type — a class by its name, the IDs differ between specifications — and whether it
- * is optional or a list or map. `all`: the classes its field types are looked up in.
+ * is optional or a list or map. `all`: the classes its field types are looked up in. Not
+ * compared: the order of the fields (the generated Scala names its arguments), the status and
+ * the descriptions — the class in the target stays as it is, only the pasted field refers to it.
  */
 const shapeOf = (t: TypeDef, all: TypeDef[]): string => {
   const fieldShape = (fs: Field[] = []) => fs
