@@ -781,6 +781,20 @@ function writesInside(step: Step, spec: ProcessSpec, model: Model | null, b: Bui
   return out;
 }
 
+/** The names set in the step and in the steps inside it — whatever their type */
+export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model | null): Set<string> {
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  const names = new Set<string>();
+  for (const s of [step, ...allSteps(step.children)]) {
+    for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
+    for (const v of s.outputVariables ?? []) names.add(v);
+    if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
+    const kind = interactionKind(s, spec.processId ?? '');
+    if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
+  }
+  return names;
+}
+
 /**
  * The variables the entry of a result may read: those at the step, the element and
  * `loopCounter`, and what the step and the steps inside it write in the instance.

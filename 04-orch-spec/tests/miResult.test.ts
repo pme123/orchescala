@@ -122,3 +122,22 @@ test('engine conversion: C8 → C7 generates the construct, C7 → C8 makes it n
   assert.deepEqual(back.issues.filter(i => i.where === 'Listener'), [], back.issues.map(i => i.text).join(' / '));
   assert.equal(back.xml.match(/target="aId"/g)?.length, 1);
 });
+
+test('checks: a local nobody sets, outputs on a parallel multi-instance, a C7 worker without manual mapping', async () => {
+  const { collectFindings } = await import('../src/findings');
+  const messages = (s: ProcessSpec) => [...collectFindings(s, null, allSteps(s.steps)).values()].flatMap(f => [...f.errors, ...f.warnings]);
+  const base = { ...importBpmn(c8(), 'items').spec, engine: 'c8' as const };
+  // nobody sets aId
+  assert.ok(messages(withResult(base)).some(m => m.includes('«aId» setzt kein Schritt')), messages(withResult(base)).join(' / '));
+  // the step itself sets it as output: no more «setzt kein Schritt», but «überschreiben sich»
+  const withOut = withResult({ ...base, steps: base.steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, outputs: [{ name: 'aId', expression: '= aId' }] } : x)) });
+  const m2 = messages(withOut);
+  assert.ok(!m2.some(m => m.includes('setzt kein Schritt')), m2.join(' / '));
+  assert.ok(m2.some(m => m.includes('überschreiben sich')), m2.join(' / '));
+  // Camunda 7: a worker in the collecting multi-instance without manual mapping
+  const worker: ProcessSpec = {
+    ...withResult(base), engine: 'c7',
+    steps: withResult(base).steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, kind: 'service' as const, topic: 'acme-items-handle', outputVariables: ['aId'] } : x)),
+  };
+  assert.ok(messages(worker).some(m => m.includes('ohne manuelles Output-Mapping')), messages(worker).join(' / '));
+});

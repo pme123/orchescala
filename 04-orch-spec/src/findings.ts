@@ -9,7 +9,7 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
@@ -18,6 +18,7 @@ import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVaria
 import { correlationOf } from './messageCall';
 import { patternMappings, patternDefs } from './patterns';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, typeUnknown, variantAllows, variantRequires, variantsOf } from './variants';
+import { hasResult, resultLocals } from './miResult';
 
 export interface Finding {
   errors: string[];
@@ -313,6 +314,28 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const foreign = (step.serviceId || step.topic) && !ia && !interactionKind(step, processId) && step.topic !== processId;
   if (foreign && model?.services?.length && !service) {
     errors.push(`Service «${step.serviceId ?? step.topic}» steht nicht im Katalog.`);
+  }
+
+  // ── Multi-instance: results and parallel instances ──────────────────────
+  const mi = step.multiInstance;
+  if (mi && hasResult(mi.result)) {
+    const set = namesWrittenInside(step, spec, model);
+    const missing = resultLocals(mi).filter(n => !set.has(n));
+    if (missing.length) {
+      warnings.push(`Ergebnisse sammeln: ${missing.map(n => `«${n}»`).join(', ')} setzt kein Schritt in der Mehrfachausführung — im Eintrag bleibt es null. In den Ausgaben eines Schritts darin setzen.`);
+    }
+    for (const i of checkFeel(`= ${mi.result.element}`, miInsideVariables(step, spec, model, baseVariables), null).issues) {
+      (i.level === 'error' ? errors : warnings).push(`Ergebnisse sammeln: ${i.text}`);
+    }
+  }
+  if (mi && !mi.sequential && (step.outputs ?? []).some(o => !o.disabled && o.name.trim() && !o.fromService)) {
+    warnings.push('Läuft parallel mehrfach — die Ausgaben am Schritt schreibt jede Instanz in den Prozess, sie überschreiben sich. Die Ergebnisse über «Ergebnisse sammeln» als Liste holen.');
+  }
+  // Camunda 7: a worker without manual mapping writes its Out into the process — in a parallel
+  // multi-instance that collects results, the instances overwrite each other there
+  const collecting = (scopes.get(step.id) ?? []).some(x => !x.sequential && hasResult(x.result));
+  if (collecting && spec.engine !== 'c8' && step.kind === 'service' && !step.manualOutMapping && !isInitWorker(step, processId)) {
+    warnings.push(`In einer parallelen Mehrfachausführung — ohne manuelles Output-Mapping schreibt der Worker sein Ergebnis in den Prozess (${C7_LABEL}), die Instanzen überschreiben sich. Die Ausgaben von Hand mappen.`);
   }
 
   // ── Mappings: required, duplicate, FEEL ──────────────────────────────────
