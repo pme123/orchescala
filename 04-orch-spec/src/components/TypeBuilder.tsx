@@ -106,7 +106,11 @@ function ReplaceTypeButton({ type: t, isDark, onReplace }: { type: TypeDef; isDa
 }
 
 /** «Feld einfügen» — only if a field is in the clipboard */
-function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valueIndex?: number; isDark: boolean }) {
+function PasteFieldButton({ typeId, valueIndex, isDark, compact }: {
+  typeId: string; valueIndex?: number; isDark: boolean;
+  /** small, next to the name of a case that has no fields yet */
+  compact?: boolean;
+}) {
   const actions = useContext(ClipContext);
   const m = useClipboard().model;
   const c = cls(isDark);
@@ -115,7 +119,7 @@ function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valu
   return (
     <button onClick={() => actions.pasteField(typeId, valueIndex)}
       title={`Feld «${m.field.name}» aus «${m.source.title || m.source.slug}» einfügen${mit}`}
-      className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border min-w-0 ${c.btn}`}>
+      className={`flex items-center gap-1.5 rounded border min-w-0 ${compact ? 'text-[10px] px-1.5 py-1 max-w-[14rem]' : 'text-[11px] px-2.5 py-1.5'} ${c.btn}`}>
       <ClipboardPaste size={11} className="flex-shrink-0" /> <span className="truncate">«{m.field.name || 'Feld'}» einfügen</span>
     </button>
   );
@@ -1526,6 +1530,8 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
                 <button onClick={() => setFields(i, [emptyField()])} title="Spezielle Felder nur für diesen Fall (ADT)"
                   className={`text-[10px] px-1.5 py-1 rounded border flex-shrink-0 ${c.btn}`}>+ Feld</button>
               )}
+              {/* a copied field can become the first field of the case, too */}
+              {canEdit && !fields.length && <PasteFieldButton typeId={t.id} valueIndex={i} isDark={isDark} compact />}
               {canEdit && (
                 <button onClick={async () => {
                   if (await confirm({ title: v.name ? `Wert «${v.name}» entfernen?` : 'Leeren Wert entfernen?', ...(fields.length ? { text: 'Samt seinen Feldern.' } : {}) })) {
