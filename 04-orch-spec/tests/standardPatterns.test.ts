@@ -771,6 +771,8 @@ test('a parameter of kind process: text only, the processes of the catalog to ch
     // options of the pattern itself come first
     const own: PatternDef = { ...sendEvent, params: sendEvent.params!.map(p => (p.name === 'eventProcess' ? { ...p, values: ['acme-fixedV1', 'acme-eventsV1'] } : p)) };
     assert.deepEqual(patternParamsFor(own, engine, false, processes).find(x => x.name === 'eventProcess')!.options, ['acme-fixedV1', 'acme-eventsV1', 'acme-auditV1', 'acme-notifyV1']);
+    // and alone when the catalog has none
+    assert.deepEqual(patternParamsFor(own, engine, false, []).find(x => x.name === 'eventProcess')!.options, ['acme-fixedV1', 'acme-eventsV1']);
   }
 });
 

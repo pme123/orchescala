@@ -283,6 +283,9 @@ export function patternParamsFor(
     .map(p => (!atProcess && fr.blockParams.has(p.name) ? { ...withKind(p), inBlock: true } : withKind(p)));
 }
 
+/** A BPMN process ID (an XML name, as the processes use: `acme-eventsV1`) */
+const PROCESS_ID = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
+
 /**
  * The processes of the catalog - what a call activity can call (a parameter of kind `process`):
  * the process objects of the domain (`processName`) and what a call activity already calls
@@ -295,7 +298,7 @@ export function processChoices(model: Model | null, exclude?: string): string[] 
     ...(model?.services ?? []).map(s => s.calledProcess),
   ];
   // (an expression as called process - `${…}`, `=…` - is no process to choose)
-  return [...new Set(names.filter((p): p is string => !!p && p !== exclude && PROCESS_ID.test(p)))].sort();
+  return [...new Set(names.filter((p): p is string => !!p && p !== exclude && PROCESS_ID.test(p)))].sort((a, b) => a.localeCompare(b));
 }
 
 /** A parameter kind Orch Spec knows (PARAM_KINDS) */
@@ -1867,9 +1870,6 @@ export function processIssue(value: string | undefined, ownProcess: string | und
   if (!PROCESS_ID.test(v)) return 'ist keine gültige Prozess-ID - nur Buchstaben, Ziffern, _ . und -, am Anfang ein Buchstabe oder _.';
   return null;
 }
-
-/** A BPMN process ID (an XML name, as the processes use: `acme-eventsV1`) */
-const PROCESS_ID = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
 
 /**
  * The defaults of a pattern's parameters with the built-in ones filled in from the diagram
