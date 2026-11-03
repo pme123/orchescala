@@ -279,19 +279,24 @@ export function patternParamsFor(
 }
 
 /**
- * The processes of the catalog - what a call activity can call (a parameter of kind `process`).
- * Only those a call activity already calls (`calledProcess` of the services); another one is typed.
- * Without the own process (`exclude`) - it would call itself.
+ * The processes of the catalog - what a call activity can call (a parameter of kind `process`):
+ * the process objects of the domain (`processName`) and what a call activity already calls
+ * (`calledProcess` of the services); another one is typed. Without the own process (`exclude`) -
+ * it would call itself.
  */
 export function processChoices(model: Model | null, exclude?: string): string[] {
-  return [...new Set((model?.services ?? []).map(s => s.calledProcess).filter((p): p is string => !!p && p !== exclude))].sort();
+  const names = [
+    ...(model?.domainTypes ?? []).map(t => t.processName),
+    ...(model?.services ?? []).map(s => s.calledProcess),
+  ];
+  return [...new Set(names.filter((p): p is string => !!p && p !== exclude))].sort();
 }
 
 /** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
 export function unknownParamKinds(def: PatternDef): string[] {
   return patternParams(def)
     .filter(p => p.kind != null && !(PARAM_KINDS as readonly unknown[]).includes(p.kind))
-    .map(p => `${p.name}: ${String(p.kind)}`);
+    .map(p => `«${p.name}» (${String(p.kind)})`);
 }
 
 /**
@@ -1837,11 +1842,17 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
 function processIssues(def: PatternDef, given: Record<string, string>): string[] {
   return patternParams(def).filter(p => p.kind === 'process').flatMap(p => {
     const v = given[p.name]?.trim() ?? '';
-    const label = p.label ?? p.name;
-    if (!v) return [`«${def.name}»: «${label}» fehlt - die Call Activity ruft keinen Prozess auf. Im Pattern einen Prozess wählen.`];
-    if (v === given.processId) return [`«${def.name}»: «${label}» ist der Prozess selbst - er ruft sich selbst auf.`];
-    return [];
+    const issue = processIssue(v, given.processId);
+    return issue ? [`«${def.name}»: «${p.label ?? p.name}» ${issue}`] : [];
   });
+}
+
+/** What is wrong with the process of a parameter of kind `process` - also the hint in the pattern */
+export function processIssue(value: string | undefined, ownProcess: string | undefined): string | null {
+  const v = value?.trim() ?? '';
+  if (!v) return 'fehlt - die Call Activity ruft keinen Prozess auf. Im Pattern einen Prozess wählen.';
+  if (ownProcess && v === ownProcess) return 'ist der Prozess selbst - er ruft sich selbst auf.';
+  return null;
 }
 
 // ── Removing ─────────────────────────────────────────────────────────────────

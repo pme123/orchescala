@@ -76,7 +76,7 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
       const ids = new Set(list.map(p => p.id));
       const ersetzt = patterns.filter(p => ids.has(p.id)).length;
       // a parameter kind Orch Spec does not know counts as plain parameter - say so
-      const unknown = list.flatMap(p => unknownParamKinds(p).map(k => `${p.id} (${k})`));
+      const unknown = list.flatMap(p => unknownParamKinds(p).map(k => `${p.id} ${k}`));
       await speichern([...patterns.filter(p => !ids.has(p.id)), ...list],
         `${list.length} importiert${ersetzt ? ` (${ersetzt} ersetzt)` : ''}${unknown.length ? ` - unbekannte Parameter-Art, gilt als gewöhnlicher Parameter: ${unknown.join(', ')}` : ''}`);
     } catch (e) {

@@ -803,9 +803,10 @@ und Doku stehen in `democompany-patterns`:
 
 Ein **Parameter mit `"kind": "process"`** ist die ID eines Prozesses: immer
 nur Text, auch wenn er im BPMN ausserhalb einer Zeichenkette steht (für FEEL
-also nicht geeignet). Zur Auswahl stehen nur die Prozesse, die eine Call
-Activity im Katalog schon aufruft (`calledProcess` der Services), ohne den
-eigenen; einen anderen tippt man ein. Bleibt er leer, sagt das Einfügen es.
+also nicht geeignet). Zur Auswahl stehen die Prozesse des Katalogs: die
+Prozess-Objekte der Domain (`processName`) und was eine Call Activity schon
+aufruft (`calledProcess` der Services), ohne den eigenen; einen anderen tippt
+man ein. Bleibt er leer, sagt das Einfügen es.
 Eine andere `kind` kennt Orch Spec nicht: der Parameter gilt als gewöhnlicher,
 der Import der Pattern-Datei sagt es.
 

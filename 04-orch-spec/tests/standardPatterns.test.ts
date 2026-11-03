@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, removePattern, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -747,9 +747,14 @@ test('a parameter of kind process: text only, the processes of the catalog to ch
       { id: 'c', name: 'C', calledProcess: 'acme-auditV1' }, { id: 'd', name: 'D', calledProcess: 'acme-eventsV1' },
       { id: 'e', name: 'E', calledProcess: 'acme-demoV1' },
     ],
+    // a process object nobody calls yet - offered too; an In without processName not
+    domainTypes: [
+      { id: 'acme.events.domain.Notify', name: 'Notify', pkg: 'acme.events.domain', kind: 'case', fields: [], processName: 'acme-notifyV1' },
+      { id: 'acme.events.domain.In', name: 'In', pkg: 'acme.events.domain', kind: 'member', fields: [], owner: 'Notify' },
+    ],
   };
   const processes = processChoices(model, 'acme-demoV1');
-  assert.deepEqual(processes, ['acme-auditV1', 'acme-eventsV1']);
+  assert.deepEqual(processes, ['acme-auditV1', 'acme-eventsV1', 'acme-notifyV1']);
   for (const engine of ['c7', 'c8'] as const) {
     const p = patternParamsFor(sendEvent, engine, false, processes).find(x => x.name === 'eventProcess')!;
     assert.equal(p.textOnly, true);
@@ -811,10 +816,23 @@ for (const engine of ['c7', 'c8'] as const) {
   });
 }
 
+test('«Prozess-Event senden»: without a process the engine switch says so too', () => {
+  const c8 = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventKey: 'started' }).xml;
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.ok(c7.issues.some(i => i.stepId === 'Target' && i.text.includes('«Event-Prozess» fehlt')), c7.issues.map(i => i.text).join('; '));
+});
+
+test('the hint for a process parameter - the same in the pattern and on inserting', () => {
+  assert.match(processIssue('', 'acme-demoV1') ?? '', /fehlt/);
+  assert.match(processIssue(' acme-demoV1 ', 'acme-demoV1') ?? '', /sich selbst/);
+  assert.equal(processIssue('acme-eventsV1', 'acme-demoV1'), null);
+  assert.equal(processIssue('acme-eventsV1', undefined), null);
+});
+
 test('a parameter kind Orch Spec does not know is named (pattern file)', () => {
   assert.deepEqual(unknownParamKinds(sendEvent), []);
   const own: PatternDef = { ...sendEvent, id: 'own', params: [{ name: 'x', kind: 'decision' as never }, { name: 'y', kind: 'process' }] };
-  assert.deepEqual(unknownParamKinds(own), ['x: decision']);
+  assert.deepEqual(unknownParamKinds(own), ['«x» (decision)']);
 });
 
 test('«Prozess-Event senden»: after the process ID changed it is still recognised on C8 - and the switch takes the new one', () => {
