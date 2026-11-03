@@ -284,7 +284,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
       setBusy(`${r.files} Dateien auswerten …`);
       // the services of the projects from their 03-api/OpenApi.yml - built locally (builtAt), with the
       // folder as their project; a fresh build replaces those read before for the same projects
-      const built = rebuiltServices(services, r.apis, projects.map(p => p.name),
+      const built = rebuiltServices(services, r.apis,
         a => catalogFromOpenApi(/\.json$/i.test(a.name) ? JSON.parse(a.text) : load(a.text), a.name), new Date().toISOString());
       const typen = mergeDomainTypes(r.types, built.types).types;
       const { incoming } = built;

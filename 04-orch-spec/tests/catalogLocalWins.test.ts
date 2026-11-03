@@ -25,7 +25,7 @@ test('a service read with «OpenAPI einlesen» overrides the delivered one of th
 });
 
 test('a service of a project in the local list overrides the delivered one - also by topic', () => {
-  const local = svc('acme-services.worker.GetClient', { topic: 'acme-services-clientsV1-GetClient', description: 'local' });
+  const local = svc('acme-services.worker.GetClient', { topic: 'acme-services-clientsV1-GetClient', description: 'local', builtAt: '2026-11-03T08:00:00Z' });
   const merged = mergeGeneratedCatalog(user({ services: [local], projects: [{ id: 'p', name: 'acme-services' }] }), delivered);
   assert.deepEqual(merged.services.filter(s => s.topic === 'acme-services-clientsV1-GetClient').map(s => s.description), ['local']);
 });
@@ -80,10 +80,10 @@ test('projectOfService: the longest project name the id, topic or called process
 test('rebuiltServices: the services of the OpenAPI get the folder as project - also when the id says otherwise', () => {
   // the process id does not start with the folder name: before, `group` came from the id
   const parse = () => ({ services: [svc('clients-GetClient', { group: 'clients' })], types: [] });
-  const r = rebuiltServices([], [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], ['acme-services'], parse, '2026-11-03T08:00:00Z');
+  const r = rebuiltServices([], [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], parse, '2026-11-03T08:00:00Z');
   assert.deepEqual(r.incoming.map(s => [s.id, s.group, s.builtAt]), [['clients-GetClient', 'acme-services', '2026-11-03T08:00:00Z']]);
   // the next build of the same project replaces it - a service removed from the OpenAPI goes
-  const next = rebuiltServices(r.incoming, [], ['acme-services'], parse, '2026-11-04T08:00:00Z');
+  const next = rebuiltServices(r.incoming, [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], () => ({ services: [], types: [] }), '2026-11-04T08:00:00Z');
   assert.deepEqual(next.kept, []);
 });
 
@@ -93,7 +93,7 @@ test('rebuiltServices: other projects, own entries and the delivery - what stays
     svc('acme-own-y'),                                             // own, not built: stays
     svc('acme-services-z', { generated: true }),                   // delivered: never in the model
   ];
-  const r = rebuiltServices(existing, [], ['acme-services'], () => ({ services: [], types: [] }), 't');
+  const r = rebuiltServices(existing, [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], () => ({ services: [], types: [] }), 't');
   assert.deepEqual(r.kept.map(s => s.id), ['acme-cards-x', 'acme-own-y']);
 });
 
@@ -103,9 +103,12 @@ test('rebuiltServices: an OpenAPI that cannot be parsed - its project is reporte
     if (a.text !== 'ok') throw new Error('bad yaml');
     return { services: [svc('acme-services-a')], types: [type('acme.services.domain.A', 'acme-services')] };
   };
-  const r = rebuiltServices([], apis, ['acme-broken', 'acme-services'], parse, 't');
+  const before = [svc('acme-broken-old', { group: 'acme-broken', builtAt: 'x' }), svc('acme-services-old', { group: 'acme-services', builtAt: 'x' })];
+  const r = rebuiltServices(before, apis, parse, 't');
   assert.deepEqual(r.unreadable, ['acme-broken']);
   assert.deepEqual(r.incoming.map(s => s.id), ['acme-services-a']);
+  // the broken project keeps its services - the one that came in replaces its own
+  assert.deepEqual(r.kept.map(s => s.id), ['acme-broken-old']);
   assert.equal(r.types.length, 1);
 });
 
@@ -136,4 +139,33 @@ test('withoutLocalProject: example values of a package root another project stil
   });
   const back = withoutLocalProject(m, 'acme-services');
   assert.deepEqual(back.domainDefaults?.map(d => d.name), ['Shared']);
+});
+
+test('rebuiltServices: a project without OpenAPI in this build (none, or 03-api not readable) keeps its services', () => {
+  const before = [svc('acme-cards-x', { group: 'acme-cards', builtAt: 'x' })];
+  assert.deepEqual(rebuiltServices(before, [], () => ({ services: [], types: [] }), 't').kept.map(s => s.id), ['acme-cards-x']);
+});
+
+test('rebuiltServices: the types of an OpenAPI get the project as source - «zurück zur Auslieferung» finds them', () => {
+  const parse = () => ({ services: [], types: [{ ...type('acme.services.domain.Api', 'x'), source: undefined } as DomainType] });
+  const r = rebuiltServices([], [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], parse, 't');
+  assert.deepEqual(r.types.map(t => t.source), ['acme-services/03-api/OpenApi.yml']);
+  const back = withoutLocalProject(user({ domainTypes: r.types, projects: [{ id: 'p', name: 'acme-services' }] }), 'acme-services');
+  assert.deepEqual(back.domainTypes, []);
+});
+
+test('an entry without builtAt (by hand, an old import) is no local build - also when its project is in the list', () => {
+  const byHand = svc('acme-services-clientsV1-GetClient', { description: 'by hand' });
+  const m = user({ services: [byHand], projects: [{ id: 'p', name: 'acme-services' }] });
+  // it stays behind the delivery …
+  assert.deepEqual(byId(mergeGeneratedCatalog(m, delivered), byHand.id).map(s => s.description), ['delivered']);
+  // … and «zurück zur Auslieferung» leaves it in the model.json
+  assert.deepEqual(withoutLocalProject(m, 'acme-services').services.map(s => s.description), ['by hand']);
+});
+
+test('nested project names: the group the build set wins over the prefix', () => {
+  const built = svc('acme-cards-x', { group: 'acme-cards', builtAt: 'x' });
+  const m = user({ services: [built], projects: [{ id: 'p1', name: 'acme' }, { id: 'p2', name: 'acme-cards' }] });
+  assert.deepEqual(withoutLocalProject(m, 'acme').services.map(s => s.id), ['acme-cards-x']);
+  assert.deepEqual(withoutLocalProject(m, 'acme-cards').services, []);
 });

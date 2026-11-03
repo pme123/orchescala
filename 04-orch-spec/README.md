@@ -1075,10 +1075,10 @@ Projekte und wird beim Speichern nie in die `model.json` geschrieben.
 
 **Lokal gewinnt.** Wer lokal entwickelt, überschreibt die Auslieferung gezielt:
 was unter «Katalog lokal erzeugen» aufgebaut ist — die Projekte der Liste
-«Projekt-Ordner» mit ihren Typen, die mit «OpenAPI einlesen» gelesenen Services
-(sie tragen `builtAt`) —, gewinnt bei gleicher Kennung (Service-ID, Topic,
+«Projekt-Ordner» mit ihren Typen, die Services aus deren `03-api/OpenApi.yml`
+und die mit «OpenAPI einlesen» gelesenen (sie tragen `builtAt`) —, gewinnt bei gleicher Kennung (Service-ID, Topic,
 gerufener Prozess; bei Typen das ganze Projekt). Altbestand aus früheren
-Importen bleibt hinter der Auslieferung und ist nur dort sichtbar, wo sie
+Importen oder von Hand Erfasstes (ohne `builtAt`) bleibt hinter der Auslieferung und ist nur dort sichtbar, wo sie
 nichts hat. Unter **«Lokal überschreibt»** steht je Projekt, was überschrieben
 ist und von wann beide Stände sind (mit Hinweis, wenn die Auslieferung neuer
 ist); **«zurück zur Auslieferung»** nimmt die lokalen Einträge des Projekts aus

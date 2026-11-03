@@ -120,15 +120,16 @@ export function projectOfService(s: ServiceDef, names: Iterable<string>): string
 }
 
 /**
- * The project of a locally built service - null for a legacy entry: one read with «OpenAPI
- * einlesen» (`builtAt`, its project in `group`), or one of a project in the local list.
+ * The project of a locally built service (`builtAt`: by «Neu aufbauen» or «OpenAPI einlesen») -
+ * null for any other entry (an old import, one written by hand): those stay behind the delivery
+ * and «zurück zur Auslieferung» leaves them alone. The build sets the folder name as `group`;
+ * one read with «OpenAPI einlesen» has a group from its process id - a listed project it starts
+ * with is the better guess there.
  */
 function localProjectOf(s: ServiceDef, listed: ReadonlySet<string>): string | null {
-  if (s.generated) return null;
-  const listedProject = projectOfService(s, listed);
-  if (listedProject) return listedProject;
-  // read with «OpenAPI einlesen» or by the build: its project is in `group` (the build sets the folder name)
-  return s.builtAt ? (s.group || NO_PROJECT) : null;
+  if (s.generated || !s.builtAt) return null;
+  if (s.group && listed.has(s.group)) return s.group;
+  return projectOfService(s, listed) || s.group || NO_PROJECT;
 }
 
 /** the project of a locally read service without `group` - one row in the overview, one way back */
@@ -280,16 +281,15 @@ export function withoutLocalProject(user: Model, project: string): Model {
  * The services of a fresh build: those of the projects' OpenAPI (`apis`, read by `rebuild`) come
  * in as built locally (`builtAt`) with the folder name as their project (`group`) - and replace
  * the ones an earlier build or read gave the same projects (`kept`: all others - merge the two
- * with `mergeServices`). `unreadable`: the projects whose OpenAPI could not be parsed.
+ * with `mergeServices`). `unreadable`: the projects whose OpenAPI could not be parsed - they keep
+ * their services.
  */
 export function rebuiltServices(
   existing: ServiceDef[],
   apis: Array<{ project: string; name: string; text: string }>,
-  rebuilt: Iterable<string>,
   parse: (api: { name: string; text: string }) => { services: ServiceDef[]; types: DomainType[] },
   builtAt: string,
 ): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; unreadable: string[] } {
-  const projects = new Set(rebuilt);
   const incoming: ServiceDef[] = [];
   const types: DomainType[] = [];
   const unreadable: string[] = [];
@@ -297,11 +297,15 @@ export function rebuiltServices(
     try {
       const c = parse(a);
       incoming.push(...c.services.map(sv => ({ ...sv, group: a.project, builtAt })));
-      types.push(...c.types);
+      // the project's types are found by their source (`withoutLocalProject`, `localOverrides`)
+      types.push(...c.types.map(t => (t.source ? t : { ...t, source: `${a.project}/03-api/${a.name}` })));
     } catch {
       unreadable.push(a.project);
     }
   }
+  // only the projects whose OpenAPI came in replace their services: a project that could not be
+  // read or parsed keeps what it had
+  const projects = new Set(apis.map(a => a.project).filter(p => !unreadable.includes(p)));
   const listed = new Set<string>();
   const kept = existing.filter(sv => !sv.generated && !(sv.builtAt && projects.has(localProjectOf(sv, listed) ?? '')));
   return { kept, incoming, types, unreadable };

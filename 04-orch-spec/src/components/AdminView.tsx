@@ -168,10 +168,6 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
   );
 }
 
-/**
- * Status row of the catalog: where it comes from and what is in it, one
- * chip per kind in the colours of the data model — the same as in the search hits.
- */
 /** the model.json part of the merged model - what is built locally or imported */
 const ownPart = (m: Model): Model => ({
   ...m,
@@ -235,6 +231,10 @@ function CatalogOverrides({ model, generated, isDark, onSave }: {
   );
 }
 
+/**
+ * Status row of the catalog: where it comes from and what is in it, one
+ * chip per kind in the colours of the data model — the same as in the search hits.
+ */
 function CatalogState({ model, generated, isDark }: { model: Model; generated: CatalogFile | null; isDark: boolean }) {
   const c = cls(isDark);
   const counts = catalogCounts(model);

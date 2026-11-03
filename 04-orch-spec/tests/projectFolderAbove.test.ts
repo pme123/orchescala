@@ -161,6 +161,8 @@ test('the build also reads the generated OpenAPI of each project - not the Postm
   });
   const r = await rebuild([{ id: 'p-services', name: 'acme-services' }, { id: 'p-cards', name: 'acme-cards' }], () => {});
   assert.deepEqual(r.apis.map(a => [a.project, a.name]), [['acme-services', 'OpenApi.yml']]);
+  // acme-cards has no 03-api: no error
+  assert.deepEqual(r.apiErrors, []);
 });
 
 test('the OpenAPI: OpenApi.yml before .yaml and .json - whatever order the folder lists them in', async () => {
