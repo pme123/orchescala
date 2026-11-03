@@ -887,7 +887,7 @@ export function OutCasesEditor({ type, cases, types, vars, canEdit, isDark, plac
         const oc = outCaseOf(cases, cf.name);
         const last = i === all.length - 1;
         return (
-          <div key={cf.name} className={`space-y-1 pl-3 border-l-2 ${isDark ? 'border-sky-700' : 'border-sky-300'}`}>
+          <div key={`${i}-${cf.name}`} className={`space-y-1 pl-3 border-l-2 ${isDark ? 'border-sky-700' : 'border-sky-300'}`}>
             <div className="flex items-start gap-2">
               <span className={`w-40 mt-1 text-[11px] font-mono truncate font-semibold ${c.text}`} title={`Fall ${cf.name}`}>Fall {cf.name}</span>
               <div className="flex-1 min-w-0">

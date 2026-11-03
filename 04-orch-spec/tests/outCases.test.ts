@@ -55,4 +55,9 @@ test('prunedOutCases: a case or a field the Out no longer has is not kept', () =
     { name: 'NotFound', condition: '= body = null' },
   ]);
   assert.deepEqual(prunedOutCases(undefined, out), []);
+  // a case being renamed (no name yet): nothing is dropped until it has one
+  const renaming: TypeDef = { ...out, values: [{ name: '', fields: [{ id: 'c', name: 'client', type: 'String' }] }, { name: 'NotFound' }] };
+  assert.deepEqual(prunedOutCases(saved, renaming), saved);
+  const fieldRenaming: TypeDef = { ...out, values: [{ name: 'Found', fields: [{ id: 'c', name: '', type: 'String' }] }, { name: 'NotFound' }] };
+  assert.deepEqual(prunedOutCases(saved, fieldRenaming), saved);
 });

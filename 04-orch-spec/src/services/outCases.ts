@@ -33,9 +33,12 @@ export function withOutCase(cases: OutCase[] | undefined, name: string, change: 
 
 /**
  * The cases as the Out has them now: a case renamed or removed in the Out, or a field it no
- * longer has, does not stay in the saved spec.
+ * longer has, does not stay in the saved spec. Not while the Out has a case or field without a
+ * name - one being renamed: its mappings stay until it has its name again.
  */
 export function prunedOutCases(cases: OutCase[] | undefined, t: TypeDef): OutCase[] {
+  const unnamed = (t.values ?? []).some(v => !v.name || (v.fields ?? []).some(f => !f.name)) || (t.fields ?? []).some(f => !f.name);
+  if (unnamed) return cases ?? [];
   const now = new Map(outCaseFields(t).map(c => [c.name, new Set(c.fields.map(f => f.name))]));
   return (cases ?? []).filter(c => now.has(c.name)).map(c => {
     const fields = now.get(c.name)!;
