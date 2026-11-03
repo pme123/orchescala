@@ -128,12 +128,21 @@ export function replaceType(spec: ProcessSpec, targetId: string, clip: { typeId:
   return [...(spec.types ?? []).map(t => (t.id === targetId ? next : t)), ...added.filter(t => t.id !== copyId).map(retarget)];
 }
 
-/** The names of a class's fields and cases — what a pasted field relies on. */
-const shapeOf = (t: TypeDef): string => JSON.stringify([
-  t.kind,
-  (t.fields ?? []).map(f => f.name).sort(),
-  (t.values ?? []).map(v => [v.name, (v.fields ?? []).map(f => f.name).sort()]).sort(),
-]);
+/**
+ * What a pasted field relies on in a class: its kind, and per field (shared and per case) its
+ * name, its type — a class by its name, the IDs differ between specifications — and whether it
+ * is optional or a list or map. `all`: the classes its field types are looked up in.
+ */
+const shapeOf = (t: TypeDef, all: TypeDef[]): string => {
+  const fieldShape = (fs: Field[] = []) => fs
+    .map(f => [f.name, all.find(x => x.id === f.type)?.name ?? f.type, !!f.optional, !!f.collection, !!f.map])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify([
+    t.kind,
+    fieldShape(t.fields),
+    (t.values ?? []).map(v => [v.name, fieldShape(v.fields)]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  ]);
+};
 
 /**
  * The classes a pasted field refers to (`types`, its type first) in the target: a class
@@ -150,7 +159,7 @@ function fieldTypes(target: TypeDef[] | undefined, types: TypeDef[]): { types: T
   const missing: TypeDef[] = [];
   for (const t of types) {
     const named = byName.get(t.name);
-    const there = byId.get(t.id) ?? (named && shapeOf(named) === shapeOf(t) ? named : undefined);
+    const there = byId.get(t.id) ?? (named && shapeOf(named, own) === shapeOf(t, types) ? named : undefined);
     if (there) idMap.set(t.id, there.id);
     else missing.push(t);
   }

@@ -78,6 +78,19 @@ test('pasteField: a class with the same name but another shape is not taken - a 
   const ownPerson: TypeDef = { id: 'x-person', name: 'NaturalPerson', kind: 'case', fields: [{ id: 'a', name: 'age', type: 'Int' }] };
   const p = pasteField({ slug: 'o', types: [target, ownPerson] } as unknown as ProcessSpec, 'x-in', clip)!;
   assert.notEqual(p.types.find(t => t.id === 'x-in')!.fields![0].type, 'x-person');
+  // the same field names, but another type, or optional: not the same class
+  for (const field of [{ id: 'g', name: 'gender', type: 'String' }, { id: 'g', name: 'gender', type: 'x-gender', optional: true }] as Field[]) {
+    const sameNames: TypeDef = { id: 'x-person', name: 'NaturalPerson', kind: 'case', fields: [field] };
+    const own: TypeDef = { id: 'x-gender', name: 'Gender', kind: 'enum', values: [{ name: 'Male' }, { name: 'Female' }] };
+    const q = pasteField({ slug: 'o', types: [target, sameNames, own] } as unknown as ProcessSpec, 'x-in', clip)!;
+    assert.notEqual(q.types.find(t => t.id === 'x-in')!.fields![0].type, 'x-person', JSON.stringify(field));
+  }
+  // the same names and types - a class by its name: taken
+  const samePerson: TypeDef = { id: 'x-person', name: 'NaturalPerson', kind: 'case', fields: [{ id: 'z', name: 'gender', type: 'x-gender' }] };
+  const sameGender: TypeDef = { id: 'x-gender', name: 'Gender', kind: 'enum', values: [{ name: 'Female' }, { name: 'Male' }] };
+  const same = pasteField({ slug: 'o', types: [target, samePerson, sameGender] } as unknown as ProcessSpec, 'x-in', clip)!;
+  assert.equal(same.types.find(t => t.id === 'x-in')!.fields![0].type, 'x-person');
+  assert.equal(same.types.length, 3);
 });
 
 test('pasteField: the same name twice in a class - the class shows it as an issue', () => {
@@ -87,4 +100,7 @@ test('pasteField: the same name twice in a class - the class shows it as an issu
   // in a case of an ADT too
   const twice = pasteField({ ...spec, types: pasteField(spec, 't-result', { field: { id: 'x', name: 'note', type: 'String' }, types: [] }, 1)!.types }, 't-result', { field: { id: 'y', name: 'note', type: 'String' }, types: [] }, 1)!;
   assert.ok(checkTypes(twice.types).some(i => i.message === 'Feld «note» kommt im Fall «Many» doppelt vor.'));
+  // a shared field pasted into a case once more
+  const shared = pasteField(spec, 't-result', clip, 0)!;
+  assert.ok(checkTypes(shared.types).some(i => !i.warn && i.message === '«naturalPerson» ist schon ein gemeinsames Feld — im Fall «Single» nicht nochmals.'));
 });
