@@ -11,6 +11,9 @@ class ExternalToolTest extends FunSuite:
     val ok = ExternalTool.call(Seq("sh", "-c", "echo hi; echo oops >&2"), 10.seconds)
     assertEquals((ok.exitCode, ok.out.trim(), ok.err.trim()), (0, "hi", "oops"))
     assertEquals(ExternalTool.call(Seq("sh", "-c", "exit 3"), 10.seconds).exitCode, 3)
+    // an environment of its own - added to the inherited one
+    val env = ExternalTool.call(Seq("sh", "-c", "echo $GIT_TERMINAL_PROMPT-$HOME"), 10.seconds, env = Map("GIT_TERMINAL_PROMPT" -> "0"))
+    assertEquals(env.out.trim(), s"0-${sys.env("HOME")}")
     // a failing tool that takes its time is no timeout - only one that still runs at the deadline
     assertEquals(ExternalTool.call(Seq("sh", "-c", "sleep 0.3; exit 4"), 5.seconds).exitCode, 4)
 

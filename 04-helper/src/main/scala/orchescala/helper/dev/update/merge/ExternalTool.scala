@@ -32,12 +32,13 @@ object ExternalTool:
       command: Seq[String],
       timeout: FiniteDuration,
       cwd: os.Path = null,
-      stdin: os.ProcessInput = os.Pipe
+      stdin: os.ProcessInput = os.Pipe,
+      env: Map[String, String] = null
   ): os.CommandResult =
     val deadline = System.nanoTime() + timeout.toNanos
     def left     = math.max(1L, (deadline - System.nanoTime()) / 1000000)
     val chunks   = ConcurrentLinkedQueue[Either[geny.Bytes, geny.Bytes]]()
-    val sub      = os.proc(command).spawn(cwd = cwd, stdin = stdin, stdout = os.Pipe, stderr = os.Pipe)
+    val sub      = os.proc(command).spawn(cwd = cwd, env = env, stdin = stdin, stdout = os.Pipe, stderr = os.Pipe)
     val readers  = Seq(
       read(sub.wrapped.getInputStream, Left(_), chunks),
       read(sub.wrapped.getErrorStream, Right(_), chunks)

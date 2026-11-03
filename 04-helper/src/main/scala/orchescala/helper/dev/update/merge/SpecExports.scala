@@ -125,7 +125,9 @@ object SpecSources:
       rev: String,
       extract: os.Path => Seq[String] = dir => Seq("tar", "-x", "-C", dir.toString)
   ): Option[os.Path] =
-    def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project)
+    // git never asks for a credential: it fails at once instead of waiting for its timeout
+    val noPrompt           = Map("GIT_TERMINAL_PROMPT" -> "0")
+    def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project, env = noPrompt)
     // the path of the project in the repository (`projects/my-project/` - empty in its root)
     val root    = git("rev-parse", "--show-toplevel")
     val prefix  = git("rev-parse", "--show-prefix")
@@ -135,7 +137,8 @@ object SpecSources:
       val archive = ExternalTool.call(
         Seq("git", "archive", "--format=tar", s"$rev:${prefix.out.trim()}$specDir"),
         ExternalTool.gitTimeout,
-        cwd = top
+        cwd = top,
+        env = noPrompt
       )
       if archive.exitCode != 0 then None
       else
