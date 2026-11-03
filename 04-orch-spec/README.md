@@ -1689,6 +1689,7 @@ gelten die Regeln:
 | `camunda:decisionRef` / `resultVariable` | `zeebe:calledDecision` |
 | `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
 | `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
+| «Ergebnisse sammeln» (Orch Spec): leere `inputParameter` je lokaler Variable, End-Listener je Instanz schreibt `<liste>_<loopCounter>`, `camunda:asyncAfter`, `take`-Listener am ausgehenden Fluss sammelt ein | `outputCollection` / `outputElement` am Loop, die gelesenen Variablen als `=null`-Input je Instanz |
 | `camunda:modelerTemplate` | `zeebe:modelerTemplate` (der Service-Verweis bleibt) |
 | Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
 | … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |
