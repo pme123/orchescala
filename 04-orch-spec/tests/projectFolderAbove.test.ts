@@ -9,7 +9,7 @@ import type { ProjectFolder } from '../src/types';
 
 type Tree = { [name: string]: Tree | string };
 
-/** a folder in memory — subfolders as objects, files as text */
+/** a folder in memory — subfolders as objects, files as text; `denied` (at any depth) throws NotAllowedError */
 function dir(name: string, tree: Tree, denied: string[] = []): FileSystemDirectoryHandle {
   return {
     kind: 'directory', name,
@@ -19,7 +19,7 @@ function dir(name: string, tree: Tree, denied: string[] = []): FileSystemDirecto
       if (denied.includes(n)) throw new DOMException(n, 'NotAllowedError');
       if (sub === undefined) throw new DOMException(n, 'NotFoundError');
       if (typeof sub === 'string') throw new DOMException(n, 'TypeMismatchError');
-      return dir(n, sub);
+      return dir(n, sub, denied);
     },
     entries: async function* () {
       for (const [n, v] of Object.entries(tree)) {
@@ -145,4 +145,39 @@ test('granting access fails when the project inside the folder above is denied -
     w.window = realWindow;
   }
   assert.equal(handles['project:p-cards'], undefined);
+});
+
+test('the build also reads the generated OpenAPI of each project - not the Postman variant', async () => {
+  const withApi = dir('apis', {
+    'acme-services': { ...project('services', 'Client'), '03-api': { 'OpenApi.yml': 'openapi: 3.1.0\n', 'PostmanOpenApi.yml': 'openapi: 3.1.0\n' } },
+    'acme-cards': project('cards', 'Card'),
+  });
+  fakeIndexedDb({
+    'project:p-services': await withApi.getDirectoryHandle('acme-services'),
+    'project:p-cards': await withApi.getDirectoryHandle('acme-cards'),
+  });
+  const r = await rebuild([{ id: 'p-services', name: 'acme-services' }, { id: 'p-cards', name: 'acme-cards' }], () => {});
+  assert.deepEqual(r.apis.map(a => [a.project, a.name]), [['acme-services', 'OpenApi.yml']]);
+  // acme-cards has no 03-api: no error
+  assert.deepEqual(r.apiErrors, []);
+});
+
+test('the OpenAPI: OpenApi.yml before .yaml and .json - whatever order the folder lists them in', async () => {
+  const withApi = dir('apis', {
+    'acme-services': { ...project('services', 'Client'), '03-api': { 'openapi.json': '{}', 'OpenApi.yaml': 'y', 'OpenApi.yml': 'openapi: 3.1.0\n' } },
+  });
+  fakeIndexedDb({ 'project:p-services': await withApi.getDirectoryHandle('acme-services') });
+  const r = await rebuild([{ id: 'p-services', name: 'acme-services' }], () => {});
+  assert.deepEqual(r.apis.map(a => a.name), ['OpenApi.yml']);
+});
+
+test('an 03-api that cannot be read: the build goes on - the project is reported, not skipped silently', async () => {
+  const withApi = dir('apis', {
+    'acme-services': { ...project('services', 'Client'), '03-api': { 'OpenApi.yml': 'openapi: 3.1.0\n' } },
+  }, ['03-api']);
+  fakeIndexedDb({ 'project:p-services': await withApi.getDirectoryHandle('acme-services') });
+  const r = await rebuild([{ id: 'p-services', name: 'acme-services' }], () => {});
+  assert.deepEqual(r.apis, []);
+  assert.deepEqual(r.apiErrors.map(e => [e.project, e.error.split(':')[0]]), [['acme-services', 'NotAllowedError']]);
+  assert.equal(r.projects[0].types, 1);
 });

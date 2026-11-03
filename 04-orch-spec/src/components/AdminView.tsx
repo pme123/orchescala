@@ -22,7 +22,7 @@
 // No browsing through the whole catalog: the classes of a process are
 // in its specification under «Datenmodell». What remains here is the search, for the one
 // question that comes up here — is it in there?
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink, usePermissions } from '../auth';
@@ -32,6 +32,8 @@ import { appProblem } from '../pages/runtime/validate';
 import { draftAfterSave, ThemeEditor } from '../pages/designer/ThemeEditor';
 import type { Theme } from '../pages/runtime/spec';
 import CatalogBuild from './CatalogBuild';
+import { isBefore, localOverrides, stampLabel, withoutLocalProject } from '../catalogMerge';
+import { useConfirm } from './Confirm';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
 import PatternAdmin, { patternState } from './PatternAdmin';
@@ -137,14 +139,17 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
         more={generatedCatalog
           ? <>Der Katalog kommt mit der App: <span className="font-semibold">catalog.generated.json</span>{' '}
               ({(generatedCatalog.services ?? []).length} Services · {(generatedCatalog.domainTypes ?? []).length} Typen,
-              bei jedem Release neu erzeugt). Er hat Vorrang und wird nie in die model.json geschrieben —
-              Import und Aufbau unten wirken nur auf den Altbestand daneben.</>
+              bei jedem Release neu erzeugt) — der ausgelieferte Stand der Projekte, nie in die model.json
+              geschrieben. Was du unten lokal aufbaust (Projekt-Ordner, OpenAPI), überschreibt ihn für diese
+              Projekte; was überschrieben ist, steht unter «Lokal überschreibt». Altbestand aus früheren
+              Importen bleibt dahinter.</>
           : <>Der Weg dorthin, wo die Quellen nicht liegen: draussen exportieren, hier importieren. Der Import
               ersetzt den Katalog — er ergänzt ihn nicht, sonst blieben Einträge stehen, die es längst nicht
               mehr gibt. Wo die Quellen liegen, lässt er sich lokal erzeugen (unten, zugeklappt).</>}>
         <CatalogState model={model} generated={generatedCatalog} isDark={isDark} />
+        <CatalogOverrides model={model} generated={generatedCatalog} isDark={isDark} onSave={saveModel} />
         <CatalogTransfer model={model} specs={specs.map(s => s.data)} isDark={isDark} canEdit onSave={saveModel} />
-        <CatalogBuild model={model} isDark={isDark} canEdit onSave={saveModel} />
+        <CatalogBuild model={model} isDark={isDark} canEdit onSave={saveModel} generated={!!generatedCatalog} />
         <CatalogSearch model={model} isDark={isDark} />
       </AdminSection>
 
@@ -159,6 +164,66 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <TeamsSettingsForm model={model} isDark={isDark} onSave={saveModel}
         state={<StateChip tone={z.teams.tone} label={z.teams.label} isDark={isDark} title={z.teams.detail} />} />
+    </div>
+  );
+}
+
+/** the model.json part of the merged model - what is built locally or imported */
+const ownPart = (m: Model): Model => ({
+  ...m,
+  services: m.services.filter(s => !s.generated),
+  domainTypes: m.domainTypes?.filter(t => !t.generated),
+  domainDefaults: m.domainDefaults?.filter(d => !d.generated),
+});
+
+const when = stampLabel;
+
+/**
+ * What the local build overrides of the delivered catalog, per project - so an old local state
+ * does not hide a newer delivery unnoticed. «zurück zur Auslieferung» takes the project's local
+ * entries out of the model.json and the project out of the local list.
+ */
+function CatalogOverrides({ model, generated, isDark, onSave }: {
+  model: Model; generated: CatalogFile | null; isDark: boolean;
+  onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
+}) {
+  const c = cls(isDark);
+  const confirm = useConfirm();
+  const [msg, setMsg] = useState('');
+  // the model as it is after the confirm - a rebuild or an edit while it was open is not lost
+  const latest = useRef(model);
+  useEffect(() => { latest.current = model; }, [model]);
+  const own = ownPart(model);
+  const rows = localOverrides(own, generated);
+  if (!rows.length && !msg) return null;
+  const back = async (project: string) => {
+    setMsg('');
+    if (!await confirm({
+      title: `«${project}» zurück zur Auslieferung?`,
+      text: 'Die lokal aufgebauten Services und Typen des Projekts gehen aus der model.json, mit den Beispielwerten der Packages, die nur dieses Projekt hat – und das Projekt aus der Liste «Projekt-Ordner». Danach gilt wieder der mitgelieferte Katalog.',
+      confirmLabel: 'Zurück zur Auslieferung',
+    })) return;
+    const res = await onSave(withoutLocalProject(ownPart(latest.current), project));
+    setMsg(res.ok ? `«${project}»: wieder der mitgelieferte Stand.` : res.message);
+  };
+  return (
+    <div className={`rounded border px-3 py-2 space-y-1 ${c.border2}`}>
+      <div className={`text-[10px] uppercase tracking-wider ${c.text}`}>Lokal überschreibt</div>
+      {rows.map(r => (
+        <div key={r.project} className="flex items-center gap-2 flex-wrap text-[11px]">
+          <span className={`font-mono ${c.text}`}>{r.project}</span>
+          <span className={c.muted}>
+            {[r.services ? `${r.services} Service${r.services === 1 ? '' : 's'}` : '', r.types ? `${r.types} Typ${r.types === 1 ? '' : 'en'}` : ''].filter(Boolean).join(', ')}
+            {' · '}lokal {when(r.localAt, r.deliveredAt)}, Auslieferung {when(r.deliveredAt, r.localAt)}
+          </span>
+          {isBefore(r.localAt, r.deliveredAt) && (
+            <span className="text-[10px] text-amber-600 flex items-center gap-1"><AlertTriangle size={10} /> die Auslieferung ist neuer</span>
+          )}
+          <button onClick={() => void back(r.project)} title="Die lokalen Einträge des Projekts entfernen — dann gilt wieder der mitgelieferte Katalog"
+            className={`ml-auto text-[10px] px-2 py-0.5 rounded border ${c.btn}`}>zurück zur Auslieferung</button>
+        </div>
+      ))}
+      {msg && <p className={`text-[10px] ${c.muted}`}>{msg}</p>}
     </div>
   );
 }

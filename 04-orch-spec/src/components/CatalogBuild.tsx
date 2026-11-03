@@ -27,6 +27,7 @@ import { load } from 'js-yaml';
 import { mergeDomainTypes, type DiscardedPackage } from '../domainScan';
 import { catalogFromOpenApi, mergeServices } from '../openApi';
 import { forgetProject, grantAccess, move, projectsInFolder, rebuild, rememberProject } from '../projects';
+import { projectOfOpenApi, rebuiltServices } from '../catalogMerge';
 import { countByKind, fillGapsOnly, readSite } from '../siteCatalog';
 import type { DomainType, Model, ProjectFolder } from '../types';
 import { cls } from '../ui';
@@ -79,10 +80,12 @@ async function readSpecs(
   }
 }
 
-export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
+export default function CatalogBuild({ model, isDark, canEdit, onSave, generated = false }: {
   model: Model;
   isDark: boolean;
   canEdit: boolean;
+  /** a delivered catalog (catalog.generated.json) is active - what is built here overrides it */
+  generated?: boolean;
   onSave: (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>;
 }) {
   const confirm = useConfirm();
@@ -104,6 +107,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
     let next = services;
     let typen = model.domainTypes ?? [];
     let added = 0, gelesen = 0, prozesse = 0;
+    const builtAt = new Date().toISOString();
     const fehler: string[] = [];
     for (const f of files) {
       let doc: unknown;
@@ -113,10 +117,14 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       if (!r.services.length) continue;
       gelesen++;
       prozesse += r.processes.length;
-      const m = mergeServices(next, r.services);
+      // read locally: overrides a delivered entry of the same id or topic (see catalogMerge)
+      const built = r.services.map(s => ({ ...s, builtAt }));
+      const m = mergeServices(next, built);
       next = m.services;
       added += m.added;
-      typen = mergeDomainTypes(typen, r.types).types;
+      // its types belong to the same project as its services - «zurück zur Auslieferung» takes both
+      const project = projectOfOpenApi(built, projects.map(p => p.name));
+      typen = mergeDomainTypes(typen, r.types.map(t => (t.source ? t : { ...t, source: `${project}/03-api/${f.name}` }))).types;
     }
     if (!gelesen) {
       setMsg(`Keine verwertbare OpenAPI gefunden${fehler.length ? ` (${fehler.length} Datei(en) unlesbar)` : ''}.`);
@@ -277,9 +285,20 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
         return;
       }
       setBusy(`${r.files} Dateien auswerten …`);
+      // the services of the projects from their 03-api/OpenApi.yml - built locally (builtAt), with the
+      // folder as their project; a fresh build replaces those read before for the same projects
+      const built = rebuiltServices(services, r.apis,
+        a => catalogFromOpenApi(/\.json$/i.test(a.name) ? JSON.parse(a.text) : load(a.text), a.name), r.scannedAt,
+        { listed: projects.map(p => p.name), types: model.domainTypes ?? [] });
+      const typen = mergeDomainTypes(mergeDomainTypes(r.types, built.types).types, built.keptTypes).types;
+      const { incoming } = built;
+      const unreadable = [...built.unreadable, ...r.apiErrors].map(e => `${e.project} (${e.error})`);
+      // no OpenApi.yml (any more): its services stay - said, so it is no surprise
+      const withoutApi = built.withoutApi.filter(p => !r.apiErrors.some(e => e.project === p));
       const res = await onSave({
         ...model,
-        domainTypes: r.types,
+        services: mergeServices(built.kept, incoming).services,
+        domainTypes: typen,
         domainDefaults: r.defaults,
         projects: r.projects,
         domainSources: [...new Set([...sources.filter(x => /^https?:/i.test(x)), ...projects.map(p => p.name)])],
@@ -287,6 +306,9 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
       setDropped(r.discarded);
       setMsg(res.ok
         ? `${r.types.length} Typen und ${r.defaults.length} Beispielwerte aus ${r.files} Dateien in ${projects.length} Projekten`
+          + ` · ${incoming.length} Services aus ${r.apis.length - built.unreadable.length} OpenAPI`
+          + (unreadable.length ? ` (unlesbar: ${unreadable.join(', ')})` : '')
+          + (withoutApi.length ? ` · ohne 03-api/OpenApi.yml: ${withoutApi.join(', ')} — ihre früher gelesenen Services bleiben («zurück zur Auslieferung» nimmt sie heraus)` : '')
           + (r.skipped ? ` · ${r.skipped} ohne package übersprungen` : '')
         : res.message);
     } catch (e) {
@@ -372,9 +394,19 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave }: {
                 </button>
               </>
             )}
-            <span className={`ml-auto text-[10px] ${c.muted}`}>
-              {services.length} Services · {types.length} Typen
+            <span className={`ml-auto text-[10px] ${c.muted}`}
+              title="Was lokal aufgebaut, eingelesen oder importiert in der model.json steht - ohne den mitgelieferten Katalog">
+              lokal {services.filter(s => !s.generated).length} Services · {types.filter(t => !t.generated).length} Typen
             </span>
+          </div>
+          <div className={`text-[10px] mb-2 space-y-0.5 ${c.muted}`}>
+            {generated && (
+              <p>Ein mitgelieferter Katalog ist aktiv. Was du hier aufbaust, überschreibt ihn für diese Projekte —
+                oben unter «Lokal überschreibt» steht, was und seit wann.</p>
+            )}
+            <p>«Neu aufbauen» liest aus den Projekt-Ordnern die Domain-Typen und aus ihrer
+              <span className="font-mono">03-api/OpenApi.yml</span> die Services (Worker, Prozesse, Benutzeraufgaben,
+              Signale). «OpenAPI einlesen» nimmt OpenAPI-Dateien ohne Projekt-Liste.</p>
           </div>
 
           {!!projects.length && (

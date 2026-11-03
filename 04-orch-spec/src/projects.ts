@@ -109,6 +109,12 @@ export interface RebuildResult {
    * second folder with the same name) — it needs its own access.
    */
   rootsWithoutAccess: string[];
+  /** the generated OpenAPI of each project read (`03-api/OpenApi.yml`) - its services */
+  apis: Array<{ project: string; name: string; text: string }>;
+  /** projects whose `03-api` could not be read (no permission …) - the build goes on without their services */
+  apiErrors: Array<{ project: string; error: string }>;
+  /** the one time of this build - the projects' scannedAt, the services' builtAt */
+  scannedAt: string;
   files: number;
   skipped: number;
 }
@@ -170,6 +176,31 @@ async function readDependencies(dir: FileSystemDirectoryHandle): Promise<string[
   }
 }
 
+const API_ORDER = ['openapi.yml', 'openapi.yaml', 'openapi.json'];
+
+/**
+ * The generated OpenAPI of a project: exactly `03-api/OpenApi.yml` (then `.yaml`, `.json` - in this
+ * order, not by the order of the folder) - not the Postman variant. A missing `03-api` is no
+ * error; anything else (no permission) is.
+ */
+async function readOpenApi(dir: FileSystemDirectoryHandle): Promise<{ name: string; text: string } | null> {
+  let api: FileSystemDirectoryHandle;
+  try {
+    api = await dir.getDirectoryHandle('03-api');
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'NotFoundError') return null;
+    throw e;
+  }
+  const found: Array<[string, FileSystemFileHandle]> = [];
+  for await (const [name, h] of api.entries()) {
+    if (h.kind === 'file' && API_ORDER.includes(name.toLowerCase())) found.push([name, h as FileSystemFileHandle]);
+  }
+  found.sort((a, b) => API_ORDER.indexOf(a[0].toLowerCase()) - API_ORDER.indexOf(b[0].toLowerCase()));
+  if (!found.length) return null;
+  const [name, h] = found[0];
+  return { name, text: await h.getFile().then(f => f.text()) };
+}
+
 /**
  * Build the catalog from the projects **anew** — not extend it. Only this way
  * does reordering take effect: when extending, what was read earlier would
@@ -186,6 +217,8 @@ export async function rebuild(
   const gezaehlt: ProjectFolder[] = [];
   let files = 0;
   let skipped = 0;
+  const apis: RebuildResult['apis'] = [];
+  const apiErrors: RebuildResult['apiErrors'] = [];
   // one time for the whole build — only projects that were read get it
   const scannedAt = new Date().toISOString();
   // access per root first — while the click still counts as a user action
@@ -215,10 +248,16 @@ export async function rebuild(
     discarded.push(...zusammen.discarded);
     const { dependencies: _d, ...rest } = p;
     const dependencies = await readDependencies(handle);
+    try {
+      const api = await readOpenApi(handle);
+      if (api) apis.push({ project: p.name, ...api });
+    } catch (e) {
+      apiErrors.push({ project: p.name, error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) });
+    }
     gezaehlt.push({ ...rest, types: types.length - vorher, scannedAt, ...(dependencies ? { dependencies } : {}) });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
-  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped };
+  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped, apis, apiErrors, scannedAt };
 }
 
 /**

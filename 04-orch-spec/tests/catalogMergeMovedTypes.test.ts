@@ -111,10 +111,20 @@ const OLD = 'acme.demo.domain.sendEvent.v1.CProcessState';
 const NEW = 'acme.demo.domain.sendEvent.v1.schema.CProcessState';
 const project = (scannedAt?: string) => [{ id: 'p-acme-demo', name: 'acme-demo', ...(scannedAt ? { scannedAt } : {}) }];
 
-test('the later scannedAt wins - the catalog when it was built after the own scan', () => {
-  // the catalog with the new state, the model.json with the old one
+test('a project in the local list wins - even when the delivery was scanned later', () => {
+  // the catalog with the new state, the own (older) local scan with the old one: built locally on purpose
   const merged = mergeGeneratedCatalog(
     { ...model(oldScan()), projects: project('2026-10-20T10:00:00Z') } as Model,
+    { domainTypes: newScan(), projects: project('2026-10-22T10:00:00Z') },
+  );
+  assert.ok(acmeIds(merged).includes(OLD));
+  assert.ok(!acmeIds(merged).includes(NEW));
+  assert.ok(!merged.domainTypes?.find(t => t.id === OLD)?.generated, 'from the model.json');
+});
+
+test('types of a project that is not in the local list (an old import): the later scannedAt wins - the delivery', () => {
+  const merged = mergeGeneratedCatalog(
+    { ...model(oldScan()), projects: [] } as unknown as Model,
     { domainTypes: newScan(), projects: project('2026-10-22T10:00:00Z') },
   );
   assert.ok(acmeIds(merged).includes(NEW));
