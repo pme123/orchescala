@@ -21,6 +21,7 @@ const PageEditor = lazy(() => import('./pages/designer/PageEditor'));
 const ServicesView = lazy(() => import('./services/ServicesView'));
 const ServiceView = lazy(() => import('./services/ServiceView'));
 import { cls } from './ui';
+import { displayUrl } from './util';
 import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
@@ -176,8 +177,8 @@ export default function App() {
       <span className={c.muted2}>{dirHandle.kind === 'sharepoint' ? <Cloud size={12} /> : <FolderOpen size={12} />}</span>
       <span className="min-w-0 flex-1">
         <span className={`block text-xs font-semibold truncate ${c.text}`}>{dirHandle.name}</span>
-        <span className={`block text-[10px] truncate ${c.muted}`} title={dirHandle.webUrl}>
-          {dirHandle.kind === 'sharepoint' ? dirHandle.webUrl ?? 'SharePoint-Ordner' : 'lokaler Ordner'}
+        <span className={`block text-[10px] truncate ${c.muted}`} title={dirHandle.webUrl && displayUrl(dirHandle.webUrl)}>
+          {dirHandle.kind === 'sharepoint' ? (dirHandle.webUrl ? displayUrl(dirHandle.webUrl) : 'SharePoint-Ordner') : 'lokaler Ordner'}
         </span>
       </span>
       <button onClick={() => { disconnect(); setView({ kind: 'list' }); }}
@@ -387,7 +388,6 @@ export default function App() {
             )}
             {previousStorage && (
               <button onClick={() => void resumePrevious()}
-                title={previousStorage.webUrl}
                 className={`w-full mb-3 flex flex-col items-center gap-0.5 text-xs px-3 py-2 rounded border transition-colors ${
                   isDark ? 'border-blue-500/40 text-blue-300 hover:bg-blue-500/10' : 'border-blue-300 text-blue-700 hover:bg-blue-50'}`}>
                 <span className="flex items-center gap-2">
@@ -396,8 +396,8 @@ export default function App() {
                 </span>
                 {/* where it lives: the SharePoint URL (a browser does not reveal the full path of a local folder) */}
                 {previousStorage.webUrl && (
-                  <span className={`max-w-full truncate font-mono text-[10px] ${textMuted}`}>
-                    {(() => { try { return decodeURI(previousStorage.webUrl); } catch { return previousStorage.webUrl; } })()}
+                  <span className={`w-full min-w-0 truncate text-center font-mono text-[10px] ${textMuted}`} title={displayUrl(previousStorage.webUrl)}>
+                    {displayUrl(previousStorage.webUrl)}
                   </span>
                 )}
               </button>
@@ -406,11 +406,11 @@ export default function App() {
               <StartOption isDark={isDark} icon={<Cloud size={12} />} title="SharePoint"
                 text={pendingFolder
                   ? <>Aus dem Link:{' '}
-                      <span className={`font-mono break-all ${c.muted2}`} title={pendingFolder}>{(() => { try { return decodeURI(pendingFolder); } catch { return pendingFolder; } })()}</span>
+                      <span className={`font-mono break-all ${c.muted2}`} title={displayUrl(pendingFolder)}>{displayUrl(pendingFolder)}</span>
                       {auth.status !== 'signedIn' && <> — zum Öffnen mit dem Microsoft-Konto anmelden.</>}</>
                   : savedSharePoint
                   ? <>Zuletzt verbunden:{' '}
-                      <span className={`font-mono break-all ${c.muted2}`} title={savedSharePoint.webUrl}>{savedSharePoint.webUrl || savedSharePoint.name}</span>
+                      <span className={`font-mono break-all ${c.muted2}`} title={displayUrl(savedSharePoint.webUrl)}>{savedSharePoint.webUrl ? displayUrl(savedSharePoint.webUrl) : savedSharePoint.name}</span>
                       {auth.status !== 'signedIn' && <> — zum Öffnen mit dem Microsoft-Konto anmelden.</>}</>
                   : 'Link zum Ordner einfügen, Anmeldung mit dem Microsoft-Konto, Berechtigungen aus SharePoint. Funktioniert in jedem Browser.'}
                 remembered={pendingFolder ? null : savedSharePoint?.name ?? null}
