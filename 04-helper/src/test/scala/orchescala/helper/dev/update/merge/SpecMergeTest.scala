@@ -442,7 +442,8 @@ class SpecMergeTest extends FunSuite:
       val before = os.walk(project).toSet
       def output(args: String*) =
         val out = java.io.ByteArrayOutputStream()
-        Console.withOut(out)(OrchSpecMergeCommand().run(args))
+        // false: the helper ends with exit code 1
+        assert(!Console.withOut(out)(OrchSpecMergeCommand().run(args)), s"no failure for $args")
         out.toString
       assert(output("--check", "--from", other.toString).contains("is no spec folder of Orch Spec - it has no config/model.json"))
       assert(output("--merge", "--yes", "--from", (project / "nope").toString).contains("does not exist - give the spec folder with --from <dir>"))

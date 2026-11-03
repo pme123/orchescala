@@ -20,7 +20,10 @@ import scala.util.Try
   */
 case class OrchSpecMergeCommand()(using config: DevConfig):
 
-  def run(args: Seq[String]): Unit =
+  /** @return whether it went through - false for a wrong `--from` or a merge that stopped midway
+    *         (the helper then ends with exit code 1, for a script or CI job that runs it)
+    */
+  def run(args: Seq[String]): Boolean =
     val merge   = args.contains("--merge")
     val markers = args.contains("--markers")
     val yes     = args.contains("--yes")
@@ -30,7 +33,9 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       case Some(p) => Try(os.Path(p, os.pwd)).toEither.left.map(_ => s"--from $p is no path")
       case None    => Right(project / SpecSources.specDir)
     after.flatMap(dir => SpecSources.whyNoSpecFolder(dir).toLeft(dir)) match
-      case Left(why)  => println(Console.RED + s"$why - give the spec folder with --from <dir>." + Console.RESET)
+      case Left(why)  =>
+        println(Console.RED + s"$why - give the spec folder with --from <dir>." + Console.RESET)
+        false
       case Right(dir) => checkAndMerge(project, dir, merge, markers, yes, value("--json"))
   end run
 
@@ -41,7 +46,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       markers: Boolean,
       yes: Boolean,
       json: Option[String]
-  ): Unit =
+  ): Boolean =
     // the spec before: in the last commit - extracted once for the comparison and the plan;
     // inside the try, so whatever fails after the extraction, the folder is removed
     var before  = Option.empty[os.Path]
@@ -57,19 +62,26 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       json.foreach: file =>
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
-      if merge then
-        if !plan.hasChanges && !(markers && plan.hasConflicts) then println("Nothing to merge.")
-        else if yes || confirm(plan, markers) then
-          try
-            val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode)
+      if !merge then true
+      else if !plan.hasChanges && !(markers && plan.hasConflicts) then
+        println("Nothing to merge.")
+        true
+      else if yes || confirm(plan, markers) then
+        try
+          val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode)
+          println()
+          MergeReport.printMerged(plan, result, markers)
+          OrchSpecGenerator().linkDiagrams(project)
+          true
+        catch
+          case e: MergeIncomplete =>
             println()
-            MergeReport.printMerged(plan, result, markers)
-            OrchSpecGenerator().linkDiagrams(project)
-          catch
-            case e: MergeIncomplete =>
-              println()
-              MergeReport.printIncomplete(e)
-        else println("Not merged.")
+            MergeReport.printIncomplete(e)
+            false
+      else
+        println("Not merged.")
+        true
+      end if
     finally before.foreach(os.remove.all)
     end try
   end checkAndMerge
