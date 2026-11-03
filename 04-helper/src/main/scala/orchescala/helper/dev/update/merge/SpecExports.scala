@@ -1,6 +1,9 @@
 package orchescala.helper.dev.update.merge
 
 import scala.util.Try
+import scala.util.boundary
+import scala.util.boundary.break
+import scala.util.control.NonFatal
 
 /** The export of a spec folder (`tools/spec2export.ts` of Orch Spec, format v1):
   * the processes, the services and what could not be exported.
@@ -60,8 +63,16 @@ object NodeSpecExporter extends SpecExporter:
 
   val tool = "spec2export.js"
 
-  def hasNode: Boolean =
-    Try(os.proc("node", "--version").call(check = false, stderr = os.Pipe).exitCode == 0).getOrElse(false)
+  /** Node.js is on the PATH - checked once per run of the helper; if the check itself fails (it
+    * hangs, node cannot be started) it says why, so a missing Node.js is not the only hint.
+    */
+  lazy val hasNode: Boolean =
+    Try(ExternalTool.call(Seq("node", "--version"), ExternalTool.probeTimeout).exitCode == 0)
+      .recover:
+        case NonFatal(e) =>
+          println(Console.YELLOW + s"node --version failed: ${Option(e.getMessage).getOrElse(e.toString)}" + Console.RESET)
+          false
+      .get
 
   def exportOf(specDir: os.Path): SpecExport =
     if !hasNode then
@@ -70,7 +81,7 @@ object NodeSpecExporter extends SpecExporter:
     val script = dir / tool
     os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / tool))
     try
-      val r = os.proc("node", script.toString, specDir.toString).call(check = false, stderr = os.Pipe)
+      val r = ExternalTool.call(Seq("node", script.toString, specDir.toString), ExternalTool.nodeTimeout)
       if r.exitCode != 0 then
         throw IllegalStateException(s"$tool failed (exit code ${r.exitCode}): ${r.err.text().trim}")
       SpecExport.fromJson(r.out.text())
@@ -84,6 +95,18 @@ object SpecSources:
   /** The folder of the spec in a project. */
   val specDir: os.RelPath = os.rel / "spec"
 
+  /** Why the folder is no spec folder of Orch Spec - None if it is one: it has a
+    * `config/model.json` (in older folders `model.json`), `processes/` or `services/` (a project
+    * with services only).
+    */
+  def whyNoSpecFolder(dir: os.Path): Option[String] =
+    if !os.exists(dir) then Some(s"No spec folder $dir - it does not exist")
+    else if !os.isDir(dir) then Some(s"$dir is no folder")
+    else if !(Seq(dir / "config" / "model.json", dir / "model.json").exists(os.isFile)
+        || Seq(dir / "processes", dir / "services").exists(os.isDir(_))) then
+      Some(s"$dir is no spec folder of Orch Spec - it has no config/model.json, no processes/ and no services/")
+    else None
+
   /** The folder with the spec of the source - `None` if there is none (no spec in the commit,
     * `Empty`). A commit is extracted into a temporary folder.
     */
@@ -95,27 +118,45 @@ object SpecSources:
 
   /** `spec/` of the project in a commit - `git archive <rev>:<path of the project>/spec`, run in
     * the root of the repository (in a subfolder git archive keeps only what lies below that
-    * folder). None if the commit has no spec.
+    * folder). None if there is no spec: no repository, no such commit, no spec in it - another
+    * failure of git is an error. The temporary folder is removed again if the extraction fails.
+    * @param extract the command that extracts the tar from stdin into the folder
     */
-  private def fromGit(project: os.Path, rev: String): Option[os.Path] =
-    def git(args: String*) = os.proc("git", args).call(cwd = project, check = false, stderr = os.Pipe)
-    // the path of the project in the repository (`projects/my-project/` - empty in its root)
-    val root    = git("rev-parse", "--show-toplevel")
-    val prefix  = git("rev-parse", "--show-prefix")
-    if root.exitCode != 0 || prefix.exitCode != 0 then None
-    else
-      val top     = os.Path(root.out.trim())
-      val archive = os.proc("git", "archive", "--format=tar", s"$rev:${prefix.out.trim()}$specDir")
-        .call(cwd = top, check = false, stderr = os.Pipe)
-      if archive.exitCode != 0 then None
-      else
-        val dir = os.temp.dir(prefix = "orch-spec-")
-        os.proc("tar", "-x", "-C", dir.toString).call(stdin = archive.out.bytes, stderr = os.Pipe)
-        if os.list(dir).isEmpty then
-          os.remove.all(dir)
-          None
-        else Some(dir)
-    end if
+  private[merge] def fromGit(
+      project: os.Path,
+      rev: String,
+      extract: os.Path => Seq[String] = dir => Seq("tar", "-x", "-C", dir.toString)
+  ): Option[os.Path] =
+    // git never asks for a credential: it fails at once instead of waiting for its timeout; and it
+    // answers in English whatever the locale - "not a git repository" tells no repository from a failure
+    val noPrompt           = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C", "LANGUAGE" -> "C")
+    def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project, env = noPrompt)
+    // None only where git says there is no spec - any other failure (dubious ownership, a damaged
+    // repository) is an error, not a first merge
+    def orFail(r: os.CommandResult) = if r.exitCode != 0 then throw os.SubprocessException(r) else r
+    boundary:
+      // the path of the project in the repository (`projects/my-project/` - empty in its root)
+      val root   = git("rev-parse", "--show-toplevel")
+      if root.exitCode != 0 && root.err.text().contains("not a git repository") then break(None)
+      val top    = os.Path(orFail(root).out.trim())
+      val path   = s"${orFail(git("rev-parse", "--show-prefix")).out.trim()}$specDir"
+      val spec   = s"$rev:$path"
+      // --verify --quiet: exit code 1 - no such commit (none yet)
+      val commit = git("rev-parse", "--verify", "--quiet", s"$rev^{commit}")
+      if commit.exitCode == 1 then break(None)
+      orFail(commit)
+      // no spec/ in the commit: ls-tree lists nothing - by its output, not by a message
+      if orFail(git("ls-tree", "--full-tree", "--name-only", rev, "--", path)).out.trim().isEmpty then break(None)
+      val archive = orFail(ExternalTool.call(Seq("git", "archive", "--format=tar", spec), ExternalTool.gitTimeout, cwd = top, env = noPrompt))
+      val dir     = os.temp.dir(prefix = "orch-spec-")
+      var kept    = false
+      // whatever ends it - an error, an interrupt (Ctrl-C) - the folder is removed unless it is the result
+      try
+        orFail(ExternalTool.call(extract(dir), ExternalTool.gitTimeout, stdin = archive.out.bytes))
+        kept = os.list(dir).nonEmpty
+        Option.when(kept)(dir)
+      finally if !kept then os.remove.all(dir)
+      end try
   end fromGit
 
   /** The files of a folder, relative to it - without hidden files. */
@@ -160,8 +201,7 @@ object NodeXmlFormatter extends XmlFormatter:
       os.write(script, os.read.bytes(os.resource / "orch-doc-tools" / tool))
       try
         import io.circe.syntax.*
-        val r = os.proc("node", script.toString, "--json")
-          .call(stdin = texts.asJson.noSpaces, check = false, stderr = os.Pipe)
+        val r = ExternalTool.call(Seq("node", script.toString, "--json"), ExternalTool.nodeTimeout, stdin = texts.asJson.noSpaces)
         if r.exitCode != 0 then
           throw IllegalStateException(s"$tool failed (exit code ${r.exitCode}): ${r.err.text().trim}")
         io.circe.parser.decode[Map[String, String]](r.out.text()).fold(e => throw IllegalStateException(e.getMessage), identity)

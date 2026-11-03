@@ -60,7 +60,8 @@ trait DevHelper:
             createProcessFromSpec(Some(OrchSpecInput.bpmn()), OrchSpecInput.scalaClasses())
           // the merge from Orch Spec: the spec of the project (or --from) against HEAD:spec
           case arguments if arguments.exists(a => a == "--check" || a == "--merge") =>
-            OrchSpecMergeCommand().run(arguments)
+            // a failed merge ends the helper with exit code 1 - a script or CI job sees it
+            if !OrchSpecMergeCommand().run(arguments) then sys.exit(1)
           // «Process from Spec» in Orch Spec: BPMN and Scala classes in one argument.
           // The copied text is the whole command - pasted after a typed `./helper.scala processFromSpec`
           // the command is doubled: so take the `orchspec:` argument wherever it is.

@@ -7,15 +7,26 @@ import orchescala.helper.util.DevConfig
 
 /** End to end with Orch Spec's own tools (spec2export.js, spec2diff.js from the orchescala-orch-doc
   * jar) and Node.js: the test spec of Orch Spec (`04-orch-spec/tests/fixtures/spec-folder`) as the
-  * `spec/` of a project, merged with `processFromSpec --merge`. Skipped without Node.js.
+  * `spec/` of a project, merged with `processFromSpec --merge`. Skipped without Node.js or the
+  * tools - on GitHub Actions (`GITHUB_ACTIONS` is set) that fails instead, so the test really runs there.
   */
 class SpecMergeNodeTest extends FunSuite:
 
   private lazy val fixture = os.pwd / "04-orch-spec" / "tests" / "fixtures" / "spec-folder"
 
+  private def tool(name: String) = scala.util.Try(os.read.bytes(os.resource / "orch-doc-tools" / name)).isSuccess
+
+  // locally skipped - on GitHub Actions (GITHUB_ACTIONS is set) a missing precondition is an
+  // error: the merge from Orch Spec must be tested there
+  private def required(ok: Boolean, what: String): Unit =
+    if sys.env.contains("GITHUB_ACTIONS") then assert(ok, s"$what on CI - the merge from Orch Spec must be tested there")
+    else assume(ok, what)
+
   private def inGitProject(body: DevConfig ?=> os.Path => Unit): Unit =
-    assume(NodeSpecExporter.hasNode, "no Node.js")
-    assume(os.isDir(fixture), s"no $fixture")
+    required(NodeSpecExporter.hasNode, "no Node.js")
+    required(os.isDir(fixture), s"no $fixture")
+    Seq(NodeSpecExporter.tool, "spec2diff.js", NodeXmlFormatter.tool).foreach: name =>
+      required(tool(name), s"no orch-doc-tools/$name (sbt orchDocClient/bundleDocClient)")
     val root = os.temp.dir(prefix = "spec-merge-node-")
     val dir  = root / "acme-demo"
     os.makeDir(dir)
@@ -57,9 +68,20 @@ class SpecMergeNodeTest extends FunSuite:
       val merged     = os.read(checkOrder)
       assert(merged.contains("ok: String") && merged.contains("lazy val own = 1"), merged)
 
+  test("processFromSpec: the comparison of the spec fails - why it is not available, the command goes on"):
+    inGitProject: project =>
+      val failing = "process.stderr.write('cannot read the spec'); process.exit(3);".getBytes
+      assertEquals(
+        OrchSpecMergeCommand().specDiff(None, fixture, failing),
+        Some("(the comparison of the spec is not available: spec2diff.js failed (exit code 3): cannot read the spec)\n")
+      )
+      // the tool itself is missing (no orch-doc-tools in the jar)
+      val missing = OrchSpecMergeCommand().specDiff(None, fixture, throw IllegalStateException("no spec2diff.js"))
+      assertEquals(missing, Some("(the comparison of the spec is not available: no spec2diff.js)\n"))
+      assert(OrchSpecMergeCommand().specDiff(None, fixture).exists(_.nonEmpty))
+
   test("Orch Spec's formatter: a BPMN of the Modeler (other indentation, attribute order, <a></a>) is no change"):
     inGitProject: project =>
-      assume(NodeXmlFormatter.available, "no xmlformat.js")
       val order    = SpecExport.fromJson(os.read(os.resource / "orch-spec" / "order-export.json")).processes.head
       SpecMerge.merge(project, SpecMerge.plan(project, Seq.empty, Seq(order)), OnConflict.KeepCode)
       val bpmn     = os.walk(project).find(_.last == "demo-orderV1.bpmn").get

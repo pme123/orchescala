@@ -2,7 +2,7 @@ package orchescala.helper.dev.update.merge
 
 import munit.FunSuite
 import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
-import orchescala.helper.dev.update.{ModuleConfig, OrchSpecGenerator}
+import orchescala.helper.dev.update.{ModuleConfig, OrchSpecGenerator, OrchSpecMergeCommand}
 import orchescala.helper.util.DevConfig
 
 /** The merge from Orch Spec: the export of the spec before (base) and after (new) against the
@@ -198,7 +198,7 @@ class SpecMergeTest extends FunSuite:
       val (plan, _) = run(project, Seq(order), Seq(withoutObject(order, "ApproveOrderUT")))
       val approve   = plan.files.find(_.path == path(project, "ApproveOrderUT.scala")).get
       assertEquals(approve.action, Action.conflict)
-      assertEquals(approve.note, Some("in orch-spec entfernt, im Code geändert"))
+      assertEquals(approve.note, Some("removed in orch-spec, changed in the code"))
       assert(os.exists(file(project, "ApproveOrderUT.scala")))
 
   test("a new step (custom task): its object and worker created, the worker registered"):
@@ -280,6 +280,79 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.read(project / workerAppRel), app)
       assert(os.walk(project).forall(_.last != "SendMail.scala"))
 
+  test("a file written by the merge keeps its permissions - a link stays a link"):
+    inProject: project =>
+      os.write(project / "run.sh", "echo old")
+      os.perms.set(project / "run.sh", "rwxr-xr-x")
+      os.write(project / "real.txt", "old", createFolders = true)
+      os.symlink(project / "linked.txt", os.rel / "real.txt")
+      val plan = MergePlan(
+        "acme-demo",
+        Seq(
+          PlannedFile("run.sh", Owner.spec, Action.update, SpecMerge.hashOf(project / "run.sh"), content = Some("echo new")),
+          PlannedFile("linked.txt", Owner.spec, Action.update, SpecMerge.hashOf(project / "linked.txt"), content = Some("new"))
+        )
+      )
+      SpecMerge.merge(project, plan, OnConflict.KeepCode)
+      assertEquals(os.read(project / "run.sh"), "echo new")
+      assertEquals(os.perms(project / "run.sh").toString, "rwxr-xr-x")
+      assert(os.isLink(project / "linked.txt"), "the link was replaced")
+      assertEquals(os.read(project / "real.txt"), "new")
+      // a link pointing nowhere: written through it, it stays a link
+      os.symlink(project / "dangling.txt", os.rel / "absent.txt")
+      SpecMerge.merge(project, MergePlan("acme-demo", Seq(PlannedFile("dangling.txt", Owner.spec, Action.create, content = Some("d")))), OnConflict.KeepCode)
+      assert(os.isLink(project / "dangling.txt"))
+      assertEquals(os.read(project / "absent.txt"), "d")
+      assertEquals(os.list(project).map(_.last).filter(_.endsWith(".merging")), Seq.empty)
+      // a new file gets the usual permissions - not those of a temporary file (owner only)
+      val created = MergePlan("acme-demo", Seq(PlannedFile("docs/new.txt", Owner.spec, Action.create, content = Some("new"))))
+      SpecMerge.merge(project, created, OnConflict.KeepCode)
+      os.write(project / "usual.txt", "usual")
+      assertEquals(os.perms(project / "docs" / "new.txt").toString, os.perms(project / "usual.txt").toString)
+
+  test("a file cannot be written midway: the merge stops there - what was written and deleted before is reported"):
+    inProject: project =>
+      os.write(project / "old.txt", "old")
+      // b/c.txt cannot be written: a folder with a file is in its place
+      os.write(project / "b" / "c.txt" / "keep.txt", "keep", createFolders = true)
+      val plan = MergePlan(
+        "acme-demo",
+        Seq(
+          PlannedFile("a.txt", Owner.spec, Action.create, content = Some("a")),
+          PlannedFile("old.txt", Owner.spec, Action.delete, SpecMerge.hashOf(project / "old.txt")),
+          PlannedFile("b/c.txt", Owner.spec, Action.create, content = Some("c")),
+          PlannedFile("d.txt", Owner.spec, Action.create, content = Some("d"))
+        )
+      )
+      val stopped = intercept[MergeIncomplete](SpecMerge.merge(project, plan, OnConflict.KeepCode))
+      assertEquals(stopped.failed, "b/c.txt")
+      assertEquals(stopped.done.written, Seq("a.txt"))
+      assertEquals(stopped.done.deleted, Seq("old.txt"))
+      assert(stopped.getMessage.contains("1 file(s) written and 1 deleted before it"), stopped.getMessage)
+      assertEquals(os.read(project / "a.txt"), "a")
+      assert(!os.exists(project / "old.txt"))
+      assert(!os.exists(project / "d.txt"))
+      // the file it stopped at is as it was, nothing of the write is left
+      assertEquals(os.read(project / "b" / "c.txt" / "keep.txt"), "keep")
+      assertEquals(os.list(project / "b").map(_.last), Seq("c.txt"))
+      // an exception without a message: the exception itself, not "null"
+      val noMessage = MergeIncomplete(stopped.done, "b/c.txt", NullPointerException())
+      assert(noMessage.getMessage.contains("(java.lang.NullPointerException)"), noMessage.getMessage)
+
+  test("two processes give the same file with different contents: the first one's taken - with a note"):
+    inProject: project =>
+      val copy       = order.copy(slug = "order-copy")
+      val plan       = SpecMerge.plan(project, Seq.empty, Seq(order, editScala(copy)(_.replace("ok = true", "ok = false"))))
+      val checkOrder = plan.files.find(_.path.endsWith("CheckOrder.scala")).get
+      assert(checkOrder.content.exists(_.contains("ok = true")))
+      assert(
+        plan.notes.contains(s"${checkOrder.path}: ${order.slug}, order-copy give it with different contents - the one of ${order.slug} is taken."),
+        plan.notes.mkString("\n")
+      )
+      // the same contents: no note
+      val same       = SpecMerge.plan(project, Seq.empty, Seq(order, copy))
+      assert(!same.notes.exists(_.contains("different contents")), same.notes.mkString("\n"))
+
   test("the plan as JSON - read back the same"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
@@ -358,6 +431,25 @@ class SpecMergeTest extends FunSuite:
       assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
       os.remove.all(sent)
 
+  test("checkMerge: the export of the spec fails - the commit extracted for it is removed"):
+    inProject: project =>
+      def git(args: String*) = os.proc("git", "-c", "user.name=t", "-c", "user.email=t@example.com", args).call(cwd = project, stderr = os.Pipe)
+      os.write(project / "spec" / "export.json", exportJson(order), createFolders = true)
+      git("init", "-q")
+      git("add", "-A")
+      git("commit", "-q", "-m", "spec")
+      var exported = Seq.empty[os.Path]
+      def failing(at: Int) = new SpecExporter:
+        def exportOf(specDir: os.Path) =
+          exported :+= specDir
+          if exported.size == at then throw ToolTimeout("node", ExternalTool.nodeTimeout) else FileExporter.exportOf(specDir)
+      // the export of the spec before fails, then the one after: both extracted commits are gone
+      for at <- Seq(1, 2) do
+        exported = Seq.empty
+        intercept[ToolTimeout](SpecMerge.checkMerge(project, SpecSource.GitRev("HEAD"), SpecSource.GitRev("HEAD"), failing(at)))
+        assertEquals(exported.size, at)
+        exported.foreach(dir => assert(!os.exists(dir), s"$dir left behind"))
+
   test("checkMerge: the project in a subfolder of the repository - its spec in HEAD is the base"):
     inProject: project =>
       // the repository one folder above the project (projects/<name>, as in a company repository)
@@ -374,6 +466,61 @@ class SpecMergeTest extends FunSuite:
       assertEquals(same.files.filterNot(_.action == Action.unchanged), Seq.empty)
       assertEquals(SpecSources.folder(project, SpecSource.GitRev("HEAD~1")).map(d => os.exists(d / "export.json")), Some(true))
       assertEquals(SpecSources.folder(repo, SpecSource.GitRev("HEAD")), None) // no spec/ in the root
+
+  test("SpecSources.fromGit: a failing extraction - its error, the temporary folder removed"):
+    inProject: project =>
+      def git(args: String*) = os.proc("git", "-c", "user.name=t", "-c", "user.email=t@example.com", args).call(cwd = project, stderr = os.Pipe)
+      os.write(project / "spec" / "export.json", exportJson(order), createFolders = true)
+      git("init", "-q")
+      git("add", "-A")
+      git("commit", "-q", "-m", "spec")
+      var used = Option.empty[os.Path]
+      // tar fails halfway: a file already extracted
+      val failing: os.Path => Seq[String] = dir =>
+        used = Some(dir)
+        Seq("sh", "-c", s"cat > /dev/null; touch '$dir/partial'; exit 2")
+      intercept[os.SubprocessException](SpecSources.fromGit(project, "HEAD", failing))
+      assert(used.isDefined, "not extracted")
+      assert(!os.exists(used.get), s"${used.get} left behind")
+      // git fails (no such commit): no spec - nothing extracted, no temporary folder
+      used = None
+      assertEquals(SpecSources.fromGit(project, "no-such-rev", failing), None)
+      assertEquals(used, None)
+      // no spec/ in the commit: None too
+      os.write(project / "other.txt", "x")
+      git("rm", "-rq", "spec")
+      git("add", "-A")
+      git("commit", "-q", "-m", "no spec")
+      assertEquals(SpecSources.fromGit(project, "HEAD", failing), None)
+      // a damaged repository (a blob of the spec missing): an error, not "no spec" - not a first merge
+      val blob = git("rev-parse", "HEAD~1:spec/export.json").out.text().trim
+      os.remove(project / ".git" / "objects" / blob.take(2) / blob.drop(2))
+      intercept[os.SubprocessException](SpecSources.fromGit(project, "HEAD~1", failing))
+      assertEquals(used, None)
+      // no repository at all: None
+      os.remove.all(project / ".git")
+      assertEquals(SpecSources.fromGit(project, "HEAD", failing), None)
+
+  test("processFromSpec --check --from: a folder that is no spec folder - a message, nothing planned or written"):
+    inProject: project =>
+      val other  = project / "docs"
+      os.write(other / "readme.md", "# not a spec", createFolders = true)
+      val before = os.walk(project).toSet
+      def output(args: String*) =
+        val out = java.io.ByteArrayOutputStream()
+        // false: the helper ends with exit code 1
+        assert(!Console.withOut(out)(OrchSpecMergeCommand().run(args)), s"no failure for $args")
+        out.toString
+      assert(output("--check", "--from", other.toString).contains("is no spec folder of Orch Spec - it has no config/model.json"))
+      assert(output("--merge", "--yes", "--from", (project / "nope").toString).contains("does not exist - give the spec folder with --from <dir>"))
+      assert(output("--check").contains(s"No spec folder ${project / "spec"}"))
+      assertEquals(os.walk(project).toSet, before)
+      assertEquals(SpecSources.whyNoSpecFolder(project / "docs" / "readme.md"), Some(s"${project / "docs" / "readme.md"} is no folder"))
+      // a project with services only
+      os.makeDir.all(project / "services-only" / "services")
+      assertEquals(SpecSources.whyNoSpecFolder(project / "services-only"), None)
+      os.write(project / "spec" / "config" / "model.json", "{}", createFolders = true)
+      assertEquals(SpecSources.whyNoSpecFolder(project / "spec"), None)
 
   test("ThreeWay - like git merge"):
     val base = "a\nb\nc\nd\ne\n"
@@ -416,6 +563,8 @@ class SpecMergeTest extends FunSuite:
     inProject: project =>
       val (plan, _) = run(project, Seq.empty, Seq(collection(), orchestration))
       assertEquals(plan.withAction(Action.conflict), Seq.empty)
+      // the files both give are the same
+      assertEquals(plan.notes.filter(_.contains("different contents")), Seq.empty)
       for name <- Seq("ClientV1.scala", "GetClient.scala", "GetClientWorker.scala", "UpdateClient.scala", "UpdateClientWorker.scala")
       do assertEquals(actionOf(plan, project, name), Action.create, name)
       assert(path(project, "GetClient.scala").startsWith("01-domain/src/main/scala/acme/demo/domain/client/v1/"))

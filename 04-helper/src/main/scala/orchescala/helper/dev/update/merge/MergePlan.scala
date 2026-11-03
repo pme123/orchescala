@@ -31,7 +31,7 @@ case class Conflict(line: Int, spec: String, code: String)
   * @param codeHash hash of the file in the project at the check - None if it does not exist
   * @param content  what `merge` writes: the new content (create, update, merged) - for a conflict
   *                 the content with conflict markers (`OnConflict.Markers`)
-  * @param note     why - e.g. «in orch-spec entfernt, im Code geändert»
+  * @param note     why - e.g. «removed in orch-spec, changed in the code»
   */
 case class PlannedFile(
     path: String,
@@ -134,3 +134,19 @@ case class MergeResult(written: Seq[String], deleted: Seq[String], conflicts: Se
 /** A file changed between the check and the merge - nothing was written; it needs a new check. */
 case class MergeAborted(changed: Seq[String])
     extends RuntimeException(s"Changed since the check - nothing written, check again: ${changed.mkString(", ")}")
+
+/** The merge stopped at a file (an IO error): what was written and deleted before it stays, the
+  * files after it were not touched. Fix the cause and merge again - the files already merged are
+  * unchanged in the new plan.
+  * @param done   what was written and deleted before
+  * @param failed the file it stopped at
+  */
+case class MergeIncomplete(done: MergeResult, failed: String, cause: Throwable)
+    extends RuntimeException(
+      s"The merge stopped at $failed (${MergeIncomplete.reason(cause)}) - ${done.written.size} file(s) written and ${done.deleted.size} deleted before it.",
+      cause
+    )
+
+object MergeIncomplete:
+  /** Why it stopped - the exception itself if it has no message (an NPE, some IO errors). */
+  def reason(cause: Throwable): String = Option(cause.getMessage).getOrElse(cause.toString)

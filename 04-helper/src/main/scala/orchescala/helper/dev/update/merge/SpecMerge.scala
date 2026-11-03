@@ -4,6 +4,7 @@ import orchescala.helper.dev.update.*
 
 import java.nio.charset.{CharacterCodingException, CodingErrorAction, StandardCharsets}
 import java.security.MessageDigest
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
 /** The merge from Orch Spec - all changes of the spec reach the code without losing the
@@ -46,21 +47,20 @@ object SpecMerge:
       exporter: SpecExporter = NodeSpecExporter,
       formatter: XmlFormatter = XmlFormatter.default
   )(using DevConfig): MergePlan =
-    val beforeDir = SpecSources.folder(project, before)
-    val afterDir  = SpecSources.folder(project, after)
-    val notes     = Seq.newBuilder[String]
-    if after != SpecSource.Empty && afterDir.isEmpty then
-      throw IllegalArgumentException(s"No spec in $after.")
-    val base      = beforeDir.fold(SpecExport.empty)(exporter.exportOf)
-    val neu       = afterDir.fold(SpecExport.empty)(exporter.exportOf)
-    notes ++= neu.issues
-    // the spec in the project is taken over as Orch Spec sent it - not if it is the project's own
-    val specFiles = afterDir.map(SpecSources.files)
-    try plan(project, base.entries, neu.entries, specFiles, notes.result(), formatter = formatter)
-    finally
-      // a commit was extracted into a temporary folder
-      if before.isInstanceOf[SpecSource.GitRev] then beforeDir.foreach(os.remove.all)
-      if after.isInstanceOf[SpecSource.GitRev] then afterDir.foreach(os.remove.all)
+    // a commit is extracted into a temporary folder - removed whatever fails after it
+    def extracted[A](source: SpecSource)(use: Option[os.Path] => A): A =
+      val dir = SpecSources.folder(project, source)
+      try use(dir)
+      finally if source.isInstanceOf[SpecSource.GitRev] then dir.foreach(os.remove.all)
+    extracted(before): beforeDir =>
+      extracted(after): afterDir =>
+        if after != SpecSource.Empty && afterDir.isEmpty then
+          throw IllegalArgumentException(s"No spec in $after.")
+        val base      = beforeDir.fold(SpecExport.empty)(exporter.exportOf)
+        val neu       = afterDir.fold(SpecExport.empty)(exporter.exportOf)
+        // the spec in the project is taken over as Orch Spec sent it - not if it is the project's own
+        val specFiles = afterDir.map(SpecSources.files)
+        plan(project, base.entries, neu.entries, specFiles, neu.issues, formatter = formatter)
   end checkMerge
 
   /** The plan from the exports of the processes and services before and after.
@@ -89,20 +89,30 @@ object SpecMerge:
           case p: ProcessExport  => Try(processes.plan(p))
           case s: ServicesExport => Try(services.plan(s))
         files match
-          case Success(files)                   => Some(files)
+          case Success(files)                   => Some(e.slug -> files)
           case Failure(ex) if strict            => throw ex
           case Failure(ex)                      =>
             messages += s"${e.slug}$which: ${ex.getMessage} - left out."
             None
-    val base     = planned(before, " (before)")
-    val neu      = planned(after, "")
+    val basePlanned = planned(before, " (before)")
+    val newPlanned  = planned(after, "")
+    val base        = basePlanned.map(_._2)
+    val neu         = newPlanned.map(_._2)
     messages ++= neu.flatMap(_.notes)
 
-    // a file two processes give is taken from the first
-    def byPath(files: Seq[ProcessFiles]): Map[os.RelPath, GeneratedFile] =
-      files.flatMap(_.files).groupBy(_.rel).view.mapValues(_.head).toMap
-    val baseFiles = byPath(base)
-    val newFiles  = byPath(neu)
+    // a file several processes give: the first one is taken - noted only for the new export, the
+    // one that is written; the base only decides what changed
+    def byPath(planned: Seq[(String, ProcessFiles)], note: Boolean): Map[os.RelPath, GeneratedFile] =
+      planned.flatMap((slug, p) => p.files.map(slug -> _)).groupBy(_._2.rel).toSeq.sortBy(_._1.toString).map:
+        (rel, all) =>
+          val (first, file) = all.head
+          val others        = all.tail.filterNot((_, f) => same(f.content, file.content)).map(_._1).distinct
+          if note && others.nonEmpty then
+            messages += s"$rel: ${(first +: others).mkString(", ")} give it with different contents - the one of $first is taken."
+          rel -> file
+      .toMap
+    val baseFiles = byPath(basePlanned, note = false)
+    val newFiles  = byPath(newPlanned, note = true)
     val rels      = (baseFiles.keySet ++ newFiles.keySet).toSeq.sortBy(_.toString)
     // BPMN and DMN: the three sides in the Modeler's form - in one run of the formatter
     val xml       = rels.filter(isXml).flatMap: rel =>
@@ -140,7 +150,8 @@ object SpecMerge:
   end plan
 
   /** 2. Merge: exactly the plan - first all `codeHash` are checked: if a file changed since the
-    * check, it aborts without writing a file (`MergeAborted`).
+    * check, it aborts without writing a file (`MergeAborted`). If writing or deleting a file fails,
+    * it stops there - `MergeIncomplete` tells what was done before.
     */
   def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict): MergeResult =
     val changed = plan.files.filter(f => hashOf(project / os.RelPath(f.path)) != f.codeHash).map(_.path)
@@ -149,23 +160,44 @@ object SpecMerge:
     val deleted = Seq.newBuilder[String]
     def write(f: PlannedFile) = f.content.foreach: content =>
       val bytes = if f.binary then java.util.Base64.getDecoder.decode(content) else content.getBytes(StandardCharsets.UTF_8)
-      os.write.over(project / os.RelPath(f.path), bytes, createFolders = true)
+      val path   = project / os.RelPath(f.path)
+      // a link stays a link: the file it points to is written; one pointing nowhere is written through
+      val linked = if os.isLink(path) then os.followLink(path) else Some(path)
+      if linked.isEmpty then os.write.over(path, bytes)
+      else
+        val target = linked.get
+        // written next to it (a name of its own) and moved in place: a write that fails leaves
+        // the file as it was; an existing file keeps its permissions (an executable script stays
+        // executable) - where the file system has them
+        // (os.write, not os.temp: a new file gets the usual permissions, not the owner's only)
+        val temp = target / os.up / s".${target.last}.${java.util.UUID.randomUUID()}.merging"
+        try
+          os.write(temp, bytes, createFolders = true)
+          if os.exists(target) then Try(os.perms.set(temp, os.perms(target)))
+          // a file system without an atomic move: moved all the same
+          try os.move(temp, target, replaceExisting = true, atomicMove = true)
+          catch case _: java.nio.file.AtomicMoveNotSupportedException => os.move(temp, target, replaceExisting = true)
+        finally Try(os.remove(temp))
+      end if
       written += f.path
+    def result = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict))
     plan.files.foreach: f =>
-      f.action match
-        case Action.create | Action.update | Action.merged => write(f)
-        case Action.delete                                 =>
-          os.remove(project / os.RelPath(f.path))
-          deleted += f.path
-        case Action.conflict if onConflict == OnConflict.Markers => write(f)
-        case _                                             => ()
-    MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict))
+      try
+        f.action match
+          case Action.create | Action.update | Action.merged => write(f)
+          case Action.delete                                 =>
+            os.remove(project / os.RelPath(f.path))
+            deleted += f.path
+          case Action.conflict if onConflict == OnConflict.Markers => write(f)
+          case _                                             => ()
+      catch case NonFatal(e) => throw MergeIncomplete(result, f.path, e)
+    result
   end merge
 
   // ── deciding ────────────────────────────────────────────────────────────────────────────
 
-  private val removedInSpec  = "in orch-spec entfernt, im Code geändert"
-  private val deletedInCode  = "im Code gelöscht, in orch-spec geändert"
+  private val removedInSpec  = "removed in orch-spec, changed in the code"
+  private val deletedInCode  = "deleted in the code, changed in orch-spec"
 
   /** One generated file: base and new export against the code - see the table above. */
   private[merge] def decide(
@@ -193,14 +225,14 @@ object SpecMerge:
         else file(Action.conflict, conflicts = Seq(Conflict(1, "", firstLines(c))), note = Some(removedInSpec))
       case (Some(b), Some(n), None)     =>
         // the developer deleted it - that stays, unless Orch Spec changed it
-        if same(b.content, n.content) then file(Action.unchanged, note = Some("im Code gelöscht"))
+        if same(b.content, n.content) then file(Action.unchanged, note = Some("deleted in the code"))
         else file(Action.conflict, Some(n.content), Seq(Conflict(1, firstLines(n.content), "")), Some(deletedInCode))
       case (None, Some(n), Some(c))     =>
         if same(c, n.content) then file(Action.unchanged)
         else
           n.kind match
             case FileKind.Simulation    => file(Action.update, Some(n.content))
-            case FileKind.Scaffold      => file(Action.unchanged, note = Some("existiert - einmal erzeugt, bleibt"))
+            case FileKind.Scaffold      => file(Action.unchanged, note = Some("exists - created once, it stays"))
             case FileKind.ProcessObject =>
               val merged = n.structural.fold(c)(_(c))
               if same(merged, c) then file(Action.unchanged) else file(Action.merged, Some(merged))
