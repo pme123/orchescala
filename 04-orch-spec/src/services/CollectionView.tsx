@@ -30,7 +30,8 @@ import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
 import { headerVar } from './names';
 import { useServices } from './store';
-import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
+import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type OutCase, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
+import { outCaseFields, outCaseMapping, outCaseOf, withOutCase } from './outCases';
 import { fieldsOnce } from '../scala';
 import { ProjectSelect } from '../components/SpecMeta';
 import { defaultServiceBasePath } from './scalaCollection';
@@ -768,6 +769,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
           ? <p className={`text-[10px] ${c.muted}`}>Die Antwort ist das Out, wie es ist — <span className="font-mono">Right(out.outputBody)</span>.</p>
           : s.noOut
           ? <p className={`text-[10px] ${c.muted}`}>Das Out ist <span className="font-mono">NoOutput</span> — {s.serviceOut ? <>der Worker gibt <span className="font-mono">NoOutput()</span> zurück, was die API auch antwortet.</> : 'kein outputMapper.'}</p>
+          : outType?.kind === 'enum'
+          ? <OutCasesEditor type={outType} cases={s.outCases} types={spec.types} vars={outVars} canEdit={canEdit} isDark={isDark}
+              placeholderOf={() => '= body.…'} onChange={outCases => onPatch({ outCases: outCases.length ? outCases : undefined })}
+              noMatch={<>trifft keiner zu, scheitert der Worker mit <span className="font-mono">ServiceMappingError</span></>} />
           : outType && (outType.fields ?? []).some(f => f.name)
           ? (outType.fields ?? []).filter(f => f.name).map(f => {
               const m = (s.outMappings ?? []).find(x => x.name === f.name);
@@ -852,6 +857,55 @@ function upsert(list: Mapping[] | undefined, name: string, expression: string): 
   const rest = (list ?? []).filter(m => m.name !== name);
   const next = expression.trim() ? [...rest, { name, expression }] : rest;
   return next.length ? next : undefined;
+}
+
+/**
+ * The output mapping of an `Out` with cases (enum): per case when it is that case (FEEL) and
+ * its fields — the shared ones included. The worker takes the first case whose condition holds;
+ * the last one without a condition is the otherwise.
+ */
+export function OutCasesEditor({ type, cases, types, vars, canEdit, isDark, placeholderOf, requiredOf, noMatch, onChange }: {
+  type: TypeDef; cases: OutCase[] | undefined; types: TypeDef[]; vars: VarNode[]; canEdit: boolean; isDark: boolean;
+  /** the placeholder of a field without a mapping */
+  placeholderOf: (f: Field) => string;
+  /** does the field need a mapping — default: yes */
+  requiredOf?: (f: Field) => boolean;
+  /** what happens if no condition holds */
+  noMatch: React.ReactNode;
+  onChange: (cases: OutCase[]) => void;
+}) {
+  const c = cls(isDark);
+  const all = outCaseFields(type);
+  if (!all.length) return <p className={`text-[10px] ${c.muted}`}>Das Out hat noch keine Fälle — unten im Out anlegen.</p>;
+  const warn = isDark ? 'text-amber-300' : 'text-amber-700';
+  return (
+    <div className="space-y-3">
+      <p className={`text-[10px] ${c.muted}`}>Der erste Fall, dessen Bedingung zutrifft, ist das Out — der letzte Fall darf ohne Bedingung sein (sonst); {noMatch}.</p>
+      {all.map((cf, i) => {
+        const oc = outCaseOf(cases, cf.name);
+        const last = i === all.length - 1;
+        return (
+          <div key={cf.name} className={`space-y-1 pl-3 border-l-2 ${isDark ? 'border-sky-700' : 'border-sky-300'}`}>
+            <div className="flex items-start gap-2">
+              <span className={`w-40 mt-1 text-[11px] font-mono truncate font-semibold ${c.text}`} title={`Fall ${cf.name}`}>Fall {cf.name}</span>
+              <div className="flex-1 min-w-0">
+                <FeelInput value={oc.condition ?? ''} variables={vars} isDark={isDark} disabled={!canEdit} size="md"
+                  placeholder={last ? 'sonst — ohne Bedingung' : 'wann dieser Fall? z. B. = body.client != null'}
+                  onChange={condition => onChange(withOutCase(cases, cf.name, x => ({ ...x, condition: condition.trim() ? condition : undefined })))} />
+                {!last && !oc.condition?.trim() && <div className={`text-[10px] ${warn}`}>Keine Bedingung — nur der letzte Fall darf ohne sein.</div>}
+              </div>
+            </div>
+            {cf.fields.map(f => (
+              <MappingRow key={f.id} target={f} types={types} value={outCaseMapping(oc, f.name)} placeholder={placeholderOf(f)}
+                vars={vars} canEdit={canEdit} isDark={isDark} required={requiredOf?.(f) ?? true}
+                onChange={expression => onChange(withOutCase(cases, cf.name, x => ({ ...x, mappings: upsert(x.mappings, f.name, expression) })))} />
+            ))}
+            {!cf.fields.length && <div className={`text-[10px] ${c.muted}`}>keine Felder</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** `case class In` or `type In = NoInput` — the same for Out. */

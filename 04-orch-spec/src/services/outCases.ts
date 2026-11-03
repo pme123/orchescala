@@ -30,18 +30,6 @@ export const outCaseMapping = (c: OutCase, field: string): string =>
   (c.mappings ?? []).find((m: Mapping) => m.name === field)?.expression ?? '';
 
 /**
- * Issues of the mapping: a case without a condition that is not the last — the cases after
- * it would never be reached.
- */
-export function outCaseIssues(t: TypeDef, cases: OutCase[] | undefined): string[] {
-  const all = outCaseFields(t);
-  return all
-    .slice(0, -1)
-    .filter(c => !outCaseOf(cases, c.name).condition?.trim())
-    .map(c => `Fall «${c.name}» hat keine Bedingung — nur der letzte Fall darf ohne sein (sonst).`);
-}
-
-/**
  * `if c1 then v1 else if c2 then v2 else otherwise` (Scala 3, indented by the caller): per
  * branch its condition (`undefined`: the otherwise — it ends the chain) and its value, both
  * Scala; `otherwise` where no condition holds.
