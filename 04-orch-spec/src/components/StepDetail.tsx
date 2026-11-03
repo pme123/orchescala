@@ -28,7 +28,7 @@ import { useStore } from '../store';
 import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
+import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, typeUnknown, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
 import { uid } from '../util';
 import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
 
@@ -250,8 +250,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const classFieldDefs = (list: 'inputs' | 'outputs'): Field[] | null => {
     const id = list === 'inputs' ? ia?.inTypeId : ia?.outTypeId;
     const t = id ? (spec.types ?? []).find(x => x.id === id) : null;
-    // for an enum also the fields of its cases — which apply is said by the variant
-    return t ? classFieldsOf(t) : null;
+    // for an enum also the fields of its cases — which apply is said by the variant; a name
+    // several cases have counts with the type of the chosen case
+    return t ? classFieldsOf(t, caseOf(variantsFor(list), chosenFor(list))) : null;
   };
   const classFields = (list: 'inputs' | 'outputs'): string[] | null =>
     classFieldDefs(list)?.map(f => f.name) ?? null;
@@ -1402,7 +1403,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
       const f = refFields.find(x => x.name === name);
       return f && !f.optional ? `Pflichtfeld: «${name}» ist im In nicht optional` : null;
     }
-    const dom = domainRequired(domain, name);
+    const dom = domainRequired(domain, name, caseOf(variants, chosen));
     if (dom != null) return dom ? `Pflichtfeld: «${name}» ist in ${domain?.name} nicht optional` : null;
     const p = service?.inputs?.find(x => x.name === name);
     return p?.required ? `Pflichtfeld: «${name}» ist laut Katalog erforderlich` : null;
@@ -1523,9 +1524,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
           // FEEL (Camunda 8): `= …` is checked while typing — syntax, paths, type
           // Expected type: the own class first, otherwise the domain catalog
-          const expected = refFields
-            ? expectedFor(refFields.find(f => f.name === m.name), types, model)
-            : expectedFromDomain(domain, m.name, model);
+          // a different type per case and none chosen («alle Ausprägungen»): no yardstick
+          const expected = typeUnknown(variants, chosen, m.name) ? null
+            : refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model)
+            : expectedFromDomain(domain, m.name, model, caseOf(variants, chosen));
           const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
           const feelIssues: FeelIssue[] = [
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
