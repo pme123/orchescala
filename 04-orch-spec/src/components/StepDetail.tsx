@@ -1664,6 +1664,8 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
   const hit = collectionNode(collection, variables ?? []);
   const elem = element.trim() && /^[A-Za-z_]\w*$/.test(element.trim()) ? elementNode(element.trim(), collection, variables ?? []) : null;
   const elemKind = elem?.type === 'context' ? 'class' : 'scalar';
+  // the name exists outside too — inside the step the element hides it
+  const hidden = elem ? (variables ?? []).find(v => v.name === elem.name && v.source !== 'Mehrfachausführung') : undefined;
   const badElement = !!element.trim() && !/^[A-Za-z_][\w]*$/.test(element.trim());
   const set = (k: 'collection' | 'element', v: string) => {
     const { [k]: _, ...rest } = mi;
@@ -1720,6 +1722,12 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
               </span>
             )}
           </div>
+        )}
+        {hidden && (
+          <p className={`flex items-start gap-1 ${warn}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+            <span>«{hidden.name}» gibt es auch ausserhalb ({hidden.source}{hidden.label && hidden.label !== '?' ? `, ${hidden.label}` : ''}) — im Schritt gilt das Element; die andere ist hier verdeckt. Wenn sie ein Überbleibsel ist: dort entfernen oder umbenennen.</span>
+          </p>
         )}
         {badElement && (
           <p className={`flex items-start gap-1 ${err}`}>

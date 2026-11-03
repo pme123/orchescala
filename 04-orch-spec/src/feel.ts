@@ -729,12 +729,15 @@ export function multiInstanceScopes(steps: Step[] | undefined): Map<string, Mult
  */
 export function withMultiInstance(vars: VarNode[], scopes: MultiInstanceSpec[] | undefined): VarNode[] {
   if (!scopes?.length) return vars;
-  const out = [...vars];
-  const add = (n: VarNode) => { if (!out.some(v => v.name === n.name)) out.unshift(n); };
+  let out = [...vars];
+  // what the engine sets in the instance hides a variable of the same name from outside —
+  // an inner multi-instance the one of an outer
+  const add = (n: VarNode) => { out = [n, ...out.filter(v => v.name !== n.name)]; };
   add({ name: 'loopCounter', type: 'number', label: 'Int', source: 'Mehrfachausführung', description: 'Nummer des aktuellen Durchlaufs, ab 1' });
   for (const mi of scopes) {
     const name = mi.element?.trim();
-    if (name) add(elementNode(name, mi.collection ?? '', vars));
+    // the collection of an inner one may read the element of an outer one
+    if (name) add(elementNode(name, mi.collection ?? '', out));
   }
   return out;
 }
