@@ -11,7 +11,7 @@
 // So no old form stays beside the new one (C8 output mappings would otherwise become C7 output
 // parameters next to the pattern's listeners).
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
-import { applyPattern, detectPatterns, fragmentFor, patternParams, stripPatternItems, type PatternHit } from './patterns.ts';
+import { applyPattern, detectPatterns, fragmentFor, patternParams, resolvedDefaults, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
 import { paramForChecked, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -123,7 +123,8 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   };
   const samePlace = (a: PatternHit, b: PatternHit) => a.patternId === b.patternId && (a.targetId ?? '') === (b.targetId ?? '');
   const take1 = (h: PatternHit) => {
-    const def = byId.get(h.patternId)!;
+    const def = byId.get(h.patternId);
+    if (!def) return undefined;
     const k = pool.findIndex(x => samePlace(x, h) && sameParams(onTarget(def, x.params), onTarget(def, paramsIn(h))));
     const alone = strip.all.filter(x => samePlace(x, h)).length === 1;
     const j = k >= 0 ? k : alone ? pool.findIndex(x => samePlace(x, h)) : -1;
@@ -146,6 +147,12 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
       const shown = (v: string | undefined) => paramView(v ?? '');
       extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(found[k])}»`).join(', ')} — prüfen.` });
     }
+    // a parameter the target engine does not have, set to something other than its default: lost
+    const defaults = resolvedDefaults(xml, def);
+    const lost = patternParams(def)
+      .filter(p => p.engines && !p.engines.includes(target) && h.params[p.name] && h.params[p.name] !== (defaults[p.name] ?? ''))
+      .map(p => `«${p.label ?? p.name}» = «${paramView(h.params[p.name])}»`);
+    if (lost.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${lost.join(', ')} gibt es auf ${engineLabel(target)} nicht — beim Zurückwechseln gilt wieder die Vorgabe.` });
   }
   return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
 }

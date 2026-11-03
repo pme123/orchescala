@@ -269,7 +269,11 @@ export function patternParamsFor(
   const text = x ? textOnlyParams(x) : new Set<string>();
   const withKind = (p: PatternParam) => {
     // a process id is text - no FEEL - chosen from the catalog (no list when it has none)
-    if (p.kind === 'process') return { ...p, textOnly: true, ...(processes.length ? { options: processes } : {}) };
+    if (p.kind === 'process') {
+      // the options of the pattern first, then the processes of the catalog
+      const all = [...new Set([...(paramOptions(p) ?? []), ...processes])];
+      return { ...p, textOnly: true, ...(all.length ? { options: all } : {}) };
+    }
     const options = paramOptions(p);
     return { ...p, ...(text.has(p.name) ? { textOnly: true } : {}), ...(options ? { options } : {}) };
   };
@@ -290,7 +294,8 @@ export function processChoices(model: Model | null, exclude?: string): string[] 
     ...(model?.domainTypes ?? []).map(t => t.processName),
     ...(model?.services ?? []).map(s => s.calledProcess),
   ];
-  return [...new Set(names.filter((p): p is string => !!p && p !== exclude))].sort();
+  // (an expression as called process - `${…}`, `=…` - is no process to choose)
+  return [...new Set(names.filter((p): p is string => !!p && p !== exclude && PROCESS_ID.test(p)))].sort();
 }
 
 /** A parameter kind Orch Spec knows (PARAM_KINDS) */
@@ -1859,7 +1864,21 @@ export function processIssue(value: string | undefined, ownProcess: string | und
   // text only - an expression or a placeholder would stand there as it is
   if (/^(=|\$\{|#\{)/.test(v)) return 'ist die ID eines Prozesses - nur Text, kein Ausdruck.';
   if (/\{\{\s*\w+\s*\}\}/.test(v)) return 'enthält einen Platzhalter ({{…}}) - der kommt hier nicht ersetzt hinein.';
+  if (!PROCESS_ID.test(v)) return 'ist keine gültige Prozess-ID - nur Buchstaben, Ziffern, _ . und -, am Anfang ein Buchstabe oder _.';
   return null;
+}
+
+/** A BPMN process ID (an XML name, as the processes use: `acme-eventsV1`) */
+const PROCESS_ID = /^[A-Za-z_][\w.-]*$/;
+
+/**
+ * The defaults of a pattern's parameters with the built-in ones filled in from the diagram
+ * (`{{processId}}` → the ID of its process) - what a parameter is when nobody set it.
+ */
+export function resolvedDefaults(xml: string, def: PatternDef): Record<string, string> {
+  const doc = parseXml(xml);
+  const v = valuesFor(def, {}, null, doc ? mainProcess(doc) : null);
+  return Object.fromEntries(patternParams(def).filter(p => p.default != null).map(p => [p.name, p.default!.replace(PH, (_, n: string) => v[n] ?? '')]));
 }
 
 /**

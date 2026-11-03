@@ -799,7 +799,7 @@ und Doku stehen in `democompany-patterns`:
   beim Einfügen als Text hinein (Parameter «Aufrufender Prozess», Vorgabe
   `{{processId}}`, nur C8). Nach dem Umbenennen des Prozesses erkennt Orch Spec
   das Pattern weiter und zeigt die alte ID dort zum Anpassen; der Wechsel nach
-  C7 und zurück setzt die neue.
+  C7 sagt es, und zurück auf C8 gilt die neue.
 
 Ein **Parameter mit `"kind": "process"`** ist die ID eines Prozesses: immer
 nur Text, auch wenn er im BPMN ausserhalb einer Zeichenkette steht (für FEEL
@@ -812,7 +812,8 @@ der Import der Pattern-Datei sagt es.
 
 Ein Parameter mit **`"engines": ["c8"]`** steht nur im BPMN dieser Engine: beim
 Engine-Wechsel geht er nicht hinüber und fehlt auf der anderen auch nicht, auf
-dem Rückweg gilt seine Vorgabe.
+dem Rückweg gilt seine Vorgabe. Hat er einen anderen Wert als die Vorgabe, sagt
+der Wechsel, dass dieser verloren geht.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
