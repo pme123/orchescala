@@ -280,6 +280,26 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.read(project / workerAppRel), app)
       assert(os.walk(project).forall(_.last != "SendMail.scala"))
 
+  test("a file written by the merge keeps its permissions - a link stays a link"):
+    inProject: project =>
+      os.write(project / "run.sh", "echo old")
+      os.perms.set(project / "run.sh", "rwxr-xr-x")
+      os.write(project / "real.txt", "old", createFolders = true)
+      os.symlink(project / "linked.txt", os.rel / "real.txt")
+      val plan = MergePlan(
+        "acme-demo",
+        Seq(
+          PlannedFile("run.sh", Owner.spec, Action.update, SpecMerge.hashOf(project / "run.sh"), content = Some("echo new")),
+          PlannedFile("linked.txt", Owner.spec, Action.update, SpecMerge.hashOf(project / "linked.txt"), content = Some("new"))
+        )
+      )
+      SpecMerge.merge(project, plan, OnConflict.KeepCode)
+      assertEquals(os.read(project / "run.sh"), "echo new")
+      assertEquals(os.perms(project / "run.sh").toString, "rwxr-xr-x")
+      assert(os.isLink(project / "linked.txt"), "the link was replaced")
+      assertEquals(os.read(project / "real.txt"), "new")
+      assertEquals(os.list(project).map(_.last).filter(_.endsWith(".merging")), Seq.empty)
+
   test("a file cannot be written midway: the merge stops there - what was written and deleted before is reported"):
     inProject: project =>
       os.write(project / "old.txt", "old")

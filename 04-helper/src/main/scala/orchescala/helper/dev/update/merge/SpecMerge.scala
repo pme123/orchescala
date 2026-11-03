@@ -160,13 +160,19 @@ object SpecMerge:
     val deleted = Seq.newBuilder[String]
     def write(f: PlannedFile) = f.content.foreach: content =>
       val bytes = if f.binary then java.util.Base64.getDecoder.decode(content) else content.getBytes(StandardCharsets.UTF_8)
-      // written next to it and moved in place: a write that fails leaves the file as it was
       val target = project / os.RelPath(f.path)
-      val temp   = target / os.up / s".${target.last}.merging"
-      try
-        os.write.over(temp, bytes, createFolders = true)
-        os.move(temp, target, replaceExisting = true, atomicMove = true)
-      finally os.remove(temp)
+      // a link stays a link: written through it, in place
+      if os.isLink(target) then os.write.over(target, bytes)
+      else
+        // written next to it and moved in place: a write that fails leaves the file as it was;
+        // an existing file keeps its permissions (an executable script stays executable)
+        val temp = target / os.up / s".${target.last}.merging"
+        try
+          os.write.over(temp, bytes, createFolders = true)
+          if os.exists(target) then os.perms.set(temp, os.perms(target))
+          os.move(temp, target, replaceExisting = true, atomicMove = true)
+        finally Try(os.remove(temp))
+      end if
       written += f.path
     def result = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict))
     plan.files.foreach: f =>
