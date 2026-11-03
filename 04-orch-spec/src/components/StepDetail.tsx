@@ -1683,6 +1683,9 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
         <div className="flex items-center gap-1.5">
           <span className="flex-1 min-w-0">Sammlung — je Element läuft der Schritt einmal</span>
           {hit && hit.type !== 'any' && (
+            <span className={`min-w-0 truncate text-[9px] ${c.muted}`} title={`Der Typ kommt von: ${hit.source}`}>{hit.source}</span>
+          )}
+          {hit && hit.type !== 'any' && (
             <span title={`${hit.label} — ${hit.source}`}
               className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(hit.type === 'list' ? 'list' : 'class', isDark).cls}`}>
               {kindStyle(hit.type === 'list' ? 'list' : 'class', isDark).icon}<span className="truncate">{hit.label}</span>
@@ -1712,15 +1715,11 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
           title={`Name der Variable für das aktuelle Element — im BPMN ${engine === 'c8' ? 'inputElement' : 'camunda:elementVariable'}; im Schritt und allem darin bekannt.`}
           className={`w-full font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
         {elem && elem.type !== 'any' && (
-          <div className="flex items-start gap-1.5" title={elem.description}>
+          <div className="flex items-start gap-1.5"
+            title={`${elem.description ?? ''}${elem.children?.length ? `\nFelder: ${elem.children.map(f => f.name).join(', ')}` : ''}`}>
             <span className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(elemKind, isDark).cls}`}>
               {kindStyle(elemKind, isDark).icon}<span className="truncate">{elem.label}</span>
             </span>
-            {!!elem.children?.length && (
-              <span className={`min-w-0 font-mono text-[9px] ${c.muted}`}>
-                {elem.children.map(f => `${element.trim()}.${f.name}`).join(' · ')}
-              </span>
-            )}
           </div>
         )}
         {hidden && (
