@@ -1,6 +1,8 @@
 package orchescala.helper.dev.update.merge
 
 import scala.util.Try
+import scala.util.boundary
+import scala.util.boundary.break
 import scala.util.control.NonFatal
 
 /** The export of a spec folder (`tools/spec2export.ts` of Orch Spec, format v1):
@@ -128,31 +130,32 @@ object SpecSources:
     // git never asks for a credential: it fails at once instead of waiting for its timeout
     val noPrompt           = Map("GIT_TERMINAL_PROMPT" -> "0")
     def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project, env = noPrompt)
-    // the path of the project in the repository (`projects/my-project/` - empty in its root)
-    val root    = git("rev-parse", "--show-toplevel")
-    val prefix  = git("rev-parse", "--show-prefix")
-    val spec    = s"$rev:${prefix.out.trim()}$specDir"
-    // None only where there is no spec: no repository, no such commit (none yet), no spec/ in it -
-    // a git that fails otherwise (a damaged repository) is an error, not a first merge
-    if root.exitCode != 0 || prefix.exitCode != 0 then None
-    else if git("rev-parse", "--verify", "--quiet", s"$rev^{commit}").exitCode != 0 then None
-    else if git("cat-file", "-e", spec).exitCode != 0 then None
-    else
-      val top     = os.Path(root.out.trim())
-      val archive = ExternalTool.call(Seq("git", "archive", "--format=tar", spec), ExternalTool.gitTimeout, cwd = top, env = noPrompt)
-      if archive.exitCode != 0 then throw os.SubprocessException(archive)
-      else
-        val dir  = os.temp.dir(prefix = "orch-spec-")
-        var kept = false
-        // whatever ends it - an error, an interrupt (Ctrl-C) - the folder is removed unless it is the result
-        try
-          val tar = ExternalTool.call(extract(dir), ExternalTool.gitTimeout, stdin = archive.out.bytes)
-          if tar.exitCode != 0 then throw os.SubprocessException(tar)
-          kept = os.list(dir).nonEmpty
-          Option.when(kept)(dir)
-        finally if !kept then os.remove.all(dir)
-        end try
-    end if
+    // None only where git says there is no spec - any other failure (dubious ownership, a damaged
+    // repository) is an error, not a first merge
+    def orFail(r: os.CommandResult) = if r.exitCode != 0 then throw os.SubprocessException(r) else r
+    boundary:
+      // the path of the project in the repository (`projects/my-project/` - empty in its root)
+      val root   = git("rev-parse", "--show-toplevel")
+      if root.exitCode != 0 && root.err.text().contains("not a git repository") then break(None)
+      val top    = os.Path(orFail(root).out.trim())
+      val spec   = s"$rev:${orFail(git("rev-parse", "--show-prefix")).out.trim()}$specDir"
+      // --verify --quiet: exit code 1 - no such commit (none yet)
+      val commit = git("rev-parse", "--verify", "--quiet", s"$rev^{commit}")
+      if commit.exitCode == 1 then break(None)
+      orFail(commit)
+      val there  = git("cat-file", "-e", spec)
+      if there.exitCode != 0 && there.err.text().contains("does not exist") then break(None)
+      orFail(there)
+      val archive = orFail(ExternalTool.call(Seq("git", "archive", "--format=tar", spec), ExternalTool.gitTimeout, cwd = top, env = noPrompt))
+      val dir     = os.temp.dir(prefix = "orch-spec-")
+      var kept    = false
+      // whatever ends it - an error, an interrupt (Ctrl-C) - the folder is removed unless it is the result
+      try
+        orFail(ExternalTool.call(extract(dir), ExternalTool.gitTimeout, stdin = archive.out.bytes))
+        kept = os.list(dir).nonEmpty
+        Option.when(kept)(dir)
+      finally if !kept then os.remove.all(dir)
+      end try
   end fromGit
 
   /** The files of a folder, relative to it - without hidden files. */

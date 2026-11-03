@@ -497,6 +497,9 @@ class SpecMergeTest extends FunSuite:
       os.remove(project / ".git" / "objects" / blob.take(2) / blob.drop(2))
       intercept[os.SubprocessException](SpecSources.fromGit(project, "HEAD~1", failing))
       assertEquals(used, None)
+      // no repository at all: None
+      os.remove.all(project / ".git")
+      assertEquals(SpecSources.fromGit(project, "HEAD", failing), None)
 
   test("processFromSpec --check --from: a folder that is no spec folder - a message, nothing planned or written"):
     inProject: project =>
