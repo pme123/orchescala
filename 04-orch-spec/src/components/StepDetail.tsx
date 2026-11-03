@@ -1709,19 +1709,19 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
         )}
       </div>
       <div className="space-y-0.5">
-        <div>Instanzvariable — das aktuelle Element · Zähler <span className="font-mono">loopCounter</span></div>
+        <div className="flex items-center gap-1.5">
+          <span className="flex-1 min-w-0">Instanzvariable — das aktuelle Element · Zähler <span className="font-mono">loopCounter</span></span>
+          {elem && elem.type !== 'any' && (
+            <span title={`${elem.description ?? ''}${elem.children?.length ? `\nFelder: ${elem.children.map(f => f.name).join(', ')}` : ''}`}
+              className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(elemKind, isDark).cls}`}>
+              {kindStyle(elemKind, isDark).icon}<span className="truncate">{elem.label}</span>
+            </span>
+          )}
+        </div>
         <input value={element} disabled={!canEdit} onChange={e => set('element', e.target.value)}
           placeholder="item"
           title={`Name der Variable für das aktuelle Element — im BPMN ${engine === 'c8' ? 'inputElement' : 'camunda:elementVariable'}; im Schritt und allem darin bekannt.`}
           className={`w-full font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
-        {elem && elem.type !== 'any' && (
-          <div className="flex items-start gap-1.5"
-            title={`${elem.description ?? ''}${elem.children?.length ? `\nFelder: ${elem.children.map(f => f.name).join(', ')}` : ''}`}>
-            <span className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(elemKind, isDark).cls}`}>
-              {kindStyle(elemKind, isDark).icon}<span className="truncate">{elem.label}</span>
-            </span>
-          </div>
-        )}
         {hidden && (
           <p className={`flex items-start gap-1 ${warn}`}>
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
