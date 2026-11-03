@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { AlertTriangle, AppWindow, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
-import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
+import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, MultiInstanceSpec, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
 import { packageOf } from '../scala';
@@ -260,6 +260,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const scopes = useMemo(() => multiInstanceScopes(spec.steps).get(step.id), [spec.steps, step.id]);
   const baseVariables = useMemo(() => processVariables(spec, model), [spec, model]);
   const variables = useMemo(() => withMultiInstance(baseVariables, scopes), [baseVariables, scopes]);
+  // the collection of a multi-instance is read before its instances — without its own element
+  const outerVariables = useMemo(() => withMultiInstance(baseVariables, step.multiInstance ? scopes?.slice(0, -1) : scopes), [baseVariables, scopes, step.multiInstance]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
   // The Scala types of the service object from the domain catalog — the yardstick for
   // type and required, where the step has no In/Out class of its own
@@ -490,13 +492,12 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </div>
       )}
 
-      {/* Multi-instance: per element of a collection — read from the BPMN */}
+      {/* Multi-instance: per element of a collection — the marker comes from the BPMN,
+          collection and element are set here and written on export */}
       {step.multiInstance && (
-        <div className={`text-[10px] px-2 py-1.5 rounded border ${isDark ? 'border-violet-500/30 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-700'}`}>
-          <div className="flex items-center gap-1.5 font-semibold"><Repeat size={10} /> Mehrfachausführung{step.multiInstance.sequential ? ' (nacheinander)' : ' (parallel)'}</div>
-          {step.multiInstance.collection && <div>je Element von <span className="font-mono">{step.multiInstance.collection}</span></div>}
-          {step.multiInstance.element && <div>Element heisst <span className="font-mono">{step.multiInstance.element}</span> · Zähler <span className="font-mono">loopCounter</span></div>}
-        </div>
+        <MultiInstanceBox mi={step.multiInstance} isDark={isDark} canEdit={canEdit} engine={spec.engine}
+          variables={outerVariables}
+          onChange={mi => onPatch(step.id, { multiInstance: mi })} />
       )}
 
       {/* Service selection with prepared mapping */}
@@ -1628,6 +1629,68 @@ function kindStyle(kind: ExpectedType['kind'], isDark: boolean): { cls: string; 
  * Expected type of the row — what the field of the In/Out class (or the catalog)
  * demands. Shown next to the name, so it is clear what the expression must return.
  */
+/** a list — what the collection of a multi-instance has to deliver */
+const LIST_EXPECTED: ExpectedType = { accepts: ['list'], label: 'Sammlung', kind: 'list' };
+
+/**
+ * Multi-instance of a step: the collection (FEEL, without the `=` in the specification)
+ * and the name of the variable for the current element. Sequential or parallel is
+ * set in the diagram.
+ */
+function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: {
+  mi: MultiInstanceSpec; isDark: boolean; canEdit: boolean; engine: EngineId | undefined;
+  variables: VarNode[] | null; onChange: (mi: MultiInstanceSpec) => void;
+}) {
+  const c = cls(isDark);
+  const collection = mi.collection ?? '';
+  const feel = collection.trim() ? checkFeel(`= ${collection}`, variables, LIST_EXPECTED) : null;
+  const element = mi.element ?? '';
+  const badElement = !!element.trim() && !/^[A-Za-z_][\w]*$/.test(element.trim());
+  const set = (k: 'collection' | 'element', v: string) => {
+    const { [k]: _, ...rest } = mi;
+    onChange(v.trim() ? { ...rest, [k]: v } : rest);
+  };
+  const err = isDark ? 'text-rose-400' : 'text-rose-600';
+  const warn = isDark ? 'text-amber-400' : 'text-amber-600';
+  return (
+    <div className={`text-[10px] px-2 py-1.5 rounded border space-y-1.5 ${isDark ? 'border-violet-500/30 bg-violet-500/10 text-violet-300' : 'border-violet-300 bg-violet-50 text-violet-700'}`}>
+      <div className="flex items-center gap-1.5 font-semibold"
+        title="Nacheinander oder parallel wird im Diagramm gesetzt (Markierung am Element).">
+        <Repeat size={10} /> Mehrfachausführung{mi.sequential ? ' (nacheinander)' : ' (parallel)'}
+      </div>
+      <div className="space-y-0.5">
+        <div>Sammlung — je Element läuft der Schritt einmal</div>
+        <FeelInput value={collection ? `= ${collection}` : ''} disabled={!canEdit} isDark={isDark} variables={variables}
+          onChange={v => set('collection', v.replace(/^\s*=\s*/, ''))}
+          placeholder="= order.items"
+          title={`Die Liste als FEEL (= …) — im BPMN für ${engine === 'c8' ? `${C8_LABEL} als inputCollection` : `${C7_LABEL} als camunda:collection (\${…})`}.`} />
+        {feel?.issues.map((it, k) => (
+          <p key={k} className={`flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+          </p>
+        ))}
+      </div>
+      <div className="space-y-0.5">
+        <div>Instanzvariable — das aktuelle Element · Zähler <span className="font-mono">loopCounter</span></div>
+        <input value={element} disabled={!canEdit} onChange={e => set('element', e.target.value)}
+          placeholder="item"
+          title={`Name der Variable für das aktuelle Element — im BPMN ${engine === 'c8' ? 'inputElement' : 'camunda:elementVariable'}; im Schritt und allem darin bekannt.`}
+          className={`w-full font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
+        {badElement && (
+          <p className={`flex items-start gap-1 ${err}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Nur ein Variablenname — Buchstaben, Ziffern, «_», kein Punkt.</span>
+          </p>
+        )}
+        {!element.trim() && collection.trim() && (
+          <p className={`flex items-start gap-1 ${warn}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Ohne Instanzvariable kennt der Schritt das aktuelle Element nicht.</span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ExpectedChip({ expected, list, isDark }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean }) {
   const st = kindStyle(expected.kind, isDark);
   const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');
