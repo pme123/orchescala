@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
-import { checkFeel, elementNode, processVariables, withMultiInstance } from '../src/feel';
+import { checkFeel, elementNode, processVariables, variableOverview, withMultiInstance } from '../src/feel';
 import type { Model, ProcessSpec, Step } from '../src/types';
 
 const source = `package acme.print.domain.print.v1
@@ -81,7 +81,11 @@ test('a variable of the same name from elsewhere does not hide the element insid
   // e.g. still a process variable from an older state, with another structure
   const s = ownSpec({ variables: [{ name: 'printContent', type: 'Content' }] } as Partial<ProcessSpec>);
   const vars = processVariables(s, null);
-  assert.ok(vars.some(v => v.name === 'printContent' && v.source === 'Variable'));
+  // the entry is the element of the multi-instance - no process variable, no entry without source
+  assert.ok(!vars.some(v => v.name === 'printContent'));
+  const overview = variableOverview(s, null);
+  assert.deepEqual(overview.orphans, []);
+  assert.equal(overview.variables.find(v => v.name === 'printContent')?.local, 'Mehrfachausführung von Print');
   const inside = withMultiInstance(vars, [s.steps[1].multiInstance!]);
   assert.equal(inside.filter(v => v.name === 'printContent').length, 1);
   assert.deepEqual(checkFeel('= printContent.content.docId', inside, null).issues, []);
