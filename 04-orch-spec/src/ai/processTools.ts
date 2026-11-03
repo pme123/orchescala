@@ -4,7 +4,7 @@
 // ID of the step), the findings of the spec (collectFindings) - the same checks as in the designer.
 import { allSteps, importBpmn, mergeSpec } from '../bpmn';
 import { engineLabel } from '../engineLabels';
-import { collectFindings } from '../findings';
+import { collectFindings, PROCESS_FINDINGS } from '../findings';
 import { targetsOf } from '../pages/designer/model';
 import type { Model, ProcessSpec, Step } from '../types';
 import {
@@ -78,7 +78,7 @@ export function processModelText(spec: ProcessSpec): string {
 export function processFindings(spec: ProcessSpec, ctx: ProcessContext, withWarnings = true): { level: 'error' | 'warning'; line: string }[] {
   const byId = new Map(allSteps(spec.steps).map((s) => [s.id, s]));
   return [...collectFindings(spec, ctx.model, allSteps(spec.steps)).entries()].flatMap(([id, f]) => {
-    const where = `${id}${byId.get(id)?.name ? ` «${byId.get(id)!.name}»` : ''}`;
+    const where = id === PROCESS_FINDINGS ? 'Prozess' : `${id}${byId.get(id)?.name ? ` «${byId.get(id)!.name}»` : ''}`;
     return [
       ...f.errors.map((m) => ({ level: 'error' as const, line: `${where}: ${m}` })),
       ...(withWarnings ? f.warnings.map((m) => ({ level: 'warning' as const, line: `${where}: ${m}` })) : []),

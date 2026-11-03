@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
 import { processVariables, variableOverview } from '../src/feel';
+import { collectFindings, PROCESS_FINDINGS } from '../src/findings';
+import { allSteps } from '../src/bpmn';
 import type { Model, ProcessSpec, Step, TypeDef } from '../src/types';
 
 const source = `package acme.print.domain.print.v1
@@ -115,4 +117,15 @@ test('overview: every variable with its source - engine variables included', () 
   assert.equal(byName.get('clientKey')?.sources[0].source, 'In');
   assert.equal(byName.get('contentForPrinting')?.sources[0].source, 'Ausgabe von Get Print Content');
   assert.equal(byName.get('businessKey')?.sources[0].source, 'Engine');
+});
+
+test('findings: conflict and orphan are warnings on the process - naming both sources and types', () => {
+  const s = spec({ variables: [{ name: 'fromScript' }] }, [{ id: 'f', name: 'contentForPrinting', type: 'String', collection: true }]);
+  const f = collectFindings(s, model, allSteps(s.steps)).get(PROCESS_FINDINGS)!;
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.warnings.length, 2);
+  assert.match(f.warnings[0], /«contentForPrinting».*Seq\[String\] \(In\).*Seq\[PrintContent\] \(Ausgabe von Get Print Content\)/);
+  assert.match(f.warnings[1], /«fromScript» kommt von nirgends — woher\?/);
+  // without either: no finding on the process
+  assert.equal(collectFindings(spec(), model, allSteps(spec().steps)).has(PROCESS_FINDINGS), false);
 });

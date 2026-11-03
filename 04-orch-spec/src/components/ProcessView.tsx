@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
-import { collectFindings, withServiceRows, type Finding } from '../findings';
+import { collectFindings, PROCESS_FINDINGS, withServiceRows, type Finding } from '../findings';
 import { catalogEntry, healLooseTypes } from '../interactions';
 import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, rememberPlaces, stepTarget, sub, threadOf } from '../comments';
 import { TEAMS_SCOPES } from '../teams';
@@ -1343,12 +1343,14 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                     {/* Findings: only the steps with a triangle — red if there are errors */}
                     {findings.size > 0 && (() => {
                       const errs = [...findings.values()].filter(f => f.errors.length).length;
+                      const atProcess = findings.has(PROCESS_FINDINGS);
+                      const steps = findings.size - (atProcess ? 1 : 0);
                       const tone = errs
                         ? (isDark ? 'border-rose-500/30 bg-rose-500/15 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')
                         : (isDark ? 'border-amber-500/30 bg-amber-500/15 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700');
                       return (
                         <button onClick={() => setFindingsOnly(v => !v)}
-                          title={`${findings.size} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''} — nur diese zeigen`}
+                          title={`${steps} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''}${atProcess ? ' — dazu der Prozess (Prozessvariablen, ohne Schritt auswählen)' : ''} — nur diese zeigen`}
                           className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${tone} ${
                             !findingsOnly && (statusFilter) ? 'opacity-30' : ''} ${findingsOnly ? 'ring-1 ring-current' : ''}`}>
                           <AlertTriangle size={9} /> {findings.size}
