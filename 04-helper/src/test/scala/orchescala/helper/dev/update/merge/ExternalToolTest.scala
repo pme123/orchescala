@@ -53,4 +53,19 @@ class ExternalToolTest extends FunSuite:
       "fatal: https://***@github.com/a/b.git and ssh://***@host/c"
     )
 
+  test("reading the output fails midway: no result - its error"):
+    val chunks  = java.util.concurrent.ConcurrentLinkedQueue[Either[geny.Bytes, geny.Bytes]]()
+    val cutOff  = new java.io.InputStream:
+      private var sent = false
+      def read(): Int  = throw java.io.IOException("cut off")
+      override def read(b: Array[Byte]): Int =
+        if sent then throw java.io.IOException("cut off")
+        sent = true
+        b(0) = 'x'.toByte
+        1
+    val reading = ExternalTool.read(cutOff, Left(_), chunks)
+    reading.thread.join(5000)
+    assertEquals(reading.failure.map(_.getMessage), Some("cut off"))
+    assertEquals(chunks.size, 1)
+
 end ExternalToolTest

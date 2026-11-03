@@ -1,9 +1,11 @@
 package orchescala.helper.dev.update.merge
 
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
+import scala.util.control.NonFatal
 
 /** The tools the merge runs (node, git, tar) - with a timeout: a tool that hangs (git waiting for
   * a credential, a script in an endless loop) ends the merge with an error instead of blocking the
@@ -36,38 +38,57 @@ object ExternalTool:
     def left     = math.max(1L, (deadline - System.nanoTime()) / 1000000)
     val chunks   = ConcurrentLinkedQueue[Either[geny.Bytes, geny.Bytes]]()
     val sub      = os.proc(command).spawn(cwd = cwd, stdin = stdin, stdout = os.Pipe, stderr = os.Pipe)
-    if stdin eq os.Pipe then sub.stdin.close()
-    val readers  = Seq(read(sub.wrapped.getInputStream, Left(_), chunks), read(sub.wrapped.getErrorStream, Right(_), chunks))
+    val readers  = Seq(
+      read(sub.wrapped.getInputStream, Left(_), chunks),
+      read(sub.wrapped.getErrorStream, Right(_), chunks)
+    )
     def timedOut(how: String) =
       // what it said until then - for git waiting for a credential the only hint
       val said = String(chunks.iterator.asScala.flatMap(_.fold(identity, identity).array).toArray, "UTF-8")
       ToolTimeout(command.head, timeout, withoutCredentials(said.takeRight(outputTail)).trim, how)
-    if !sub.waitFor(left) then
-      stopAll(sub.wrapped.toHandle)
-      throw timedOut("stopped")
-    readers.foreach(_.join(left))
-    // the readers are daemons: one blocked on a pipe held by a process left behind does not keep the helper
-    if readers.exists(_.isAlive) then throw timedOut("it ended, but a process it started still holds its output")
-    os.CommandResult(command, sub.exitCode(), chunks.iterator.asScala.toIndexedSeq)
+    try
+      if stdin eq os.Pipe then sub.stdin.close()
+      if !sub.waitFor(left) then throw timedOut("stopped")
+      readers.foreach(_.thread.join(left))
+      // the readers are daemons: one blocked on a pipe held by a process left behind does not keep the helper
+      if readers.exists(_.thread.isAlive) then throw timedOut("it ended, but a process it started still holds its output")
+      // a half-read output is no result - a git archive cut off would look complete
+      readers.flatMap(_.failure).headOption.foreach: e =>
+        throw java.io.IOException(s"${command.head}: reading its output failed - ${e.getMessage}", e)
+      os.CommandResult(command, sub.exitCode(), chunks.iterator.asScala.toIndexedSeq)
+    finally
+      // whatever ended the call (a timeout, an interrupt): nothing it started keeps running
+      if sub.isAlive() then stopAll(sub.wrapped.toHandle)
+      // a stream still read is left to its daemon - closing it could block on the reader's lock
+      if !readers.exists(_.thread.isAlive) then
+        Try(sub.wrapped.getInputStream.close())
+        Try(sub.wrapped.getErrorStream.close())
+    end try
   end call
 
-  /** Reads the stream to its end into `chunks` - in a daemon thread. */
-  private def read(
+  /** A stream read in a daemon thread - and why the reading failed, if it did. */
+  private[merge] final class Reading(val thread: Thread, error: AtomicReference[Throwable]):
+    def failure: Option[Throwable] = Option(error.get)
+
+  /** Reads the stream to its end into `chunks`. */
+  private[merge] def read(
       in: java.io.InputStream,
       as: geny.Bytes => Either[geny.Bytes, geny.Bytes],
       chunks: ConcurrentLinkedQueue[Either[geny.Bytes, geny.Bytes]]
-  ): Thread =
+  ): Reading =
+    val error             = AtomicReference[Throwable]()
     val reading: Runnable = () =>
-      Try:
+      try
         val buf = new Array[Byte](8192)
         var n   = in.read(buf)
         while n >= 0 do
           if n > 0 then chunks.add(as(geny.Bytes(java.util.Arrays.copyOf(buf, n))))
           n = in.read(buf)
+      catch case NonFatal(e) => error.set(e)
     val thread            = Thread(reading)
     thread.setDaemon(true)
     thread.start()
-    thread
+    Reading(thread, error)
   end read
 
   /** Stops the process and everything it started (`sh -c`, git's helpers, node's children). The
