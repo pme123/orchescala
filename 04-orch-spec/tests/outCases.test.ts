@@ -1,7 +1,8 @@
 // An Out with cases in the output mapping: the saved cases and the chain of the worker.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { caseChain, withOutCase } from '../src/services/outCases.ts';
+import { caseChain, prunedOutCases, withOutCase } from '../src/services/outCases.ts';
+import type { TypeDef } from '../src/types.ts';
 import type { OutCase } from '../src/services/types.ts';
 
 const cases: OutCase[] = [
@@ -35,4 +36,21 @@ test('caseChain: the conditions in order, the last case without one is the other
 
 test('caseChain: a case without a condition before the last one would lose the others - an error', () => {
   assert.throws(() => caseChain([{ value: 'A' }, { cond: 'b', value: 'B' }], 'X'), /only the last branch/);
+});
+
+test('prunedOutCases: a case or a field the Out no longer has is not kept', () => {
+  const out: TypeDef = {
+    id: 'o', name: 'Out', kind: 'enum', fields: [{ id: 'e', name: 'etag', type: 'String' }],
+    values: [{ name: 'Found', fields: [{ id: 'c', name: 'client', type: 'String' }] }, { name: 'NotFound' }],
+  };
+  const saved: OutCase[] = [
+    { name: 'Found', condition: '= true', mappings: [{ name: 'client', expression: '= body' }, { name: 'gone', expression: '= 1' }, { name: 'etag', expression: '= "x"' }] },
+    { name: 'Renamed', condition: '= false' },
+    { name: 'NotFound', condition: '= body = null' },
+  ];
+  assert.deepEqual(prunedOutCases(saved, out), [
+    { name: 'Found', condition: '= true', mappings: [{ name: 'client', expression: '= body' }, { name: 'etag', expression: '= "x"' }] },
+    { name: 'NotFound', condition: '= body = null' },
+  ]);
+  assert.deepEqual(prunedOutCases(undefined, out), []);
 });

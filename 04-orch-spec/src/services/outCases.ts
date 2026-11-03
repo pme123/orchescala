@@ -29,6 +29,18 @@ export function withOutCase(cases: OutCase[] | undefined, name: string, change: 
   return all.some(c => c.name === name) ? all.map(c => (c.name === name ? next : c)) : [...all, next];
 }
 
+/**
+ * The cases as the Out has them now: a case renamed or removed in the Out, or a field it no
+ * longer has, does not stay in the saved spec.
+ */
+export function prunedOutCases(cases: OutCase[] | undefined, t: TypeDef): OutCase[] {
+  const now = new Map(outCaseFields(t).map(c => [c.name, new Set(c.fields.map(f => f.name))]));
+  return (cases ?? []).filter(c => now.has(c.name)).map(c => {
+    const fields = now.get(c.name)!;
+    return c.mappings ? { ...c, mappings: c.mappings.filter(m => fields.has(m.name)) } : c;
+  });
+}
+
 /** The expression of a field of the case — `''` if none. */
 export const outCaseMapping = (c: OutCase, field: string): string =>
   (c.mappings ?? []).find((m: Mapping) => m.name === field)?.expression ?? '';

@@ -31,7 +31,7 @@ import { MethodChip } from './ui';
 import { headerVar } from './names';
 import { useServices } from './store';
 import { HTTP_METHODS, isCollection, type BodyRef, type CollectionService, type HttpMethod, type OutCase, type ParamIn, type RequestParam, type ServiceCollectionSpec } from './types';
-import { outCaseFields, outCaseMapping, outCaseOf, withOutCase } from './outCases';
+import { outCaseFields, outCaseMapping, outCaseOf, prunedOutCases, withOutCase } from './outCases';
 import { fieldsOnce } from '../scala';
 import { ProjectSelect } from '../components/SpecMeta';
 import { defaultServiceBasePath } from './scalaCollection';
@@ -878,6 +878,8 @@ export function OutCasesEditor({ type, cases, types, vars, canEdit, isDark, plac
   const all = outCaseFields(type);
   if (!all.length) return <p className={`text-[10px] ${c.muted}`}>Das Out hat noch keine Fälle — unten im Out anlegen.</p>;
   const warn = isDark ? 'text-amber-300' : 'text-amber-700';
+  // a case or field the Out no longer has goes with the next change
+  const save = (next: OutCase[]) => onChange(prunedOutCases(next, type));
   return (
     <div className="space-y-3">
       <p className={`text-[10px] ${c.muted}`}>Der erste Fall, dessen Bedingung zutrifft, ist das Out — der letzte Fall darf ohne Bedingung sein (sonst); {noMatch}.</p>
@@ -891,14 +893,14 @@ export function OutCasesEditor({ type, cases, types, vars, canEdit, isDark, plac
               <div className="flex-1 min-w-0">
                 <FeelInput value={oc.condition ?? ''} variables={vars} isDark={isDark} disabled={!canEdit} size="md"
                   placeholder={last ? 'sonst — ohne Bedingung' : 'wann dieser Fall? z. B. = body.client != null'}
-                  onChange={condition => onChange(withOutCase(cases, cf.name, x => ({ ...x, condition: condition.trim() ? condition : undefined })))} />
+                  onChange={condition => save(withOutCase(cases, cf.name, x => ({ ...x, condition: condition.trim() ? condition : undefined })))} />
                 {!last && !oc.condition?.trim() && <div className={`text-[10px] ${warn}`}>Keine Bedingung — nur der letzte Fall darf ohne sein.</div>}
               </div>
             </div>
             {cf.fields.map(f => (
               <MappingRow key={f.id} target={f} types={types} value={outCaseMapping(oc, f.name)} placeholder={placeholderOf(f)}
                 vars={vars} canEdit={canEdit} isDark={isDark} required={requiredOf?.(f) ?? true}
-                onChange={expression => onChange(withOutCase(cases, cf.name, x => ({ ...x, mappings: upsert(x.mappings, f.name, expression) })))} />
+                onChange={expression => save(withOutCase(cases, cf.name, x => ({ ...x, mappings: upsert(x.mappings, f.name, expression) })))} />
             ))}
             {!cf.fields.length && <div className={`text-[10px] ${c.muted}`}>keine Felder</div>}
           </div>
