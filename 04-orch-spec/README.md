@@ -807,8 +807,8 @@ also nicht geeignet). Zur Auswahl stehen die Prozesse des Katalogs: die
 Prozess-Objekte der Domain (`processName`) und was eine Call Activity schon
 aufruft (`calledProcess` der Services), ohne den eigenen; einen anderen tippt
 man ein. Bleibt er leer, sagt das Einfügen es.
-Eine andere `kind` kennt Orch Spec nicht: der Parameter gilt als gewöhnlicher,
-der Import der Pattern-Datei sagt es.
+Eine andere `kind` kennt Orch Spec nicht: der Parameter gilt als gewöhnlicher.
+Das sagt nur der Import der Pattern-Datei; der Editor setzt keine `kind`.
 
 Ein Parameter mit **`"engines": ["c8"]`** steht nur im BPMN dieser Engine: beim
 Engine-Wechsel geht er nicht hinüber und fehlt auf der anderen auch nicht, auf
