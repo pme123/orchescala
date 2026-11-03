@@ -2,6 +2,7 @@ package orchescala.helper.dev.update.merge
 
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.mutable
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
@@ -46,19 +47,31 @@ object ExternalTool:
     def timedOut(how: String) =
       // what it said until then - for git waiting for a credential the only hint
       val said = String(chunks.iterator.asScala.flatMap(_.fold(identity, identity).array).toArray, "UTF-8")
-      ToolTimeout(command.head, timeout, withoutCredentials(said.takeRight(outputTail)).trim, how)
+      // masked before it is cut: a URL cut in the middle would keep its token
+      ToolTimeout(command.head, timeout, withoutCredentials(said).takeRight(outputTail).trim, how)
+    // the processes the tool started, as seen while it ran - once it has ended, the ones left
+    // behind belong to another parent and can no longer be found from it
+    val started  = mutable.LinkedHashSet.empty[ProcessHandle]
     try
       if stdin eq os.Pipe then sub.stdin.close()
-      if !sub.waitFor(left) then throw timedOut("stopped")
+      var ended = false
+      while !ended && System.nanoTime() < deadline do
+        sub.wrapped.toHandle.descendants().forEach(started += _)
+        ended = sub.waitFor(math.min(watchStep, left))
+      if !ended then throw timedOut("stopped")
       readers.foreach(_.thread.join(left))
-      // the readers are daemons: one blocked on a pipe held by a process left behind does not keep the helper
-      if readers.exists(_.thread.isAlive) then throw timedOut("it ended, but a process it started still holds its output")
+      // a process left behind still holds the output: it is stopped, then the readers end too;
+      // a process the tool started that let its output go (a daemon of git) keeps running
+      if readers.exists(_.thread.isAlive) then
+        stopAll(started.filter(_.isAlive).toSeq*)
+        readers.foreach(_.thread.join(stopWait.toMillis))
+        throw timedOut("it ended, but a process it started still held its output - stopped")
       // a half-read output is no result - a git archive cut off would look complete
       readers.flatMap(_.failure).headOption.foreach: e =>
         throw java.io.IOException(s"${command.head}: reading its output failed - ${e.getMessage}", e)
       os.CommandResult(command, sub.exitCode(), chunks.iterator.asScala.toIndexedSeq)
     finally
-      // whatever ended the call (a timeout, an interrupt): nothing it started keeps running
+      // whatever ended the call (a timeout, an interrupt): the tool and what it started are stopped
       if sub.isAlive() then stopAll(sub.wrapped.toHandle)
       // a stream still read is left to its daemon - closing it could block on the reader's lock
       if !readers.exists(_.thread.isAlive) then
@@ -95,8 +108,8 @@ object ExternalTool:
   /** Stops the process and everything it started (`sh -c`, git's helpers, node's children). The
     * descendants are taken before: once the process is gone, its children belong to another one.
     */
-  private def stopAll(process: ProcessHandle): Unit =
-    val all   = process +: process.descendants().iterator.asScala.toSeq
+  private def stopAll(processes: ProcessHandle*): Unit =
+    val all   = processes.flatMap(p => p +: p.descendants().iterator.asScala.toSeq).distinct
     all.foreach(_.destroyForcibly())
     // waited for together, a few seconds at most - a process that does not end (stuck in IO)
     // must not hide the timeout
@@ -113,6 +126,9 @@ object ExternalTool:
 
   /** How long the stopped processes are waited for, together. */
   private val stopWait = 5.seconds
+
+  /** How often the processes a running tool started are looked at (milliseconds). */
+  private val watchStep = 50L
 
 end ExternalTool
 
