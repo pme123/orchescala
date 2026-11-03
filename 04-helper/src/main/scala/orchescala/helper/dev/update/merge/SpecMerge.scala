@@ -164,12 +164,14 @@ object SpecMerge:
       // a link stays a link: written through it, in place
       if os.isLink(target) then os.write.over(target, bytes)
       else
-        // written next to it and moved in place: a write that fails leaves the file as it was;
-        // an existing file keeps its permissions (an executable script stays executable)
-        val temp = target / os.up / s".${target.last}.merging"
+        // written next to it (a name of its own) and moved in place: a write that fails leaves
+        // the file as it was; an existing file keeps its permissions (an executable script stays
+        // executable) - where the file system has them
+        os.makeDir.all(target / os.up)
+        val temp = os.temp(dir = target / os.up, prefix = s".${target.last}.", suffix = ".merging", deleteOnExit = false)
         try
-          os.write.over(temp, bytes, createFolders = true)
-          if os.exists(target) then os.perms.set(temp, os.perms(target))
+          os.write.over(temp, bytes)
+          if os.exists(target) then Try(os.perms.set(temp, os.perms(target)))
           os.move(temp, target, replaceExisting = true, atomicMove = true)
         finally Try(os.remove(temp))
       end if
