@@ -116,8 +116,8 @@ object SpecSources:
 
   /** `spec/` of the project in a commit - `git archive <rev>:<path of the project>/spec`, run in
     * the root of the repository (in a subfolder git archive keeps only what lies below that
-    * folder). None if the commit has no spec. The temporary folder is removed again if the
-    * extraction fails.
+    * folder). None if there is no spec: no repository, no such commit, no spec in it - another
+    * failure of git is an error. The temporary folder is removed again if the extraction fails.
     * @param extract the command that extracts the tar from stdin into the folder
     */
   private[merge] def fromGit(
@@ -131,16 +131,16 @@ object SpecSources:
     // the path of the project in the repository (`projects/my-project/` - empty in its root)
     val root    = git("rev-parse", "--show-toplevel")
     val prefix  = git("rev-parse", "--show-prefix")
+    val spec    = s"$rev:${prefix.out.trim()}$specDir"
+    // None only where there is no spec: no repository, no such commit (none yet), no spec/ in it -
+    // a git that fails otherwise (a damaged repository) is an error, not a first merge
     if root.exitCode != 0 || prefix.exitCode != 0 then None
+    else if git("rev-parse", "--verify", "--quiet", s"$rev^{commit}").exitCode != 0 then None
+    else if git("cat-file", "-e", spec).exitCode != 0 then None
     else
       val top     = os.Path(root.out.trim())
-      val archive = ExternalTool.call(
-        Seq("git", "archive", "--format=tar", s"$rev:${prefix.out.trim()}$specDir"),
-        ExternalTool.gitTimeout,
-        cwd = top,
-        env = noPrompt
-      )
-      if archive.exitCode != 0 then None
+      val archive = ExternalTool.call(Seq("git", "archive", "--format=tar", spec), ExternalTool.gitTimeout, cwd = top, env = noPrompt)
+      if archive.exitCode != 0 then throw os.SubprocessException(archive)
       else
         val dir  = os.temp.dir(prefix = "orch-spec-")
         var kept = false

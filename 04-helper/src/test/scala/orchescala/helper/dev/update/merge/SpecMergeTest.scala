@@ -486,6 +486,17 @@ class SpecMergeTest extends FunSuite:
       used = None
       assertEquals(SpecSources.fromGit(project, "no-such-rev", failing), None)
       assertEquals(used, None)
+      // no spec/ in the commit: None too
+      os.write(project / "other.txt", "x")
+      git("rm", "-rq", "spec")
+      git("add", "-A")
+      git("commit", "-q", "-m", "no spec")
+      assertEquals(SpecSources.fromGit(project, "HEAD", failing), None)
+      // a damaged repository (a blob of the spec missing): an error, not "no spec" - not a first merge
+      val blob = git("rev-parse", "HEAD~1:spec/export.json").out.text().trim
+      os.remove(project / ".git" / "objects" / blob.take(2) / blob.drop(2))
+      intercept[os.SubprocessException](SpecSources.fromGit(project, "HEAD~1", failing))
+      assertEquals(used, None)
 
   test("processFromSpec --check --from: a folder that is no spec folder - a message, nothing planned or written"):
     inProject: project =>
