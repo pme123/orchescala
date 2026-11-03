@@ -767,6 +767,9 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.ok(res.changed, res.issues.join('; '));
     assert.ok(res.issues.some(i => i.includes('«Event-Prozess» fehlt')), res.issues.join('; '));
     assert.equal(eventCallOf(res.xml, engine).called, '');
+    // read again: recognised, without a process - to choose in the pattern
+    const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'send-process-event');
+    assert.deepEqual(hits.map(h => [h.targetId, h.params.eventProcess ?? '', h.params.eventKey]), [['Target', '', 'started']]);
     // chosen afterwards: the hint is gone
     const chosen = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-eventsV1' });
     assert.deepEqual(chosen.issues, []);
@@ -791,6 +794,22 @@ test('«Prozess-Event senden»: process ID and instance survive the round trip C
   // (plus the business key the switch to C7 passed)
   assert.deepEqual(eventCallOf(again.xml, 'c8').inputs.filter(([t]) => t !== 'businessKey'), eventCallOf(c8, 'c8').inputs);
 });
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: a text event with " or \\ is refused - it stands in a string`, () => {
+    for (const eventKey of ['say "hi"', 'a\\b']) {
+      const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-eventsV1', eventKey });
+      if (engine === 'c8') {
+        assert.ok(!res.changed, eventKey);
+        assert.ok(res.issues.some(i => i.includes('«eventKey»')), res.issues.join('; '));
+      } else {
+        // C7: sourceExpression is an attribute, not a string of an expression - it goes in as it is
+        assert.ok(res.changed, res.issues.join('; '));
+        assert.deepEqual(new Map(eventCallOf(res.xml, 'c7').inputs as Array<[string, string]>).get('eventKey'), eventKey);
+      }
+    }
+  });
+}
 
 test('a parameter kind Orch Spec does not know is named (pattern file)', () => {
   assert.deepEqual(unknownParamKinds(sendEvent), []);

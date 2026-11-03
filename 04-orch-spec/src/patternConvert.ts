@@ -112,9 +112,14 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   const pool = [...detectPatterns(out, defs, target).hits];
   // a parameter of one engine only (`engines`: the process ID C8 gets when inserted, C7 reads it at
   // runtime) does not go over - and the other way round it takes its default: no change either way
+  const oneEngine = new Map<PatternDef, Set<string>>();
   const onTarget = (def: PatternDef, p: Record<string, string>) => {
-    const oneEngine = new Set(patternParams(def).filter(x => x.engines && !(x.engines.includes('c7') && x.engines.includes('c8'))).map(x => x.name));
-    return Object.fromEntries(Object.entries(p).filter(([k]) => !oneEngine.has(k)));
+    let skip = oneEngine.get(def);
+    if (!skip) {
+      skip = new Set(patternParams(def).filter(x => x.engines && !(x.engines.includes('c7') && x.engines.includes('c8'))).map(x => x.name));
+      oneEngine.set(def, skip);
+    }
+    return Object.fromEntries(Object.entries(p).filter(([k]) => !skip.has(k)));
   };
   const samePlace = (a: PatternHit, b: PatternHit) => a.patternId === b.patternId && (a.targetId ?? '') === (b.targetId ?? '');
   const take1 = (h: PatternHit) => {

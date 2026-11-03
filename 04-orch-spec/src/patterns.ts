@@ -27,6 +27,7 @@
 // A pattern on the **process** (`appliesTo: ['process']`) has no anchor:
 // its content is the blocks and the extensions of the process itself.
 
+import { PARAM_KINDS } from './types.ts';
 import type { AppliedPattern, EngineId, Field, Model, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
 import { STANDARD_PATTERN_DEFS } from './standardPatterns.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
@@ -285,9 +286,6 @@ export function patternParamsFor(
 export function processChoices(model: Model | null, exclude?: string): string[] {
   return [...new Set((model?.services ?? []).map(s => s.calledProcess).filter((p): p is string => !!p && p !== exclude))].sort();
 }
-
-/** The parameter kinds Orch Spec knows - another one counts as plain parameter */
-export const PARAM_KINDS = ['process'] as const;
 
 /** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
 export function unknownParamKinds(def: PatternDef): string[] {

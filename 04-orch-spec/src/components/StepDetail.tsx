@@ -954,9 +954,11 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
       {!!params.length && (
         <div className="space-y-0.5">
           {params.map(p => {
-            const issues: FeelIssue[] = p.kind === 'process'
-              ? (draft[p.name]?.trim() ? [] : [{ level: 'warn', text: 'Prozess wählen - ohne ruft die Call Activity keinen auf.' }])
-              : p.inBlock || p.textOnly ? [] : issuesOf(draft[p.name]);
+            // (only in the shared block: changed in the diagram, not here - no hint either)
+            const issues: FeelIssue[] = p.inBlock ? []
+              : p.kind === 'process'
+                ? (draft[p.name]?.trim() ? [] : [{ level: 'warn', text: 'Prozess wählen - ohne ruft die Call Activity keinen auf.' }])
+                : p.textOnly ? [] : issuesOf(draft[p.name]);
             return (
               <div key={p.name}>
                 <div className="flex items-center gap-1.5 text-[10px]"

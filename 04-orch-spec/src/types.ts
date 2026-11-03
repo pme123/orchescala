@@ -16,6 +16,10 @@
  * «Final») comes before «Umgesetzt»: the lowest status is the state of the whole
  * (see overallStatus).
  */
+/** The parameter kinds Orch Spec knows (PatternParam.kind) - another one counts as plain parameter */
+export const PARAM_KINDS = ['process'] as const;
+export type ParamKind = (typeof PARAM_KINDS)[number];
+
 export const STATUSES = ['draft', 'review', 'final', 'changed', 'implemented', 'accepted'] as const;
 export type Status = (typeof STATUSES)[number];
 
@@ -256,7 +260,7 @@ export interface PatternParam {
   /** default on insertion */
   default?: string;
   /** `process`: the id of a process - chosen from the processes of the catalog, text only */
-  kind?: 'process';
+  kind?: ParamKind;
   /**
    * Only in the BPMN of these engines - on the switch to the other one it does not go over and is
    * not missed there (the other engine has it otherwise, e.g. at runtime). Without: both.
