@@ -61,9 +61,16 @@ object NodeSpecExporter extends SpecExporter:
 
   val tool = "spec2export.js"
 
-  /** Node.js is on the PATH - checked once per run of the helper. */
+  /** Node.js is on the PATH - checked once per run of the helper; if the check itself fails (it
+    * hangs, node cannot be started) it says why, so a missing Node.js is not the only hint.
+    */
   lazy val hasNode: Boolean =
-    Try(ExternalTool.call(Seq("node", "--version"), ExternalTool.probeTimeout).exitCode == 0).getOrElse(false)
+    Try(ExternalTool.call(Seq("node", "--version"), ExternalTool.probeTimeout).exitCode == 0)
+      .recover:
+        case NonFatal(e) =>
+          println(Console.YELLOW + s"node --version failed: ${Option(e.getMessage).getOrElse(e.toString)}" + Console.RESET)
+          false
+      .get
 
   def exportOf(specDir: os.Path): SpecExport =
     if !hasNode then
