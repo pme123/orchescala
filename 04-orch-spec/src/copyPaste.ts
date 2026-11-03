@@ -128,11 +128,19 @@ export function replaceType(spec: ProcessSpec, targetId: string, clip: { typeId:
   return [...(spec.types ?? []).map(t => (t.id === targetId ? next : t)), ...added.filter(t => t.id !== copyId).map(retarget)];
 }
 
+/** The names of a class's fields and cases — what a pasted field relies on. */
+const shapeOf = (t: TypeDef): string => JSON.stringify([
+  t.kind,
+  (t.fields ?? []).map(f => f.name).sort(),
+  (t.values ?? []).map(v => [v.name, (v.fields ?? []).map(f => f.name).sort()]).sort(),
+]);
+
 /**
  * The classes a pasted field refers to (`types`, its type first) in the target: a class
- * that is there already — the same (same ID) or one with the same name — is taken as it
- * is; the others come as a copy (draft, new IDs) under their own name. `idMap`: source ID →
- * ID in the target.
+ * that is there already — the same (same ID), or one with the same name and the same
+ * shape (kind, fields, cases) — is taken as it is; the others come as a copy (draft, new
+ * IDs) under their own name, or a free one if a different class has it. `idMap`: source
+ * ID → ID in the target.
  */
 function fieldTypes(target: TypeDef[] | undefined, types: TypeDef[]): { types: TypeDef[]; idMap: Map<string, string> } {
   const own = target ?? [];
@@ -141,7 +149,8 @@ function fieldTypes(target: TypeDef[] | undefined, types: TypeDef[]): { types: T
   const idMap = new Map<string, string>();
   const missing: TypeDef[] = [];
   for (const t of types) {
-    const there = byId.get(t.id) ?? byName.get(t.name);
+    const named = byName.get(t.name);
+    const there = byId.get(t.id) ?? (named && shapeOf(named) === shapeOf(t) ? named : undefined);
     if (there) idMap.set(t.id, there.id);
     else missing.push(t);
   }

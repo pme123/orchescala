@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { pasteField } from '../src/copyPaste.ts';
+import { checkTypes } from '../src/scala.ts';
 import type { Field, ProcessSpec, TypeDef } from '../src/types.ts';
 
 const gender: TypeDef = { id: 'e-gender', name: 'Gender', kind: 'enum', status: 'ready', values: [{ name: 'Male' }, { name: 'Female' }] };
@@ -33,7 +34,7 @@ test('pasteField: a name that is there already stays - also in the same class', 
 });
 
 test('pasteField into another specification: a class with the same name is taken, a missing one comes under its own name', () => {
-  const ownGender: TypeDef = { id: 'x-gender', name: 'Gender', kind: 'enum', values: [{ name: 'Male' }] };
+  const ownGender: TypeDef = { id: 'x-gender', name: 'Gender', kind: 'enum', values: [{ name: 'Male' }, { name: 'Female' }] };
   const target: TypeDef = { id: 'x-in', name: 'In', kind: 'case', fields: [] };
   const other = { slug: 'o', types: [target, ownGender] } as unknown as ProcessSpec;
   const r = pasteField(other, 'x-in', clip)!;
@@ -45,6 +46,7 @@ test('pasteField into another specification: a class with the same name is taken
   // the copy refers to the Gender that was there
   assert.equal(copy.fields![0].type, 'x-gender');
   assert.equal(r.types.filter(t => t.name === 'Gender').length, 1);
+  assert.deepEqual(r.types.find(t => t.id === 'x-gender'), ownGender);
   const pasted = r.types.find(t => t.id === 'x-in')!.fields!;
   assert.deepEqual(pasted.map(f => [f.name, f.type]), [['naturalPerson', copy.id]]);
   // pasted a second time: the copy is there now - taken, not copied again
@@ -59,4 +61,30 @@ test('pasteField: a simple type or a catalog type stays; an unknown class or cas
   assert.deepEqual(r.types.find(t => t.id === 't-person')!.fields!.map(f => [f.name, f.type]), [['gender', 'e-gender'], ['name', 'String']]);
   assert.equal(pasteField(spec, 'nope', clip), null);
   assert.equal(pasteField(spec, 't-result', clip, 5), null);
+});
+
+test('pasteField: a class with the same name but another shape is not taken - a copy under a free name', () => {
+  // the target's Gender has other cases: the field would point to a different class
+  const ownGender: TypeDef = { id: 'x-gender', name: 'Gender', kind: 'enum', values: [{ name: 'M' }, { name: 'F' }, { name: 'X' }] };
+  const target: TypeDef = { id: 'x-in', name: 'In', kind: 'case', fields: [] };
+  const r = pasteField({ slug: 'o', types: [target, ownGender] } as unknown as ProcessSpec, 'x-in', clip)!;
+  const genders = r.types.filter(t => t.name.startsWith('Gender'));
+  assert.equal(genders.length, 2);
+  const copy = genders.find(t => t.id !== 'x-gender')!;
+  assert.notEqual(copy.name, 'Gender');
+  assert.deepEqual(copy.values!.map(v => v.name), ['Male', 'Female']);
+  assert.equal(r.types.find(t => t.name === 'NaturalPerson')!.fields![0].type, copy.id);
+  // the same kind and names, but other fields: not taken either
+  const ownPerson: TypeDef = { id: 'x-person', name: 'NaturalPerson', kind: 'case', fields: [{ id: 'a', name: 'age', type: 'Int' }] };
+  const p = pasteField({ slug: 'o', types: [target, ownPerson] } as unknown as ProcessSpec, 'x-in', clip)!;
+  assert.notEqual(p.types.find(t => t.id === 'x-in')!.fields![0].type, 'x-person');
+});
+
+test('pasteField: the same name twice in a class - the class shows it as an issue', () => {
+  const r = pasteField(spec, 't-person', { field: person.fields![0], types: [gender] })!;
+  const issues = checkTypes(r.types).filter(i => i.typeId === 't-person');
+  assert.ok(issues.some(i => !i.warn && i.message === 'Feld «gender» kommt doppelt vor.'), JSON.stringify(issues));
+  // in a case of an ADT too
+  const twice = pasteField({ ...spec, types: pasteField(spec, 't-result', { field: { id: 'x', name: 'note', type: 'String' }, types: [] }, 1)!.types }, 't-result', { field: { id: 'y', name: 'note', type: 'String' }, types: [] }, 1)!;
+  assert.ok(checkTypes(twice.types).some(i => i.message === 'Feld «note» kommt im Fall «Many» doppelt vor.'));
 });
