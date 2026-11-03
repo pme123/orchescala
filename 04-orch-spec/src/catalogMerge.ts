@@ -127,8 +127,19 @@ function localProjectOf(s: ServiceDef, listed: ReadonlySet<string>): string | nu
   if (s.generated) return null;
   const listedProject = projectOfService(s, listed);
   if (listedProject) return listedProject;
-  return s.builtAt ? (s.group || projectOfService(s, [s.id.split(/[.]/)[0]]) || s.id) : null;
+  // read with «OpenAPI einlesen» or by the build: its project is in `group` (the build sets the folder name)
+  return s.builtAt ? (s.group || NO_PROJECT) : null;
 }
+
+/** the project of a locally read service without `group` - one row in the overview, one way back */
+export const NO_PROJECT = '(ohne Projekt)';
+
+const time = (iso?: string): number => (iso ? Date.parse(iso) : NaN);
+/** the later of two ISO times - an invalid one does not count */
+const later = (a?: string, b?: string): string | undefined =>
+  Number.isNaN(time(a)) ? (Number.isNaN(time(b)) ? undefined : b) : Number.isNaN(time(b)) || time(a) >= time(b) ? a : b;
+/** is `a` before `b` - both valid times */
+export const isBefore = (a?: string, b?: string): boolean => !Number.isNaN(time(a)) && !Number.isNaN(time(b)) && time(a) < time(b);
 
 const keysOf = (s: ServiceDef) => [s.id, s.topic, s.calledProcess].filter((k): k is string => !!k);
 
@@ -158,6 +169,7 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
   // locally built services override delivered ones of the same id, topic or called process
   const listed = new Set((user.projects ?? []).map(p => p.name));
   const localServices = user.services.filter(s => localProjectOf(s, listed) != null);
+  const localSet = new Set(localServices);
   const localKeys = new Set(localServices.flatMap(keysOf));
   const keptGen = genServices.filter(s => !keysOf(s).some(k => localKeys.has(k)));
   const kennt = new Set(keptGen.flatMap(keysOf));
@@ -175,7 +187,7 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
       ...keptGen,
       ...localServices,
       // legacy entries only where the delivery has nothing
-      ...user.services.filter(s => !localServices.includes(s) && !keysOf(s).some(k => kennt.has(k))),
+      ...user.services.filter(s => !localSet.has(s) && !keysOf(s).some(k => kennt.has(k))),
     ],
     domainTypes: [...genTypes, ...(user.domainTypes ?? []).filter(t => {
       const p = projectOf(t);
@@ -223,7 +235,7 @@ export function localOverrides(user: Model, gen: CatalogFile | null): CatalogOve
     if (!hit) continue;
     const o = entry(hit.project);
     o.services++;
-    if (hit.builtAt && (!o.localAt || hit.builtAt > o.localAt)) o.localAt = hit.builtAt;
+    o.localAt = later(o.localAt, hit.builtAt);
   }
   // types: the delivered types of a project whose local scan applies
   const projectOf = projectsOf([...(gen.domainTypes ?? []), ...(user.domainTypes ?? [])]);
@@ -236,7 +248,7 @@ export function localOverrides(user: Model, gen: CatalogFile | null): CatalogOve
   const delivered = new Map((gen.projects ?? []).map(p => [p.name, p.scannedAt]));
   return [...out.values()]
     .map(o => {
-      const local = [o.localAt, scanned.get(o.project)].filter((x): x is string => !!x).sort().pop();
+      const local = later(o.localAt, scanned.get(o.project));
       const at = delivered.get(o.project);
       return { ...o, ...(local ? { localAt: local } : {}), ...(at ? { deliveredAt: at } : {}) };
     })
@@ -251,7 +263,10 @@ export function localOverrides(user: Model, gen: CatalogFile | null): CatalogOve
 export function withoutLocalProject(user: Model, project: string): Model {
   const listed = new Set((user.projects ?? []).map(p => p.name));
   const ofProject = (t: DomainType) => t.source?.startsWith(`${project}/`) ?? false;
-  const roots = new Set((user.domainTypes ?? []).filter(ofProject).map(t => packageRoot(t.pkg ?? '')).filter(Boolean));
+  // the example values of the package roots only this project has - a root shared with another
+  // project keeps its values
+  const others = new Set((user.domainTypes ?? []).filter(t => !ofProject(t)).map(t => packageRoot(t.pkg ?? '')));
+  const roots = new Set((user.domainTypes ?? []).filter(ofProject).map(t => packageRoot(t.pkg ?? '')).filter(r => r && !others.has(r)));
   return {
     ...user,
     services: user.services.filter(s => localProjectOf(s, listed) !== project),
@@ -259,4 +274,35 @@ export function withoutLocalProject(user: Model, project: string): Model {
     domainDefaults: (user.domainDefaults ?? []).filter(d => !roots.has(packageRoot(d.pkg ?? ''))),
     projects: (user.projects ?? []).filter(p => p.name !== project),
   };
+}
+
+/**
+ * The services of a fresh build: those of the projects' OpenAPI (`apis`, read by `rebuild`) come
+ * in as built locally (`builtAt`) with the folder name as their project (`group`) - and replace
+ * the ones an earlier build or read gave the same projects (`kept`: all others - merge the two
+ * with `mergeServices`). `unreadable`: the projects whose OpenAPI could not be parsed.
+ */
+export function rebuiltServices(
+  existing: ServiceDef[],
+  apis: Array<{ project: string; name: string; text: string }>,
+  rebuilt: Iterable<string>,
+  parse: (api: { name: string; text: string }) => { services: ServiceDef[]; types: DomainType[] },
+  builtAt: string,
+): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; unreadable: string[] } {
+  const projects = new Set(rebuilt);
+  const incoming: ServiceDef[] = [];
+  const types: DomainType[] = [];
+  const unreadable: string[] = [];
+  for (const a of apis) {
+    try {
+      const c = parse(a);
+      incoming.push(...c.services.map(sv => ({ ...sv, group: a.project, builtAt })));
+      types.push(...c.types);
+    } catch {
+      unreadable.push(a.project);
+    }
+  }
+  const listed = new Set<string>();
+  const kept = existing.filter(sv => !sv.generated && !(sv.builtAt && projects.has(localProjectOf(sv, listed) ?? '')));
+  return { kept, incoming, types, unreadable };
 }

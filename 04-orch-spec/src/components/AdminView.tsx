@@ -32,7 +32,7 @@ import { appProblem } from '../pages/runtime/validate';
 import { draftAfterSave, ThemeEditor } from '../pages/designer/ThemeEditor';
 import type { Theme } from '../pages/runtime/spec';
 import CatalogBuild from './CatalogBuild';
-import { localOverrides, withoutLocalProject } from '../catalogMerge';
+import { isBefore, localOverrides, withoutLocalProject } from '../catalogMerge';
 import { useConfirm } from './Confirm';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
@@ -223,7 +223,7 @@ function CatalogOverrides({ model, generated, isDark, onSave }: {
             {[r.services ? `${r.services} Service${r.services === 1 ? '' : 's'}` : '', r.types ? `${r.types} Typ${r.types === 1 ? '' : 'en'}` : ''].filter(Boolean).join(', ')}
             {' · '}lokal {when(r.localAt, r.deliveredAt)}, Auslieferung {when(r.deliveredAt, r.localAt)}
           </span>
-          {r.localAt && r.deliveredAt && r.localAt < r.deliveredAt && (
+          {isBefore(r.localAt, r.deliveredAt) && (
             <span className="text-[10px] text-amber-600 flex items-center gap-1"><AlertTriangle size={10} /> die Auslieferung ist neuer</span>
           )}
           <button onClick={() => void back(r.project)} title="Die lokalen Einträge des Projekts entfernen — dann gilt wieder der mitgelieferte Katalog"

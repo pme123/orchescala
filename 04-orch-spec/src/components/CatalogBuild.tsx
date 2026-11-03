@@ -27,8 +27,9 @@ import { load } from 'js-yaml';
 import { mergeDomainTypes, type DiscardedPackage } from '../domainScan';
 import { catalogFromOpenApi, mergeServices } from '../openApi';
 import { forgetProject, grantAccess, move, projectsInFolder, rebuild, rememberProject } from '../projects';
+import { rebuiltServices } from '../catalogMerge';
 import { countByKind, fillGapsOnly, readSite } from '../siteCatalog';
-import type { DomainType, Model, ProjectFolder, ServiceDef } from '../types';
+import type { DomainType, Model, ProjectFolder } from '../types';
 import { cls } from '../ui';
 import { useConfirm } from './Confirm';
 
@@ -281,24 +282,16 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
         return;
       }
       setBusy(`${r.files} Dateien auswerten …`);
-      // the services of the projects from their 03-api/OpenApi.yml - built locally (builtAt), they
-      // override the delivery; a fresh build replaces those read before for the same projects
-      const builtAt = new Date().toISOString();
-      const rebuilt = new Set(projects.map(p => p.name));
-      const incoming: ServiceDef[] = [];
-      let typen = r.types;
-      const unreadable: string[] = [];
-      for (const a of r.apis) {
-        try {
-          const c = catalogFromOpenApi(/\.json$/i.test(a.name) ? JSON.parse(a.text) : load(a.text), a.name);
-          incoming.push(...c.services.map(s => ({ ...s, builtAt })));
-          typen = mergeDomainTypes(typen, c.types).types;
-        } catch { unreadable.push(a.project); }
-      }
-      const kept = services.filter(s => !s.generated && !(s.builtAt && rebuilt.has(s.group ?? '')));
+      // the services of the projects from their 03-api/OpenApi.yml - built locally (builtAt), with the
+      // folder as their project; a fresh build replaces those read before for the same projects
+      const built = rebuiltServices(services, r.apis, projects.map(p => p.name),
+        a => catalogFromOpenApi(/\.json$/i.test(a.name) ? JSON.parse(a.text) : load(a.text), a.name), new Date().toISOString());
+      const typen = mergeDomainTypes(r.types, built.types).types;
+      const { incoming } = built;
+      const unreadable = [...built.unreadable, ...r.apiErrors.map(e => `${e.project} (${e.error})`)];
       const res = await onSave({
         ...model,
-        services: mergeServices(kept, incoming).services,
+        services: mergeServices(built.kept, incoming).services,
         domainTypes: typen,
         domainDefaults: r.defaults,
         projects: r.projects,
@@ -307,7 +300,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
       setDropped(r.discarded);
       setMsg(res.ok
         ? `${r.types.length} Typen und ${r.defaults.length} Beispielwerte aus ${r.files} Dateien in ${projects.length} Projekten`
-          + ` · ${incoming.length} Services aus ${r.apis.length - unreadable.length} OpenAPI`
+          + ` · ${incoming.length} Services aus ${r.apis.length - built.unreadable.length} OpenAPI`
           + (unreadable.length ? ` (unlesbar: ${unreadable.join(', ')})` : '')
           + (r.skipped ? ` · ${r.skipped} ohne package übersprungen` : '')
         : res.message);

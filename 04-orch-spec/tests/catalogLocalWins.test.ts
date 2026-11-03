@@ -2,7 +2,7 @@
 // delivery on purpose. Legacy entries of the model.json (an old import) stay behind it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { localOverrides, mergeGeneratedCatalog, projectOfService, withoutLocalProject } from '../src/catalogMerge';
+import { isBefore, localOverrides, mergeGeneratedCatalog, NO_PROJECT, projectOfService, rebuiltServices, withoutLocalProject } from '../src/catalogMerge';
 import type { CatalogFile } from '../src/catalogImport';
 import type { DomainType, Model, ServiceDef } from '../src/types';
 
@@ -75,4 +75,65 @@ test('projectOfService: the longest project name the id, topic or called process
   assert.equal(projectOfService(svc('other-x'), names), null);
   // a name is a whole segment: acme-ser is no prefix of acme-services
   assert.equal(projectOfService(svc('acme-services-x'), ['acme-ser']), null);
+});
+
+test('rebuiltServices: the services of the OpenAPI get the folder as project - also when the id says otherwise', () => {
+  // the process id does not start with the folder name: before, `group` came from the id
+  const parse = () => ({ services: [svc('clients-GetClient', { group: 'clients' })], types: [] });
+  const r = rebuiltServices([], [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], ['acme-services'], parse, '2026-11-03T08:00:00Z');
+  assert.deepEqual(r.incoming.map(s => [s.id, s.group, s.builtAt]), [['clients-GetClient', 'acme-services', '2026-11-03T08:00:00Z']]);
+  // the next build of the same project replaces it - a service removed from the OpenAPI goes
+  const next = rebuiltServices(r.incoming, [], ['acme-services'], parse, '2026-11-04T08:00:00Z');
+  assert.deepEqual(next.kept, []);
+});
+
+test('rebuiltServices: other projects, own entries and the delivery - what stays', () => {
+  const existing = [
+    svc('acme-cards-x', { group: 'acme-cards', builtAt: 'x' }),   // built for another project: stays
+    svc('acme-own-y'),                                             // own, not built: stays
+    svc('acme-services-z', { generated: true }),                   // delivered: never in the model
+  ];
+  const r = rebuiltServices(existing, [], ['acme-services'], () => ({ services: [], types: [] }), 't');
+  assert.deepEqual(r.kept.map(s => s.id), ['acme-cards-x', 'acme-own-y']);
+});
+
+test('rebuiltServices: an OpenAPI that cannot be parsed - its project is reported, the others come in', () => {
+  const apis = [{ project: 'acme-broken', name: 'OpenApi.yml', text: ':' }, { project: 'acme-services', name: 'OpenApi.yml', text: 'ok' }];
+  const parse = (a: { text: string }) => {
+    if (a.text !== 'ok') throw new Error('bad yaml');
+    return { services: [svc('acme-services-a')], types: [type('acme.services.domain.A', 'acme-services')] };
+  };
+  const r = rebuiltServices([], apis, ['acme-broken', 'acme-services'], parse, 't');
+  assert.deepEqual(r.unreadable, ['acme-broken']);
+  assert.deepEqual(r.incoming.map(s => s.id), ['acme-services-a']);
+  assert.equal(r.types.length, 1);
+});
+
+test('a service read without project (no group): one row in the overview - not one per service', () => {
+  const m = user({ services: [svc('acme-services-clientsV1-GetClient', { builtAt: '2026-11-03T08:00:00Z' })] });
+  assert.deepEqual(localOverrides(m, delivered).map(o => [o.project, o.services]), [[NO_PROJECT, 1]]);
+  assert.deepEqual(withoutLocalProject(m, NO_PROJECT).services, []);
+});
+
+test('times are compared as times - not as text (other offsets, milliseconds)', () => {
+  // 09:00+02:00 is 07:00Z - before the delivery at 08:00Z, though the text is "greater"
+  assert.equal(isBefore('2026-11-03T09:00:00+02:00', '2026-11-03T08:00:00Z'), true);
+  assert.equal(isBefore('2026-11-03T08:00:00.500Z', '2026-11-03T08:00:00Z'), false);
+  // an invalid time is never before or after
+  assert.equal(isBefore('x', '2026-11-03T08:00:00Z'), false);
+  const local = svc('acme-services-clientsV1-GetClient', { group: 'acme-services', builtAt: '2026-11-03T09:00:00+02:00' });
+  const m = user({ services: [local], projects: [{ id: 'p', name: 'acme-services', scannedAt: '2026-11-03T08:00:00Z' }] });
+  // the later of the two is the scan - 08:00Z after 07:00Z
+  assert.equal(localOverrides(m, delivered)[0].localAt, '2026-11-03T08:00:00Z');
+});
+
+test('withoutLocalProject: example values of a package root another project still uses stay', () => {
+  const m = user({
+    services: [],
+    domainTypes: [type('acme.domain.clients.v1.Client', 'acme-services'), type('acme.domain.cards.v1.Card', 'acme-cards'), type('solo.domain.x.v1.X', 'acme-services')],
+    domainDefaults: [{ pkg: 'acme', name: 'Shared' }, { pkg: 'solo', name: 'Solo' }] as Model['domainDefaults'],
+    projects: [{ id: 'p1', name: 'acme-services' }, { id: 'p2', name: 'acme-cards' }],
+  });
+  const back = withoutLocalProject(m, 'acme-services');
+  assert.deepEqual(back.domainDefaults?.map(d => d.name), ['Shared']);
 });
