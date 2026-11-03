@@ -109,6 +109,8 @@ export interface RebuildResult {
    * second folder with the same name) — it needs its own access.
    */
   rootsWithoutAccess: string[];
+  /** the generated OpenAPI of each project read (`03-api/OpenApi.yml`) - its services */
+  apis: Array<{ project: string; name: string; text: string }>;
   files: number;
   skipped: number;
 }
@@ -170,6 +172,17 @@ async function readDependencies(dir: FileSystemDirectoryHandle): Promise<string[
   }
 }
 
+/** The generated OpenAPI of a project: exactly `03-api/OpenApi.yml` (`.yaml`, `.json`) - not the Postman variant */
+async function readOpenApi(dir: FileSystemDirectoryHandle): Promise<{ name: string; text: string } | null> {
+  try {
+    const api = await dir.getDirectoryHandle('03-api');
+    for await (const [name, h] of api.entries()) {
+      if (h.kind === 'file' && /^openapi\.(ya?ml|json)$/i.test(name)) return { name, text: await (h as FileSystemFileHandle).getFile().then(f => f.text()) };
+    }
+  } catch { /* no 03-api */ }
+  return null;
+}
+
 /**
  * Build the catalog from the projects **anew** — not extend it. Only this way
  * does reordering take effect: when extending, what was read earlier would
@@ -186,6 +199,7 @@ export async function rebuild(
   const gezaehlt: ProjectFolder[] = [];
   let files = 0;
   let skipped = 0;
+  const apis: RebuildResult['apis'] = [];
   // one time for the whole build — only projects that were read get it
   const scannedAt = new Date().toISOString();
   // access per root first — while the click still counts as a user action
@@ -215,10 +229,12 @@ export async function rebuild(
     discarded.push(...zusammen.discarded);
     const { dependencies: _d, ...rest } = p;
     const dependencies = await readDependencies(handle);
+    const api = await readOpenApi(handle);
+    if (api) apis.push({ project: p.name, ...api });
     gezaehlt.push({ ...rest, types: types.length - vorher, scannedAt, ...(dependencies ? { dependencies } : {}) });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
-  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped };
+  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped, apis };
 }
 
 /**

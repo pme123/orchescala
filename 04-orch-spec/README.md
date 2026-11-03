@@ -949,7 +949,11 @@ eben dieses. Mehrere Wurzeln lassen sich nacheinander hinzufügen, etwa
 `~/dev-initech/projects` und `~/dev-globex/projects`.
 
 **Neu aufbauen** liest die Liste von oben nach unten frisch ein — rekursiv
-nach `.scala`, Tests und Build-Ordner bleiben draussen. Neu **aufbauen**, nicht
+nach `.scala`, Tests und Build-Ordner bleiben draussen. Dazu liest es je
+Projekt die generierte `03-api/OpenApi.yml` (nicht die Postman-Variante): ihre
+Services (Worker, Prozesse, Benutzeraufgaben, Signale) kommen lokal aufgebaut
+(`builtAt`) dazu und ersetzen die, die ein früherer Aufbau für dieselben
+Projekte gelesen hat. Neu **aufbauen**, nicht
 ergänzen: nur so wirkt sich ein Umsortieren überhaupt aus.
 
 Der Ordner-Zugriff wird gemerkt (IndexedDB), die Erlaubnis dazu verlangt der
@@ -1066,11 +1070,19 @@ Werkzeugen aus OpenAPI, Domain-Quellen und Site-Katalog — zuerst aus dem
 Firmenprojekt selbst (dessen `01-domain` hält die geteilten Typen wie
 `ProcessCallOrigin`), dann aus allen Projekt-Checkouts; so gewinnen bei
 gleichem Namen die Firmentypen. Wer ohne Site arbeitet, liest dieselbe Datei
-über «Katalog-Datei einlesen» ein. Für den Katalog gilt: bei
-gleicher Kennung (Service-ID, Topic, gerufener Prozess, Typ-ID) gewinnt sie,
-Einträge aus der `model.json` bleiben nur als Altbestand daneben sichtbar und
-werden beim Speichern nie mit ihr vermischt — der Katalog ist nicht vom
-Benutzer pflegbar, die `model.json` gehört den Spezifikationen. Fehlt die
+über «Katalog-Datei einlesen» ein. Sie ist der **ausgelieferte Stand** der
+Projekte und wird beim Speichern nie in die `model.json` geschrieben.
+
+**Lokal gewinnt.** Wer lokal entwickelt, überschreibt die Auslieferung gezielt:
+was unter «Katalog lokal erzeugen» aufgebaut ist — die Projekte der Liste
+«Projekt-Ordner» mit ihren Typen, die mit «OpenAPI einlesen» gelesenen Services
+(sie tragen `builtAt`) —, gewinnt bei gleicher Kennung (Service-ID, Topic,
+gerufener Prozess; bei Typen das ganze Projekt). Altbestand aus früheren
+Importen bleibt hinter der Auslieferung und ist nur dort sichtbar, wo sie
+nichts hat. Unter **«Lokal überschreibt»** steht je Projekt, was überschrieben
+ist und von wann beide Stände sind (mit Hinweis, wenn die Auslieferung neuer
+ist); **«zurück zur Auslieferung»** nimmt die lokalen Einträge des Projekts aus
+der `model.json` und das Projekt aus der Liste. Fehlt die
 Datei, läuft alles wie bisher — nur ohne Service- und Firmentypen; die
 Typ-Auswahl sagt dann «Kein Katalog geladen».
 

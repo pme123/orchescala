@@ -146,3 +146,16 @@ test('granting access fails when the project inside the folder above is denied -
   }
   assert.equal(handles['project:p-cards'], undefined);
 });
+
+test('the build also reads the generated OpenAPI of each project - not the Postman variant', async () => {
+  const withApi = dir('apis', {
+    'acme-services': { ...project('services', 'Client'), '03-api': { 'OpenApi.yml': 'openapi: 3.1.0\n', 'PostmanOpenApi.yml': 'openapi: 3.1.0\n' } },
+    'acme-cards': project('cards', 'Card'),
+  });
+  fakeIndexedDb({
+    'project:p-services': await withApi.getDirectoryHandle('acme-services'),
+    'project:p-cards': await withApi.getDirectoryHandle('acme-cards'),
+  });
+  const r = await rebuild([{ id: 'p-services', name: 'acme-services' }, { id: 'p-cards', name: 'acme-cards' }], () => {});
+  assert.deepEqual(r.apis.map(a => [a.project, a.name]), [['acme-services', 'OpenApi.yml']]);
+});
