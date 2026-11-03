@@ -7,6 +7,12 @@ import scala.concurrent.duration.*
 /** The tools of the merge with a timeout. */
 class ExternalToolTest extends FunSuite:
 
+  /** The process whose pid the tool wrote has ended - waited for a few seconds (it may still be reaped). */
+  private def stopped(pidFile: os.Path): Boolean =
+    val pid = os.read(pidFile).trim.toLongOption
+    assert(pid.isDefined, s"no pid written: ${os.read(pidFile)}")
+    ProcessHandle.of(pid.get).map(p => scala.util.Try(p.onExit().get(5, java.util.concurrent.TimeUnit.SECONDS)).isSuccess).orElse(true)
+
   test("a tool that finishes in time: its result, whatever the exit code"):
     val ok = ExternalTool.call(Seq("sh", "-c", "echo hi; echo oops >&2"), 10.seconds)
     assertEquals((ok.exitCode, ok.out.trim(), ok.err.trim()), (0, "hi", "oops"))
@@ -33,8 +39,7 @@ class ExternalToolTest extends FunSuite:
     val pidFile = os.temp()
     intercept[ToolTimeout]:
       ExternalTool.call(Seq("sh", "-c", s"sleep 30 & echo $$! > '$pidFile'; wait"), 3.seconds)
-    val child   = ProcessHandle.of(os.read(pidFile).trim.toLong)
-    assert(!child.map(_.isAlive).orElse(false), "the child of the tool still runs")
+    assert(stopped(pidFile), "the child of the tool still runs")
 
   test("a tool that ended while a process it started still holds its output: ToolTimeout, no hang, the process stopped"):
     val start   = System.nanoTime()
@@ -44,8 +49,7 @@ class ExternalToolTest extends FunSuite:
     assert(timeout.getMessage.contains("still held its output - stopped"), timeout.getMessage)
     assertEquals(timeout.output, "started")
     assert((System.nanoTime() - start).nanos < 30.seconds, "it hung")
-    val child   = ProcessHandle.of(os.read(pidFile).trim.toLong)
-    assert(!child.map(_.isAlive).orElse(false), "the process left behind still runs")
+    assert(stopped(pidFile), "the process left behind still runs")
 
   test("a process the tool started that let its output go keeps running"):
     val pidFile = os.temp()

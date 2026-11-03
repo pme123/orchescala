@@ -8,7 +8,7 @@ import orchescala.helper.util.DevConfig
 /** End to end with Orch Spec's own tools (spec2export.js, spec2diff.js from the orchescala-orch-doc
   * jar) and Node.js: the test spec of Orch Spec (`04-orch-spec/tests/fixtures/spec-folder`) as the
   * `spec/` of a project, merged with `processFromSpec --merge`. Skipped without Node.js or the
-  * tools - on CI (`CI` is set) that fails instead, so the test really runs there.
+  * tools - on GitHub Actions (`GITHUB_ACTIONS` is set) that fails instead, so the test really runs there.
   */
 class SpecMergeNodeTest extends FunSuite:
 
