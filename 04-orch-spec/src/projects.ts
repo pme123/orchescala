@@ -267,7 +267,11 @@ export async function rebuild(
  * folder right here. `target` is the folder above the projects (`root`)
  * or an individually remembered project.
  */
-export async function grantAccess(target: { root: string } | { project: ProjectFolder }): Promise<boolean> {
+export async function grantAccess(
+  target: { root: string } | { project: ProjectFolder },
+  /** the folder chosen here — a folder above can cover the other projects in it as well */
+  onPicked?: (dir: FileSystemDirectoryHandle) => Promise<void>,
+): Promise<boolean> {
   const key = 'root' in target ? rootKey(target.root) : handleKey(target.project);
   const known = await getHandle(key);
   if (known && (await ensureRead(known))) return true;
@@ -280,6 +284,7 @@ export async function grantAccess(target: { root: string } | { project: ProjectF
   const keep = 'project' in target ? await intoProject(dir, target.project.name) : dir;
   if (!keep) return false;
   await putHandle(key, keep);
+  await onPicked?.(dir);
   return true;
 }
 

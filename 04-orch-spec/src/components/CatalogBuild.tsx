@@ -210,29 +210,18 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
     }
     setBusy('Ordner ansehen …'); setMsg('');
     try {
-      const gefunden = await projectsInFolder(dir);
+      const { gefunden, neu, liste } = await attachFolder(dir, true);
       if (!gefunden.length) {
         setMsg(`In «${dir.name}» steckt kein Orchescala-Projekt (kein 01-domain darunter).`);
         return;
       }
-      const bekannt = new Set(projects.map(p => p.name));
-      const neu = gefunden.filter(g => !bekannt.has(g.project.name));
-      for (const g of neu) await rememberProject(g.project, g.handle);
-      // already known projects keep their place, but get the
-      // fresh access — otherwise one would have to remove them first to renew
-      for (const g of gefunden.filter(x => bekannt.has(x.project.name))) {
-        const alt = projects.find(p => p.name === g.project.name)!;
-        await rememberProject(alt, g.handle);
+      // a build was missing access: the folder may have brought it — build right away,
+      // then only what is still missing keeps its button
+      if (noAccess.roots.length || noAccess.single.length) {
+        setBusy('');
+        await rebuildCatalog(liste);
+        return;
       }
-      const liste = [...projects, ...neu.map(g => g.project)];
-      await onSave({ ...model, projects: liste });
-      // known projects that were remembered individually so far attach themselves to
-      // the folder above — then from now on one permission suffices for all
-      const liste2 = liste.map(p => {
-        const g = gefunden.find(x => x.project.name === p.name);
-        return g?.project.root && p.root !== g.project.root ? { ...p, root: g.project.root } : p;
-      });
-      if (liste2.some((p, i) => p !== liste[i])) await onSave({ ...model, projects: liste2 });
       setMsg(neu.length
         ? `${neu.length} Projekt(e) hinzugefügt: ${neu.map(g => g.project.name).join(', ')}. «Neu aufbauen» liest sie ein.`
         : `${gefunden.length} Projekt(e) bereits in der Liste — Zugriff erneuert.`);
@@ -241,6 +230,28 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
     } finally {
       setBusy('');
     }
+  };
+
+  /**
+   * What a chosen folder covers: the projects in it get the fresh access (otherwise
+   * one would have to remove them first to renew), and a folder above becomes their
+   * `root` — one permission then suffices for all. `addNew`: projects not in the list
+   * yet are added. Saved only if something changed; the list as it is now.
+   */
+  const attachFolder = async (dir: FileSystemDirectoryHandle, addNew: boolean) => {
+    const gefunden = await projectsInFolder(dir);
+    const bekannt = new Set(projects.map(p => p.name));
+    const neu = addNew ? gefunden.filter(g => !bekannt.has(g.project.name)) : [];
+    for (const g of neu) await rememberProject(g.project, g.handle);
+    for (const g of gefunden.filter(x => bekannt.has(x.project.name))) {
+      await rememberProject(projects.find(p => p.name === g.project.name)!, g.handle);
+    }
+    const liste = [...projects, ...neu.map(g => g.project)].map(p => {
+      const g = gefunden.find(x => x.project.name === p.name);
+      return g?.project.root && p.root !== g.project.root ? { ...p, root: g.project.root } : p;
+    });
+    if (neu.length || liste.some((p, i) => p !== projects[i])) await onSave({ ...model, projects: liste });
+    return { gefunden, neu, liste };
   };
 
   const saveProjects = async (liste: ProjectFolder[]) => {
@@ -258,12 +269,23 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
    */
   /** without access: the roots or projects it is missing for — one button each on the message */
   const [noAccess, setNoAccess] = useState<{ roots: string[]; single: ProjectFolder[] }>({ roots: [], single: [] });
-  /** grant access (or choose the folder) — and rebuild right away */
+  /**
+   * grant access (or choose the folder) — and rebuild right away. If the folder chosen
+   * for a project is the one above, it covers the other projects in it too: their
+   * buttons go away with the build.
+   */
   const grantAndRebuild = async (target: { root: string } | { project: ProjectFolder }) => {
-    if (await grantAccess(target)) await rebuildCatalog();
+    let liste = projects;
+    const granted = await grantAccess(target, async dir => {
+      // only known projects — choosing access does not add any
+      if ('project' in target && dir.name !== target.project.name) liste = (await attachFolder(dir, false)).liste;
+    });
+    if (granted) await rebuildCatalog(liste);
   };
 
-  const rebuildCatalog = async () => {
+  /** `list`: the projects as just saved — the props still have the state before */
+  const rebuildCatalog = async (list: ProjectFolder[] = projects) => {
+    const projects = list;
     if (!projects.length) return;
     setBusy('…'); setMsg(''); setDropped([]); setNoAccess({ roots: [], single: [] });
     try {
@@ -376,7 +398,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
                   className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
                   <FolderOpen size={12} /> Projekte wählen
                 </button>
-                <button onClick={rebuildCatalog} disabled={!!busy || !projects.length}
+                <button onClick={() => void rebuildCatalog()} disabled={!!busy || !projects.length}
                   title="Alle Projekte in der Reihenfolge der Liste frisch einlesen"
                   className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
                   <RefreshCw size={12} /> {busy || 'Neu aufbauen'}
