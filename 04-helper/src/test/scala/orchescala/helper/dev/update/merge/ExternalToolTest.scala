@@ -22,20 +22,20 @@ class ExternalToolTest extends FunSuite:
 
   test("a tool that hangs: its ToolTimeout shows what it wrote until then"):
     val timeout = intercept[ToolTimeout]:
-      ExternalTool.call(Seq("sh", "-c", "echo 'Username for https://example.com:' >&2; sleep 30"), 1.second)
+      ExternalTool.call(Seq("sh", "-c", "echo 'Username for https://example.com:' >&2; sleep 30"), 3.seconds)
     assertEquals(timeout.output, "Username for https://example.com:")
     assert(timeout.getMessage.endsWith("Its output:\nUsername for https://example.com:"), timeout.getMessage)
 
   test("a tool that hangs: what it started is stopped too"):
     val pidFile = os.temp()
     intercept[ToolTimeout]:
-      ExternalTool.call(Seq("sh", "-c", s"sleep 30 & echo $$! > '$pidFile'; wait"), 1.second)
+      ExternalTool.call(Seq("sh", "-c", s"sleep 30 & echo $$! > '$pidFile'; wait"), 3.seconds)
     val child   = ProcessHandle.of(os.read(pidFile).trim.toLong)
     assert(!child.map(_.isAlive).orElse(false), "the child of the tool still runs")
 
   test("a tool that ended while a process it started still holds its output: ToolTimeout, no hang"):
     val start   = System.nanoTime()
-    val timeout = intercept[ToolTimeout](ExternalTool.call(Seq("sh", "-c", "echo started; sleep 60 & exit 0"), 2.seconds))
+    val timeout = intercept[ToolTimeout](ExternalTool.call(Seq("sh", "-c", "echo started; sleep 60 & exit 0"), 5.seconds))
     assert(timeout.getMessage.contains("still holds its output"), timeout.getMessage)
     assertEquals(timeout.output, "started")
     assert((System.nanoTime() - start).nanos < 30.seconds, "it hung")

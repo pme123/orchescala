@@ -492,6 +492,9 @@ class SpecMergeTest extends FunSuite:
       assert(output("--check").contains(s"No spec folder ${project / "spec"}"))
       assertEquals(os.walk(project).toSet, before)
       assertEquals(SpecSources.whyNoSpecFolder(project / "docs" / "readme.md"), Some(s"${project / "docs" / "readme.md"} is no folder"))
+      // a project with services only
+      os.makeDir.all(project / "services-only" / "services")
+      assertEquals(SpecSources.whyNoSpecFolder(project / "services-only"), None)
       os.write(project / "spec" / "config" / "model.json", "{}", createFolders = true)
       assertEquals(SpecSources.whyNoSpecFolder(project / "spec"), None)
 

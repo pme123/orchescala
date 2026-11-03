@@ -36,7 +36,13 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       case Left(why)  =>
         println(Console.RED + s"$why - give the spec folder with --from <dir>." + Console.RESET)
         false
-      case Right(dir) => checkAndMerge(project, dir, merge, markers, yes, value("--json"))
+      case Right(dir) =>
+        try checkAndMerge(project, dir, merge, markers, yes, value("--json"))
+        catch
+          // what the user can act on: a message, no stack trace
+          case e @ (_: ToolTimeout | _: MergeAborted | _: java.io.IOException) =>
+            println(Console.RED + e.getMessage + Console.RESET)
+            false
   end run
 
   private def checkAndMerge(
