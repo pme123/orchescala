@@ -33,4 +33,24 @@ class ExternalToolTest extends FunSuite:
     val child   = ProcessHandle.of(os.read(pidFile).trim.toLong)
     assert(!child.map(_.isAlive).orElse(false), "the child of the tool still runs")
 
+  test("a tool that ended while a process it started still holds its output: ToolTimeout, no hang"):
+    val start   = System.nanoTime()
+    val timeout = intercept[ToolTimeout](ExternalTool.call(Seq("sh", "-c", "echo started; sleep 60 & exit 0"), 2.seconds))
+    assert(timeout.getMessage.contains("still holds its output"), timeout.getMessage)
+    assertEquals(timeout.output, "started")
+    assert((System.nanoTime() - start).nanos < 30.seconds, "it hung")
+
+  test("a tool without an input: its input is closed - one that reads it does not wait"):
+    val start = System.nanoTime()
+    val cat   = ExternalTool.call(Seq("cat"), 30.seconds)
+    assertEquals(cat.exitCode -> cat.out.text(), 0 -> "")
+    assert((System.nanoTime() - start).nanos < 20.seconds, "it waited for its input")
+    assertEquals(ExternalTool.call(Seq("cat"), 30.seconds, stdin = "given").out.text(), "given")
+
+  test("the output in a ToolTimeout: a URL without its user or token"):
+    assertEquals(
+      ExternalTool.withoutCredentials("fatal: https://pat:ghp_x1@github.com/a/b.git and ssh://git@host/c"),
+      "fatal: https://***@github.com/a/b.git and ssh://***@host/c"
+    )
+
 end ExternalToolTest
