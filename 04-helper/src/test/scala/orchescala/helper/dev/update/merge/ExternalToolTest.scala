@@ -51,8 +51,8 @@ class ExternalToolTest extends FunSuite:
     val pidFile = os.temp()
     ExternalTool.call(Seq("sh", "-c", s"sleep 30 > /dev/null 2>&1 & echo $$! > '$pidFile'; sleep 0.3"), 10.seconds)
     val daemon  = ProcessHandle.of(os.read(pidFile).trim.toLong)
-    assert(daemon.map(_.isAlive).orElse(false), "a daemon of the tool was stopped")
-    daemon.ifPresent(_.destroyForcibly())
+    try assert(daemon.map(_.isAlive).orElse(false), "a daemon of the tool was stopped")
+    finally daemon.ifPresent(_.destroyForcibly())
 
   test("a tool without an input: its input is closed - one that reads it does not wait"):
     val start = System.nanoTime()

@@ -50,7 +50,9 @@ object ExternalTool:
       // masked before it is cut: a URL cut in the middle would keep its token
       ToolTimeout(command.head, timeout, withoutCredentials(said).takeRight(outputTail).trim, how)
     // the processes the tool started, as seen while it ran - once it has ended, the ones left
-    // behind belong to another parent and can no longer be found from it
+    // behind belong to another parent and can no longer be found from it. Best effort: one that
+    // lives shorter than a look (50 ms) and leaves a child behind is missed - the call still ends
+    // with a ToolTimeout, the child keeps running.
     val started  = mutable.LinkedHashSet.empty[ProcessHandle]
     try
       if stdin eq os.Pipe then sub.stdin.close()
