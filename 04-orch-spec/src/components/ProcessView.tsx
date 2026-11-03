@@ -28,7 +28,7 @@ import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, 
 import { conversionNote, engineLabel } from '../engineLabels';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
-import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
+import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon, useStoredWidth } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
 import { findProjectDmns, saveProjectDmns, withDmnFiles } from '../dmnProject';
@@ -218,6 +218,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     const n = Number(localStorage.getItem(COMMENTS_W_KEY));
     return Number.isFinite(n) && n >= 300 ? Math.min(n, 640) : 380;
   });
+  // Claude's panel: its own width, draggable as well
+  const [aiW, setAiW] = useStoredWidth('orch-spec.aiWidth', 400, 320, 800);
   const [narrow, setNarrow] = useState(() => window.innerWidth < OVERLAY_BELOW);
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${OVERLAY_BELOW - 1}px)`);
@@ -1396,7 +1398,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
         )}
         {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
         {aiKey && mayEdit && (
-          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+          <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+            <PanelWidthHandle isDark={isDark} width={aiW} min={320} max={800} onWidth={setAiW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
               <ProcessAiPanel isDark={isDark} apiKey={aiKey} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)}
                 draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
