@@ -174,7 +174,9 @@ object SpecMerge:
         try
           os.write(temp, bytes, createFolders = true)
           if os.exists(target) then Try(os.perms.set(temp, os.perms(target)))
-          os.move(temp, target, replaceExisting = true, atomicMove = true)
+          // a file system without an atomic move: moved all the same
+          try os.move(temp, target, replaceExisting = true, atomicMove = true)
+          catch case _: java.nio.file.AtomicMoveNotSupportedException => os.move(temp, target, replaceExisting = true)
         finally Try(os.remove(temp))
       end if
       written += f.path
