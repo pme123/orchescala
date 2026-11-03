@@ -147,12 +147,13 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
       const shown = (v: string | undefined) => paramView(v ?? '');
       extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(found[k])}»`).join(', ')} — prüfen.` });
     }
-    // a parameter the target engine does not have, set to something other than its default: lost
+    // a parameter the target engine does not have, with a value other than its default (set by
+    // hand, or stale - the caller ID after a rename): it does not go over
     const defaults = resolvedDefaults(xml, def);
-    const lost = patternParams(def)
+    const differs = patternParams(def)
       .filter(p => p.engines && !p.engines.includes(target) && h.params[p.name] && h.params[p.name] !== (defaults[p.name] ?? ''))
-      .map(p => `«${p.label ?? p.name}» = «${paramView(h.params[p.name])}»`);
-    if (lost.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${lost.join(', ')} gibt es auf ${engineLabel(target)} nicht — beim Zurückwechseln gilt wieder die Vorgabe.` });
+      .map(p => `«${p.label ?? p.name}» ist «${paramView(h.params[p.name])}», nicht die Vorgabe «${paramView(defaults[p.name] ?? '')}»`);
+    if (differs.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${differs.join(', ')} — auf ${engineLabel(target)} gibt es den Parameter nicht, beim Zurückwechseln gilt die Vorgabe.` });
   }
   return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
 }

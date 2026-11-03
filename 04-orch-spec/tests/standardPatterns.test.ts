@@ -839,6 +839,8 @@ test('the hint for a process parameter - the same in the pattern and on insertin
   for (const v of ['=foo', '${foo}', '#{foo}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /kein Ausdruck/, v);
   for (const v of ['{{x}}', 'acme-{{ x }}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /Platzhalter/, v);
   for (const v of ['say "hi"', 'a b', 'a&b', '1abc']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /keine gültige Prozess-ID/, v);
+  // letters beyond ASCII are fine in an XML name
+  assert.equal(processIssue('acme-zählungV1', 'acme-demoV1'), null);
 });
 
 test('the caller ID on C8 after a rename - said in the pattern', () => {
@@ -870,7 +872,7 @@ test('«Prozess-Event senden»: a text event with " from C7 - the switch to C8 w
 test('«Prozess-Event senden»: a caller ID set by hand on C8 - the switch to C7 says it is lost; the default is not said', () => {
   const own = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1', callerProcess: 'acme-portalV1' }).xml;
   const c7 = convertWithPatterns(own, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
-  assert.ok(c7.issues.some(i => i.stepId === 'Target' && i.text.includes('«Aufrufender Prozess» = «acme-portalV1» gibt es auf')), c7.issues.map(i => i.text).join('; '));
+  assert.ok(c7.issues.some(i => i.stepId === 'Target' && i.text.includes('«Aufrufender Prozess» ist «acme-portalV1», nicht die Vorgabe «acme-demoV1»')), c7.issues.map(i => i.text).join('; '));
   const byDefault = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1' }).xml;
   assert.deepEqual(convertWithPatterns(byDefault, 'c7', STANDARD_PATTERNS, { timeToLive: '5' }).issues, []);
 });
@@ -888,9 +890,9 @@ test('«Prozess-Event senden»: after the process ID changed it is still recogni
   // the old ID is what the call activity passes - shown in the pattern, to change there
   assert.deepEqual(hits.map(h => [h.params.eventProcess, h.params.callerProcess]), [['acme-eventsV1', 'acme-demoV1']]);
   // C7 reads it at runtime; back on C8 it is the new process ID
-  // (the switch says the old ID is not the default any more - it does not go over)
+  // (the switch says the stale ID is not the default - the new process ID)
   const c7 = convertWithPatterns(renamed, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
-  assert.deepEqual(c7.issues.map(i => i.text), ['«Prozess-Event senden»: «Aufrufender Prozess» = «acme-demoV1» gibt es auf Camunda 7 / Operaton nicht — beim Zurückwechseln gilt wieder die Vorgabe.']);
+  assert.deepEqual(c7.issues.map(i => i.text), ['«Prozess-Event senden»: «Aufrufender Prozess» ist «acme-demoV1», nicht die Vorgabe «acme-otherV1» — auf Camunda 7 / Operaton gibt es den Parameter nicht, beim Zurückwechseln gilt die Vorgabe.']);
   assert.equal(new Map(eventCallOf(c7.xml, 'c7').inputs as Array<[string, string]>).get('processDefinitionKey'), '${execution.getProcessDefinition().getKey()}');
   const again = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
   assert.equal(new Map(eventCallOf(again.xml, 'c8').inputs as Array<[string, string]>).get('processDefinitionKey'), '="acme-otherV1"');

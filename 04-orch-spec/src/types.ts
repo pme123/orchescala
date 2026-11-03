@@ -11,15 +11,15 @@
 // Order = progress; a click on the chip advances it.
 // «Angepasst» comes last: that is where the BPMN sync puts a step
 // whose implementation has changed — even an accepted one.
+/** The parameter kinds Orch Spec knows (PatternParam.kind) - another one counts as plain parameter */
+export const PARAM_KINDS = ['process'] as const;
+export type ParamKind = (typeof PARAM_KINDS)[number];
+
 /**
  * In order of progress — «Angepasst» (technically changed, after
  * «Final») comes before «Umgesetzt»: the lowest status is the state of the whole
  * (see overallStatus).
  */
-/** The parameter kinds Orch Spec knows (PatternParam.kind) - another one counts as plain parameter */
-export const PARAM_KINDS = ['process'] as const;
-export type ParamKind = (typeof PARAM_KINDS)[number];
-
 export const STATUSES = ['draft', 'review', 'final', 'changed', 'implemented', 'accepted'] as const;
 export type Status = (typeof STATUSES)[number];
 

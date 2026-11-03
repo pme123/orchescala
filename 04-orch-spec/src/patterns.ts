@@ -1869,7 +1869,7 @@ export function processIssue(value: string | undefined, ownProcess: string | und
 }
 
 /** A BPMN process ID (an XML name, as the processes use: `acme-eventsV1`) */
-const PROCESS_ID = /^[A-Za-z_][\w.-]*$/;
+const PROCESS_ID = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
 
 /**
  * The defaults of a pattern's parameters with the built-in ones filled in from the diagram
