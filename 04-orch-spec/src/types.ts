@@ -715,6 +715,11 @@ export interface ServiceDef {
   /** for subprocesses the called process (`calledElement`) */
   calledProcess?: string;
   docUrl?: string;
+  /**
+   * Read locally («OpenAPI einlesen», ISO time): built on purpose - it overrides a delivered
+   * entry of the same id, topic or called process (see catalogMerge).
+   */
+  builtAt?: string;
   [key: string]: unknown;
 }
 
