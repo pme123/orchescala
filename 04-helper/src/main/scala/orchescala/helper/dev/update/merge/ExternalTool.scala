@@ -66,7 +66,11 @@ object ExternalTool:
         sub.wrapped.toHandle.descendants().forEach(started += _)
         ended = sub.waitFor(math.min(step, left))
         step = math.min(step * 2, maxWatchStep) // a long run is looked at less often
-      if !ended then throw timedOut("stopped")
+      if !ended then
+        // stopped first, with what it started as seen - then what it wrote up to its end is read
+        stopAll(sub.wrapped.toHandle +: started.filter(_.isAlive).toSeq*)
+        readers.foreach(_.thread.join(stopWait.toMillis))
+        throw timedOut("stopped")
       // the rest of the output: a time of its own - a tool that ended just before its deadline
       // may still have a big output in the pipe
       val drained = System.nanoTime() + drainTime.toNanos
@@ -82,8 +86,8 @@ object ExternalTool:
         throw java.io.IOException(s"${command.head}: reading its output failed - ${e.getMessage}", e)
       os.CommandResult(command, sub.exitCode(), chunks.iterator.asScala.toIndexedSeq)
     finally
-      // whatever ended the call (a timeout, an interrupt): the tool and what it started are stopped
-      if sub.isAlive() then stopAll(sub.wrapped.toHandle)
+      // whatever else ended the call (an interrupt, an error): the tool and what it started are stopped
+      if sub.isAlive() then stopAll(sub.wrapped.toHandle +: started.filter(_.isAlive).toSeq*)
       // a stream still read is left to its daemon - closing it could block on the reader's lock
       if !readers.exists(_.thread.isAlive) then
         Try(sub.wrapped.getInputStream.close())
