@@ -11,7 +11,7 @@
 // So no old form stays beside the new one (C8 output mappings would otherwise become C7 output
 // parameters next to the pattern's listeners).
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
-import { applyPattern, detectPatterns, fragmentFor, stripPatternItems, type PatternHit } from './patterns.ts';
+import { applyPattern, detectPatterns, fragmentFor, patternParams, resolvedDefaults, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
 import { paramForChecked, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -110,9 +110,28 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   // the one with the same parameters first. Another one of the pattern on the element counts only
   // if it is the only one there - with several, a different one could pass for it
   const pool = [...detectPatterns(out, defs, target).hits];
+  // a parameter of one engine only (`engines`: the process ID C8 gets when inserted, C7 reads it at
+  // runtime) does not go over - and the other way round it takes its default: no change either way
+  const oneEngine = new Map<PatternDef, Set<string>>();
+  const defaultsCache = new Map<PatternDef, Record<string, string>>();
+  const defaultsOf = (def: PatternDef) => {
+    let d = defaultsCache.get(def);
+    if (!d) { d = resolvedDefaults(xml, def); defaultsCache.set(def, d); }
+    return d;
+  };
+  const onTarget = (def: PatternDef, p: Record<string, string>) => {
+    let skip = oneEngine.get(def);
+    if (!skip) {
+      skip = new Set(patternParams(def).filter(x => !!x.engines?.length && !(x.engines.includes('c7') && x.engines.includes('c8'))).map(x => x.name));
+      oneEngine.set(def, skip);
+    }
+    return Object.fromEntries(Object.entries(p).filter(([k]) => !skip.has(k)));
+  };
   const samePlace = (a: PatternHit, b: PatternHit) => a.patternId === b.patternId && (a.targetId ?? '') === (b.targetId ?? '');
   const take1 = (h: PatternHit) => {
-    const k = pool.findIndex(x => samePlace(x, h) && sameParams(x.params, paramsIn(h)));
+    const def = byId.get(h.patternId);
+    if (!def) return undefined;
+    const k = pool.findIndex(x => samePlace(x, h) && sameParams(onTarget(def, x.params), onTarget(def, paramsIn(h))));
     const alone = strip.all.filter(x => samePlace(x, h)).length === 1;
     const j = k >= 0 ? k : alone ? pool.findIndex(x => samePlace(x, h)) : -1;
     return j >= 0 ? pool.splice(j, 1)[0] : undefined;
@@ -128,12 +147,21 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
-    const wanted = paramsIn(h);
-    if (!sameParams(wanted, again.params)) {
-      const keys = Object.keys({ ...wanted, ...again.params }).filter(k => (wanted[k] ?? '') !== (again.params[k] ?? ''));
+    const wanted = onTarget(def, paramsIn(h)), found = onTarget(def, again.params);
+    if (!sameParams(wanted, found)) {
+      const keys = Object.keys({ ...wanted, ...found }).filter(k => (wanted[k] ?? '') !== (found[k] ?? ''));
       const shown = (v: string | undefined) => paramView(v ?? '');
-      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(again.params[k])}»`).join(', ')} — prüfen.` });
+      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(found[k])}»`).join(', ')} — prüfen.` });
     }
+    // a parameter the target engine does not have, with a value other than its default (set by
+    // hand, or stale - the caller ID after a rename): it does not go over
+    const absent = patternParams(def).filter(p => !!p.engines?.length && !p.engines.includes(target) && h.params[p.name]);
+    // (the defaults only when there is such a parameter - they read the diagram; once per pattern)
+    const defaults = absent.length ? defaultsOf(def) : {};
+    const differs = absent
+      .filter(p => h.params[p.name] !== (defaults[p.name] ?? ''))
+      .map(p => `«${p.label ?? p.name}» ist «${paramView(h.params[p.name])}», nicht die Vorgabe «${paramView(defaults[p.name] ?? '')}»`);
+    if (differs.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${differs.join(', ')} — auf ${engineLabel(target)} gibt es den Parameter nicht, beim Zurückwechseln gilt die Vorgabe.` });
   }
   return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
 }

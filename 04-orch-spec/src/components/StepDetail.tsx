@@ -12,7 +12,7 @@ import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interac
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { EpicChips } from './SpecMeta';
-import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processPatterns, stepTags, patternDefs } from '../patterns';
+import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
@@ -836,6 +836,7 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   // Parameters with «=» are FEEL like the mapping values — suggestions from the process variables
   // (before the early return: hooks always in the same order)
   const variables = useMemo(() => processVariables(spec, model), [spec, model]);
+  const processes = useMemo(() => processChoices(model, spec.processId), [model, spec.processId]);
   if (!applied.length && !available.length) return null;
   const editable = editableBpmn;
   const id = target?.id ?? null;
@@ -848,6 +849,7 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
     return (
       <AppliedPatternCard key={`${a.id}-${i}`} applied={a} def={def}
         isDark={isDark} editable={def?.builtin ? editableBuiltin : editable} engine={engine} atProcess={!target} variables={variables}
+        processes={processes} ownProcess={spec.processId}
         onRemove={() => (def?.builtin ? onSpecChange?.(changeBuiltinPattern(spec, a.id, 'remove')) : onPattern?.(id, a.id, 'remove', a.params))}
         onParams={params => (def?.builtin ? onSpecChange?.(changeBuiltinPattern(spec, a.id, 'update', params)) : onPattern?.(id, a.id, 'update', params, a.params))} />
     );
@@ -891,15 +893,19 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   );
 }
 
-function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess, variables, onRemove, onParams }: {
+function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess, variables, processes, ownProcess, onRemove, onParams }: {
   applied: AppliedPattern; def: PatternDef | null; isDark: boolean; editable: boolean; engine: EngineId; atProcess: boolean;
   variables: VarNode[];
+  /** the processes of the catalog - for a parameter of kind `process` */
+  processes: string[];
+  /** the ID of this process - a parameter of kind `process` naming it calls itself */
+  ownProcess?: string;
   onRemove: () => void; onParams: (params: Record<string, string>) => void;
 }) {
   const c = cls(isDark);
   const { warn, err } = tones(isDark);
-  const params: Array<{ name: string; label?: string; description?: string; default?: string; inBlock?: boolean; textOnly?: boolean; options?: string[] }> = def
-    ? patternParamsFor(def, engine, atProcess)
+  const params: Array<{ name: string; label?: string; description?: string; default?: string; kind?: string; inBlock?: boolean; textOnly?: boolean; options?: string[] }> = def
+    ? patternParamsFor(def, engine, atProcess, processes)
     : Object.keys(applied.params ?? {}).map(name => ({ name }));
   const stored = applied.params ?? {};
   const storedKey = JSON.stringify(stored);
@@ -950,7 +956,12 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
       {!!params.length && (
         <div className="space-y-0.5">
           {params.map(p => {
-            const issues = p.inBlock || p.textOnly ? [] : issuesOf(draft[p.name]);
+            const hint = (t: string | null): FeelIssue[] => (t ? [{ level: 'warn', text: `${p.label ?? p.name} ${t}` }] : []);
+            // (only in the shared block: changed in the diagram, not here - no hint either)
+            const issues: FeelIssue[] = p.inBlock ? []
+              : p.kind === 'process'
+                ? hint(processIssue(draft[p.name], ownProcess) ?? staleProcessId(p, draft[p.name], ownProcess))
+                : p.textOnly ? hint(staleProcessId(p, draft[p.name], ownProcess)) : issuesOf(draft[p.name]);
             return (
               <div key={p.name}>
                 <div className="flex items-center gap-1.5 text-[10px]"
@@ -967,12 +978,14 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
                     }}>
                     {p.textOnly && !p.inBlock ? (
                       <>
-                        <input value={draft[p.name] ?? ''} disabled={!editable} list={p.options ? `opts-${applied.id}-${p.name}` : undefined}
+                        <input value={draft[p.name] ?? ''} disabled={!editable} list={p.options?.length ? `opts-${applied.id}-${p.name}` : undefined}
                           onChange={e => setDraft(d => ({ ...d, [p.name]: e.target.value }))}
-                          placeholder={p.default ? `Vorgabe: ${p.default}` : p.options ? `z. B. ${p.options[0]}` : 'Text'}
-                          title={`${p.description ? `${p.description}\n` : ''}Steht im Pattern in einer Zeichenkette — nur Text, kein FEEL.${p.options ? ` Zur Auswahl: ${p.options.join(', ')}; ein eigener Wert geht auch.` : ''}`}
+                          placeholder={p.default ? `Vorgabe: ${p.default}` : p.kind === 'process' ? 'Prozess wählen' : p.options?.length ? `z. B. ${p.options[0]}` : 'Text'}
+                          title={p.kind === 'process'
+                            ? `${p.description ? `${p.description}\n` : ''}Die ID des Prozesses — zur Auswahl die Prozesse des Katalogs; eine andere ID geht auch.`
+                            : `${p.description ? `${p.description}\n` : ''}Steht im Pattern in einer Zeichenkette — nur Text, kein FEEL.${p.options?.length ? ` Zur Auswahl: ${p.options.join(', ')}; ein eigener Wert geht auch.` : ''}`}
                           className={`w-full text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-                        {p.options && (
+                        {!!p.options?.length && (
                           <datalist id={`opts-${applied.id}-${p.name}`}>
                             {p.options.map(o => <option key={o} value={o} />)}
                           </datalist>

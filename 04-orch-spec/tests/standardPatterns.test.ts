@@ -4,11 +4,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, removePattern, setVariableOnly } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
-import type { EngineId, PatternDef } from '../src/types';
+import type { EngineId, Model, PatternDef } from '../src/types';
 
 const g = globalThis as unknown as Record<string, unknown>;
 g.DOMParser ??= DOMParser;
@@ -46,7 +46,7 @@ const targetFor = (type: string) => (type === 'process' ? null : 'Target');
 
 test('the standard patterns are there without a company pattern', () => {
   const ids = patternDefs(null).map(p => p.id);
-  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution', 'process-status']) assert.ok(ids.includes(id), id);
+  for (const id of ['init-process', 'identity-take-over', 'identity-reset', 'propagate-mocks', 'unique-execution', 'process-status', 'stop-with-error', 'send-process-event']) assert.ok(ids.includes(id), id);
   assert.ok(STANDARD_PATTERNS.every(p => isStandardPattern(p) && !p.builtin));
   // a copy (an own pattern from a file) is not a standard pattern, whatever it carries
   assert.ok(!isStandardPattern({ ...STANDARD_PATTERNS[0], standard: true }));
@@ -665,4 +665,249 @@ test('without a shape (no diagram) the pattern goes in without colour', () => {
   const res = applyPattern(diagram('c7', 'task'), stop, 'c7', 'End', { message: 'x' });
   assert.ok(res.changed, res.issues.join('; '));
   assert.ok(!res.xml.includes('bioc:fill'), 'nothing coloured');
+});
+
+// «Prozess-Event senden» - a call activity calls the chosen event process with the event, the
+// process ID and the instance
+const sendEvent = STANDARD_PATTERNS.find(p => p.id === 'send-process-event')!;
+/** what the call activity calls and passes: C7 calledElement and camunda:in, C8 zeebe:calledElement and inputs */
+const eventCallOf = (xml: string, engine: EngineId) => {
+  const el = elements(parse(xml), 'bpmn:callActivity')[0];
+  if (engine === 'c7') {
+    return {
+      called: el.getAttribute('calledElement'),
+      inputs: elements(el, 'camunda:in').map(i => [i.getAttribute('target'), i.getAttribute('sourceExpression') ?? i.getAttribute('source')]),
+    };
+  }
+  const ce = one(el, 'zeebe:calledElement');
+  return {
+    called: ce.getAttribute('processId'),
+    isolated: [ce.getAttribute('propagateAllParentVariables'), ce.getAttribute('propagateAllChildVariables')],
+    inputs: elements(el, 'zeebe:input').map(i => [i.getAttribute('target'), i.getAttribute('source')]),
+  };
+};
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: calls the chosen process with event, process ID and instance - read back`, () => {
+    const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'started' });
+    assert.ok(res.changed, res.issues.join('; '));
+    const call = eventCallOf(res.xml, engine);
+    assert.equal(call.called, 'acme-eventsV1');
+    if (engine === 'c7') {
+      assert.deepEqual(call.inputs, [
+        ['eventKey', 'started'],
+        ['processDefinitionKey', '${execution.getProcessDefinition().getKey()}'],
+        ['processInstanceId', '${execution.getProcessInstanceId()}'],
+      ]);
+    } else {
+      // only the inputs go in, nothing comes back
+      assert.deepEqual(call.isolated, ['false', 'false']);
+      assert.deepEqual(call.inputs, [
+        ['eventKey', '="started"'],
+        ['processDefinitionKey', '="acme-demoV1"'],
+        ['processInstanceId', '=processInstanceId'],
+      ]);
+    }
+    const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'send-process-event');
+    assert.deepEqual(hits.map(h => [h.targetId, h.params.eventProcess, h.params.eventKey]), [['Target', 'acme-eventsV1', 'started']]);
+  });
+
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: together with «Mocks und Identität weitergeben» on the same call activity - both recognised`, () => {
+    const mocks = STANDARD_PATTERNS.find(p => p.id === 'propagate-mocks')!;
+    const once = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'finished' });
+    const both = applyPattern(once.xml, mocks, engine, 'Target');
+    assert.ok(both.changed, both.issues.join('; '));
+    const ids = detectPatterns(both.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.targetId === 'Target').map(h => h.patternId).sort();
+    assert.deepEqual(ids, ['propagate-mocks', 'send-process-event']);
+    // removing the event leaves the mocks
+    const back = removePattern(both.xml, sendEvent, engine, 'Target');
+    assert.deepEqual(detectPatterns(back.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.targetId === 'Target').map(h => h.patternId), ['propagate-mocks']);
+  });
+}
+
+test('«Prozess-Event senden»: a FEEL event - JUEL on C7, FEEL on C8 - and over the engine switch, with the process', () => {
+  const c8 = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1', eventKey: '="step-" + string(stepNr)' }).xml;
+  assert.deepEqual(eventCallOf(c8, 'c8').inputs[0], ['eventKey', '="step-" + string(stepNr)']);
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(c7.issues, []);
+  const call = eventCallOf(c7.xml, 'c7');
+  assert.equal(call.called, 'acme-eventsV1');
+  // (the switch to C7 also passes the business key - an input without target)
+  assert.match(call.inputs.find(([t]) => t === 'eventKey')?.[1] ?? '', /^\$\{.*step-.*stepNr.*\}$/);
+  const again = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(again.issues, []);
+  assert.equal(eventCallOf(again.xml, 'c8').called, 'acme-eventsV1');
+});
+
+test('a parameter of kind process: text only, the processes of the catalog to choose from - not the own one', () => {
+  const model: Model = {
+    version: 1,
+    services: [
+      { id: 'a', name: 'A', calledProcess: 'acme-eventsV1' }, { id: 'b', name: 'B', topic: 'acme-x' },
+      { id: 'c', name: 'C', calledProcess: 'acme-auditV1' }, { id: 'd', name: 'D', calledProcess: 'acme-eventsV1' },
+      { id: 'e', name: 'E', calledProcess: 'acme-demoV1' },
+      // an expression as called process - no choice
+      { id: 'f', name: 'F', calledProcess: '${targetProcess}' }, { id: 'g', name: 'G', calledProcess: '=target' },
+    ],
+    // a process object nobody calls yet - offered too; an In without processName not
+    domainTypes: [
+      { id: 'acme.events.domain.Notify', name: 'Notify', pkg: 'acme.events.domain', kind: 'case', fields: [], processName: 'acme-notifyV1' },
+      { id: 'acme.events.domain.In', name: 'In', pkg: 'acme.events.domain', kind: 'member', fields: [], owner: 'Notify' },
+    ],
+  };
+  const processes = processChoices(model, 'acme-demoV1');
+  assert.deepEqual(processes, ['acme-auditV1', 'acme-eventsV1', 'acme-notifyV1']);
+  // without an own process: all
+  assert.deepEqual(processChoices(model), ['acme-auditV1', 'acme-demoV1', 'acme-eventsV1', 'acme-notifyV1']);
+  assert.deepEqual(processChoices(null), []);
+  for (const engine of ['c7', 'c8'] as const) {
+    const p = patternParamsFor(sendEvent, engine, false, processes).find(x => x.name === 'eventProcess')!;
+    assert.equal(p.textOnly, true);
+    assert.deepEqual(p.options, processes);
+    // the event stays FEEL-capable
+    assert.ok(!patternParamsFor(sendEvent, engine, false, processes).find(x => x.name === 'eventKey')!.textOnly);
+    // a catalog without call activities: no (empty) list
+    assert.equal(patternParamsFor(sendEvent, engine, false, []).find(x => x.name === 'eventProcess')!.options, undefined);
+    // options of the pattern itself come first
+    const own: PatternDef = { ...sendEvent, params: sendEvent.params!.map(p => (p.name === 'eventProcess' ? { ...p, values: ['acme-fixedV1', 'acme-eventsV1'] } : p)) };
+    assert.deepEqual(patternParamsFor(own, engine, false, processes).find(x => x.name === 'eventProcess')!.options, ['acme-fixedV1', 'acme-eventsV1', 'acme-auditV1', 'acme-notifyV1']);
+    // and alone when the catalog has none
+    assert.deepEqual(patternParamsFor(own, engine, false, []).find(x => x.name === 'eventProcess')!.options, ['acme-fixedV1', 'acme-eventsV1']);
+  }
+});
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: without a process it goes in with a hint - the process is chosen afterwards`, () => {
+    const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventKey: 'started' });
+    assert.ok(res.changed, res.issues.join('; '));
+    assert.ok(res.issues.some(i => i.includes('«Event-Prozess» fehlt')), res.issues.join('; '));
+    assert.equal(eventCallOf(res.xml, engine).called, '');
+    // read again: recognised, without a process - to choose in the pattern
+    const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'send-process-event');
+    assert.deepEqual(hits.map(h => [h.targetId, h.params.eventProcess ?? '', h.params.eventKey]), [['Target', '', 'started']]);
+    // chosen afterwards: the hint is gone
+    const chosen = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-eventsV1' });
+    assert.deepEqual(chosen.issues, []);
+  });
+
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: a process ID that is none is refused - it would not deploy`, () => {
+    for (const eventProcess of ['a b', 'say "hi"', '=foo', '{{x}}']) {
+      const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess });
+      assert.ok(!res.changed, eventProcess);
+      assert.ok(res.issues.some(i => i.includes('«Event-Prozess»')), res.issues.join('; '));
+    }
+  });
+
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: the own process as event process is said`, () => {
+    const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-demoV1' });
+    assert.ok(res.changed);
+    assert.ok(res.issues.some(i => i.includes('ruft sich selbst auf')), res.issues.join('; '));
+  });
+}
+
+test('«Prozess-Event senden»: process ID and instance survive the round trip C8 → C7 → C8', () => {
+  const c8 = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'started' }).xml;
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(c7.issues, []);
+  const in7 = new Map(eventCallOf(c7.xml, 'c7').inputs as Array<[string, string]>);
+  assert.equal(in7.get('processDefinitionKey'), '${execution.getProcessDefinition().getKey()}');
+  assert.equal(in7.get('processInstanceId'), '${execution.getProcessInstanceId()}');
+  const again = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(again.issues, []);
+  // (plus the business key the switch to C7 passed)
+  assert.deepEqual(eventCallOf(again.xml, 'c8').inputs.filter(([t]) => t !== 'businessKey'), eventCallOf(c8, 'c8').inputs);
+});
+
+for (const engine of ['c7', 'c8'] as const) {
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: a text event with " or \\ is refused - it stands in a string`, () => {
+    for (const eventKey of ['say "hi"', 'a\\b']) {
+      const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-eventsV1', eventKey });
+      if (engine === 'c8') {
+        assert.ok(!res.changed, eventKey);
+        assert.ok(res.issues.some(i => i.includes('«eventKey»')), res.issues.join('; '));
+      } else {
+        // C7: sourceExpression is an attribute, not a string of an expression - it goes in as it is
+        assert.ok(res.changed, res.issues.join('; '));
+        assert.deepEqual(new Map(eventCallOf(res.xml, 'c7').inputs as Array<[string, string]>).get('eventKey'), eventKey);
+      }
+    }
+  });
+}
+
+test('«Prozess-Event senden»: without a process the engine switch says so too', () => {
+  const c8 = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventKey: 'started' }).xml;
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.ok(c7.issues.some(i => i.stepId === 'Target' && i.text.includes('«Event-Prozess» fehlt')), c7.issues.map(i => i.text).join('; '));
+});
+
+test('the hint for a process parameter - the same in the pattern and on inserting', () => {
+  assert.match(processIssue('', 'acme-demoV1') ?? '', /fehlt/);
+  assert.match(processIssue(' acme-demoV1 ', 'acme-demoV1') ?? '', /sich selbst/);
+  assert.equal(processIssue('acme-eventsV1', 'acme-demoV1'), null);
+  assert.equal(processIssue('acme-eventsV1', undefined), null);
+  // text only
+  for (const v of ['=foo', '${foo}', '#{foo}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /kein Ausdruck/, v);
+  for (const v of ['{{x}}', 'acme-{{ x }}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /Platzhalter/, v);
+  for (const v of ['say "hi"', 'a b', 'a&b', '1abc']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /keine gültige Prozess-ID/, v);
+  // letters beyond ASCII are fine in an XML name
+  assert.equal(processIssue('acme-zählungV1', 'acme-demoV1'), null);
+});
+
+test('the caller ID on C8 after a rename - said in the pattern', () => {
+  const caller = sendEvent.params!.find(p => p.name === 'callerProcess')!;
+  assert.match(staleProcessId(caller, 'acme-demoV1', 'acme-otherV1') ?? '', /«acme-demoV1».*«acme-otherV1»/);
+  assert.equal(staleProcessId(caller, 'acme-otherV1', 'acme-otherV1'), null);
+  assert.equal(staleProcessId(caller, '', 'acme-otherV1'), null);
+  // only a parameter with the process ID as default
+  assert.equal(staleProcessId(sendEvent.params!.find(p => p.name === 'eventKey')!, 'started', 'acme-otherV1'), null);
+});
+
+test('a pattern with a one-engine parameter: a change of another parameter is still said on the switch', () => {
+  // the C7 form names the event differently - its value does not arrive; callerProcess (C8 only) is not missed
+  const renamed: PatternDef = { ...sendEvent, id: 'acme-event', bpmn: { ...sendEvent.bpmn, c7: sendEvent.bpmn.c7!.replace('{{eventKey}}', '{{event}}') } };
+  const c8 = applyPattern(diagram('c8', 'callActivity'), renamed, 'c8', 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'started' }).xml;
+  const res = convertWithPatterns(c8, 'c7', [renamed], { timeToLive: '5' });
+  const texts = res.issues.map(i => i.text);
+  assert.ok(texts.some(t => t.includes('«eventKey» war «started», ist jetzt «»')), texts.join('; '));
+  assert.ok(!texts.some(t => t.includes('callerProcess')), texts.join('; '));
+  // an empty engines list counts as both: the parameter is compared
+  const both: PatternDef = { ...renamed, params: renamed.params!.map(p => (p.name === 'callerProcess' ? { ...p, engines: [] } : p)) };
+  const res2 = convertWithPatterns(applyPattern(diagram('c8', 'callActivity'), both, 'c8', 'Target', { eventProcess: 'acme-eventsV1' }).xml, 'c7', [both], { timeToLive: '5' });
+  assert.ok(res2.issues.some(i => i.text.includes('«callerProcess» war')), res2.issues.map(i => i.text).join('; '));
+});
+
+test('«Prozess-Event senden»: a text event with " from C7 - the switch to C8 writes it as escaped FEEL text', () => {
+  const c7 = applyPattern(diagram('c7', 'callActivity'), sendEvent, 'c7', 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'say "hi"' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(new Map(eventCallOf(c8.xml, 'c8').inputs as Array<[string, string]>).get('eventKey'), '="say \\"hi\\""');
+});
+
+test('«Prozess-Event senden»: a caller ID set by hand on C8 - the switch to C7 says it is lost; the default is not said', () => {
+  const own = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1', callerProcess: 'acme-portalV1' }).xml;
+  const c7 = convertWithPatterns(own, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.ok(c7.issues.some(i => i.stepId === 'Target' && i.text.includes('«Aufrufender Prozess» ist «acme-portalV1», nicht die Vorgabe «acme-demoV1»')), c7.issues.map(i => i.text).join('; '));
+  const byDefault = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1' }).xml;
+  assert.deepEqual(convertWithPatterns(byDefault, 'c7', STANDARD_PATTERNS, { timeToLive: '5' }).issues, []);
+});
+
+test('a parameter kind Orch Spec does not know is named (pattern file)', () => {
+  assert.deepEqual(unknownParamKinds(sendEvent), []);
+  const own: PatternDef = { ...sendEvent, id: 'own', params: [{ name: 'x', kind: 'decision' }, { name: 'y', kind: 'process' }] };
+  assert.deepEqual(unknownParamKinds(own), ['«x» (decision)']);
+});
+
+test('«Prozess-Event senden»: after the process ID changed it is still recognised on C8 - and the switch takes the new one', () => {
+  const c8 = applyPattern(diagram('c8', 'callActivity'), sendEvent, 'c8', 'Target', { eventProcess: 'acme-eventsV1' }).xml;
+  const renamed = c8.replace('id="acme-demoV1"', 'id="acme-otherV1"');
+  const hits = detectPatterns(renamed, STANDARD_PATTERNS, 'c8').hits.filter(h => h.patternId === 'send-process-event');
+  // the old ID is what the call activity passes - shown in the pattern, to change there
+  assert.deepEqual(hits.map(h => [h.params.eventProcess, h.params.callerProcess]), [['acme-eventsV1', 'acme-demoV1']]);
+  // C7 reads it at runtime; back on C8 it is the new process ID
+  // (the switch says the stale ID is not the default - the new process ID)
+  const c7 = convertWithPatterns(renamed, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
+  assert.deepEqual(c7.issues.map(i => i.text), ['«Prozess-Event senden»: «Aufrufender Prozess» ist «acme-demoV1», nicht die Vorgabe «acme-otherV1» — auf Camunda 7 / Operaton gibt es den Parameter nicht, beim Zurückwechseln gilt die Vorgabe.']);
+  assert.equal(new Map(eventCallOf(c7.xml, 'c7').inputs as Array<[string, string]>).get('processDefinitionKey'), '${execution.getProcessDefinition().getKey()}');
+  const again = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
+  assert.equal(new Map(eventCallOf(again.xml, 'c8').inputs as Array<[string, string]>).get('processDefinitionKey'), '="acme-otherV1"');
 });

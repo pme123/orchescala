@@ -27,6 +27,8 @@
 // A pattern on the **process** (`appliesTo: ['process']`) has no anchor:
 // its content is the blocks and the extensions of the process itself.
 
+import { PARAM_KINDS } from './types.ts';
+import type { ParamKind } from './types.ts';
 import type { AppliedPattern, EngineId, Field, Model, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
 import { STANDARD_PATTERN_DEFS } from './standardPatterns.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
@@ -257,11 +259,21 @@ export function placeholders(xml: string): string[] {
  * engine. `inBlock`: appears only in the shared block — takes effect on the
  * first insertion, after that the block belongs to the process (change it in the diagram).
  */
-export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: boolean): Array<PatternParam & { inBlock?: boolean; textOnly?: boolean; options?: string[] }> {
+export function patternParamsFor(
+  def: PatternDef, engine: EngineId, atProcess: boolean,
+  /** the processes to choose from for a parameter of kind `process` (see processChoices) */
+  processes: string[] = [],
+): Array<PatternParam & { inBlock?: boolean; textOnly?: boolean; options?: string[] }> {
   const x = fragmentFor(def, engine);
   const fr = x ? parseFragment(x) : null;
   const text = x ? textOnlyParams(x) : new Set<string>();
   const withKind = (p: PatternParam) => {
+    // a process id is text - no FEEL - chosen from the catalog (no list when it has none)
+    if (p.kind === 'process') {
+      // the options of the pattern first, then the processes of the catalog
+      const all = [...new Set([...(paramOptions(p) ?? []), ...processes])];
+      return { ...p, textOnly: true, ...(all.length ? { options: all } : {}) };
+    }
     const options = paramOptions(p);
     return { ...p, ...(text.has(p.name) ? { textOnly: true } : {}), ...(options ? { options } : {}) };
   };
@@ -269,6 +281,34 @@ export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: b
   return patternParams(def)
     .filter(p => fr.elementParams.has(p.name) || fr.blockParams.has(p.name))
     .map(p => (!atProcess && fr.blockParams.has(p.name) ? { ...withKind(p), inBlock: true } : withKind(p)));
+}
+
+/** A BPMN process ID (an XML name, as the processes use: `acme-eventsV1`) */
+const PROCESS_ID = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
+
+/**
+ * The processes of the catalog - what a call activity can call (a parameter of kind `process`):
+ * the process objects of the domain (`processName`) and what a call activity already calls
+ * (`calledProcess` of the services); another one is typed. Without the own process (`exclude`) -
+ * it would call itself.
+ */
+export function processChoices(model: Model | null, exclude?: string): string[] {
+  const names = [
+    ...(model?.domainTypes ?? []).map(t => t.processName),
+    ...(model?.services ?? []).map(s => s.calledProcess),
+  ];
+  // (an expression as called process - `${…}`, `=…` - is no process to choose)
+  return [...new Set(names.map(p => p?.trim()).filter((p): p is string => !!p && p !== exclude?.trim() && PROCESS_ID.test(p)))].sort((a, b) => a.localeCompare(b, 'de'));
+}
+
+/** A parameter kind Orch Spec knows (PARAM_KINDS) */
+export const isParamKind = (k: unknown): k is ParamKind => (PARAM_KINDS as readonly unknown[]).includes(k);
+
+/** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
+export function unknownParamKinds(def: PatternDef): string[] {
+  return patternParams(def)
+    .filter(p => p.kind != null && !isParamKind(p.kind))
+    .map(p => `«${p.name}» (${String(p.kind)})`);
 }
 
 /**
@@ -1666,6 +1706,10 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   const inString = new Set([...textOnlyParams(src), ...[...src.matchAll(QUOTED_PH)].map(m => m[1])]);
   const broken = patternParams(def).map(p => p.name).filter(n => inString.has(n) && !isFeelValue(given[n]) && /["\\]/.test(given[n] ?? ''));
   if (broken.length) return same([`«${def.name}»: ${broken.map(n => `«${n}»`).join(', ')} nimmt nur Text ohne " und \\ - der Wert steht im BPMN in einer Zeichenkette.`]);
+  // a process ID that is none (an expression, characters an ID cannot have) would not deploy - refused;
+  // an empty one goes in with a hint (chosen afterwards in the pattern)
+  const badProcess = patternParams(def).filter(p => p.kind === 'process' && given[p.name]?.trim() && !PROCESS_ID.test(given[p.name].trim()));
+  if (badProcess.length) return same(badProcess.map(p => `«${def.name}»: «${p.label ?? p.name}» ${processIssue(given[p.name], given.processId)}`));
   const w = new Writer(doc);
   // `{{startMessage}}` needs a message start event — if it is missing,
   // the process start becomes one (message = process ID, the convention)
@@ -1802,7 +1846,53 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
   const limitation = def.limitations?.[engine];
   if (limitation) w.issues.push(`«${def.name}»: ${limitation}`);
+  w.issues.push(...processIssues(def, given));
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
+}
+
+/**
+ * A parameter of kind `process` without a process: the call activity calls none (and does not
+ * deploy) - it goes in anyway, the process is chosen afterwards in the pattern. Calling the own
+ * process is said too.
+ */
+function processIssues(def: PatternDef, given: Record<string, string>): string[] {
+  return patternParams(def).filter(p => p.kind === 'process').flatMap(p => {
+    const v = given[p.name]?.trim() ?? '';
+    const issue = processIssue(v, given.processId);
+    return issue ? [`«${def.name}»: «${p.label ?? p.name}» ${issue}`] : [];
+  });
+}
+
+/** What is wrong with the process of a parameter of kind `process` - also the hint in the pattern */
+export function processIssue(value: string | undefined, ownProcess: string | undefined): string | null {
+  const v = value?.trim() ?? '';
+  if (!v) return 'fehlt - die Call Activity ruft keinen Prozess auf. Im Pattern einen Prozess wählen.';
+  if (ownProcess && v === ownProcess) return 'ist der Prozess selbst - er ruft sich selbst auf.';
+  // text only - an expression or a placeholder would stand there as it is
+  if (/^(=|\$\{|#\{)/.test(v)) return 'ist die ID eines Prozesses - nur Text, kein Ausdruck.';
+  if (/\{\{\s*\w+\s*\}\}/.test(v)) return 'enthält einen Platzhalter ({{…}}) - der kommt hier nicht ersetzt hinein.';
+  if (!PROCESS_ID.test(v)) return 'ist keine gültige Prozess-ID - nur Buchstaben, Ziffern, _ . und -, am Anfang ein Buchstabe oder _.';
+  return null;
+}
+
+/**
+ * The defaults of a pattern's parameters with the built-in ones filled in from the diagram
+ * (`{{processId}}` → the ID of its process) - what a parameter is when nobody set it.
+ */
+export function resolvedDefaults(xml: string, def: PatternDef): Record<string, string> {
+  const doc = parseXml(xml);
+  const v = valuesFor(def, {}, null, doc ? mainProcess(doc) : null);
+  return Object.fromEntries(patternParams(def).filter(p => p.default != null).map(p => [p.name, p.default!.replace(PH, (_, n: string) => v[n] ?? '')]));
+}
+
+/**
+ * A parameter with the default `{{processId}}` (C8 gets the process ID as text when inserted) that
+ * no longer is the ID of this process - after the process was renamed.
+ */
+export function staleProcessId(param: { default?: string }, value: string | undefined, ownProcess: string | undefined): string | null {
+  const v = value?.trim();
+  if (param.default !== '{{processId}}' || !v || !ownProcess || v === ownProcess) return null;
+  return `ist «${v}», nicht die ID dieses Prozesses («${ownProcess}») - nach dem Umbenennen anpassen.`;
 }
 
 // ── Removing ─────────────────────────────────────────────────────────────────
