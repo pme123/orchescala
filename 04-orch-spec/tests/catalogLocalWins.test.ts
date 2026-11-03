@@ -105,7 +105,7 @@ test('rebuiltServices: an OpenAPI that cannot be parsed - its project is reporte
   };
   const before = [svc('acme-broken-old', { group: 'acme-broken', builtAt: 'x' }), svc('acme-services-old', { group: 'acme-services', builtAt: 'x' })];
   const r = rebuiltServices(before, apis, parse, 't');
-  assert.deepEqual(r.unreadable, ['acme-broken']);
+  assert.deepEqual(r.unreadable, [{ project: 'acme-broken', error: 'bad yaml' }]);
   assert.deepEqual(r.incoming.map(s => s.id), ['acme-services-a']);
   // the broken project keeps its services - the one that came in replaces its own
   assert.deepEqual(r.kept.map(s => s.id), ['acme-broken-old']);
@@ -194,6 +194,17 @@ test('a legacy entry with the topic of a local service (another id) steps back -
   assert.deepEqual(merged.services.filter(s => s.topic === 'acme-new-get').map(s => s.id), [local.id]);
 });
 
+test('the called process is no override key: several delivered services calling the same process all stay', () => {
+  const gen: CatalogFile = { ...delivered, services: [svc('acme-cards-a', { calledProcess: 'acme-sub' }), svc('acme-cards-b', { calledProcess: 'acme-sub' })] };
+  const local = svc('acme-new-c', { calledProcess: 'acme-sub', builtAt: 'x', group: 'acme-new' });
+  const merged = mergeGeneratedCatalog(user({ services: [local] }), gen);
+  assert.deepEqual(merged.services.map(s => s.id).sort(), ['acme-cards-a', 'acme-cards-b', 'acme-new-c']);
+  assert.deepEqual(localOverrides(user({ services: [local] }), gen), []);
+  // a legacy entry calling it steps back
+  const legacy = svc('acme-old-d', { topic: undefined, calledProcess: 'acme-sub' });
+  assert.equal(byId(mergeGeneratedCatalog(user({ services: [legacy] }), gen), 'acme-old-d').length, 0);
+});
+
 test('like with like: a local service calling a process does not hide the delivered service with that id', () => {
   const caller = svc('acme-new-Caller', { topic: undefined, calledProcess: 'acme-cards-orderV1-Eval', builtAt: 'x', group: 'acme-new' });
   const merged = mergeGeneratedCatalog(user({ services: [caller] }), delivered);
@@ -206,4 +217,18 @@ test('stampLabel: the date - with the time of day when the other stand is from t
   assert.match(stampLabel('2026-11-03T11:00:00Z', '2026-11-03T12:00:00Z'), /\d{1,2}:\d{2}/);
   assert.doesNotMatch(stampLabel('2026-11-03T11:00:00Z', '2026-10-30T12:00:00Z'), /:/);
   assert.equal(stampLabel(undefined, '2026-11-03T12:00:00Z'), '?');
+});
+
+test('local and legacy entry with the same id in the model.json: the local one shows, once', () => {
+  const local = svc('acme-services-clientsV1-GetClient', { description: 'local', group: 'acme-services', builtAt: 'x' });
+  const legacy = svc('acme-services-clientsV1-GetClient', { description: 'old import' });
+  const merged = mergeGeneratedCatalog(user({ services: [legacy, local] }), delivered);
+  assert.deepEqual(byId(merged, local.id).map(s => s.description), ['local']);
+});
+
+test('isBefore and stampLabel with equal and invalid times', () => {
+  assert.equal(isBefore('2026-11-03T08:00:00Z', '2026-11-03T08:00:00Z'), false);
+  assert.equal(isBefore('2026-11-03T08:00:00Z', undefined), false);
+  assert.doesNotMatch(stampLabel('2026-11-03T11:00:00Z', 'x'), /:/);
+  assert.match(stampLabel('2026-11-03T11:00:00Z', '2026-11-03T11:00:00Z'), /\d{1,2}:\d{2}/);
 });

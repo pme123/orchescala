@@ -137,8 +137,11 @@ export const NO_PROJECT = '(ohne Projekt)';
 
 const time = (iso?: string): number => (iso ? Date.parse(iso) : NaN);
 /** the later of two ISO times - an invalid one does not count */
-const later = (a?: string, b?: string): string | undefined =>
-  Number.isNaN(time(a)) ? (Number.isNaN(time(b)) ? undefined : b) : Number.isNaN(time(b)) || time(a) >= time(b) ? a : b;
+const later = (a?: string, b?: string): string | undefined => {
+  if (Number.isNaN(time(a))) return Number.isNaN(time(b)) ? undefined : b;
+  if (Number.isNaN(time(b))) return a;
+  return time(a) >= time(b) ? a : b;
+};
 /** is `a` before `b` - both valid times */
 export const isBefore = (a?: string, b?: string): boolean => !Number.isNaN(time(a)) && !Number.isNaN(time(b)) && time(a) < time(b);
 /** a time for the overview: the date - with the time of day when `other` is from the same day */
@@ -149,9 +152,14 @@ export const stampLabel = (iso?: string, other?: string): string => {
   return sameDay ? d.toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : d.toLocaleDateString('de-CH');
 };
 
-/** the keys a service is known by - like with like: an id only meets an id, a topic a topic */
+/**
+ * The keys a local service overrides a delivered one by - like with like: an id only meets an id,
+ * a topic a topic. Not the called process: several services may call the same one.
+ */
 const keysOf = (s: ServiceDef) =>
-  [['id', s.id], ['topic', s.topic], ['calls', s.calledProcess]].filter(([, v]) => !!v).map(([k, v]) => `${k}:${v}`);
+  [['id', s.id], ['topic', s.topic]].filter(([, v]) => !!v).map(([k, v]) => `${k}:${v}`);
+/** what a legacy entry steps back by - also the called process */
+const legacyKeysOf = (s: ServiceDef) => [...keysOf(s), ...(s.calledProcess ? [`calls:${s.calledProcess}`] : [])];
 
 /** the dependencies of the catalog's projects — those it read a `PROJECT.conf` of */
 const dependenciesOf = (gen: CatalogFile): Record<string, string[]> | null => {
@@ -176,14 +184,14 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
     const newer = Object.fromEntries(NEWER_SCAN.filter(k => own?.[k] != null && t[k] == null).map(k => [k, own![k]]));
     return { ...t, ...newer, generated: true };
   });
-  // locally built services override delivered ones of the same id, topic or called process (each with its like)
+  // locally built services override delivered ones of the same id or topic (each with its like)
   const listed = new Set((user.projects ?? []).map(p => p.name));
   const localServices = user.services.filter(s => localProjectOf(s, listed) != null);
   const localSet = new Set(localServices);
   const localKeys = new Set(localServices.flatMap(keysOf));
   const keptGen = genServices.filter(s => !keysOf(s).some(k => localKeys.has(k)));
   // a legacy entry steps back behind the delivery and behind a local build
-  const kennt = new Set([...keptGen.flatMap(keysOf), ...localKeys]);
+  const known = new Set([...keptGen, ...localServices].flatMap(legacyKeysOf));
   const typIds = new Set(genTypes.map(t => t.id));
   // the example values (`default…`) follow the types: a project's come from the side whose scan
   // applies — a moved one would otherwise stay twice, and the catalog's (listed first) be chosen
@@ -198,7 +206,7 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
       ...keptGen,
       ...localServices,
       // legacy entries only where the delivery has nothing
-      ...user.services.filter(s => !localSet.has(s) && !keysOf(s).some(k => kennt.has(k))),
+      ...user.services.filter(s => !localSet.has(s) && !legacyKeysOf(s).some(k => known.has(k))),
     ],
     domainTypes: [...genTypes, ...(user.domainTypes ?? []).filter(t => {
       const p = projectOf(t);
@@ -303,23 +311,25 @@ export function rebuiltServices(
    * group is not the folder; `types`: the model's types - those an OpenAPI gave a project whose
    * OpenAPI did not come in now stay (`keptTypes`) */
   opts: { listed?: Iterable<string>; types?: DomainType[] } = {},
-): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; keptTypes: DomainType[]; unreadable: string[] } {
+): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; keptTypes: DomainType[]; unreadable: Array<{ project: string; error: string }> } {
   const incoming: ServiceDef[] = [];
   const types: DomainType[] = [];
-  const unreadable: string[] = [];
+  const unreadable: Array<{ project: string; error: string }> = [];
   for (const a of apis) {
     try {
       const c = parse(a);
       incoming.push(...c.services.map(sv => ({ ...sv, group: a.project, builtAt })));
       // the project's types are found by their source (`withoutLocalProject`, `localOverrides`)
       types.push(...c.types.map(t => (t.source ? t : { ...t, source: `${a.project}/03-api/${a.name}` })));
-    } catch {
-      unreadable.push(a.project);
+    } catch (e) {
+      // the parser's message: a YAML error reads differently from a missing part of the OpenAPI
+      unreadable.push({ project: a.project, error: e instanceof Error ? e.message.split('\n')[0] : String(e) });
     }
   }
   // only the projects whose OpenAPI came in replace their services: a project that could not be
   // read or parsed keeps what it had
-  const projects = new Set(apis.map(a => a.project).filter(p => !unreadable.includes(p)));
+  const broken = new Set(unreadable.map(u => u.project));
+  const projects = new Set(apis.map(a => a.project).filter(p => !broken.has(p)));
   const listed = new Set(opts.listed ?? []);
   const kept = existing.filter(sv => !sv.generated && !projects.has(localProjectOf(sv, listed) ?? ''));
   const fromApi = (t: DomainType) => /^[^/]+\/03-api\//.test(t.source ?? '');

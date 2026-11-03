@@ -196,7 +196,7 @@ function CatalogOverrides({ model, generated, isDark, onSave }: {
   const back = async (project: string) => {
     if (!await confirm({
       title: `«${project}» zurück zur Auslieferung?`,
-      text: 'Die lokal aufgebauten Services und Typen des Projekts gehen aus der model.json, und das Projekt aus der Liste «Projekt-Ordner». Danach gilt wieder der mitgelieferte Katalog.',
+      text: 'Die lokal aufgebauten Services und Typen des Projekts gehen aus der model.json, mit den Beispielwerten der Packages, die nur dieses Projekt hat – und das Projekt aus der Liste «Projekt-Ordner». Danach gilt wieder der mitgelieferte Katalog.',
       confirmLabel: 'Zurück zur Auslieferung',
     })) return;
     const res = await onSave(withoutLocalProject(own, project));

@@ -292,7 +292,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
         { listed: projects.map(p => p.name), types: model.domainTypes ?? [] });
       const typen = mergeDomainTypes(mergeDomainTypes(r.types, built.types).types, built.keptTypes).types;
       const { incoming } = built;
-      const unreadable = [...built.unreadable, ...r.apiErrors.map(e => `${e.project} (${e.error})`)];
+      const unreadable = [...built.unreadable, ...r.apiErrors].map(e => `${e.project} (${e.error})`);
       const res = await onSave({
         ...model,
         services: mergeServices(built.kept, incoming).services,
