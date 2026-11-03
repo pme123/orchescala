@@ -862,6 +862,10 @@ test('a pattern with a one-engine parameter: a change of another parameter is st
   const texts = res.issues.map(i => i.text);
   assert.ok(texts.some(t => t.includes('«eventKey» war «started», ist jetzt «»')), texts.join('; '));
   assert.ok(!texts.some(t => t.includes('callerProcess')), texts.join('; '));
+  // an empty engines list counts as both: the parameter is compared
+  const both: PatternDef = { ...renamed, params: renamed.params!.map(p => (p.name === 'callerProcess' ? { ...p, engines: [] } : p)) };
+  const res2 = convertWithPatterns(applyPattern(diagram('c8', 'callActivity'), both, 'c8', 'Target', { eventProcess: 'acme-eventsV1' }).xml, 'c7', [both], { timeToLive: '5' });
+  assert.ok(res2.issues.some(i => i.text.includes('«callerProcess» war')), res2.issues.map(i => i.text).join('; '));
 });
 
 test('«Prozess-Event senden»: a text event with " from C7 - the switch to C8 writes it as escaped FEEL text', () => {

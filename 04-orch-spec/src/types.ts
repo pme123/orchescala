@@ -266,7 +266,7 @@ export interface PatternParam {
   kind?: ParamKind | (string & {});
   /**
    * Only in the BPMN of these engines - on the switch to the other one it does not go over and is
-   * not missed there (the other engine has it otherwise, e.g. at runtime). Without: both.
+   * not missed there (the other engine has it otherwise, e.g. at runtime). Without (or empty): both.
    */
   engines?: EngineId[];
   [key: string]: unknown;

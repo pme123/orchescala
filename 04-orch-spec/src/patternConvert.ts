@@ -122,7 +122,7 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   const onTarget = (def: PatternDef, p: Record<string, string>) => {
     let skip = oneEngine.get(def);
     if (!skip) {
-      skip = new Set(patternParams(def).filter(x => x.engines && !(x.engines.includes('c7') && x.engines.includes('c8'))).map(x => x.name));
+      skip = new Set(patternParams(def).filter(x => !!x.engines?.length && !(x.engines.includes('c7') && x.engines.includes('c8'))).map(x => x.name));
       oneEngine.set(def, skip);
     }
     return Object.fromEntries(Object.entries(p).filter(([k]) => !skip.has(k)));
@@ -155,7 +155,7 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     }
     // a parameter the target engine does not have, with a value other than its default (set by
     // hand, or stale - the caller ID after a rename): it does not go over
-    const absent = patternParams(def).filter(p => p.engines && !p.engines.includes(target) && h.params[p.name]);
+    const absent = patternParams(def).filter(p => !!p.engines?.length && !p.engines.includes(target) && h.params[p.name]);
     // (the defaults only when there is such a parameter - they read the diagram; once per pattern)
     const defaults = absent.length ? defaultsOf(def) : {};
     const differs = absent

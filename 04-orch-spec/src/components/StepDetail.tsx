@@ -960,7 +960,7 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
             // (only in the shared block: changed in the diagram, not here - no hint either)
             const issues: FeelIssue[] = p.inBlock ? []
               : p.kind === 'process'
-                ? hint(processIssue(draft[p.name], ownProcess))
+                ? hint(processIssue(draft[p.name], ownProcess) ?? staleProcessId(p, draft[p.name], ownProcess))
                 : p.textOnly ? hint(staleProcessId(p, draft[p.name], ownProcess)) : issuesOf(draft[p.name]);
             return (
               <div key={p.name}>
