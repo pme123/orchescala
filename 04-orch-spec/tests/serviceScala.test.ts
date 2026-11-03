@@ -414,3 +414,12 @@ test('an Out with cases: body next to a text in the Scala is a use - its val is 
   const worker = workerOf(withAdtOut(collection(), [{ name: 'Found', condition: '= body.name = "Muster \\"body\\""' }]));
   assert.match(worker, /\n {4}val body = out\.outputBody\n {4}if body\.name == "Muster \\"body\\"" then\n/, worker);
 });
+
+test('an Out with cases: several cases without a condition before one with - each a TODO, the last one with its condition', () => {
+  const three = withAdtOut(collection(), [{ name: 'Gone', condition: '= body.address = null' }]);
+  three.types.find(t => t.id === 't-out')!.values!.push({ name: 'Gone' });
+  const worker = workerOf(three);
+  assert.match(worker, /\n {4}if \?\?\? \/\* TODO Found: keine Bedingung — wann ist es dieser Fall\? \*\/ then\n/, worker);
+  assert.match(worker, /\n {4}else if \?\?\? \/\* TODO NotFound: keine Bedingung — wann ist es dieser Fall\? \*\/ then\n/, worker);
+  assert.match(worker, /\n {4}else if body\.address\.isEmpty then\n {6}Right\(Out\.Gone\(\n {8}etag = None\n {6}\)\)\n {4}else\n {6}Left\(ServiceMappingError/, worker);
+});

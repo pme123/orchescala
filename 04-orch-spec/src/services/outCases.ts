@@ -53,15 +53,18 @@ export const outCaseMapping = (c: OutCase, field: string): string =>
 /**
  * `if c1 then v1 else if c2 then v2 else otherwise` (Scala 3, indented by the caller): per
  * branch its condition and its value, both Scala; `otherwise` where no condition holds.
- * A branch without a condition (`undefined`) is the otherwise: it must be the last one —
- * the caller gives the others a `???` condition.
+ * A branch without a condition (`undefined`) is the otherwise if it is the last one; before
+ * it, it gets a `???` condition (the callers give one with their own TODO) — no case is lost.
  */
 export function caseChain(branches: Array<{ cond?: string; value: string }>, otherwise: string): string {
   const lines: string[] = [];
   const block = (v: string) => v.split('\n').map(l => (l ? `  ${l}` : l)).join('\n');
   for (const [i, b] of branches.entries()) {
+    if (b.cond === undefined && i < branches.length - 1) {
+      lines.push(`${i ? 'else if' : 'if'} ??? /* TODO keine Bedingung */ then`, block(b.value));
+      continue;
+    }
     if (b.cond === undefined) {
-      if (i < branches.length - 1) throw new Error(`caseChain: only the last branch can be without a condition (branch ${i + 1} of ${branches.length})`);
       if (!i) return b.value;
       lines.push('else', block(b.value));
       return lines.join('\n');

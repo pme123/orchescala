@@ -104,3 +104,16 @@ test('pasteField: the same name twice in a class - the class shows it as an issu
   const shared = pasteField(spec, 't-result', clip, 0)!;
   assert.ok(checkTypes(shared.types).some(i => !i.warn && i.message === '«naturalPerson» ist schon ein gemeinsames Feld — im Fall «Single» nicht nochmals.'));
 });
+
+test('pasteField: classes that refer to each other (A.b: B, B.a: A) - copied once, each pointing to the other copy', () => {
+  const a: TypeDef = { id: 'a', name: 'A', kind: 'case', fields: [{ id: 'ab', name: 'b', type: 'b' }] };
+  const b: TypeDef = { id: 'b', name: 'B', kind: 'case', fields: [{ id: 'ba', name: 'a', type: 'a', optional: true }] };
+  const target: TypeDef = { id: 'x-in', name: 'In', kind: 'case', fields: [] };
+  const r = pasteField({ slug: 'o', types: [target] } as unknown as ProcessSpec, 'x-in', { field: { id: 'f', name: 'a', type: 'a' }, types: [a, b] })!;
+  const copyA = r.types.find(t => t.name === 'A')!;
+  const copyB = r.types.find(t => t.name === 'B')!;
+  assert.equal(r.types.length, 3);
+  assert.equal(copyA.fields![0].type, copyB.id);
+  assert.equal(copyB.fields![0].type, copyA.id);
+  assert.equal(r.types.find(t => t.id === 'x-in')!.fields![0].type, copyA.id);
+});

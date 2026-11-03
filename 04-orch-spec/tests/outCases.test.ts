@@ -36,8 +36,9 @@ test('caseChain: the conditions in order, the last case without one is the other
   assert.equal(caseChain([{ cond: 'a', value: 'x\n\ny' }], 'X'), 'if a then\n  x\n\n  y\nelse\n  X');
 });
 
-test('caseChain: a case without a condition before the last one would lose the others - an error', () => {
-  assert.throws(() => caseChain([{ value: 'A' }, { cond: 'b', value: 'B' }], 'X'), /only the last branch/);
+test('caseChain: a case without a condition before the last one gets a ??? condition - no case is lost', () => {
+  assert.equal(caseChain([{ value: 'A' }, { cond: 'b', value: 'B' }], 'X'),
+    'if ??? /* TODO keine Bedingung */ then\n  A\nelse if b then\n  B\nelse\n  X');
 });
 
 test('prunedOutCases: a case or a field the Out no longer has is not kept', () => {
