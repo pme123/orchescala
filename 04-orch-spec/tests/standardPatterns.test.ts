@@ -790,6 +790,14 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.deepEqual(chosen.issues, []);
   });
 
+  test(`«Prozess-Event senden» on ${engine.toUpperCase()}: a process ID that is none is refused - it would not deploy`, () => {
+    for (const eventProcess of ['a b', 'say "hi"', '=foo', '{{x}}']) {
+      const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess });
+      assert.ok(!res.changed, eventProcess);
+      assert.ok(res.issues.some(i => i.includes('«Event-Prozess»')), res.issues.join('; '));
+    }
+  });
+
   test(`«Prozess-Event senden» on ${engine.toUpperCase()}: the own process as event process is said`, () => {
     const res = applyPattern(diagram(engine, 'callActivity'), sendEvent, engine, 'Target', { eventProcess: 'acme-demoV1' });
     assert.ok(res.changed);

@@ -786,7 +786,8 @@ und Doku stehen in `democompany-patterns`:
   eigenen Event-Prozess auf — der Parameter `eventProcess` ist ein Prozess aus
   dem Katalog (Auswahl im Pattern). Ohne Wahl kommt das Pattern trotzdem hinein,
   mit einem Hinweis beim Einfügen und im Pattern: die Call Activity ruft dann
-  keinen Prozess auf und lässt sich nicht deployen. Der eigene Prozess steht
+  keinen Prozess auf und lässt sich nicht deployen. Eine ungültige ID (ein
+  Ausdruck, Leerzeichen, `"`) nimmt das Einfügen nicht an. Der eigene Prozess steht
   nicht zur Wahl; von Hand eingetippt gibt es einen Hinweis. Er bekommt
   `eventKey` (was passiert ist, Text oder FEEL, Vorgabe `started`), die
   Prozess-ID (`processDefinitionKey`) und die Instanz (`processInstanceId`) und

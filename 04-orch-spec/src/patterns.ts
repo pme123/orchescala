@@ -298,7 +298,7 @@ export function processChoices(model: Model | null, exclude?: string): string[] 
     ...(model?.services ?? []).map(s => s.calledProcess),
   ];
   // (an expression as called process - `${…}`, `=…` - is no process to choose)
-  return [...new Set(names.filter((p): p is string => !!p && p !== exclude && PROCESS_ID.test(p)))].sort((a, b) => a.localeCompare(b, 'de'));
+  return [...new Set(names.map(p => p?.trim()).filter((p): p is string => !!p && p !== exclude?.trim() && PROCESS_ID.test(p)))].sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 /** A parameter kind Orch Spec knows (PARAM_KINDS) */
@@ -1706,6 +1706,10 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   const inString = new Set([...textOnlyParams(src), ...[...src.matchAll(QUOTED_PH)].map(m => m[1])]);
   const broken = patternParams(def).map(p => p.name).filter(n => inString.has(n) && !isFeelValue(given[n]) && /["\\]/.test(given[n] ?? ''));
   if (broken.length) return same([`«${def.name}»: ${broken.map(n => `«${n}»`).join(', ')} nimmt nur Text ohne " und \\ - der Wert steht im BPMN in einer Zeichenkette.`]);
+  // a process ID that is none (an expression, characters an ID cannot have) would not deploy - refused;
+  // an empty one goes in with a hint (chosen afterwards in the pattern)
+  const badProcess = patternParams(def).filter(p => p.kind === 'process' && given[p.name]?.trim() && !PROCESS_ID.test(given[p.name].trim()));
+  if (badProcess.length) return same(badProcess.map(p => `«${def.name}»: «${p.label ?? p.name}» ${processIssue(given[p.name], given.processId)}`));
   const w = new Writer(doc);
   // `{{startMessage}}` needs a message start event — if it is missing,
   // the process start becomes one (message = process ID, the convention)
