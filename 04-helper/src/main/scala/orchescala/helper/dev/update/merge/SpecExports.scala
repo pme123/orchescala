@@ -137,18 +137,15 @@ object SpecSources:
       )
       if archive.exitCode != 0 then None
       else
-        val dir = os.temp.dir(prefix = "orch-spec-")
+        val dir  = os.temp.dir(prefix = "orch-spec-")
+        var kept = false
+        // whatever ends it - an error, an interrupt (Ctrl-C) - the folder is removed unless it is the result
         try
           val tar = ExternalTool.call(extract(dir), ExternalTool.gitTimeout, stdin = archive.out.bytes)
           if tar.exitCode != 0 then throw os.SubprocessException(tar)
-          if os.list(dir).isEmpty then
-            os.remove.all(dir)
-            None
-          else Some(dir)
-        catch
-          case NonFatal(e) =>
-            os.remove.all(dir)
-            throw e
+          kept = os.list(dir).nonEmpty
+          Option.when(kept)(dir)
+        finally if !kept then os.remove.all(dir)
         end try
     end if
   end fromGit
