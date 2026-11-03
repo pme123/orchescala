@@ -10,7 +10,7 @@
 // are **kept** on re-import via the stable BPMN element ID
 // (see `mergeSpec`) — the implementation only updates the structure.
 
-import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
+import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, MultiInstanceSpec, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
 import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
@@ -1195,6 +1195,24 @@ function keepSpecOwned(s: Step, prev: Step, base: Step | undefined) {
 }
 
 /**
+ * Collection and element of a multi-instance belong to the specification (set at the
+ * step, written on export) — as long as the diagram did not change them, like
+ * `SPEC_OWNED`. Whether the step runs several times at all, and in sequence or in
+ * parallel, stays with the diagram.
+ */
+function keepMultiInstance(s: Step, prev: Step, base: Step | undefined) {
+  const was = prev.multiInstance;
+  if (!s.multiInstance || !was) return;
+  const mi: MultiInstanceSpec = { ...s.multiInstance };
+  for (const k of ['collection', 'element'] as const) {
+    const unchanged = base ? (base.multiInstance?.[k] ?? '') === (mi[k] ?? '') : !mi[k] || mi[k] === was[k];
+    if (!unchanged) continue;
+    if (was[k]) mi[k] = was[k]; else delete mi[k];
+  }
+  s.multiInstance = mi;
+}
+
+/**
  * The diagram does not know the timer's default for the InConfig — it stays as long as
  * it reads the same variable (of the same kind); a different one has its own default.
  */
@@ -1357,6 +1375,7 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
     } else {
       const fresh = { inputs: s.inputs, outputs: s.outputs };
       if (!st.mappingsFromBpmn) keepSpecOwned(s, prev, base?.get(s.id));
+      if (!st.mappingsFromBpmn) keepMultiInstance(s, prev, base?.get(s.id));
       if (s.timer) s.timer = withPrevDefault(s.timer, prev.timer);
       keepBoundaryTimers(s, prev, base?.get(s.id), !st.mappingsFromBpmn);
       keepBoundaryMessages(s, prev, base?.get(s.id));

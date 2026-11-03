@@ -257,6 +257,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
     if (el) writeBoundaryTimers(doc, byId, engine, step, issues);
+    if (el) writeMultiInstance(doc, el, engine, step, issues);
     // Signal or message of the boundary events — into their boundary event
     for (const e of step.errors ?? []) {
       const b = isEventBoundary(e) && e.boundaryId && !e.pattern ? byId.get(e.boundaryId) : undefined;
@@ -714,6 +715,63 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
   t.setAttributeNS(XSI_NS, 'xsi:type', `${prefix}tFormalExpression`);
   t.textContent = r.text;
   appendEl(def, t);
+}
+
+/**
+ * Collection and element of a multi-instance — set at the step. Camunda 8:
+ * `<zeebe:loopCharacteristics inputCollection="=order.items" inputElement="item" />`,
+ * Camunda 7: `camunda:elementVariable="item"` and `camunda:collection` — a variable by its
+ * name (`items`), a path into a JSON variable as a Java list
+ * (`${order.prop("items").elements()}`) — a Spin node itself cannot be iterated.
+ * Empty at the step: out of the diagram as well. What the diagram already says in the
+ * same sense stays in its notation (`items` instead of `${items}`).
+ */
+function writeMultiInstance(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
+  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+  if (!mi || !step.multiInstance) return;
+  const collection = step.multiInstance.collection?.trim() ?? '';
+  const element = step.multiInstance.element?.trim() ?? '';
+  const sameCollection = (v: string | undefined) => {
+    const imported = v ? importExpression(v).trim() : '';
+    return (imported.startsWith('=') ? imported.slice(1).trim() : imported) === collection;
+  };
+  if (engine === 'c8') {
+    let ext = firstNamed(mi, 'extensionElements');
+    let lc = ext ? firstNamed(ext, 'loopCharacteristics') : null;
+    if (!lc) {
+      if (!collection && !element) return;
+      if (!ext) {
+        const prefix = mi.tagName.includes(':') ? `${mi.tagName.split(':')[0]}:` : '';
+        ext = doc.createElementNS(BPMN_NS, `${prefix}extensionElements`);
+        prependEl(mi, ext);
+      }
+      lc = doc.createElementNS(ZEEBE_NS, 'zeebe:loopCharacteristics');
+      appendEl(ext, lc);
+    }
+    if (!sameCollection(lc.getAttribute('inputCollection') ?? undefined)) {
+      if (collection) lc.setAttribute('inputCollection', `=${collection}`); else lc.removeAttribute('inputCollection');
+    }
+    if (element) lc.setAttribute('inputElement', element); else lc.removeAttribute('inputElement');
+    return;
+  }
+  const where = 'Mehrfachausführung';
+  const drop = (name: string) => {
+    mi.removeAttribute(name);
+    mi.removeAttribute(`camunda:${name}`);
+    mi.removeAttributeNS(CAMUNDA_NS, name);
+  };
+  if (!sameCollection(attr(mi, 'collection'))) {
+    drop('collection');
+    if (/^[A-Za-z_]\w*$/.test(collection)) mi.setAttributeNS(CAMUNDA_NS, 'camunda:collection', collection);
+    else if (collection) {
+      const r = engineExpression(`= ${collection}`, engine);
+      if (r.issue) issues.push({ stepId: step.id, where, text: `Sammlung nicht nach JUEL übersetzbar: ${r.issue}` });
+      const text = !r.issue && /\.prop\("[^"]*"\)\}$/.test(r.text) ? `${r.text.slice(0, -1)}.elements()}` : r.text;
+      mi.setAttributeNS(CAMUNDA_NS, 'camunda:collection', text);
+    }
+  }
+  drop('elementVariable');
+  if (element) mi.setAttributeNS(CAMUNDA_NS, 'camunda:elementVariable', element);
 }
 
 /**
