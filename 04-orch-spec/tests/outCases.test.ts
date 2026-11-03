@@ -1,0 +1,38 @@
+// An Out with cases in the output mapping: the saved cases and the chain of the worker.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { caseChain, withOutCase } from '../src/services/outCases.ts';
+import type { OutCase } from '../src/services/types.ts';
+
+const cases: OutCase[] = [
+  { name: 'Found', condition: '= body != null' },
+  { name: 'Gone', condition: '= status = 410' },
+  { name: 'NotFound', mappings: [{ name: 'reason', expression: '= "no client"' }] },
+];
+
+test('withOutCase: a changed case stays in its place - the saved spec keeps its order', () => {
+  const next = withOutCase(cases, 'Found', c => ({ ...c, condition: '= body.id != null' }));
+  assert.deepEqual(next.map(c => c.name), ['Found', 'Gone', 'NotFound']);
+  assert.equal(next[0].condition, '= body.id != null');
+  // a new one comes last
+  assert.deepEqual(withOutCase(cases, 'Other', c => ({ ...c, condition: '= true' })).map(c => c.name), ['Found', 'Gone', 'NotFound', 'Other']);
+});
+
+test('withOutCase: a case without a condition and without an expression is left out', () => {
+  assert.deepEqual(withOutCase(cases, 'Gone', c => ({ ...c, condition: '  ' })).map(c => c.name), ['Found', 'NotFound']);
+  // a blank expression counts as none
+  assert.deepEqual(withOutCase(cases, 'NotFound', c => ({ ...c, mappings: [{ name: 'reason', expression: ' ' }] })).map(c => c.name), ['Found', 'Gone']);
+  // a condition alone keeps it, an expression alone too
+  assert.equal(withOutCase(undefined, 'Found', c => ({ ...c, condition: '= true' })).length, 1);
+  assert.equal(withOutCase(undefined, 'Found', c => ({ ...c, mappings: [{ name: 'x', expression: '= 1' }] })).length, 1);
+});
+
+test('caseChain: the conditions in order, the last case without one is the otherwise', () => {
+  assert.equal(caseChain([{ cond: 'a', value: 'A' }, { cond: 'b', value: 'B' }], 'X'), 'if a then\n  A\nelse if b then\n  B\nelse\n  X');
+  assert.equal(caseChain([{ cond: 'a', value: 'A' }, { value: 'B' }], 'X'), 'if a then\n  A\nelse\n  B');
+  assert.equal(caseChain([{ value: 'A' }], 'X'), 'A');
+});
+
+test('caseChain: a case without a condition before the last one would lose the others - an error', () => {
+  assert.throws(() => caseChain([{ value: 'A' }, { cond: 'b', value: 'B' }], 'X'), /only the last branch/);
+});

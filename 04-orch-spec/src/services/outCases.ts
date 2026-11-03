@@ -17,12 +17,16 @@ export function outCaseFields(t: TypeDef): Array<{ name: string; fields: Field[]
 export const outCaseOf = (cases: OutCase[] | undefined, name: string): OutCase =>
   (cases ?? []).find(c => c.name === name) ?? { name };
 
-/** The cases with a change to one of them — a case without anything is left out. */
+/**
+ * The cases with a change to one of them, in their place (the saved spec keeps its order) —
+ * a case without a condition and without an expression is left out.
+ */
 export function withOutCase(cases: OutCase[] | undefined, name: string, change: (c: OutCase) => OutCase): OutCase[] {
-  const next = change(outCaseOf(cases, name));
+  const all = cases ?? [];
+  const next = change(outCaseOf(all, name));
   const empty = !next.condition?.trim() && !(next.mappings ?? []).some(m => m.expression.trim());
-  const rest = (cases ?? []).filter(c => c.name !== name);
-  return empty ? rest : [...rest, next];
+  if (empty) return all.filter(c => c.name !== name);
+  return all.some(c => c.name === name) ? all.map(c => (c.name === name ? next : c)) : [...all, next];
 }
 
 /** The expression of a field of the case — `''` if none. */
@@ -31,14 +35,16 @@ export const outCaseMapping = (c: OutCase, field: string): string =>
 
 /**
  * `if c1 then v1 else if c2 then v2 else otherwise` (Scala 3, indented by the caller): per
- * branch its condition (`undefined`: the otherwise — it ends the chain) and its value, both
- * Scala; `otherwise` where no condition holds.
+ * branch its condition and its value, both Scala; `otherwise` where no condition holds.
+ * A branch without a condition (`undefined`) is the otherwise: it must be the last one —
+ * the caller gives the others a `???` condition.
  */
 export function caseChain(branches: Array<{ cond?: string; value: string }>, otherwise: string): string {
   const lines: string[] = [];
   const block = (v: string) => v.split('\n').map(l => `  ${l}`).join('\n');
   for (const [i, b] of branches.entries()) {
     if (b.cond === undefined) {
+      if (i < branches.length - 1) throw new Error(`caseChain: only the last branch can be without a condition (branch ${i + 1} of ${branches.length})`);
       if (!i) return b.value;
       lines.push('else', block(b.value));
       return lines.join('\n');
