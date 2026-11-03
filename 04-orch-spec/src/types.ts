@@ -255,6 +255,8 @@ export interface PatternParam {
   description?: string;
   /** default on insertion */
   default?: string;
+  /** `process`: the id of a process - chosen from the processes of the catalog, text only */
+  kind?: 'process';
   [key: string]: unknown;
 }
 

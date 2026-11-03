@@ -257,11 +257,17 @@ export function placeholders(xml: string): string[] {
  * engine. `inBlock`: appears only in the shared block — takes effect on the
  * first insertion, after that the block belongs to the process (change it in the diagram).
  */
-export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: boolean): Array<PatternParam & { inBlock?: boolean; textOnly?: boolean; options?: string[] }> {
+export function patternParamsFor(
+  def: PatternDef, engine: EngineId, atProcess: boolean,
+  /** the processes to choose from for a parameter of kind `process` (see processChoices) */
+  processes: string[] = [],
+): Array<PatternParam & { inBlock?: boolean; textOnly?: boolean; options?: string[] }> {
   const x = fragmentFor(def, engine);
   const fr = x ? parseFragment(x) : null;
   const text = x ? textOnlyParams(x) : new Set<string>();
   const withKind = (p: PatternParam) => {
+    // a process id is text - no FEEL - chosen from the catalog
+    if (p.kind === 'process') return { ...p, textOnly: true, options: processes };
     const options = paramOptions(p);
     return { ...p, ...(text.has(p.name) ? { textOnly: true } : {}), ...(options ? { options } : {}) };
   };
@@ -269,6 +275,11 @@ export function patternParamsFor(def: PatternDef, engine: EngineId, atProcess: b
   return patternParams(def)
     .filter(p => fr.elementParams.has(p.name) || fr.blockParams.has(p.name))
     .map(p => (!atProcess && fr.blockParams.has(p.name) ? { ...withKind(p), inBlock: true } : withKind(p)));
+}
+
+/** The processes of the catalog - what a call activity can call (a parameter of kind `process`) */
+export function processChoices(model: Model | null): string[] {
+  return [...new Set((model?.services ?? []).map(s => s.calledProcess).filter((p): p is string => !!p))].sort();
 }
 
 /**

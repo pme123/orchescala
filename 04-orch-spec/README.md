@@ -782,6 +782,20 @@ und Doku stehen in `democompany-patterns`:
   danach in `_errorMessage` (C8 zusätzlich `_stopped`). Fester Text mit `"`
   schreibt der Engine-Wechsel nach Camunda 8 als FEEL-Text (`= "…\"…"`); in
   Camunda 7 ist Text mit `${` ein Ausdruck.
+- **Prozess-Event senden** (`send-process-event`, Call Activity): ruft einen
+  eigenen Event-Prozess auf — der Parameter `eventProcess` ist ein Prozess aus
+  dem Katalog (Auswahl im Pattern; ohne Wahl ein Hinweis). Er bekommt
+  `eventKey` (was passiert ist, Text oder FEEL, Vorgabe `started`), die
+  Prozess-ID (`processDefinitionKey`) und die Instanz (`processInstanceId`) und
+  gibt nichts zurück (C8: `propagateAllParentVariables` und
+  `propagateAllChildVariables` aus). Was er damit macht, etwa einem Fremdsystem
+  melden, ist seine Sache. Mit «Mocks und Identität weitergeben» an derselben
+  Call Activity gelten Mocks und Identität auch dort. Auf C8 setzt der
+  InitWorker `processInstanceId` — der Prozess braucht «Init Process».
+
+Ein **Parameter mit `"kind": "process"`** ist die ID eines Prozesses: nur Text,
+zur Auswahl stehen die Prozesse des Katalogs (`calledProcess` der Services);
+eine eigene ID geht auch.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):
