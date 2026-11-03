@@ -20,6 +20,9 @@ object ExternalTool:
   /** git and tar on the local repository. */
   val gitTimeout: FiniteDuration = 1.minute
 
+  /** Orch Spec's comparison of the spec - optional: not worth waiting as long as for the export. */
+  val diffTimeout: FiniteDuration = 1.minute
+
   /** `node --version` - is Node.js there at all. */
   val probeTimeout: FiniteDuration = 30.seconds
 
@@ -51,17 +54,22 @@ object ExternalTool:
       ToolTimeout(command.head, timeout, withoutCredentials(said).takeRight(outputTail).trim, how)
     // the processes the tool started, as seen while it ran - once it has ended, the ones left
     // behind belong to another parent and can no longer be found from it. Best effort: one that
-    // lives shorter than a look (50 ms) and leaves a child behind is missed - the call still ends
+    // lives shorter than a look (50 to 500 ms) and leaves a child behind is missed - the call still ends
     // with a ToolTimeout, the child keeps running.
     val started  = mutable.LinkedHashSet.empty[ProcessHandle]
     try
       if stdin eq os.Pipe then sub.stdin.close()
       var ended = false
+      var step  = watchStep
       while !ended && System.nanoTime() < deadline do
         sub.wrapped.toHandle.descendants().forEach(started += _)
-        ended = sub.waitFor(math.min(watchStep, left))
+        ended = sub.waitFor(math.min(step, left))
+        step = math.min(step * 2, maxWatchStep) // a long run is looked at less often
       if !ended then throw timedOut("stopped")
-      readers.foreach(_.thread.join(left))
+      // the rest of the output: a time of its own - a tool that ended just before its deadline
+      // may still have a big output in the pipe
+      val drained = System.nanoTime() + drainTime.toNanos
+      readers.foreach(r => r.thread.join(math.max(1L, (drained - System.nanoTime()) / 1000000)))
       // a process left behind still holds the output: it is stopped, then the readers end too;
       // a process the tool started that let its output go (a daemon of git) keeps running
       if readers.exists(_.thread.isAlive) then
@@ -129,8 +137,14 @@ object ExternalTool:
   /** How long the stopped processes are waited for, together. */
   private val stopWait = 5.seconds
 
-  /** How often the processes a running tool started are looked at (milliseconds). */
-  private val watchStep = 50L
+  /** How often the processes a running tool started are looked at (milliseconds) - at first,
+    * then less often up to `maxWatchStep`.
+    */
+  private val watchStep    = 50L
+  private val maxWatchStep = 500L
+
+  /** How long the output of a tool that ended is read to its end. */
+  private val drainTime = 10.seconds
 
 end ExternalTool
 

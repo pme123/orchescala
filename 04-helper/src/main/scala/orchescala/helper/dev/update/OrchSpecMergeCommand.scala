@@ -42,7 +42,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
           // what the user can act on: a message, no stack trace
           case e @ (_: ToolTimeout | _: MergeAborted | _: java.io.IOException | _: IllegalArgumentException |
               _: IllegalStateException) =>
-            println(Console.RED + e.getMessage + Console.RESET)
+            println(Console.RED + Option(e.getMessage).getOrElse(e.toString) + Console.RESET)
             false
   end run
 
@@ -118,7 +118,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         try
           os.write(tool, script)
           val missing = dir / "no-spec-before"
-          val r       = ExternalTool.call(Seq("node", tool.toString, before.getOrElse(missing).toString, after.toString), ExternalTool.nodeTimeout)
+          val r       = ExternalTool.call(Seq("node", tool.toString, before.getOrElse(missing).toString, after.toString), ExternalTool.diffTimeout)
           if r.exitCode != 0 then
             throw IllegalStateException(s"spec2diff.js failed (exit code ${r.exitCode}): ${r.err.text().trim}")
           r.out.text()
