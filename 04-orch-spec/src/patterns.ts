@@ -266,8 +266,8 @@ export function patternParamsFor(
   const fr = x ? parseFragment(x) : null;
   const text = x ? textOnlyParams(x) : new Set<string>();
   const withKind = (p: PatternParam) => {
-    // a process id is text - no FEEL - chosen from the catalog
-    if (p.kind === 'process') return { ...p, textOnly: true, options: processes };
+    // a process id is text - no FEEL - chosen from the catalog (no list when it has none)
+    if (p.kind === 'process') return { ...p, textOnly: true, ...(processes.length ? { options: processes } : {}) };
     const options = paramOptions(p);
     return { ...p, ...(text.has(p.name) ? { textOnly: true } : {}), ...(options ? { options } : {}) };
   };
@@ -277,9 +277,23 @@ export function patternParamsFor(
     .map(p => (!atProcess && fr.blockParams.has(p.name) ? { ...withKind(p), inBlock: true } : withKind(p)));
 }
 
-/** The processes of the catalog - what a call activity can call (a parameter of kind `process`) */
-export function processChoices(model: Model | null): string[] {
-  return [...new Set((model?.services ?? []).map(s => s.calledProcess).filter((p): p is string => !!p))].sort();
+/**
+ * The processes of the catalog - what a call activity can call (a parameter of kind `process`).
+ * Only those a call activity already calls (`calledProcess` of the services); another one is typed.
+ * Without the own process (`exclude`) - it would call itself.
+ */
+export function processChoices(model: Model | null, exclude?: string): string[] {
+  return [...new Set((model?.services ?? []).map(s => s.calledProcess).filter((p): p is string => !!p && p !== exclude))].sort();
+}
+
+/** The parameter kinds Orch Spec knows - another one counts as plain parameter */
+export const PARAM_KINDS = ['process'] as const;
+
+/** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
+export function unknownParamKinds(def: PatternDef): string[] {
+  return patternParams(def)
+    .filter(p => p.kind != null && !(PARAM_KINDS as readonly unknown[]).includes(p.kind))
+    .map(p => `${p.name}: ${String(p.kind)}`);
 }
 
 /**
@@ -1813,7 +1827,23 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
   const limitation = def.limitations?.[engine];
   if (limitation) w.issues.push(`«${def.name}»: ${limitation}`);
+  w.issues.push(...processIssues(def, given));
   return { xml: w.serialize(xml), changed: true, issues: w.issues };
+}
+
+/**
+ * A parameter of kind `process` without a process: the call activity calls none (and does not
+ * deploy) - it goes in anyway, the process is chosen afterwards in the pattern. Calling the own
+ * process is said too.
+ */
+function processIssues(def: PatternDef, given: Record<string, string>): string[] {
+  return patternParams(def).filter(p => p.kind === 'process').flatMap(p => {
+    const v = given[p.name]?.trim() ?? '';
+    const label = p.label ?? p.name;
+    if (!v) return [`«${def.name}»: «${label}» fehlt - die Call Activity ruft keinen Prozess auf. Im Pattern einen Prozess wählen.`];
+    if (v === given.processId) return [`«${def.name}»: «${label}» ist der Prozess selbst - er ruft sich selbst auf.`];
+    return [];
+  });
 }
 
 // ── Removing ─────────────────────────────────────────────────────────────────

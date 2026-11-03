@@ -12,7 +12,7 @@
 import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Download, FileUp, Pencil, Plus, Puzzle, Trash2, Upload } from 'lucide-react';
 import type { EngineId, Model, PatternDef, PatternParam } from '../types';
-import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, STANDARD_PATTERNS, isStandardPattern, patternDefs, appliesTo, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
+import { BUILTIN_PARAMS, ORCHESCALA_PATTERNS, PATTERN_TARGETS, STANDARD_PATTERNS, isStandardPattern, patternDefs, appliesTo, unknownParamKinds, describeFragment, parseFragment, patternParams, placeholders, starterFragment, targetLabel } from '../patterns';
 import { cls, patternTone } from '../ui';
 import { slugify } from '../util';
 import { AdminSection, FieldLabel, SaveRow, StateChip, flashOf, useFlash } from './adminUi';
@@ -75,8 +75,10 @@ export default function PatternAdmin({ model, isDark, onSave, state }: { model: 
       if (!list.length) { setFlash({ ok: false, text: 'Keine Pattern in der Datei.' }); return; }
       const ids = new Set(list.map(p => p.id));
       const ersetzt = patterns.filter(p => ids.has(p.id)).length;
+      // a parameter kind Orch Spec does not know counts as plain parameter - say so
+      const unknown = list.flatMap(p => unknownParamKinds(p).map(k => `${p.id} (${k})`));
       await speichern([...patterns.filter(p => !ids.has(p.id)), ...list],
-        `${list.length} importiert${ersetzt ? ` (${ersetzt} ersetzt)` : ''}`);
+        `${list.length} importiert${ersetzt ? ` (${ersetzt} ersetzt)` : ''}${unknown.length ? ` - unbekannte Parameter-Art, gilt als gewöhnlicher Parameter: ${unknown.join(', ')}` : ''}`);
     } catch (e) {
       setFlash({ ok: false, text: `Datei unlesbar: ${e instanceof Error ? e.message : String(e)}` });
     }

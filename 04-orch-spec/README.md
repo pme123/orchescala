@@ -784,7 +784,10 @@ und Doku stehen in `democompany-patterns`:
   Camunda 7 ist Text mit `${` ein Ausdruck.
 - **Prozess-Event senden** (`send-process-event`, Call Activity): ruft einen
   eigenen Event-Prozess auf — der Parameter `eventProcess` ist ein Prozess aus
-  dem Katalog (Auswahl im Pattern; ohne Wahl ein Hinweis). Er bekommt
+  dem Katalog (Auswahl im Pattern). Ohne Wahl kommt das Pattern trotzdem hinein,
+  mit einem Hinweis beim Einfügen und im Pattern: die Call Activity ruft dann
+  keinen Prozess auf und lässt sich nicht deployen. Der eigene Prozess steht
+  nicht zur Wahl; von Hand eingetippt gibt es einen Hinweis. Er bekommt
   `eventKey` (was passiert ist, Text oder FEEL, Vorgabe `started`), die
   Prozess-ID (`processDefinitionKey`) und die Instanz (`processInstanceId`) und
   gibt nichts zurück (C8: `propagateAllParentVariables` und
@@ -792,10 +795,23 @@ und Doku stehen in `democompany-patterns`:
   melden, ist seine Sache. Mit «Mocks und Identität weitergeben» an derselben
   Call Activity gelten Mocks und Identität auch dort. Auf C8 setzt der
   InitWorker `processInstanceId` — der Prozess braucht «Init Process».
+  Die Prozess-ID liest C7 zur Laufzeit; C8 kennt sie dort nicht, sie kommt
+  beim Einfügen als Text hinein (Parameter «Aufrufender Prozess», Vorgabe
+  `{{processId}}`, nur C8). Nach dem Umbenennen des Prozesses erkennt Orch Spec
+  das Pattern weiter und zeigt die alte ID dort zum Anpassen; der Wechsel nach
+  C7 und zurück setzt die neue.
 
-Ein **Parameter mit `"kind": "process"`** ist die ID eines Prozesses: nur Text,
-zur Auswahl stehen die Prozesse des Katalogs (`calledProcess` der Services);
-eine eigene ID geht auch.
+Ein **Parameter mit `"kind": "process"`** ist die ID eines Prozesses: immer
+nur Text, auch wenn er im BPMN ausserhalb einer Zeichenkette steht (für FEEL
+also nicht geeignet). Zur Auswahl stehen nur die Prozesse, die eine Call
+Activity im Katalog schon aufruft (`calledProcess` der Services), ohne den
+eigenen; einen anderen tippt man ein. Bleibt er leer, sagt das Einfügen es.
+Eine andere `kind` kennt Orch Spec nicht: der Parameter gilt als gewöhnlicher,
+der Import der Pattern-Datei sagt es.
+
+Ein Parameter mit **`"engines": ["c8"]`** steht nur im BPMN dieser Engine: beim
+Engine-Wechsel geht er nicht hinüber und fehlt auf der anderen auch nicht, auf
+dem Rückweg gilt seine Vorgabe.
 
 **Ein Pattern ist ein kleines BPMN** — gezeichnet im selben Modeler wie der
 Prozess (Admin → Pattern → «Im Editor bearbeiten»):

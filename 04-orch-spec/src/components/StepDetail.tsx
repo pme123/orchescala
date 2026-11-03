@@ -836,7 +836,7 @@ function PatternSection({ target, spec, model, isDark, canEdit, onPattern, hasDi
   // Parameters with «=» are FEEL like the mapping values — suggestions from the process variables
   // (before the early return: hooks always in the same order)
   const variables = useMemo(() => processVariables(spec, model), [spec, model]);
-  const processes = useMemo(() => processChoices(model), [model]);
+  const processes = useMemo(() => processChoices(model, spec.processId), [model, spec.processId]);
   if (!applied.length && !available.length) return null;
   const editable = editableBpmn;
   const id = target?.id ?? null;
@@ -973,14 +973,14 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
                     }}>
                     {p.textOnly && !p.inBlock ? (
                       <>
-                        <input value={draft[p.name] ?? ''} disabled={!editable} list={p.options ? `opts-${applied.id}-${p.name}` : undefined}
+                        <input value={draft[p.name] ?? ''} disabled={!editable} list={p.options?.length ? `opts-${applied.id}-${p.name}` : undefined}
                           onChange={e => setDraft(d => ({ ...d, [p.name]: e.target.value }))}
                           placeholder={p.default ? `Vorgabe: ${p.default}` : p.kind === 'process' ? 'Prozess wählen' : p.options?.length ? `z. B. ${p.options[0]}` : 'Text'}
                           title={p.kind === 'process'
-                            ? `${p.description ? `${p.description}\n` : ''}Die ID des Prozesses — zur Auswahl die Prozesse des Katalogs; eine eigene ID geht auch.`
-                            : `${p.description ? `${p.description}\n` : ''}Steht im Pattern in einer Zeichenkette — nur Text, kein FEEL.${p.options ? ` Zur Auswahl: ${p.options.join(', ')}; ein eigener Wert geht auch.` : ''}`}
+                            ? `${p.description ? `${p.description}\n` : ''}Die ID des Prozesses — zur Auswahl die Prozesse, die eine Call Activity im Katalog schon aufruft; eine andere ID geht auch.`
+                            : `${p.description ? `${p.description}\n` : ''}Steht im Pattern in einer Zeichenkette — nur Text, kein FEEL.${p.options?.length ? ` Zur Auswahl: ${p.options.join(', ')}; ein eigener Wert geht auch.` : ''}`}
                           className={`w-full text-[11px] px-2 py-1 rounded border outline-none font-mono ${c.input}`} />
-                        {p.options && (
+                        {!!p.options?.length && (
                           <datalist id={`opts-${applied.id}-${p.name}`}>
                             {p.options.map(o => <option key={o} value={o} />)}
                           </datalist>

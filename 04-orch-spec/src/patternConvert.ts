@@ -11,7 +11,7 @@
 // So no old form stays beside the new one (C8 output mappings would otherwise become C7 output
 // parameters next to the pattern's listeners).
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
-import { applyPattern, detectPatterns, fragmentFor, stripPatternItems, type PatternHit } from './patterns.ts';
+import { applyPattern, detectPatterns, fragmentFor, patternParams, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
 import { paramForChecked, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -110,9 +110,16 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   // the one with the same parameters first. Another one of the pattern on the element counts only
   // if it is the only one there - with several, a different one could pass for it
   const pool = [...detectPatterns(out, defs, target).hits];
+  // a parameter of one engine only (`engines`: the process ID C8 gets when inserted, C7 reads it at
+  // runtime) does not go over - and the other way round it takes its default: no change either way
+  const onTarget = (def: PatternDef, p: Record<string, string>) => {
+    const oneEngine = new Set(patternParams(def).filter(x => x.engines && !(x.engines.includes('c7') && x.engines.includes('c8'))).map(x => x.name));
+    return Object.fromEntries(Object.entries(p).filter(([k]) => !oneEngine.has(k)));
+  };
   const samePlace = (a: PatternHit, b: PatternHit) => a.patternId === b.patternId && (a.targetId ?? '') === (b.targetId ?? '');
   const take1 = (h: PatternHit) => {
-    const k = pool.findIndex(x => samePlace(x, h) && sameParams(x.params, paramsIn(h)));
+    const def = byId.get(h.patternId)!;
+    const k = pool.findIndex(x => samePlace(x, h) && sameParams(onTarget(def, x.params), onTarget(def, paramsIn(h))));
     const alone = strip.all.filter(x => samePlace(x, h)).length === 1;
     const j = k >= 0 ? k : alone ? pool.findIndex(x => samePlace(x, h)) : -1;
     return j >= 0 ? pool.splice(j, 1)[0] : undefined;
@@ -128,11 +135,11 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
     if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
-    const wanted = paramsIn(h);
-    if (!sameParams(wanted, again.params)) {
-      const keys = Object.keys({ ...wanted, ...again.params }).filter(k => (wanted[k] ?? '') !== (again.params[k] ?? ''));
+    const wanted = onTarget(def, paramsIn(h)), found = onTarget(def, again.params);
+    if (!sameParams(wanted, found)) {
+      const keys = Object.keys({ ...wanted, ...found }).filter(k => (wanted[k] ?? '') !== (found[k] ?? ''));
       const shown = (v: string | undefined) => paramView(v ?? '');
-      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(again.params[k])}»`).join(', ')} — prüfen.` });
+      extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${keys.map(k => `«${k}» war «${shown(h.params[k])}», ist jetzt «${shown(found[k])}»`).join(', ')} — prüfen.` });
     }
   }
   return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
