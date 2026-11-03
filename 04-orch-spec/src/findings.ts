@@ -61,9 +61,28 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
 /** «In: Seq[String]» — a source with the type it gives */
 const sourceText = (s: VariableSource): string => `${s.label} (${s.source})`;
 
-/** Warning: two sources give the variable different types — the first one applies. */
+/** Does a step write it (output, result of a worker, user task or decision) — or is it there from the start? */
+const writtenByStep = (s: VariableSource): boolean => /^(Ausgabe von|Ergebnis)/.test(s.source);
+
+/**
+ * Which type applies where, for a conflict: from the start (In, InitIn, InConfig …) the
+ * first one; once a step has written the variable, the type of the latest writer before
+ * the step (see `variablesByStep`). An old type at the start is then probably stale.
+ */
+export function variableConflictRule(c: VariableConflict): string {
+  const start = c.sources.filter(s => !writtenByStep(s));
+  const steps = c.sources.filter(writtenByStep);
+  if (start.length && steps.length) {
+    return `${start.map(s => s.source).join(' / ')} sagt ${start[0].label}, später schreibt ${steps.map(sourceText).join(' bzw. ')} — `
+      + `ab dort gilt der Typ des letzten Schreibers; ist ${start[0].source} veraltet?`;
+  }
+  if (steps.length) return `${steps.map(sourceText).join(' · ')} — an einem Schritt gilt der Typ des letzten Schreibers davor.`;
+  return `${start.map(sourceText).join(' · ')} — es gilt ${start[0].label}.`;
+}
+
+/** Warning: sources give the variable different types — which applies where, see `variableConflictRule`. */
 export const variableConflictText = (c: VariableConflict): string =>
-  `Prozessvariable «${c.name}» hat verschiedene Typen: ${c.sources.map(sourceText).join(' · ')} — es gilt ${c.sources[0].label}; eine der Quellen anpassen.`;
+  `Prozessvariable «${c.name}» hat verschiedene Typen: ${variableConflictRule(c)} Eine der Quellen anpassen.`;
 
 /** Warning: an entry of the list no source knows. */
 export const variableOrphanText = (name: string): string =>

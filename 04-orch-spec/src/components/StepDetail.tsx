@@ -16,7 +16,7 @@ import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, par
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
+import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -321,7 +321,7 @@ function VariableRow({ v, conflict, isDark, canEdit, onDescribe, onRemove }: {
       {conflict && (
         <p className={`flex items-start gap-1 text-[10px] ${warn}`}>
           <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-          <span>Verschiedene Typen: {conflict.sources.map(s => `${s.label} (${s.source})`).join(' · ')} — es gilt {conflict.sources[0].label}.</span>
+          <span>Verschiedene Typen: {variableConflictRule(conflict)}</span>
         </p>
       )}
       {v.orphan && (

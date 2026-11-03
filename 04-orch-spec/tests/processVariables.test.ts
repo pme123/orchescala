@@ -6,8 +6,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
-import { processVariables, variableOverview } from '../src/feel';
-import { collectFindings, PROCESS_FINDINGS } from '../src/findings';
+import { collectionNode, processVariables, variableOverview, variablesByStep } from '../src/feel';
+import { collectFindings, PROCESS_FINDINGS, variableConflictRule } from '../src/findings';
 import { allSteps } from '../src/bpmn';
 import type { Model, ProcessSpec, Step, TypeDef } from '../src/types';
 
@@ -124,8 +124,34 @@ test('findings: conflict and orphan are warnings on the process - naming both so
   const f = collectFindings(s, model, allSteps(s.steps)).get(PROCESS_FINDINGS)!;
   assert.deepEqual(f.errors, []);
   assert.equal(f.warnings.length, 2);
-  assert.match(f.warnings[0], /«contentForPrinting».*Seq\[String\] \(In\).*Seq\[PrintContent\] \(Ausgabe von Get Print Content\)/);
+  assert.match(f.warnings[0], /«contentForPrinting».*In sagt Seq\[String\], später schreibt Seq\[PrintContent\] \(Ausgabe von Get Print Content\)/);
   assert.match(f.warnings[1], /«fromScript» kommt von nirgends — woher\?/);
   // without either: no finding on the process
   assert.equal(collectFindings(spec(), model, allSteps(spec().steps)).has(PROCESS_FINDINGS), false);
+});
+
+test('conflict: a stale InitIn and a later writer - the warning says so, at the step after the writer its type applies', () => {
+  const s = spec({
+    steps: [get, { id: 'PrintTask', name: 'Print', kind: 'service', topic: 'acme-print-do', multiInstance: { collection: 'contentForPrinting', element: 'printContent' } } as Step],
+    types: [
+      { id: 't-in', name: 'In', kind: 'case', root: true, fields: [] },
+      { id: 't-init', name: 'InitIn', kind: 'case', initIn: true, fields: [{ id: 'f', name: 'contentForPrinting', type: 't-old', collection: true }] },
+      { id: 't-old', name: 'OldDoc', kind: 'case', fields: [{ id: 'f2', name: 'docId', type: 'String' }] },
+    ],
+  } as Partial<ProcessSpec>);
+  const conflict = variableOverview(s, model).conflicts.find(c => c.name === 'contentForPrinting')!;
+  assert.equal(variableConflictRule(conflict),
+    'InitIn sagt Seq[OldDoc], später schreibt Seq[PrintContent] (Ausgabe von Get Print Content) — ab dort gilt der Typ des letzten Schreibers; ist InitIn veraltet?');
+  const at = variablesByStep(s, model);
+  assert.equal(collectionNode('contentForPrinting', at.get('GetTask')!)?.label, 'Seq[OldDoc]');
+  assert.equal(collectionNode('contentForPrinting', at.get('PrintTask')!)?.label, 'Seq[PrintContent]');
+});
+
+test('conflict between two steps, or two sources at the start - the rule says which applies', () => {
+  const byStep = variableConflictRule({ name: 'x', sources: [
+    { source: 'Ausgabe von A', label: 'Int', type: 'number' }, { source: 'Ergebnis von B', label: 'String', type: 'string' }] });
+  assert.equal(byStep, 'Int (Ausgabe von A) · String (Ergebnis von B) — an einem Schritt gilt der Typ des letzten Schreibers davor.');
+  const atStart = variableConflictRule({ name: 'x', sources: [
+    { source: 'In', label: 'Int', type: 'number' }, { source: 'InConfig', label: 'String', type: 'string' }] });
+  assert.equal(atStart, 'Int (In) · String (InConfig) — es gilt Int.');
 });
