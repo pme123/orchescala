@@ -381,3 +381,23 @@ test('an Out with cases (ADT): per case its condition and its fields - the first
   optional.services[0].outCases = [{ name: 'Found', condition: '= body.name != null', mappings: [{ name: 'address', expression: '= body.address' }] }];
   assert.match(workerOf(optional), /then\n {6}for\n {8}address <- body\.address\.toRight\(ServiceMappingError\("GetClient: address fehlt in der Antwort"\)\)\n {6}yield Out\.Found\(\n {8}etag = None,\n {8}address = address\n {6}\)/);
 });
+
+test('an Out with cases: body and headers are read only where the Scala uses them - not in a TODO or a message', () => {
+  // the TODO of a field without a mapping names body and headers
+  const worker = workerOf(withAdtOut(collection(), [{ name: 'Found', condition: '= true' }]));
+  assert.match(worker, /client = \?\?\? \/\* TODO client: kein Mapping — aus body, headers oder dem In \*\//, worker);
+  assert.doesNotMatch(worker, /val body = out\.outputBody/, worker);
+  assert.doesNotMatch(worker, /val headers = out\.headers/, worker);
+});
+
+test('an Out that is a plain enum (cases without fields): per case its condition - the case as it is', () => {
+  const plain: ServiceCollectionSpec = {
+    ...collection(),
+    types: collection().types.map(t => (t.id !== 't-out' ? t : { ...t, kind: 'enum', fields: undefined, values: [{ name: 'Active' }, { name: 'Blocked' }] })),
+  };
+  plain.services = plain.services.map(s => ({ ...s, outCases: [{ name: 'Active', condition: '= body.address != null' }] }));
+  const domain = collectionFiles(plain).find(f => f.path.endsWith('/GetClient.scala') && f.path.startsWith('01-domain'))!.content;
+  assert.match(domain, /enum Out:\n +case Active, Blocked/, domain);
+  const worker = workerOf(plain);
+  assert.match(worker, /\n {4}val body = out\.outputBody\n {4}if body\.address\.isDefined then\n {6}Right\(Out\.Active\)\n {4}else\n {6}Right\(Out\.Blocked\)\n {2}end outputMapper/, worker);
+});

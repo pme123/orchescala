@@ -307,8 +307,9 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
       lines.push('    Right(out.outputBody)', '  end outputMapper', '');
       body.push(...lines);
     } else {
-    const uses = (name: string) => chain ? new RegExp(`\\b${name}\\b`).test(chain)
-      : args.some(a => new RegExp(`\\b${name}\\b`).test(a.split(' = ').slice(1).join(' = '))) || steps.some(st => new RegExp(`\\b${name}\\b`).test(st));
+    // the Scala that reads `name` — not in a text (the messages name the service) or a comment
+    const code = (scala: string) => scala.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/\/\*[\s\S]*?\*\//g, '');
+    const uses = (name: string) => new RegExp(`\\b${name}\\b`).test(code(chain ?? [...args.map(a => a.split(' = ').slice(1).join(' = ')), ...steps].join('\n')));
     if (uses('body')) lines.push('    val body = out.outputBody');
     if (uses('headers')) lines.push('    val headers = out.headers');
     if (chain) lines.push(indent(chain, '    '));
