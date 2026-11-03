@@ -9,7 +9,7 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
@@ -33,14 +33,20 @@ export interface Finding {
 
 const NONE: Finding = { errors: [], warnings: [], inline: [] };
 
+/** The key of the findings of the process itself (not of a step) in `collectFindings` */
+export const PROCESS_FINDINGS = '#process';
+
 /**
  * All findings of a process, per step — computed once, then retrievable per
- * step ID. The process variables are built once, the
- * result variables per step.
+ * step ID; those of the process itself under `PROCESS_FINDINGS`. The process
+ * variables are built once, the result variables per step.
  */
 export function collectFindings(spec: ProcessSpec, model: Model | null, steps: Step[]): Map<string, Finding> {
   const out = new Map<string, Finding>();
-  const variables = processVariables(spec, model);
+  const overview = variableOverview(spec, model);
+  const variables = overview.variables.filter(v => !v.local).map(v => v.node);
+  const own = processVariableWarnings(overview);
+  if (own.length) out.set(PROCESS_FINDINGS, { errors: [], warnings: own, inline: own });
   // at each step what the steps before it wrote — the latest writer decides the type
   const byStep = variablesByStep(spec, model, variables);
   const scopes = multiInstanceScopes(spec.steps);
@@ -51,6 +57,44 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
+}
+
+/** «In: Seq[String]» — a source with the type it gives */
+const sourceText = (s: VariableSource): string => `${s.label} (${s.source})`;
+
+/** Does a step write it (output, result of a worker, user task or decision) — or is it there from the start? */
+const writtenByStep = (s: VariableSource): boolean => /^(Ausgabe von|Ergebnis)/.test(s.source);
+
+/**
+ * Which type applies where, for a conflict: from the start (In, InitIn, InConfig …) the
+ * first one; once a step has written the variable, the type of the latest writer before
+ * the step (see `variablesByStep`). An old type at the start is then probably stale.
+ */
+export function variableConflictRule(c: VariableConflict): string {
+  const start = c.sources.filter(s => !writtenByStep(s));
+  const steps = c.sources.filter(writtenByStep);
+  if (start.length && steps.length) {
+    return `${start.map(s => s.source).join(' / ')} sagt ${start[0].label}, später schreibt ${steps.map(sourceText).join(' bzw. ')} — `
+      + `ab dort gilt der Typ des letzten Schreibers; ist ${start[0].source} veraltet?`;
+  }
+  if (steps.length) return `${steps.map(sourceText).join(' · ')} — an einem Schritt gilt der Typ des letzten Schreibers davor.`;
+  return `${start.map(sourceText).join(' · ')} — es gilt ${start[0].label}.`;
+}
+
+/** Warning: sources give the variable different types — which applies where, see `variableConflictRule`. */
+export const variableConflictText = (c: VariableConflict): string =>
+  `Prozessvariable «${c.name}» hat verschiedene Typen: ${variableConflictRule(c)} Eine der Quellen anpassen.`;
+
+/** Warning: an entry of the list no source knows. */
+export const variableOrphanText = (name: string): string =>
+  `Prozessvariable «${name}» kommt von nirgends — woher? Weder In, InitIn, InConfig noch ein Schritt oder die Engine setzt sie. Setzt sie ein Skript oder Listener, so lassen, sonst entfernen.`;
+
+/**
+ * The findings on the process variables: type conflicts between the sources and
+ * entries of `spec.variables` without a source — warnings, the variable may be set elsewhere.
+ */
+export function processVariableWarnings(overview: { conflicts: VariableConflict[]; orphans: string[] }): string[] {
+  return [...overview.conflicts.map(variableConflictText), ...overview.orphans.map(variableOrphanText)];
 }
 
 /** The required inputs: not optional in the own In, in the domain — or `required` according to the catalog. */

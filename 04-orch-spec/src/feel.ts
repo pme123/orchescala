@@ -20,7 +20,7 @@
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
 import { C7_LABEL } from './engineLabels.ts';
-import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef } from './types';
+import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
 import { SCALA_TYPES, isAdt } from './types.ts';
 import { indexTypes, type TypeIndex } from './scala.ts';
@@ -209,13 +209,6 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
 }
 
 /**
- * All process variables with their paths. For equal names the first
- * source wins — and first comes what is **effective** in the process: the `InitIn`
- * (the init worker sets it at the beginning; an optional field of the `In` has
- * its required twin with a default there), then the `InConfig` (always with
- * default), then the `In`, the process variables and the outputs.
- */
-/**
  * Variables from the fields of a type — for the services: the `In`, the body of
  * the response and its headers are what a mapping there can read.
  */
@@ -224,12 +217,197 @@ export function fieldVariables(fields: Field[], source: string, types: TypeDef[]
   return fields.filter(f => f.name).map(f => nodeOfField(f, source, b, 0, new Set()));
 }
 
+/**
+ * All process variables with their paths. A variable gets its type only from
+ * where it is created; for equal names the first **known** type wins — and first
+ * comes what is effective in the process: the `InitIn` (the init worker sets it
+ * at the beginning; an optional field of the `In` has its required twin with a
+ * default there), then the `InConfig` (always with default), then the `In`, the
+ * outputs and results of the steps, the engine.
+ *
+ * The list `spec.variables` defines nothing: it adds the description (Bedeutung)
+ * to a known variable. An entry no source knows (see `variableOverview`) stays
+ * a variable with its stored type — a script or listener may set it.
+ */
 export function processVariables(spec: ProcessSpec, model: Model | null): VarNode[] {
+  return withDeclared(effectiveVariables(variableCandidates(spec, model, false)), spec, model).nodes;
+}
+
+/** A place where a process variable is created, with the type it gives it. */
+export interface VariableSource { source: string; label: string; type: FeelType }
+
+/** A process variable in the overview: its effective node and every place it comes from. */
+export interface VariableInfo {
+  name: string;
+  /** the variable as FEEL sees it — type from the first known source, Bedeutung from `spec.variables` */
+  node: VarNode;
+  /** the places that create it, in priority order — empty for an entry without source */
+  sources: VariableSource[];
+  /** its entry in `spec.variables` (Bedeutung) */
+  declared?: Variable;
+  /** the description the source gives (field description) — without the Bedeutung of `spec.variables` */
+  hint?: string;
+  /** an entry of `spec.variables` that no source knows */
+  orphan?: boolean;
+  /** not a process variable: the element or counter of a multi-instance, set only inside that step */
+  local?: string;
+}
+
+/** Two sources give the same variable different types. */
+export interface VariableConflict { name: string; sources: VariableSource[] }
+
+/**
+ * The process variables for the overview: every variable with its sources, the
+ * type conflicts between sources and the entries of `spec.variables` without a source.
+ */
+export function variableOverview(spec: ProcessSpec, model: Model | null): { variables: VariableInfo[]; conflicts: VariableConflict[]; orphans: string[] } {
+  const candidates = variableCandidates(spec, model, true);
+  const effective = effectiveVariables(candidates);
+  const hints = new Map(effective.filter(n => n.description).map(n => [n.name, n.description!]));
+  const { nodes, orphans, local } = withDeclared(effective, spec, model);
+  const declared = new Map((spec.variables ?? []).filter(v => v.name?.trim()).map(v => [v.name.trim(), v]));
+  const sourcesOf = new Map<string, VariableSource[]>();
+  for (const c of candidates) {
+    const list = sourcesOf.get(c.name) ?? [];
+    // the same source counts once — an ADT may have a field in several cases
+    if (!list.some(s => s.source === c.source)) list.push({ source: c.source, label: c.label, type: c.type });
+    sourcesOf.set(c.name, list);
+  }
+  const variables: VariableInfo[] = nodes.map(node => ({
+    name: node.name, node, sources: sourcesOf.get(node.name) ?? [],
+    ...(declared.has(node.name) ? { declared: declared.get(node.name) } : {}),
+    ...(hints.has(node.name) ? { hint: hints.get(node.name) } : {}),
+    ...(orphans.includes(node.name) ? { orphan: true } : {}),
+  }));
+  for (const [name, where] of local) {
+    variables.push({ name, node: { name, type: 'any', label: '?', source: where }, sources: [], declared: declared.get(name), local: where });
+  }
+  const conflicts: VariableConflict[] = [];
+  for (const [name, sources] of sourcesOf) {
+    const typed = sources.filter(s => s.type !== 'any');
+    const distinct: VariableSource[] = [];
+    for (const s of typed) if (!distinct.some(d => sameType(d, s))) distinct.push(s);
+    if (distinct.length > 1) conflicts.push({ name, sources: distinct });
+  }
+  return { variables, conflicts, orphans };
+}
+
+/** The tokens of a Scala type: names with their path and brackets — without `Option`, with one name for all collections. */
+function typeTokens(label: string): string[] | null {
+  const raw = label.match(/[A-Za-z_][\w.`-]*|[[\],]|\S/g);
+  if (!raw || raw.some(t => !/^[A-Za-z_][\w.`-]*$|^[[\],]$/.test(t))) return null;
+  const out: string[] = [];
+  const closes: boolean[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const t = raw[i];
+    if (t === 'Option' && raw[i + 1] === '[') { closes.push(false); i++; continue; }
+    if (t === '[') { closes.push(true); out.push(t); continue; }
+    if (t === ']') { if (closes.pop() !== false) out.push(t); continue; }
+    out.push(/^(Seq|List|Vector|Set|Iterable|Array)$/.test(t) ? 'Seq' : t);
+  }
+  return out;
+}
+
+/**
+ * Do two sources give the same type? `Option[…]` does not count (the `InitIn` has the
+ * required twin of an optional `In` field), nor does the package or the object of a name
+ * (`PrintDocument.In` and `In` written inside that object). Labels that are no Scala type
+ * compare by their FEEL type.
+ */
+function sameType(a: VariableSource, b: VariableSource): boolean {
+  if (a.type !== b.type) return false;
+  const ta = typeTokens(a.label), tb = typeTokens(b.label);
+  if (!ta || !tb) return true;
+  if (ta.length !== tb.length) return false;
+  return ta.every((x, i) => {
+    const y = tb[i];
+    if (x === y) return true;
+    const xs = x.split('.'), ys = y.split('.');
+    const [short, long] = xs.length <= ys.length ? [xs, ys] : [ys, xs];
+    return short.every((seg, k) => seg === long[long.length - short.length + k]);
+  });
+}
+
+/** Per name the effective node: the first with a known type, otherwise the first. */
+function effectiveVariables(candidates: VarNode[]): VarNode[] {
+  const out: VarNode[] = [];
+  const at = new Map<string, number>();
+  for (const c of candidates) {
+    const i = at.get(c.name);
+    if (i === undefined) { at.set(c.name, out.length); out.push(c); }
+    else if (out[i].type === 'any' && c.type !== 'any') out[i] = c;
+  }
+  return out;
+}
+
+/**
+ * Adds the entries of `spec.variables`: their Bedeutung to the known variables; an entry
+ * without a source as a variable of its own (`orphans`) — except the element or counter
+ * of a multi-instance, which is set only inside that step (`local`).
+ */
+function withDeclared(known: VarNode[], spec: ProcessSpec, model: Model | null): { nodes: VarNode[]; orphans: string[]; local: Map<string, string> } {
+  const declared = (spec.variables ?? []).filter(v => v.name?.trim());
+  if (!declared.length) return { nodes: known, orphans: [], local: new Map() };
+  const at = new Map(known.map((n, i) => [n.name, i]));
+  const nodes = [...known];
+  const orphans: string[] = [];
+  const local = multiInstanceNames(spec.steps);
+  const localHit = new Map<string, string>();
+  const types = spec.types ?? [];
+  const b: Builder = { idx: indexTypes(types, model), model };
+  for (const v of declared) {
+    const name = v.name.trim();
+    const i = at.get(name);
+    if (i !== undefined) {
+      if (v.description?.trim()) nodes[i] = { ...nodes[i], description: v.description };
+      continue;
+    }
+    if (local.has(name)) { localHit.set(name, local.get(name)!); continue; }
+    if (orphans.includes(name)) continue;
+    orphans.push(name);
+    at.set(name, nodes.length);
+    nodes.push(declaredNode(v, spec, model, b));
+  }
+  return { nodes, orphans, local: localHit };
+}
+
+/** The element and counter names of the multi-instance steps — `name → «Mehrfachausführung von …»`. */
+function multiInstanceNames(steps: Step[] | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const s of allSteps(steps)) {
+    if (!s.multiInstance) continue;
+    const where = `Mehrfachausführung von ${s.name || s.id}`;
+    if (!out.has('loopCounter')) out.set('loopCounter', where);
+    const el = s.multiInstance.element?.trim();
+    if (el && !out.has(el)) out.set(el, where);
+  }
+  return out;
+}
+
+/** An entry of `spec.variables` no source knows — with the type stored there (older states), otherwise unknown. */
+function declaredNode(v: Variable, spec: ProcessSpec, model: Model | null, b: Builder): VarNode {
+  const types = spec.types ?? [];
+  const t = (v.type ?? '').trim();
+  // a class (`DebitCardDetail`, `Seq[Card]`): the own one or the domain's — with fields
+  const shape = typeShape(t);
+  const ref = !t || isScalar(shape.base) ? null
+    : types.find(x => x.name === shape.base)?.id ?? (() => { const d = resolveType(shape.base, model, packageOf(spec, model)); return d ? domainRef(d.id) : null; })();
+  return isScalar(shape.base) || ref
+    ? nodeOf(v.name.trim(), ref ?? shape.base, { optional: shape.optional, collection: shape.collection, map: shape.map, description: v.description, source: 'Variable', label: t }, b, 0, new Set())
+    : { name: v.name.trim(), type: 'any', label: t || '?', source: 'Variable', ...(v.description ? { description: v.description } : {}) };
+}
+
+/**
+ * Every place that creates a process variable, in priority order — a name may come
+ * several times. `all`: also the outputs whose name a source before already typed
+ * (for the conflicts; they need the result of their step).
+ */
+function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean): VarNode[] {
   const types = spec.types ?? [];
   const b: Builder = { idx: indexTypes(types, model), model };
   const out: VarNode[] = [];
-  const have = new Set<string>();
-  const add = (n: VarNode) => { if (n.name && !have.has(n.name)) { have.add(n.name); out.push(n); } };
+  const typed = new Set<string>();
+  const add = (n: VarNode) => { if (n.name) { out.push(n); if (n.type !== 'any') typed.add(n.name); } };
 
   // The InitIn — described as a type; otherwise only the names are known (below, after the In)
   const initIn = types.find(t => t.initIn);
@@ -266,27 +444,16 @@ export function processVariables(spec: ProcessSpec, model: Model | null): VarNod
     }
   }
 
-  for (const v of spec.variables ?? []) {
-    const t = (v.type ?? '').trim();
-    // a class (`DebitCardDetail`, `Seq[Card]`): the own one or the domain's — with fields
-    const shape = typeShape(t);
-    const ref = !t || isScalar(shape.base) ? null
-      : types.find(x => x.name === shape.base)?.id ?? (() => { const d = resolveType(shape.base, model, packageOf(spec, model)); return d ? domainRef(d.id) : null; })();
-    add(isScalar(shape.base) || ref
-      ? nodeOf(v.name, ref ?? shape.base, { optional: shape.optional, collection: shape.collection, map: shape.map, description: v.description, source: 'Variable', label: t }, b, 0, new Set())
-      : { name: v.name, type: 'any', label: t || '?', source: 'Variable', ...(v.description ? { description: v.description } : {}) });
-  }
-
   for (const s of allSteps(spec.steps)) {
     // the result only when an output asks for it — it needs the catalog
     let results: VarNode[] | null = null;
     const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
     for (const o of s.outputs ?? []) {
-      if (o.disabled || !o.name || have.has(o.name)) continue;
+      if (o.disabled || !o.name || (!all && typed.has(o.name))) continue;
       const source = `Ausgabe von ${s.name || s.id}`;
-      const typed = outputNode(o, ofStep);
-      add(typed
-        ? { ...typed, name: o.name, source, ...(o.description ? { description: o.description } : {}) }
+      const node = outputNode(o, ofStep);
+      add(node
+        ? { ...node, name: o.name, source, ...(o.description ? { description: o.description } : {}) }
         : { name: o.name, type: 'any', label: '?', source, ...(o.description ? { description: o.description } : {}) });
     }
   }

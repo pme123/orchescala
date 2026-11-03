@@ -15,8 +15,8 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
-import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
+import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
 import FeelInput from './FeelInput';
@@ -132,7 +132,7 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
         onPattern={onPattern} hasDiagram={hasDiagram} onSpecChange={onSpecChange} />
       <div>
         <h3 className={`text-[10px] uppercase tracking-widest mb-2 ${c.text}`}>Prozessvariablen</h3>
-        <VariableList spec={spec} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
+        <VariableList spec={spec} model={model} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} />
       </div>
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Einen Schritt im Ablauf anklicken, um ihn zu beschreiben, den Service zu wählen
@@ -191,32 +191,148 @@ function EpicPicker({ spec, model, isDark, canEdit, onChange }: {
   );
 }
 
-function VariableList({ spec, isDark, canEdit, onChange }: { spec: ProcessSpec; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void }) {
+/** Groups of the overview — by where a variable comes from */
+const VARIABLE_GROUPS = [
+  { key: 'In', label: 'Eingang (In)' },
+  { key: 'InitIn', label: 'InitIn — setzt der Init-Worker' },
+  { key: 'InConfig', label: 'InConfig — Einstellungen' },
+  { key: 'steps', label: 'Aus den Schritten' },
+  { key: 'pattern', label: 'Pattern' },
+  { key: 'engine', label: 'Engine & Gateway' },
+  { key: 'none', label: 'Ohne Quelle' },
+] as const;
+type VariableGroup = (typeof VARIABLE_GROUPS)[number]['key'];
+
+function variableGroup(v: VariableInfo): VariableGroup {
+  if (v.orphan || v.local) return 'none';
+  const src = v.node.source;
+  if (src === 'In' || src === 'InitIn' || src === 'InConfig') return src;
+  if (src.startsWith('Pattern')) return 'pattern';
+  if (src === 'Engine' || src === 'Gateway') return 'engine';
+  return 'steps';
+}
+
+/** The chip kind of a variable — as for the fields of a mapping row */
+const nodeKind = (n: VarNode): ExpectedType['kind'] =>
+  n.type === 'list' ? 'list' : n.open ? 'map' : n.type === 'context' ? 'class' : 'scalar';
+
+/**
+ * The process variables — an overview, not a definition: every variable comes
+ * from somewhere (In, InitIn, InConfig, outputs and results of the steps, the
+ * engine) and has the type of that place. Editable is only the Bedeutung; it is
+ * kept in `spec.variables` (name + description). Type conflicts between sources and
+ * entries of the list that no source knows are marked — the latter can be removed.
+ */
+function VariableList({ spec, model, isDark, canEdit, onChange }: { spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; onChange: (s: ProcessSpec) => void }) {
   const confirm = useConfirm();
   const c = cls(isDark);
+  const { warn, warnBox } = tones(isDark);
+  const overview = useMemo(() => variableOverview(spec, model), [spec, model]);
+  const conflicts = useMemo(() => new Map(overview.conflicts.map(k => [k.name, k])), [overview]);
+  const [closed, setClosed] = useState<Set<VariableGroup>>(() => new Set(['engine']));
   const vars = spec.variables ?? [];
-  const set = (i: number, patch: Partial<(typeof vars)[number]>) =>
-    onChange({ ...spec, variables: vars.map((v, k) => (k === i ? { ...v, ...patch } : v)) });
+
+  /** the Bedeutung goes into `spec.variables` — an entry with nothing left in it disappears */
+  const describe = (name: string, description: string) => {
+    const at = vars.findIndex(v => v.name.trim() === name);
+    if (at < 0) { if (description) onChange({ ...spec, variables: [...vars, { name, description }] }); return; }
+    const next = { ...vars[at], description };
+    const empty = !description && Object.entries(next).every(([k, val]) => k === 'name' || k === 'description' || val == null || val === '');
+    onChange({ ...spec, variables: empty ? vars.filter((_, k) => k !== at) : vars.map((v, k) => (k === at ? next : v)) });
+  };
+  const remove = async (name: string) => {
+    if (await confirm({ title: `Eintrag «${name}» entfernen?`, confirmLabel: 'Entfernen', text: 'Nur der Eintrag in der Liste geht weg — samt Bedeutung. Setzt ein Skript oder Listener die Variable, bleibt sie im Prozess.' }))
+      onChange({ ...spec, variables: vars.filter(v => v.name.trim() !== name) });
+  };
+
+  const grouped = VARIABLE_GROUPS.map(g => ({ ...g, items: overview.variables.filter(v => variableGroup(v) === g.key) })).filter(g => g.items.length);
+  const notes = overview.conflicts.length + overview.orphans.length;
   return (
-    <div className="space-y-1">
-      {vars.map((v, i) => (
-        <div key={i} data-cframe={v.name ? sub(processTarget, `var:${v.name}`) : undefined} className="group flex items-center gap-1">
-          <input value={v.name} disabled={!canEdit} onChange={e => set(i, { name: e.target.value })}
-            className={`w-28 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input}`} />
-          <input value={v.description ?? ''} disabled={!canEdit} onChange={e => set(i, { description: e.target.value })}
-            placeholder="Bedeutung"
-            className={`flex-1 text-[10px] px-1.5 py-1 rounded border outline-none ${c.input}`} />
-          {v.name && <CommentBubble target={sub(processTarget, `var:${v.name}`)} quiet />}
-          {canEdit && (
-            <button onClick={async () => {
-              if (await confirm({ title: v.name ? `Variable «${v.name}» entfernen?` : 'Leere Variable entfernen?' })) onChange({ ...spec, variables: vars.filter((_, k) => k !== i) });
-            }} title="Variable entfernen" className={`p-1 ${c.muted}`}><X size={10} /></button>
-          )}
-        </div>
-      ))}
-      {canEdit && (
-        <button onClick={() => onChange({ ...spec, variables: [...vars, { name: '', description: '' }] })}
-          className={`text-[10px] ${c.muted} hover:underline`}>+ Variable</button>
+    <div className="space-y-2">
+      <p className={`text-[10px] ${c.muted}`}>
+        Jede Variable kommt von irgendwo — Typ und Herkunft stehen dort, wo sie entsteht. Hier nur die Bedeutung ergänzen.
+      </p>
+      {notes > 0 && (
+        <p className={`flex items-start gap-1 text-[10px] px-2 py-1 rounded border ${warnBox} ${warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>
+            {[overview.conflicts.length ? `${overview.conflicts.length} mit verschiedenen Typen` : '',
+              overview.orphans.length ? `${overview.orphans.length} ohne Quelle` : ''].filter(Boolean).join(' · ')} — unten markiert.
+          </span>
+        </p>
+      )}
+      {grouped.map(g => {
+        const open = !closed.has(g.key);
+        return (
+          <div key={g.key}>
+            <button onClick={() => setClosed(prev => { const n = new Set(prev); if (n.has(g.key)) n.delete(g.key); else n.add(g.key); return n; })}
+              className={`flex items-center gap-1 text-[10px] font-semibold ${c.muted}`}>
+              {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              {g.label} <span className="font-normal">· {g.items.length}</span>
+            </button>
+            {open && (
+              <div className="mt-0.5 space-y-1">
+                {g.items.map(v => (
+                  <VariableRow key={v.name} v={v} conflict={conflicts.get(v.name)} isDark={isDark} canEdit={canEdit}
+                    onDescribe={d => describe(v.name, d)} onRemove={() => remove(v.name)} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function VariableRow({ v, conflict, isDark, canEdit, onDescribe, onRemove }: {
+  v: VariableInfo; conflict?: VariableConflict; isDark: boolean; canEdit: boolean;
+  onDescribe: (description: string) => void; onRemove: () => void;
+}) {
+  const c = cls(isDark);
+  const { warn } = tones(isDark);
+  const target = sub(processTarget, `var:${v.name}`);
+  // an entry without source has at most a type from an older state — named in its warning, no chip
+  const known = !v.orphan && (v.node.type !== 'any' || (v.node.label && v.node.label !== '?'));
+  const st = kindStyle(nodeKind(v.node), isDark);
+  const others = v.sources.filter(s => s.source !== v.node.source).map(s => s.source);
+  const origin = v.local ? `nur im Schritt — ${v.local}` : v.orphan ? 'kein Ort setzt sie' : v.node.source;
+  return (
+    <div data-cframe={target} className="group">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="font-mono text-[10px] truncate min-w-0" title={v.name}>{v.name}</span>
+        {known && (
+          <span title={`${st.what} ${v.node.label}${v.node.optional ? ' · kann fehlen' : ''}`}
+            className={`flex-shrink-0 max-w-[10rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${st.cls}`}>
+            {st.icon}<span className="truncate">{v.node.label}</span>
+          </span>
+        )}
+        <span className={`ml-auto flex-shrink min-w-0 truncate text-[9px] ${c.muted}`}
+          title={others.length ? `${v.node.source} — auch: ${others.join(', ')}` : origin}>
+          {origin}{others.length ? ` +${others.length}` : ''}
+        </span>
+        <CommentBubble target={target} quiet />
+        {canEdit && (v.orphan || v.local) && (
+          <button onClick={onRemove} title="Eintrag entfernen" className={`p-0.5 ${c.muted}`}><X size={10} /></button>
+        )}
+      </div>
+      <input value={v.declared?.description ?? ''} disabled={!canEdit} onChange={e => onDescribe(e.target.value)}
+        placeholder={v.hint ?? 'Bedeutung …'} title={v.hint ? `Aus der Quelle: ${v.hint}` : undefined}
+        className={`w-full text-[10px] px-1.5 py-0.5 rounded border outline-none bg-transparent border-transparent hover:border-current/20 focus:border-current/30 ${c.text}`} />
+      {conflict && (
+        <p className={`flex items-start gap-1 text-[10px] ${warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>Verschiedene Typen: {variableConflictRule(conflict)}</span>
+        </p>
+      )}
+      {v.orphan && (
+        <p className={`flex items-start gap-1 text-[10px] ${warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>Kommt von nirgends — woher? Setzt sie ein Skript oder Listener, so lassen{v.node.label && v.node.label !== '?' ? ` (Typ von früher: ${v.node.label})` : ''}; sonst entfernen.</span>
+        </p>
+      )}
+      {v.local && (
+        <p className={`text-[10px] ${c.muted}`}>Element der Mehrfachausführung — keine Prozessvariable; der Eintrag ist nicht nötig.</p>
       )}
     </div>
   );
