@@ -47,21 +47,20 @@ object SpecMerge:
       exporter: SpecExporter = NodeSpecExporter,
       formatter: XmlFormatter = XmlFormatter.default
   )(using DevConfig): MergePlan =
-    val beforeDir = SpecSources.folder(project, before)
-    val afterDir  = SpecSources.folder(project, after)
-    val notes     = Seq.newBuilder[String]
-    if after != SpecSource.Empty && afterDir.isEmpty then
-      throw IllegalArgumentException(s"No spec in $after.")
-    val base      = beforeDir.fold(SpecExport.empty)(exporter.exportOf)
-    val neu       = afterDir.fold(SpecExport.empty)(exporter.exportOf)
-    notes ++= neu.issues
-    // the spec in the project is taken over as Orch Spec sent it - not if it is the project's own
-    val specFiles = afterDir.map(SpecSources.files)
-    try plan(project, base.entries, neu.entries, specFiles, notes.result(), formatter = formatter)
-    finally
-      // a commit was extracted into a temporary folder
-      if before.isInstanceOf[SpecSource.GitRev] then beforeDir.foreach(os.remove.all)
-      if after.isInstanceOf[SpecSource.GitRev] then afterDir.foreach(os.remove.all)
+    // a commit is extracted into a temporary folder - removed whatever fails after it
+    def extracted[A](source: SpecSource)(use: Option[os.Path] => A): A =
+      val dir = SpecSources.folder(project, source)
+      try use(dir)
+      finally if source.isInstanceOf[SpecSource.GitRev] then dir.foreach(os.remove.all)
+    extracted(before): beforeDir =>
+      extracted(after): afterDir =>
+        if after != SpecSource.Empty && afterDir.isEmpty then
+          throw IllegalArgumentException(s"No spec in $after.")
+        val base      = beforeDir.fold(SpecExport.empty)(exporter.exportOf)
+        val neu       = afterDir.fold(SpecExport.empty)(exporter.exportOf)
+        // the spec in the project is taken over as Orch Spec sent it - not if it is the project's own
+        val specFiles = afterDir.map(SpecSources.files)
+        plan(project, base.entries, neu.entries, specFiles, neu.issues, formatter = formatter)
   end checkMerge
 
   /** The plan from the exports of the processes and services before and after.

@@ -398,6 +398,25 @@ class SpecMergeTest extends FunSuite:
       assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
       os.remove.all(sent)
 
+  test("checkMerge: the export of the spec fails - the commit extracted for it is removed"):
+    inProject: project =>
+      def git(args: String*) = os.proc("git", "-c", "user.name=t", "-c", "user.email=t@example.com", args).call(cwd = project, stderr = os.Pipe)
+      os.write(project / "spec" / "export.json", exportJson(order), createFolders = true)
+      git("init", "-q")
+      git("add", "-A")
+      git("commit", "-q", "-m", "spec")
+      var exported = Seq.empty[os.Path]
+      def failing(at: Int) = new SpecExporter:
+        def exportOf(specDir: os.Path) =
+          exported :+= specDir
+          if exported.size == at then throw ToolTimeout("node", ExternalTool.nodeTimeout) else FileExporter.exportOf(specDir)
+      // the export of the spec before fails, then the one after: both extracted commits are gone
+      for at <- Seq(1, 2) do
+        exported = Seq.empty
+        intercept[ToolTimeout](SpecMerge.checkMerge(project, SpecSource.GitRev("HEAD"), SpecSource.GitRev("HEAD"), failing(at)))
+        assertEquals(exported.size, at)
+        exported.foreach(dir => assert(!os.exists(dir), s"$dir left behind"))
+
   test("checkMerge: the project in a subfolder of the repository - its spec in HEAD is the base"):
     inProject: project =>
       // the repository one folder above the project (projects/<name>, as in a company repository)
