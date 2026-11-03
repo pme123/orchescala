@@ -449,9 +449,16 @@ export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): 
 
 /**
  * The company/project prefixes to choose from for a collection or an orchestration —
- * as for a process: the project folders of the catalog, its processes and services,
- * and the projects of the specifications and services in the folder.
+ * the projects with services first (the services in the folder, the service projects of
+ * the catalog), then the others as for a process (project folders, the catalog's
+ * processes, the specifications in the folder); each part sorted.
  */
-export function knownProjects(model: Model | null, inFolder: Array<string | undefined>): string[] {
-  return knownPrefixes(model, [...inFolder, ...catalogProjects(model).map(p => p.project)]);
+export function knownProjects(
+  model: Model | null,
+  serviceProjects: Array<string | undefined>,
+  processProjects: Array<string | undefined>,
+): string[] {
+  const services = knownPrefixes(null, [...serviceProjects, ...catalogProjects(model).map(p => p.project)]);
+  const others = knownPrefixes(model, processProjects).filter(p => !services.includes(p));
+  return [...services, ...others];
 }

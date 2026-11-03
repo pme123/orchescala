@@ -389,7 +389,7 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   const suggested = useMemo(() => suggestPathBase(spec), [spec]);
   // company/project as for a process: those of the catalog, the processes and the services; the APIs the catalog knows of this project
   const catalog = useMemo(() => catalogProjects(model), [model]);
-  const prefixes = useMemo(() => knownProjects(model, [...specs.map(s => s.data.project), ...services.map(s => s.data.project)]), [model, specs, services]);
+  const prefixes = useMemo(() => knownProjects(model, services.map(s => s.data.project), specs.map(s => s.data.project)), [model, specs, services]);
   const knownApis = useMemo(() => [...new Set((catalog.find(p => p.project === spec.project)?.apis ?? []).map(a => a.api))].sort(), [catalog, spec.project]);
   const apis = apisOf(spec).length ? apisOf(spec) : [{ project: spec.project, api: spec.api, apiVersion: spec.apiVersion }];
   // where the OpenAPI brings no URL (Swagger 2.0 without host): what the other collections of the project have
