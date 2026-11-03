@@ -721,6 +721,87 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       .map(merged.indexOf)
     assert(order.forall(_ >= 0) && order == order.sorted, merged)
 
+  test("merge - an In without inConfig gets it, and the empty InConfig goes in when the export has none"):
+    val block    =
+      """  case class In(
+        |      customerName: String
+        |  )
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |    lazy val example = In(
+        |      customerName = "Peter Muster"
+        |    )
+        |    lazy val exampleMinimal = example
+        |  end In""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  case class In(
+        |      customerName: String
+        |  )
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |    lazy val example     = In(customerName = "Peter Muster")
+        |  end In
+        |
+        |  case class Out()
+        |  object Out:
+        |    given ApiSchema[Out]  = deriveApiSchema
+        |    given InOutCodec[Out] = deriveInOutCodec
+        |    lazy val example      = Out()
+        |  end Out
+        |end Proc
+        |""".stripMargin
+    val obj = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block)
+    val m   = obj.merge(existing)
+    assert(m.contains("  ) extends WithConfig[InConfig]:"), m)
+    assert(m.contains("  case class InConfig()"), m)
+    // after In, before Out
+    assert(m.indexOf("  end In\n") < m.indexOf("  case class InConfig()"), m)
+    assert(m.indexOf("  end InConfig") < m.indexOf("  case class Out()"), m)
+    assertEquals(obj.differences(existing).toSet, Set("In", "InConfig"))
+    // a second time: nothing to do
+    assertEquals(obj.merge(m), m)
+
+  test("merge - an InConfig defined otherwise (type alias, import) is not added a second time"):
+    val block    =
+      """  case class In(
+        |      customerName: String
+        |  )
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |    lazy val example = In(customerName = "Peter Muster")
+        |  end In""".stripMargin
+    val existing =
+      """package a.b
+        |package domain.proc.v1
+        |
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |
+        |  type InConfig = Shared.InConfig
+        |
+        |  case class In(
+        |      customerName: String
+        |  )
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |    lazy val example = In(customerName = "Peter Muster")
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
+    assert(!m.contains("case class InConfig"), m)
+    assert(m.contains("extends WithConfig[InConfig]"), m)
+
   test("merge - InConfig only gets the missing fields, its own mocks stay"):
     assert(merged.contains(
       """  case class InConfig(
@@ -1348,10 +1429,11 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     // the nested val in `total` does not count - the generated defaultConfig comes, with all its lines
     assert(m.contains("  ) extends WithConfig[InConfig]:\n    lazy val defaultConfig = InConfig(\n      timer = \"PT1M\"\n    )\n    def total =\n"), m)
     // the named given is the codec of In - no second one
-    assert(!m.contains("deriveInOutCodec"), m)
+    assert(!m.contains("InOutCodec[In] = deriveInOutCodec"), m)
     assert(m.contains("    given inOutCodec: InOutCodec[In] = customCodec\n"), m)
     // the example with a blank line inside is replaced as a whole
-    assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In\nend Proc"), m)
+    // (the empty InConfig follows - this In brings WithConfig[InConfig] into the object)
+    assert(m.contains("    lazy val example = In(\n      amount = 2\n    )\n  end In\n\n  case class InConfig()"), m)
     assertEquals(OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(m), m)
 
   test("merge - an own codec in another form (implicit val, given … with) gets no second, generated one"):
@@ -1390,7 +1472,7 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |""".stripMargin
     for codec <- Seq("implicit val inCodec: InOutCodec[In] = customCodec", "given InOutCodec[In] with customCodec") do
       val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing(codec))
-      assert(!m.contains("deriveInOutCodec"), m)
+      assert(!m.contains("InOutCodec[In] = deriveInOutCodec"), m)
       assert(m.contains(codec), m)
 
   test("merge - an own example as val, with modifiers or a type is replaced - not a second one"):
