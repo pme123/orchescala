@@ -293,9 +293,10 @@ export function processChoices(model: Model | null, exclude?: string): string[] 
   return [...new Set(names.filter((p): p is string => !!p && p !== exclude))].sort();
 }
 
-/** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
+/** A parameter kind Orch Spec knows (PARAM_KINDS) */
 export const isParamKind = (k: unknown): k is ParamKind => (PARAM_KINDS as readonly unknown[]).includes(k);
 
+/** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
 export function unknownParamKinds(def: PatternDef): string[] {
   return patternParams(def)
     .filter(p => p.kind != null && !isParamKind(p.kind))

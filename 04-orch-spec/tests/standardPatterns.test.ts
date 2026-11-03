@@ -854,9 +854,16 @@ test('a pattern with a one-engine parameter: a change of another parameter is st
   assert.ok(!texts.some(t => t.includes('callerProcess')), texts.join('; '));
 });
 
+test('«Prozess-Event senden»: a text event with " from C7 - the switch to C8 writes it as escaped FEEL text', () => {
+  const c7 = applyPattern(diagram('c7', 'callActivity'), sendEvent, 'c7', 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'say "hi"' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.deepEqual(c8.issues, []);
+  assert.equal(new Map(eventCallOf(c8.xml, 'c8').inputs as Array<[string, string]>).get('eventKey'), '="say \\"hi\\""');
+});
+
 test('a parameter kind Orch Spec does not know is named (pattern file)', () => {
   assert.deepEqual(unknownParamKinds(sendEvent), []);
-  const own: PatternDef = { ...sendEvent, id: 'own', params: [{ name: 'x', kind: 'decision' as never }, { name: 'y', kind: 'process' }] };
+  const own: PatternDef = { ...sendEvent, id: 'own', params: [{ name: 'x', kind: 'decision' }, { name: 'y', kind: 'process' }] };
   assert.deepEqual(unknownParamKinds(own), ['«x» (decision)']);
 });
 

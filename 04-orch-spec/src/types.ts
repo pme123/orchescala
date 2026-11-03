@@ -259,8 +259,11 @@ export interface PatternParam {
   description?: string;
   /** default on insertion */
   default?: string;
-  /** `process`: the id of a process - chosen from the processes of the catalog, text only */
-  kind?: ParamKind;
+  /**
+   * `process`: the id of a process - chosen from the processes of the catalog, text only.
+   * From a pattern file it can be anything - another kind counts as plain parameter.
+   */
+  kind?: ParamKind | (string & {});
   /**
    * Only in the BPMN of these engines - on the switch to the other one it does not go over and is
    * not missed there (the other engine has it otherwise, e.g. at runtime). Without: both.
