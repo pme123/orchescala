@@ -27,7 +27,7 @@ import { load } from 'js-yaml';
 import { mergeDomainTypes, type DiscardedPackage } from '../domainScan';
 import { catalogFromOpenApi, mergeServices } from '../openApi';
 import { forgetProject, grantAccess, move, projectsInFolder, rebuild, rememberProject } from '../projects';
-import { localProjectOf, NO_PROJECT, rebuiltServices } from '../catalogMerge';
+import { projectOfOpenApi, rebuiltServices } from '../catalogMerge';
 import { countByKind, fillGapsOnly, readSite } from '../siteCatalog';
 import type { DomainType, Model, ProjectFolder } from '../types';
 import { cls } from '../ui';
@@ -123,7 +123,7 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
       next = m.services;
       added += m.added;
       // its types belong to the same project as its services - «zurück zur Auslieferung» takes both
-      const project = localProjectOf(built[0], new Set(projects.map(p => p.name))) ?? NO_PROJECT;
+      const project = projectOfOpenApi(built, projects.map(p => p.name));
       typen = mergeDomainTypes(typen, r.types.map(t => (t.source ? t : { ...t, source: `${project}/03-api/${f.name}` }))).types;
     }
     if (!gelesen) {

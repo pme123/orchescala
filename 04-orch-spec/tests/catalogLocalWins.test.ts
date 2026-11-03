@@ -2,7 +2,8 @@
 // delivery on purpose. Legacy entries of the model.json (an old import) stay behind it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isBefore, localOverrides, mergeGeneratedCatalog, NO_PROJECT, projectOfService, rebuiltServices, stampLabel, withoutLocalProject } from '../src/catalogMerge';
+import { isBefore, localOverrides, mergeGeneratedCatalog, NO_PROJECT, projectOfOpenApi, projectOfService, rebuiltServices, stampLabel, withoutLocalProject } from '../src/catalogMerge';
+import { mergeServices } from '../src/openApi';
 import type { CatalogFile } from '../src/catalogImport';
 import type { DomainType, Model, ServiceDef } from '../src/types';
 
@@ -231,4 +232,28 @@ test('isBefore and stampLabel with equal and invalid times', () => {
   assert.equal(isBefore('2026-11-03T08:00:00Z', undefined), false);
   assert.doesNotMatch(stampLabel('2026-11-03T11:00:00Z', 'x'), /:/);
   assert.match(stampLabel('2026-11-03T11:00:00Z', '2026-11-03T11:00:00Z'), /\d{1,2}:\d{2}/);
+});
+
+test('a listed project with only types from its OpenAPI (no 01-domain found): the delivered types stay', () => {
+  const gen: CatalogFile = { ...delivered, domainTypes: [type('acme.services.domain.clients.v1.Client', 'acme-services'), type('acme.services.domain.clients.v1.Address', 'acme-services')] };
+  const fromApi = { ...type('acme.services.domain.clients.v1.Client', 'acme-services'), source: 'acme-services/03-api/OpenApi.yml' } as DomainType;
+  const m = user({ domainTypes: [fromApi], projects: [{ id: 'p', name: 'acme-services', scannedAt: '2026-11-03T08:00:00Z' }] });
+  const merged = mergeGeneratedCatalog(m, gen);
+  assert.deepEqual(merged.domainTypes?.filter(t => t.pkg?.startsWith('acme.services')).map(t => [t.name, !!t.generated]).sort(), [['Address', true], ['Client', true]]);
+  // a project the delivery does not have: its OpenAPI types show
+  const other = { ...fromApi, id: 'acme.new.domain.N', pkg: 'acme.new.domain', source: 'acme-new/03-api/OpenApi.yml' } as DomainType;
+  assert.equal(mergeGeneratedCatalog(user({ domainTypes: [other] }), gen).domainTypes?.some(t => t.id === other.id), true);
+});
+
+test('«Neu aufbauen»: the built service replaces an entry by hand with the same id (mergeServices: incoming wins)', () => {
+  const byHand = svc('acme-services-a', { description: 'by hand' });
+  const built = svc('acme-services-a', { description: 'built', group: 'acme-services', builtAt: 't' });
+  assert.deepEqual(mergeServices([byHand], [built]).services.map(s => s.description), ['built']);
+});
+
+test('projectOfOpenApi: the project most services of the file belong to', () => {
+  const services = [svc('acme-services-a'), svc('acme-services-b'), svc('acme-cards-c')];
+  assert.equal(projectOfOpenApi(services, ['acme-services', 'acme-cards']), 'acme-services');
+  assert.equal(projectOfOpenApi([svc('x-a', { group: 'x' })], []), 'x');
+  assert.equal(projectOfOpenApi([], []), NO_PROJECT);
 });

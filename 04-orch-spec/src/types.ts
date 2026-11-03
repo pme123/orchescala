@@ -716,8 +716,8 @@ export interface ServiceDef {
   calledProcess?: string;
   docUrl?: string;
   /**
-   * Read locally («OpenAPI einlesen», ISO time): built on purpose - it overrides a delivered
-   * entry of the same id, topic or called process (see catalogMerge).
+   * Built locally («Neu aufbauen» or «OpenAPI einlesen», ISO time): on purpose - it overrides a
+   * delivered entry of the same id or topic (see catalogMerge).
    */
   builtAt?: string;
   [key: string]: unknown;

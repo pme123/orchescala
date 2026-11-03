@@ -9,11 +9,8 @@ import type { ProjectFolder } from '../src/types';
 
 type Tree = { [name: string]: Tree | string };
 
-/** a folder in memory — subfolders as objects, files as text */
+/** a folder in memory — subfolders as objects, files as text; `denied` (at any depth) throws NotAllowedError */
 function dir(name: string, tree: Tree, denied: string[] = []): FileSystemDirectoryHandle {
-  return dirWith(name, tree, denied);
-}
-function dirWith(name: string, tree: Tree, denied: string[]): FileSystemDirectoryHandle {
   return {
     kind: 'directory', name,
     queryPermission: async () => 'granted',
@@ -22,7 +19,7 @@ function dirWith(name: string, tree: Tree, denied: string[]): FileSystemDirector
       if (denied.includes(n)) throw new DOMException(n, 'NotAllowedError');
       if (sub === undefined) throw new DOMException(n, 'NotFoundError');
       if (typeof sub === 'string') throw new DOMException(n, 'TypeMismatchError');
-      return dirWith(n, sub, denied);
+      return dir(n, sub, denied);
     },
     entries: async function* () {
       for (const [n, v] of Object.entries(tree)) {

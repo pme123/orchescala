@@ -88,17 +88,25 @@ const scanTime = (projects: Array<{ name: string; scannedAt?: string }> | undefi
  * the next release. The two times come from different clocks (browser, build
  * machine): fine for scans hours or days apart, not for minutes.
  */
+/** a type an OpenAPI gave a project (`<project>/03-api/<file>`) - not found by the scan of its sources */
+const fromOpenApi = (t: DomainType) => /^[^/]+\/03-api\//.test(t.source ?? '');
+
 export function projectWinners(user: Model, gen: CatalogFile, projectOf: (t: DomainType) => string | null): (project: string) => boolean {
   const userTime = scanTime(user.projects);
   const genTime = scanTime(gen.projects);
   const has = (types: DomainType[] | undefined) => new Set((types ?? []).map(projectOf).filter((p): p is string => !!p));
   const userHas = has(user.domainTypes);
+  // types the scan of the sources found - not those an OpenAPI gave (`…/03-api/…`)
+  const scannedHas = has(user.domainTypes?.filter(t => !fromOpenApi(t)));
   const genHas = has(gen.domainTypes);
   // a project in the local list is built locally on purpose - it wins, whatever the times
   const listed = new Set((user.projects ?? []).map(p => p.name));
   return project => {
     if (!userHas.has(project)) return false;
-    if (!genHas.has(project) || listed.has(project)) return true;
+    if (!genHas.has(project)) return true;
+    // only a few types from its OpenAPI: they do not wipe the delivered scan of the project
+    if (!scannedHas.has(project)) return false;
+    if (listed.has(project)) return true;
     const u = userTime.get(project);
     const g = genTime.get(project);
     if (u != null && g != null) return u >= g;
@@ -332,7 +340,20 @@ export function rebuiltServices(
   const projects = new Set(apis.map(a => a.project).filter(p => !broken.has(p)));
   const listed = new Set(opts.listed ?? []);
   const kept = existing.filter(sv => !sv.generated && !projects.has(localProjectOf(sv, listed) ?? ''));
-  const fromApi = (t: DomainType) => /^[^/]+\/03-api\//.test(t.source ?? '');
-  const keptTypes = (opts.types ?? []).filter(t => !t.generated && fromApi(t) && !projects.has(t.source!.split('/')[0]));
+  const keptTypes = (opts.types ?? []).filter(t => !t.generated && fromOpenApi(t) && !projects.has(t.source!.split('/')[0]));
   return { kept, incoming, types, keptTypes, unreadable };
+}
+
+/**
+ * The project of the services read from one OpenAPI file («OpenAPI einlesen») - the one most of
+ * them belong to; its types get it as source, so they go with the services.
+ */
+export function projectOfOpenApi(services: ServiceDef[], listed: Iterable<string>): string {
+  const names = new Set(listed);
+  const count = new Map<string, number>();
+  for (const s of services) {
+    const p = localProjectOf({ ...s, builtAt: s.builtAt ?? 'x' }, names) ?? NO_PROJECT;
+    count.set(p, (count.get(p) ?? 0) + 1);
+  }
+  return [...count].sort((a, b) => b[1] - a[1])[0]?.[0] ?? NO_PROJECT;
 }
