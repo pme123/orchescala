@@ -299,6 +299,11 @@ class SpecMergeTest extends FunSuite:
       assert(os.isLink(project / "linked.txt"), "the link was replaced")
       assertEquals(os.read(project / "real.txt"), "new")
       assertEquals(os.list(project).map(_.last).filter(_.endsWith(".merging")), Seq.empty)
+      // a new file gets the usual permissions - not those of a temporary file (owner only)
+      val created = MergePlan("acme-demo", Seq(PlannedFile("docs/new.txt", Owner.spec, Action.create, content = Some("new"))))
+      SpecMerge.merge(project, created, OnConflict.KeepCode)
+      os.write(project / "usual.txt", "usual")
+      assertEquals(os.perms(project / "docs" / "new.txt").toString, os.perms(project / "usual.txt").toString)
 
   test("a file cannot be written midway: the merge stops there - what was written and deleted before is reported"):
     inProject: project =>
