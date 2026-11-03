@@ -561,7 +561,8 @@ case class OrchSpecProcessObject(
   def differences(existing: String): Seq[String] =
     val existingLines = existing.linesIterator.toSeq
     val generated     = content.linesIterator.toSeq
-    val types         = ObjectSections(generated).filter(g => exportTypes(existingLines).contains(g.name))
+    val toMerge       = exportTypes(existingLines)
+    val types         = ObjectSections(generated).filter(g => toMerge.contains(g.name))
       .filter(g => mergeType(existingLines, g, generated) != existingLines)
       .map(_.name)
     types ++ Option.when(missingLabels(existingLines))("processLabels") ++
@@ -578,7 +579,8 @@ case class OrchSpecProcessObject(
   def merge(existing: String): String =
     val generated = content.linesIterator.toSeq
     val lines     = existing.linesIterator.toSeq
-    val merged    = ObjectSections(generated).filter(g => exportTypes(lines).contains(g.name))
+    val toMerge   = exportTypes(lines)
+    val merged    = ObjectSections(generated).filter(g => toMerge.contains(g.name))
       .foldLeft(lines)(mergeType(_, _, generated))
     withImports(withLabels(merged), missingImports(merged)).mkString("\n") + "\n"
   end merge
@@ -672,13 +674,25 @@ case class OrchSpecProcessObject(
   /** The types of the export that go into an existing object - and the empty `InConfig` when the
     * `In` brings `WithConfig[InConfig]` into an object that has no `InConfig` yet (otherwise it
     * does not compile). One the object knows already - its own class, an alias, an import, or one
-    * the `In` used before (defined elsewhere) - stays as it is.
+    * the `In` used before (defined elsewhere) - stays as it is. Only the whole word counts (not
+    * `MyInConfig`), and not in a comment.
     */
   private def exportTypes(existing: Seq[String]): Seq[String] =
     blockTypes ++ Option.when(
       blockTypes.contains("In") && !blockTypes.contains("InConfig") && inRefersToInConfig &&
-        !existing.exists(_.contains("InConfig"))
+        !existing.exists(knowsInConfig)
     )("InConfig")
+
+  // the code of a line (without a trailing `// …`) names `InConfig` - comment lines do not count
+  private def knowsInConfig(line: String): Boolean =
+    val trimmed = line.trim
+    val isComment = trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")
+    val code      = trimmed.indexOf("//") match
+      case -1 => trimmed
+      case at => trimmed.take(at)
+    !isComment && inConfigWord.findFirstIn(code).isDefined
+
+  private val inConfigWord = """\bInConfig\b""".r
 
   private lazy val inRefersToInConfig: Boolean =
     val generated = content.linesIterator.toSeq

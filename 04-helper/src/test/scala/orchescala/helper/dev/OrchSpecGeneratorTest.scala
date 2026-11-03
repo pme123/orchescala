@@ -779,6 +779,43 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |    given InOutCodec[In] = deriveInOutCodec
         |    lazy val example = In(customerName = "Peter Muster")
         |  end In""".stripMargin
+    def existing(imported: String, member: String) =
+      s"""package a.b
+        |package domain.proc.v1
+        |$imported
+        |object Proc extends CompanyBpmnProcessDsl:
+        |  val processName = "a-b-procV1"
+        |$member
+        |  case class In(
+        |      customerName: String
+        |  )
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |    lazy val example = In(customerName = "Peter Muster")
+        |  end In
+        |end Proc
+        |""".stripMargin
+    val variants = Seq(
+      ("", "\n  type InConfig = Shared.InConfig\n"),       // type alias
+      ("\nimport a.b.domain.shared.InConfig\n", "")       // import
+    )
+    for (imported, member) <- variants do
+      val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block)
+        .merge(existing(imported, member))
+      assert(!m.contains("case class InConfig"), m)
+      assert(m.contains("extends WithConfig[InConfig]"), m)
+
+  test("merge - InConfig only in a comment or inside another name still brings the empty InConfig"):
+    val block    =
+      """  case class In(
+        |      customerName: String
+        |  )
+        |  object In:
+        |    given ApiSchema[In]  = deriveApiSchema
+        |    given InOutCodec[In] = deriveInOutCodec
+        |    lazy val example = In(customerName = "Peter Muster")
+        |  end In""".stripMargin
     val existing =
       """package a.b
         |package domain.proc.v1
@@ -786,7 +823,8 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |object Proc extends CompanyBpmnProcessDsl:
         |  val processName = "a-b-procV1"
         |
-        |  type InConfig = Shared.InConfig
+        |  // TODO an InConfig for the mocks
+        |  case class MyInConfig() // not the InConfig
         |
         |  case class In(
         |      customerName: String
@@ -799,8 +837,9 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         |end Proc
         |""".stripMargin
     val m = OrchSpecProcessObject("a.b.domain.proc.v1", "Proc", "a-b-procV1", block).merge(existing)
-    assert(!m.contains("case class InConfig"), m)
     assert(m.contains("extends WithConfig[InConfig]"), m)
+    assert(m.contains("  case class InConfig()"), m)
+    assert(m.contains("  case class MyInConfig() // not the InConfig"), m)
 
   test("merge - InConfig only gets the missing fields, its own mocks stay"):
     assert(merged.contains(
