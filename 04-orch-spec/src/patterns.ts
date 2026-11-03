@@ -1852,7 +1852,19 @@ export function processIssue(value: string | undefined, ownProcess: string | und
   const v = value?.trim() ?? '';
   if (!v) return 'fehlt - die Call Activity ruft keinen Prozess auf. Im Pattern einen Prozess wählen.';
   if (ownProcess && v === ownProcess) return 'ist der Prozess selbst - er ruft sich selbst auf.';
+  // text only - an expression or a placeholder would stand there as it is
+  if (/^(=|\$\{|#\{)|\{\{/.test(v)) return 'ist die ID eines Prozesses - nur Text, kein Ausdruck und kein Platzhalter.';
   return null;
+}
+
+/**
+ * A parameter with the default `{{processId}}` (C8 gets the process ID as text when inserted) that
+ * no longer is the ID of this process - after the process was renamed.
+ */
+export function staleProcessId(param: { default?: string }, value: string | undefined, ownProcess: string | undefined): string | null {
+  const v = value?.trim();
+  if (param.default !== '{{processId}}' || !v || !ownProcess || v === ownProcess) return null;
+  return `ist «${v}», nicht die ID dieses Prozesses («${ownProcess}») - nach dem Umbenennen anpassen.`;
 }
 
 // ── Removing ─────────────────────────────────────────────────────────────────

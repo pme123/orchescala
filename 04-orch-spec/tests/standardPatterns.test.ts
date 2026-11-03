@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -755,6 +755,9 @@ test('a parameter of kind process: text only, the processes of the catalog to ch
   };
   const processes = processChoices(model, 'acme-demoV1');
   assert.deepEqual(processes, ['acme-auditV1', 'acme-eventsV1', 'acme-notifyV1']);
+  // without an own process: all
+  assert.deepEqual(processChoices(model), ['acme-auditV1', 'acme-demoV1', 'acme-eventsV1', 'acme-notifyV1']);
+  assert.deepEqual(processChoices(null), []);
   for (const engine of ['c7', 'c8'] as const) {
     const p = patternParamsFor(sendEvent, engine, false, processes).find(x => x.name === 'eventProcess')!;
     assert.equal(p.textOnly, true);
@@ -827,6 +830,27 @@ test('the hint for a process parameter - the same in the pattern and on insertin
   assert.match(processIssue(' acme-demoV1 ', 'acme-demoV1') ?? '', /sich selbst/);
   assert.equal(processIssue('acme-eventsV1', 'acme-demoV1'), null);
   assert.equal(processIssue('acme-eventsV1', undefined), null);
+  // text only
+  for (const v of ['=foo', '${foo}', '#{foo}', '{{x}}', 'acme-{{x}}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /nur Text/, v);
+});
+
+test('the caller ID on C8 after a rename - said in the pattern', () => {
+  const caller = sendEvent.params!.find(p => p.name === 'callerProcess')!;
+  assert.match(staleProcessId(caller, 'acme-demoV1', 'acme-otherV1') ?? '', /«acme-demoV1».*«acme-otherV1»/);
+  assert.equal(staleProcessId(caller, 'acme-otherV1', 'acme-otherV1'), null);
+  assert.equal(staleProcessId(caller, '', 'acme-otherV1'), null);
+  // only a parameter with the process ID as default
+  assert.equal(staleProcessId(sendEvent.params!.find(p => p.name === 'eventKey')!, 'started', 'acme-otherV1'), null);
+});
+
+test('a pattern with a one-engine parameter: a change of another parameter is still said on the switch', () => {
+  // the C7 form names the event differently - its value does not arrive; callerProcess (C8 only) is not missed
+  const renamed: PatternDef = { ...sendEvent, id: 'acme-event', bpmn: { ...sendEvent.bpmn, c7: sendEvent.bpmn.c7!.replace('{{eventKey}}', '{{event}}') } };
+  const c8 = applyPattern(diagram('c8', 'callActivity'), renamed, 'c8', 'Target', { eventProcess: 'acme-eventsV1', eventKey: 'started' }).xml;
+  const res = convertWithPatterns(c8, 'c7', [renamed], { timeToLive: '5' });
+  const texts = res.issues.map(i => i.text);
+  assert.ok(texts.some(t => t.includes('«eventKey» war «started», ist jetzt «»')), texts.join('; '));
+  assert.ok(!texts.some(t => t.includes('callerProcess')), texts.join('; '));
 });
 
 test('a parameter kind Orch Spec does not know is named (pattern file)', () => {

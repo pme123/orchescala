@@ -12,7 +12,7 @@ import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interac
 import { packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { EpicChips } from './SpecMeta';
-import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, stepTags, patternDefs } from '../patterns';
+import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
 import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
@@ -956,11 +956,12 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
       {!!params.length && (
         <div className="space-y-0.5">
           {params.map(p => {
+            const hint = (t: string | null): FeelIssue[] => (t ? [{ level: 'warn', text: `${p.label ?? p.name} ${t}` }] : []);
             // (only in the shared block: changed in the diagram, not here - no hint either)
             const issues: FeelIssue[] = p.inBlock ? []
               : p.kind === 'process'
-                ? (() => { const t = processIssue(draft[p.name], ownProcess); return t ? [{ level: 'warn' as const, text: `${p.label ?? p.name} ${t}` }] : []; })()
-                : p.textOnly ? [] : issuesOf(draft[p.name]);
+                ? hint(processIssue(draft[p.name], ownProcess))
+                : p.textOnly ? hint(staleProcessId(p, draft[p.name], ownProcess)) : issuesOf(draft[p.name]);
             return (
               <div key={p.name}>
                 <div className="flex items-center gap-1.5 text-[10px]"
