@@ -409,13 +409,18 @@ export function stepDomainMember(step: Step, spec: ProcessSpec, model: Model | n
   return obj ? all.find(t => t.pkg === obj.pkg && t.name === `${obj.object}.${member}`) ?? null : null;
 }
 
-/** Expected type of a field according to the domain catalog — `null` if unknown. */
-/** A field of the domain type — for an enum also from its cases */
-const domainField = (dom: DomainType | null, name: string) =>
-  dom?.fields?.find(f => f.name === name) ?? dom?.cases?.flatMap(c => c.fields ?? []).find(f => f.name === name);
+/**
+ * A field of the domain type — for an enum also from its cases. Several cases can
+ * have the name with different types: that of `enumCase` (the chosen variant) first.
+ */
+const domainField = (dom: DomainType | null, name: string, enumCase?: string) =>
+  dom?.fields?.find(f => f.name === name)
+  ?? dom?.cases?.find(c => c.name === enumCase)?.fields?.find(f => f.name === name)
+  ?? dom?.cases?.flatMap(c => c.fields ?? []).find(f => f.name === name);
 
-export function expectedFromDomain(dom: DomainType | null, name: string, model: Model | null): ExpectedType | null {
-  const p = domainField(dom, name);
+/** Expected type of a field according to the domain catalog — `null` if unknown. */
+export function expectedFromDomain(dom: DomainType | null, name: string, model: Model | null, enumCase?: string): ExpectedType | null {
+  const p = domainField(dom, name, enumCase);
   if (!p) return null;
   const shape = typeShape(p.type);
   let accepts: FeelType[];
@@ -443,8 +448,8 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
 }
 
 /** Is the field required according to the domain catalog (not `Option[…]`)? null = field unknown. */
-export function domainRequired(dom: DomainType | null, name: string): boolean | null {
-  const p = domainField(dom, name);
+export function domainRequired(dom: DomainType | null, name: string, enumCase?: string): boolean | null {
+  const p = domainField(dom, name, enumCase);
   if (!p) return null;
   return !typeShape(p.type).optional && !p.default;
 }

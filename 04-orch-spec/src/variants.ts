@@ -37,8 +37,10 @@ export interface Variants {
   cases: VariantCase[];
   /** Fields every variant has */
   common: Set<string>;
-  /** Fields only some variants have */
+  /** Fields only some variants have — or all of them, but not with the same type */
   specific: Set<string>;
+  /** Fields that several variants have, each with its own type — the type depends on the case */
+  typeVaries: Set<string>;
   /** the switches of the decoder, the direct field first — one of them is enough (see above) */
   routing?: string[];
 }
@@ -61,13 +63,38 @@ export const variantKey = (list: MappingList) => (list === 'inputs' ? 'inVariant
 /** Choice «alle Ausprägungen» — the service or worker decides which case it is */
 export const ALL_VARIANTS = '*';
 
+/** The type of a case field as written — `Option[String]` and `String` differ; without a type (OpenAPI) only the name counts */
+const typeOf = (f: VariantCase['fields'][number]): string => {
+  const t = typeof f.type === 'string' ? f.type.replace(/\s+/g, '') : '';
+  // a field of an own class: the type plus its wrappers
+  const x = f as Partial<Field>;
+  return `${t}${x.optional ? '?' : ''}${x.collection ? '*' : ''}${x.map ? '#' : ''}`;
+};
+
 function build(cases: VariantCase[], common: string[]): Variants | null {
   if (cases.length < 2 || !cases.some(c => c.fields.length)) return null;
   const all = new Set(common);
-  // what occurs in every case is shared as well
-  for (const f of cases[0].fields) if (cases.every(c => c.fields.some(x => x.name === f.name))) all.add(f.name);
+  // the types a name has across the cases — `fileAction: String` here, `fileAction: FileAction` there
+  const types = new Map<string, Set<string>>();
+  for (const c of cases) for (const f of c.fields) types.set(f.name, (types.get(f.name) ?? new Set()).add(typeOf(f)));
+  const typeVaries = new Set([...types].filter(([n, t]) => t.size > 1 && !all.has(n)).map(([n]) => n));
+  // what occurs in every case with the same type is shared as well
+  for (const f of cases[0].fields) if (!typeVaries.has(f.name) && cases.every(c => c.fields.some(x => x.name === f.name))) all.add(f.name);
   const specific = new Set(cases.flatMap(c => c.fields.map(f => f.name)).filter(n => !all.has(n)));
-  return specific.size ? { cases, common: all, specific } : null;
+  return specific.size ? { cases, common: all, specific, typeVaries } : null;
+}
+
+/** The case whose field definitions apply — the chosen one; none without a choice or for «alle Ausprägungen» */
+export function caseOf(v: Variants | null, chosen: Chosen): string | undefined {
+  return v && chosen.name && chosen.name !== ALL_VARIANTS ? chosen.name : undefined;
+}
+
+/**
+ * No single type for the field: it has a different type per case and no case is
+ * chosen («alle Ausprägungen») — then there is no yardstick for the expression.
+ */
+export function typeUnknown(v: Variants | null, chosen: Chosen, name: string): boolean {
+  return !!v?.typeVaries.has(name) && !caseOf(v, chosen);
 }
 
 /** The own In or Out class of the step (interaction) — null without one */
@@ -77,10 +104,14 @@ export function classOf(step: Step, spec: ProcessSpec, list: MappingList): TypeD
   return id ? (spec.types ?? []).find(t => t.id === id) ?? null : null;
 }
 
-/** The fields of a class: the shared ones, for an enum plus those of all cases */
-export function classFieldsOf(t: TypeDef): Field[] {
+/**
+ * The fields of a class: the shared ones, for an enum plus those of all cases. A name
+ * several cases have counts once — that of `enumCase` (the chosen variant) first.
+ */
+export function classFieldsOf(t: TypeDef, enumCase?: string): Field[] {
   const out = new Map<string, Field>();
-  for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) if (f.name && !out.has(f.name)) out.set(f.name, f);
+  const values = [...(t.values ?? [])].sort((a, b) => Number(b.name === enumCase) - Number(a.name === enumCase));
+  for (const f of [...(t.fields ?? []), ...values.flatMap(v => v.fields ?? [])]) if (f.name && !out.has(f.name)) out.set(f.name, f);
   return [...out.values()];
 }
 

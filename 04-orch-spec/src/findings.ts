@@ -17,7 +17,7 @@ import { dmnIssues, packageOf } from './scala';
 import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
 import { patternMappings, patternDefs } from './patterns';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
+import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, typeUnknown, variantAllows, variantRequires, variantsOf } from './variants';
 
 export interface Finding {
   errors: string[];
@@ -51,10 +51,10 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
 }
 
 /** The required inputs: not optional in the own In, in the domain — or `required` according to the catalog. */
-function requiredNames(refFields: Field[] | null, dom: DomainType | null, service: ServiceDef | null): string[] {
+function requiredNames(refFields: Field[] | null, dom: DomainType | null, service: ServiceDef | null, enumCase?: string): string[] {
   return refFields
     ? refFields.filter(f => !f.optional).map(f => f.name)
-    : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name)).map(p => p.name)
+    : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name, enumCase)).map(p => p.name)
       .concat((service?.inputs ?? []).filter(p => p.required && domainRequired(dom, p.name) == null).map(p => p.name));
 }
 
@@ -83,15 +83,16 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   if (patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7').inputs.size) return [];
   const types = spec.types ?? [];
   const inT = ia?.inTypeId ? types.find(t => t.id === ia.inTypeId) : undefined;
-  const refFields = ia?.inTypeId ? (inT ? classFieldsOf(inT) : []) : null;
   const service = catalogEntry(step, model);
   const dom = stepDomainMember(step, spec, model, 'In');
   const variants = variantsOf(step, spec, model, 'inputs', service);
   const chosen = chosenVariant(step, 'inputs', variants);
+  const enumCase = caseOf(variants, chosen);
+  const refFields = ia?.inTypeId ? (inT ? classFieldsOf(inT, enumCase) : []) : null;
   const have = new Set((step.inputs ?? []).map(m => m.name.trim()));
   // Switches: one is enough — without a row for any of them, the first (`useCase`)
   const routing = variants?.routing?.some(n => have.has(n)) ? [] : variants?.routing?.slice(0, 1) ?? [];
-  return [...new Set([...requiredNames(refFields, dom, service), ...routing])]
+  return [...new Set([...requiredNames(refFields, dom, service, enumCase), ...routing])]
     .filter(n => (variantRequires(variants, chosen, n) || routing.includes(n)) && !have.has(n));
 }
 
@@ -314,13 +315,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 
   // ── Mappings: required, duplicate, FEEL ──────────────────────────────────
   // the own class — for an enum also the fields of its cases (the variant says which apply)
-  const classFields = (id: string | undefined): Field[] | null => {
+  // a name several cases have counts with the type of the chosen case
+  const classFields = (id: string | undefined, enumCase: string | undefined): Field[] | null => {
     if (!id) return null;
     const t = types.find(x => x.id === id);
-    return t ? classFieldsOf(t) : [];
+    return t ? classFieldsOf(t, enumCase) : [];
   };
-  const inFields = classFields(ia?.inTypeId);
-  const outFields = classFields(ia?.outTypeId);
   const domainIn = initWorker ? null : stepDomainMember(step, spec, model, 'In');
   const domainOut = initWorker ? null : stepDomainMember(step, spec, model, 'Out');
   const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
@@ -330,10 +330,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // what a pattern contributes to the element is implementation — not checked,
   // and it does not report missing required fields: the pattern defines the call
   const fromPattern = patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7');
-  const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
+  const check = (list: 'inputs' | 'outputs', rows: Mapping[], typeId: string | undefined, dom: typeof domainIn, vars: VarNode[]) => {
     // enum with cases: only the shared fields and those of the chosen variant count
     const variants = variantsOf(step, spec, model, list, service);
     const chosen = chosenVariant(step, list, variants);
+    const enumCase = caseOf(variants, chosen);
+    const refFields = classFields(typeId, enumCase);
     const allowed = (n: string) => variantAllows(variants, chosen, n);
     if (chosen.mixed.length) {
       warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen oder «alle Ausprägungen», wenn ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.`);
@@ -369,7 +371,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // tasks and custom workers: they read their In directly from the
     // process variables, without mapping
     if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
-      const required = requiredNames(refFields, dom, service).filter(n => variantRequires(variants, chosen, n));
+      const required = requiredNames(refFields, dom, service, enumCase).filter(n => variantRequires(variants, chosen, n));
       for (const n of required) if (!active.some(m => m.name === n)) errors.push(`Pflichtfeld «${n}» fehlt in den Eingaben.`);
       // Switches of the decoder: the service must get one of them
       const routing = routingMissing(variants, active);
@@ -377,7 +379,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     }
     for (const m of active) {
       if (isFeel(m.expression)) {
-        const expected = refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model) : expectedFromDomain(dom, m.name, model);
+        // a different type per case and none chosen: no yardstick
+        const expected = typeUnknown(variants, chosen, m.name) ? null
+          : refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model) : expectedFromDomain(dom, m.name, model, enumCase);
         const r = checkFeel(m.expression, vars, expected);
         for (const i of r.issues) (i.level === 'error' ? errors : warnings).push(`«${m.name}»: ${i.text}`);
         if (spec.engine !== 'c8') {
@@ -397,8 +401,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   };
   // what is reported from here on is shown in the panel in place — on the mapping row or the error
   const atPlace = { errors: errors.length, warnings: warnings.length };
-  check('inputs', step.inputs ?? [], inFields, domainIn, variables);
-  check('outputs', step.outputs ?? [], outFields, domainOut, resultVars);
+  check('inputs', step.inputs ?? [], ia?.inTypeId, domainIn, variables);
+  check('outputs', step.outputs ?? [], ia?.outTypeId, domainOut, resultVars);
 
   // ── Handled errors: only report what is wrong ────────────────────────────
   (step.errors ?? []).forEach((e, i, all) => {
