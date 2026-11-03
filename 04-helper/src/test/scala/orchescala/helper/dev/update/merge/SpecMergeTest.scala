@@ -302,6 +302,9 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.read(project / "a.txt"), "a")
       assert(!os.exists(project / "old.txt"))
       assert(!os.exists(project / "d.txt"))
+      // an exception without a message: the exception itself, not "null"
+      val noMessage = MergeIncomplete(stopped.done, "b/c.txt", NullPointerException())
+      assert(noMessage.getMessage.contains("(java.lang.NullPointerException)"), noMessage.getMessage)
 
   test("two processes give the same file with different contents: the first one's taken - with a note"):
     inProject: project =>

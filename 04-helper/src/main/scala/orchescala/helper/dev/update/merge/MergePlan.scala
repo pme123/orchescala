@@ -143,6 +143,10 @@ case class MergeAborted(changed: Seq[String])
   */
 case class MergeIncomplete(done: MergeResult, failed: String, cause: Throwable)
     extends RuntimeException(
-      s"The merge stopped at $failed (${cause.getMessage}) - ${done.written.size} file(s) written and ${done.deleted.size} deleted before it.",
+      s"The merge stopped at $failed (${MergeIncomplete.reason(cause)}) - ${done.written.size} file(s) written and ${done.deleted.size} deleted before it.",
       cause
     )
+
+object MergeIncomplete:
+  /** Why it stopped - the exception itself if it has no message (an NPE, some IO errors). */
+  def reason(cause: Throwable): String = Option(cause.getMessage).getOrElse(cause.toString)

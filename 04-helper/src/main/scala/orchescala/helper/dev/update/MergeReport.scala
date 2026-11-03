@@ -39,7 +39,7 @@ object MergeReport:
     * without a word.
     */
   def printIncomplete(e: MergeIncomplete): Unit =
-    println(colored(Console.RED, s"The merge stopped at ${e.failed}: ${Option(e.getCause.getMessage).getOrElse(e.getCause.toString)}"))
+    println(colored(Console.RED, s"The merge stopped at ${e.failed}: ${MergeIncomplete.reason(e.cause)}"))
     e.done.written.foreach(p => println(colored(Console.GREEN, s"WRITTEN before: $p")))
     e.done.deleted.foreach(p => println(colored(Console.BLUE, s"DELETED before: $p")))
     println(colored(Console.YELLOW, "The other files were not touched - fix the cause and run --merge again (git status shows what changed)."))
