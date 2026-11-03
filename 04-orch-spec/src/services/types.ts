@@ -98,7 +98,22 @@ export interface CollectionService {
    * `body` (the `ServiceOut`), `headers` and the fields of the `In`
    */
   outMappings?: Mapping[];
+  /** an `Out` with cases (enum): per case when it is that case and its fields — see `OutCase` */
+  outCases?: OutCase[];
   [key: string]: unknown;
+}
+
+/**
+ * One case of an `Out` with cases (enum / ADT) in the output mapping: the first case whose
+ * condition holds is the result; a case without a condition is the otherwise (the last one).
+ */
+export interface OutCase {
+  /** the case of the `Out` */
+  name: string;
+  /** FEEL, a Boolean — when the result is this case */
+  condition?: string;
+  /** per field of the case (the shared ones included) a FEEL expression */
+  mappings?: Mapping[];
 }
 
 export interface ServiceCollectionSpec {
@@ -199,6 +214,8 @@ export interface ServiceOrchestrationSpec {
   noOut?: boolean;
   /** per `Out` field a FEEL expression against what is known at the end */
   outMappings?: Mapping[];
+  /** an `Out` with cases (enum): per case when it is that case and its fields */
+  outCases?: OutCase[];
   [key: string]: unknown;
 }
 

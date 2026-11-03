@@ -3,9 +3,13 @@
 //
 // Rules:
 //  · Everything pasted is a **draft** — in the target it is not implemented yet.
-//  · Classes always come **as a copy**, including the referenced ones; with
+//  · A copied class comes **as a copy**, including the referenced ones; with
 //    the same name with a counter (`Address2`). New IDs for classes, fields and
 //    interactions — comments of the source do not come along.
+//  · A copied **field** stays as it is: its name (even if the class has one with
+//    that name already) and its type — a class that is there already (the same
+//    one, or one with the same name in another specification) is taken; only the
+//    classes that are missing come as a copy, under their own name.
 //  · References into the catalog (`dom:…`, `svc:…`) and simple types stay.
 //  · In the diagram bpmn-js assigns the IDs; `overlayPasted` then attaches the
 //    details of the source to the new steps (see clipboard.ts).
@@ -125,10 +129,62 @@ export function replaceType(spec: ProcessSpec, targetId: string, clip: { typeId:
 }
 
 /**
+ * What a pasted field relies on in a class: its kind, and per field (shared and per case) its
+ * name, its type — a class by its name, the IDs differ between specifications — and whether it
+ * is optional or a list or map — one level deep: a class it refers to by the same name is taken
+ * as the same. `all`: the classes its field types are looked up in. Not
+ * compared: the order of the fields (the generated Scala names its arguments), the status and
+ * the descriptions — the class in the target stays as it is, only the pasted field refers to it.
+ */
+const shapeOf = (t: TypeDef, all: TypeDef[]): string => {
+  const fieldShape = (fs: Field[] = []) => fs
+    .map(f => [f.name, all.find(x => x.id === f.type)?.name ?? f.type, !!f.optional, !!f.collection, !!f.map])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify([
+    t.kind,
+    fieldShape(t.fields),
+    (t.values ?? []).map(v => [v.name, fieldShape(v.fields)]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  ]);
+};
+
+/**
+ * The classes a pasted field refers to (`types`, its type first) in the target: a class
+ * that is there already — the same (same ID), or one with the same name and the same
+ * shape (kind, fields, cases) — is taken as it is; the others come as a copy (draft, new
+ * IDs) under their own name, or a free one if a different class has it. `idMap`: source
+ * ID → ID in the target.
+ */
+function fieldTypes(target: TypeDef[] | undefined, types: TypeDef[]): { types: TypeDef[]; idMap: Map<string, string> } {
+  const own = target ?? [];
+  const byId = new Map(own.map(t => [t.id, t]));
+  const byName = new Map(own.map(t => [t.name, t]));
+  const idMap = new Map<string, string>();
+  const missing: TypeDef[] = [];
+  for (const t of types) {
+    const named = byName.get(t.name);
+    const there = byId.get(t.id) ?? (named && shapeOf(named, own) === shapeOf(t, types) ? named : undefined);
+    if (there) idMap.set(t.id, there.id);
+    else missing.push(t);
+  }
+  const { types: copies, idMap: copied } = pasteTypes(own, missing);
+  copied.forEach((to, from) => idMap.set(from, to));
+  // a copy refers to a class that was there already: to that one
+  const retarget = (f: Field): Field => ({ ...f, type: idMap.get(f.type) ?? f.type });
+  return {
+    types: copies.map(t => ({
+      ...t,
+      ...(t.fields ? { fields: t.fields.map(retarget) } : {}),
+      ...(t.values ? { values: t.values.map(v => (v.fields ? { ...v, fields: v.fields.map(retarget) } : v)) } : {}),
+    })),
+    idMap,
+  };
+}
+
+/**
  * Attach a copied field to the class `typeId` — for a choice to
- * case number `valueIndex`, not to the shared fields. The name becomes unique in the
- * class (`street2`); classes the field refers to come along as a
- * copy. `null` if the class does not exist.
+ * case number `valueIndex`, not to the shared fields. The field stays as it is: its
+ * name (a name that is there already is shown as an issue, not renamed) and its type —
+ * see `fieldTypes`. `null` if the class does not exist.
  */
 export function pasteField(
   spec: ProcessSpec,
@@ -140,10 +196,8 @@ export function pasteField(
   if (!t) return null;
   const value = valueIndex !== undefined ? t.values?.[valueIndex] : undefined;
   if (valueIndex !== undefined && !value) return null;
-  const { types: added, idMap } = pasteTypes(spec.types, clip.types);
-  // Case of a choice: the shared fields count too — otherwise the name would exist twice
-  const siblings = value ? [...(t.fields ?? []), ...(value.fields ?? [])] : (t.fields ?? []);
-  const field = { ...copyField(clip.field, idMap), name: uniqueName(clip.field.name, new Set(siblings.map(f => f.name))) };
+  const { types: added, idMap } = fieldTypes(spec.types, clip.types);
+  const field = copyField(clip.field, idMap);
   const next: TypeDef = value
     ? { ...t, values: t.values!.map(v => (v === value ? { ...v, fields: [...(v.fields ?? []), field] } : v)) }
     : { ...t, fields: [...(t.fields ?? []), field] };

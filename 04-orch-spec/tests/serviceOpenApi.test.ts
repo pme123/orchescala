@@ -645,3 +645,16 @@ end PostClients
   const w2 = collectionFiles(withAdt, model).find(f => f.path.endsWith('PostClientsWorker.scala'))!.content;
   assert.match(w2, /\?\?\? \/\* TODO ServiceIn aus dem In bauen — ein ADT \*\//);
 });
+
+test('knownProjects: the projects with services first - the folder\'s and the catalog\'s - then those of the processes', async () => {
+  const { knownProjects } = await import('../src/services/catalogCollections');
+  const model = {
+    version: 1,
+    projects: [{ id: 'p1', name: 'acme-admin' }, { id: 'p2', name: 'acme-bpmn' }],
+    services: [{ id: 'globex-core-accountV1.GetAccount', name: 'GetAccount', kind: 'service', topic: 'globex-core-accountV1.GetAccount' }],
+  } as never;
+  assert.deepEqual(
+    knownProjects(model, ['initech-orchescala', undefined, 'acme-crm'], ['acme-bpmn', 'acme-cms', 'acme-crm']),
+    ['acme-crm', 'globex-core', 'initech-orchescala', 'acme-admin', 'acme-bpmn', 'acme-cms'],
+  );
+});

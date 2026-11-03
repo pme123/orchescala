@@ -9,12 +9,13 @@
 //
 // The mappings come from FEEL (feelScala.ts); what does not translate is a
 // `???` with the FEEL in a comment — the project compiles once it is filled.
-import { exampleValue, fieldAccess, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
+import { caseIdent, exampleValue, fieldAccess, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, TypeDef } from '../types';
 import {
   apiKey, apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection.ts';
-import { asText, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
+import { asText, feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
+import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
 
 export const indent = (text: string, by = '  ') => text.split('\n').map(l => (l ? by + l : l)).join('\n');
@@ -261,21 +262,43 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     const outVars = new Map(vars);
     if (s.serviceOut) outVars.set('body', { scala: 'body', type: s.serviceOut.type, optional: !!s.serviceOut.optional, collection: !!s.serviceOut.collection });
     outVars.set('headers', { scala: 'headers', headers: s.responseHeaders ?? [] });
-    const steps: string[] = [];
-    const args: string[] = [];
-    // an ADT Out is a TODO as a whole — its fields are not mapped one by one
-    for (const f of (outType?.kind === 'enum' ? [] : outType?.fields ?? []).filter(x => isFinished(x, idx))) {
-      const m = (s.outMappings ?? []).find(x => x.name === f.name)?.expression ?? '';
-      if (!m.trim()) { args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — aus body, headers oder dem In */`}`); continue; }
-      const v = forTarget(feelToScala(m, outVars, types, f), !!f.optional);
-      if (v.needed) {
-        steps.push(`${scalaName(f.name)} <- ${v.scala}.toRight(ServiceMappingError(${JSON.stringify(`${s.name}: ${f.name} fehlt in der Antwort`)}))`);
-        args.push(`${scalaName(f.name)} = ${scalaName(f.name)}`);
-      } else args.push(`${scalaName(f.name)} = ${v.scala}`);
-    }
+    // per field its value — a required one from an optional value is a step that fails with a message
+    const mapFields = (fields: Field[], expressionOf: (f: Field) => string) => {
+      const steps: string[] = [];
+      const args: string[] = [];
+      for (const f of fields.filter(x => isFinished(x, idx))) {
+        const m = expressionOf(f);
+        if (!m.trim()) { args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — aus body, headers oder dem In */`}`); continue; }
+        const v = forTarget(feelToScala(m, outVars, types, f), !!f.optional);
+        if (v.needed) {
+          steps.push(`${scalaName(f.name)} <- ${v.scala}.toRight(ServiceMappingError(${JSON.stringify(`${s.name}: ${f.name} fehlt in der Antwort`)}))`);
+          args.push(`${scalaName(f.name)} = ${scalaName(f.name)}`);
+        } else args.push(`${scalaName(f.name)} = ${v.scala}`);
+      }
+      return { steps, args };
+    };
+    const { steps, args } = mapFields(outType?.kind === 'enum' ? [] : outType?.fields ?? [],
+      f => (s.outMappings ?? []).find(x => x.name === f.name)?.expression ?? '');
     // `type ServiceOut = Out` — the response is the Out as it is
     const isOut = !!s.serviceOut && !s.serviceOut.collection && !!s.outTypeId && s.serviceOut.type === s.outTypeId && !s.noOut;
-    // an ADT Out: which case the response is, the mapper cannot know — a TODO with the cases
+    // an Out with cases: the first case whose condition holds, per case its fields (see outCases.ts)
+    const cases = hasOut && outType?.kind === 'enum' ? outCaseFields(outType) : [];
+    const chain = cases.length
+      ? caseChain(
+        cases.map((c, i) => {
+          const oc = outCaseOf(s.outCases, c.name);
+          const m = mapFields(c.fields, f => outCaseMapping(oc, f.name));
+          const name = `Out.${caseIdent(c.name)}`;
+          const value = m.args.length ? `${name}(\n${indent(m.args.join(',\n'), '  ')}\n)` : name;
+          return {
+            cond: oc.condition?.trim() ? feelCondition(oc.condition, outVars, types).scala
+              : i === cases.length - 1 ? undefined : `??? /* TODO ${c.name}: keine Bedingung — wann ist es dieser Fall? */`,
+            value: m.steps.length ? ['for', ...m.steps.map(st => `  ${st}`), `yield ${value}`].join('\n') : `Right(${value})`,
+          };
+        }),
+        `Left(ServiceMappingError(${JSON.stringify(`${s.name}: kein Fall des Out passt zur Antwort`)}))`,
+      )
+      : null;
     const out = !hasOut ? 'NoOutput()'
       : outType?.kind === 'enum' ? adtTodo(outType)
         : `Out(\n${indent(args.join(',\n'), '        ')}\n      )`;
@@ -284,10 +307,13 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
       lines.push('    Right(out.outputBody)', '  end outputMapper', '');
       body.push(...lines);
     } else {
-    const uses = (name: string) => args.some(a => new RegExp(`\\b${name}\\b`).test(a.split(' = ').slice(1).join(' = '))) || steps.some(st => new RegExp(`\\b${name}\\b`).test(st));
+    // the Scala that reads `name` — not in a text (the messages name the service) or a comment
+    const code = (scala: string) => scala.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/\/\*[\s\S]*?\*\//g, '');
+    const uses = (name: string) => new RegExp(`\\b${name}\\b`).test(code(chain ?? [...args.map(a => a.split(' = ').slice(1).join(' = ')), ...steps].join('\n')));
     if (uses('body')) lines.push('    val body = out.outputBody');
     if (uses('headers')) lines.push('    val headers = out.headers');
-    if (steps.length) lines.push('    for', ...steps.map(st => `      ${st}`), `    yield ${out.replace(/\n {6}/g, '\n    ')}`);
+    if (chain) lines.push(indent(chain, '    '));
+    else if (steps.length) lines.push('    for', ...steps.map(st => `      ${st}`), `    yield ${out.replace(/\n {6}/g, '\n    ')}`);
     else lines.push(`    Right(\n      ${out}\n    )`);
     lines.push('  end outputMapper', '');
     body.push(...lines);

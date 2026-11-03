@@ -145,3 +145,32 @@ test('conditions in FEEL become Scala — comparisons, null, and/or/not, Option 
   assert.equal(c('= (client.segment = 1 or client.segment = 2) and client.active'), '(client.segment.contains(1) || client.segment.contains(2)) && client.active');
   assert.match(c('= count(client) > 1'), /^\?\?\? \/\* TODO Bedingung: count\(client\) > 1 \*\//);
 });
+
+test('an Out with cases (ADT): one step that takes the first case whose condition holds - what a case needs fails only there', () => {
+  const o = orchestration();
+  const out = o.types.find(x => x.id === o.outTypeId)!;
+  out.kind = 'enum';
+  out.fields = [{ id: 'f4', name: 'segment', type: 'Int' }];
+  out.values = [{ name: 'Changed', fields: [{ id: 'f3', name: 'etag', type: 'String' }] }, { name: 'Unchanged' }];
+  const w = orchestrationFiles({
+    ...o,
+    outMappings: [],
+    outCases: [
+      { name: 'Changed', condition: '= getClient.name != name', mappings: [{ name: 'etag', expression: '= getClient.etag' }, { name: 'segment', expression: '= crm.segment' }] },
+      { name: 'Unchanged', mappings: [{ name: 'segment', expression: '= crm.segment' }] },
+    ],
+  }, [collection()])[1].content;
+  assert.match(w, /out(\d+) <- \(\n\s+if getClient\.name != in\.name then\n\s+\(for \{\n\s+etag\d+ <- ZIO\.fromOption\(getClient\.etag\)\.orElseFail\(CustomError\("UpdateClient: etag fehlt"\)\)\n\s+\} yield Out\.Changed\(\n\s+segment = crm\.segment,\n\s+etag = etag\d+\n\s+\)\)\n\s+else\n\s+ZIO\.succeed\(Out\.Unchanged\(\n\s+segment = crm\.segment\n\s+\)\)\n\s+\)/, w);
+  assert.match(w, /yield out\d+\n/, w);
+});
+
+test('an Out that is an enum without cases yet: a TODO to choose the case - no chain', () => {
+  const o = orchestration();
+  const out = o.types.find(x => x.id === o.outTypeId)!;
+  out.kind = 'enum';
+  out.fields = [];
+  out.values = [];
+  const w = orchestrationFiles({ ...o, outMappings: [] }, [collection()])[1].content;
+  assert.match(w, /\?\?\? \/\* TODO Out ist eine Auswahl \(enum\) — den Fall wählen: noch keine Fälle \*\//, w);
+  assert.doesNotMatch(w, /out\d+ <- \(/, w);
+});

@@ -35,8 +35,8 @@ const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
 export default function ServicesView({ onOpen }: { onOpen: (slug: string) => void }) {
   const { isDark, model, specs } = useStore();
   const { services, servicesLoading, servicesUnreadable, createService, deleteService } = useServices();
-  // as for a process: the projects of the catalog, the processes and the services
-  const projects = useMemo(() => knownProjects(model, [...specs.map(s => s.data.project), ...services.map(s => s.data.project)]), [model, specs, services]);
+  // the projects with services first, then those of the catalog and the processes
+  const projects = useMemo(() => knownProjects(model, services.map(s => s.data.project), specs.map(s => s.data.project)), [model, specs, services]);
   const { canEdit, canDelete } = usePermissions();
   const confirm = useConfirm();
   const c = cls(isDark);

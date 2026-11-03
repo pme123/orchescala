@@ -15,7 +15,7 @@ import { STATUSES, STATUS_META, type Mapping, type Model, type Status, type Step
 import { cls } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { collectionPackage, processFrame } from './collection';
-import { MappingRow, NothingChoice, SaveBadge } from './CollectionView';
+import { MappingRow, NothingChoice, OutCasesEditor, SaveBadge } from './CollectionView';
 import { ScalaExport } from './CollectionExport';
 import { helperCommandOf } from '../exporters';
 import {
@@ -421,7 +421,13 @@ function Overview({ spec, refs, types, collections, steps, issues, flowError, ca
           <>
             <StandaloneTypeEditor type={outType} spec={frame} isDark={isDark} canEdit={canEdit} model={model} fixed adtSwitch onTypes={onTypes} onOpenType={() => {}} />
             <div className={`text-[10px] ${c.muted}`}>Je Feld des Out, woher es kommt — FEEL auf das In und die Ergebnisse</div>
-            {(outType.fields ?? []).filter(f => f.name).map(f => {
+            {outType.kind === 'enum' ? (
+              <OutCasesEditor type={outType} cases={spec.outCases} types={types} vars={endVars} canEdit={canEdit} isDark={isDark}
+                placeholderOf={f => (endVars.some(v => v.name === f.name) ? `= ${f.name}` : '= …')}
+                requiredOf={f => !endVars.some(v => v.name === f.name)}
+                noMatch={<>trifft keiner zu, scheitert der Worker mit <span className="font-mono">CustomError</span></>}
+                onChange={outCases => update(o => ({ ...o, outCases: outCases.length ? outCases : undefined }))} />
+            ) : (outType.fields ?? []).filter(f => f.name).map(f => {
               const m = (spec.outMappings ?? []).find(x => x.name === f.name);
               const same = endVars.some(v => v.name === f.name);
               return (
