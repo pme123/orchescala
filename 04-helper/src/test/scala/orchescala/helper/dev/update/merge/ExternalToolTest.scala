@@ -64,6 +64,9 @@ class ExternalToolTest extends FunSuite:
     assertEquals(cat.exitCode -> cat.out.text(), 0 -> "")
     assert((System.nanoTime() - start).nanos < 20.seconds, "it waited for its input")
     assertEquals(ExternalTool.call(Seq("cat"), 30.seconds, stdin = "given").out.text(), "given")
+    // an input bigger than a pipe's buffer, the output too: given and read at the same time - no deadlock
+    val big = Array.fill[Byte](1 << 20)('x'.toByte)
+    assertEquals(ExternalTool.call(Seq("cat"), 30.seconds, stdin = big).out.bytes.length, big.length)
 
   test("the output in a ToolTimeout: a URL without its user or token"):
     assertEquals(

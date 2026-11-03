@@ -28,9 +28,10 @@ object ExternalTool:
 
   /** Runs the command - its result whatever the exit code; `ToolTimeout` if it did not finish in
     * time - the tool and reading its output under one deadline: a tool still running is stopped
-    * with all the processes it started; a tool that ended while a process it started still holds
-    * its output (a credential helper, a child in the background) is no result either. Without an
-    * input (`os.Pipe`) the tool's input is closed - a tool reading it does not wait.
+    * with the processes it started, as far as they are found (see `started`); a tool that ended
+    * while a process it started still holds its output (a credential helper, a child in the
+    * background) is no result either. Without an input (`os.Pipe`) the tool's input is closed -
+    * a tool reading it does not wait. An input is given in a thread of its own (os-lib).
     */
   def call(
       command: Seq[String],
@@ -115,8 +116,9 @@ object ExternalTool:
     Reading(thread, error)
   end read
 
-  /** Stops the process and everything it started (`sh -c`, git's helpers, node's children). The
-    * descendants are taken before: once the process is gone, its children belong to another one.
+  /** Stops the processes and what they started that is still theirs (`sh -c`, git's helpers,
+    * node's children). The descendants are taken before: once a process is gone, its children
+    * belong to another one.
     */
   private def stopAll(processes: ProcessHandle*): Unit =
     val all   = processes.flatMap(p => p +: p.descendants().iterator.asScala.toSeq).distinct
