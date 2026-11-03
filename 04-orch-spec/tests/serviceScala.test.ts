@@ -341,22 +341,43 @@ test('FEEL if x != null with x of some cases of an ADT In: one match on the case
     '(in match { case v: In.ClientKey => (v.clientKey match { case Some(clientKey) => Some(Seq(clientKey)); case None => None }); case v: In.Standard => Some(v.clientKeys) })');
 });
 
-test('an Out with cases (ADT): enum Out in the domain, the outputMapper a TODO that names the cases', () => {
-  const c = collection();
-  const adt: ServiceCollectionSpec = {
-    ...c,
-    types: c.types.map(t => (t.id !== 't-out' ? t : {
-      ...t, kind: 'enum', fields: [],
-      values: [
-        { name: 'Found', fields: [{ id: 'f', name: 'client', type: 't-client' }] },
-        { name: 'NotFound' },
-      ],
-    })),
-  };
-  const files = collectionFiles(adt);
-  const domain = files.find(f => f.path.endsWith('/GetClient.scala') && f.path.startsWith('01-domain'))!.content;
+const withAdtOut = (c: ServiceCollectionSpec, outCases?: ServiceCollectionSpec['services'][number]['outCases']): ServiceCollectionSpec => ({
+  ...c,
+  types: c.types.map(t => (t.id !== 't-out' ? t : {
+    ...t, kind: 'enum', fields: [{ id: 'g', name: 'etag', type: 'String', optional: true }],
+    values: [
+      { name: 'Found', fields: [{ id: 'f', name: 'client', type: 't-client' }] },
+      { name: 'NotFound' },
+    ],
+  })),
+  services: c.services.map(s => ({ ...s, ...(outCases ? { outCases } : {}) })),
+});
+const workerOf = (c: ServiceCollectionSpec) => collectionFiles(c).find(f => f.path.endsWith('GetClientWorker.scala'))!.content;
+
+test('an Out with cases (ADT): enum Out in the domain; without a mapping the outputMapper names what is missing', () => {
+  const adt = withAdtOut(collection());
+  const domain = collectionFiles(adt).find(f => f.path.endsWith('/GetClient.scala') && f.path.startsWith('01-domain'))!.content;
   assert.match(domain, /enum Out:/, domain);
   assert.doesNotMatch(domain, /type Out = NoOutput/, domain);
-  const worker = files.find(f => f.path.endsWith('GetClientWorker.scala'))!.content;
-  assert.match(worker, /\?\?\? \/\* TODO Out ist eine Auswahl \(enum\) — den Fall wählen: Out\.Found\(…\), Out\.NotFound \*\//, worker);
+  const worker = workerOf(adt);
+  // the first case without a condition: a TODO - the last one is the otherwise
+  assert.match(worker, /\n {4}if \?\?\? \/\* TODO Found: keine Bedingung — wann ist es dieser Fall\? \*\/ then\n {6}Right\(Out\.Found\(\n {8}etag = None,\n {8}client = \?\?\? \/\* TODO client: kein Mapping/, worker);
+  assert.match(worker, /\n {4}else\n {6}Right\(Out\.NotFound\(\n {8}etag = None\n {6}\)\)\n {2}end outputMapper/, worker);
+});
+
+test('an Out with cases (ADT): per case its condition and its fields - the first case that holds, otherwise an error', () => {
+  const adt = withAdtOut(collection(), [
+    { name: 'Found', condition: '= body.address != null', mappings: [{ name: 'client', expression: '= body' }, { name: 'etag', expression: '= headers.etag' }] },
+    { name: 'NotFound', condition: '= body.address = null' },
+  ]);
+  const worker = workerOf(adt);
+  assert.match(worker, /\n {4}val body = out\.outputBody\n {4}val headers = out\.headers\n/, worker);
+  assert.match(worker, /\n {4}if body\.address\.isDefined then\n {6}Right\(Out\.Found\(\n {8}etag = headers\.find\(_\._1\.equalsIgnoreCase\("etag"\)\)\.map\(_\._2\),\n {8}client = body\n {6}\)\)/, worker);
+  assert.match(worker, /\n {4}else if body\.address\.isEmpty then\n {6}Right\(Out\.NotFound\(\n {8}etag = None\n {6}\)\)\n {4}else\n {6}Left\(ServiceMappingError\("GetClient: kein Fall des Out passt zur Antwort"\)\)\n {2}end outputMapper/, worker);
+  // a required field from an optional value: a step in its case only
+  const optional = withAdtOut(collection(), [{ name: 'Found', condition: '= body.name != null', mappings: [{ name: 'client', expression: '= body.address' }] }]);
+  const t = optional.types.find(x => x.id === 't-out')!;
+  t.values![0].fields = [{ id: 'f', name: 'address', type: 't-addr' }];
+  optional.services[0].outCases = [{ name: 'Found', condition: '= body.name != null', mappings: [{ name: 'address', expression: '= body.address' }] }];
+  assert.match(workerOf(optional), /then\n {6}for\n {8}address <- body\.address\.toRight\(ServiceMappingError\("GetClient: address fehlt in der Antwort"\)\)\n {6}yield Out\.Found\(\n {8}etag = None,\n {8}address = address\n {6}\)/);
 });

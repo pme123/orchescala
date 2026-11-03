@@ -12,7 +12,7 @@
 //   exclusive      if … then … else …               (what a branch produces is an Option afterwards)
 //   end            yield Out(…)
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
-import { importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
+import { caseIdent, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala.ts';
@@ -20,6 +20,7 @@ import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
 } from './orchestration.ts';
+import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
@@ -149,19 +150,45 @@ const startWithGenerator = (lines: string[]): string[] =>
 function outValue(o: ServiceOrchestrationSpec, vars: OrchVar[], ctx: Ctx, pre: string[]): string {
   if (o.noOut) return 'NoOutput()';
   const out = o.types.find(t => t.id === o.outTypeId);
-  if (out?.kind === 'enum' && (out.values ?? []).length) return adtTodo(out);
+  const sv = scalaVars(vars);
+  // per field its value — `expressionOf` empty: the variable of the same name, if there is one
+  const mapFields = (fields: Field[], expressionOf: (f: Field) => string, steps: string[]) =>
+    fields.filter(f => isFinished(f, ctx.idx)).map((f: Field) => {
+      const expr = expressionOf(f).trim() || (sv.has(f.name) ? `= ${f.name}` : '');
+      if (!expr) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: kein Mapping`)}`;
+      const v = forTarget(feelToScala(expr, sv, ctx.types, f), !!f.optional);
+      if (!v.needed) return `${scalaName(f.name)} = ${v.scala}`;
+      const tmp = `${f.name}${++ctx.n.value}`;
+      steps.push(`${tmp} <- ZIO.fromOption(${v.scala}).orElseFail(CustomError(${JSON.stringify(`${o.name}: ${f.name} fehlt`)}))`);
+      return `${scalaName(f.name)} = ${tmp}`;
+    });
+  if (out?.kind === 'enum') {
+    const cases = outCaseFields(out);
+    if (!cases.length) return adtTodo(out);
+    // the first case whose condition holds - as one step: what a case needs fails only in that case
+    const chain = caseChain(
+      cases.map((c, i) => {
+        const oc = outCaseOf(o.outCases, c.name);
+        const steps: string[] = [];
+        const args = mapFields(c.fields, f => outCaseMapping(oc, f.name), steps);
+        const name = `Out.${caseIdent(c.name)}`;
+        const value = args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name;
+        const cond = oc.condition?.trim() ? feelCondition(oc.condition, sv, ctx.types).scala
+          : i === cases.length - 1 ? undefined : todo(`${c.name}: keine Bedingung — wann ist es dieser Fall?`);
+        return {
+          cond,
+          value: steps.length ? `(for {\n${indent(steps.join('\n'), '  ')}\n} yield ${value})` : `ZIO.succeed(${value})`,
+        };
+      }),
+      `ZIO.fail(CustomError(${JSON.stringify(`${o.name}: kein Fall des Out passt`)}))`,
+    );
+    const tmp = `out${++ctx.n.value}`;
+    pre.push(`${tmp} <- (\n${indent(chain, '  ')}\n)`);
+    return tmp;
+  }
   const fields = (out?.fields ?? []).filter(f => isFinished(f, ctx.idx));
   if (!fields.length) return 'NoOutput()';
-  const sv = scalaVars(vars);
-  const args = fields.map((f: Field) => {
-    const expr = (o.outMappings ?? []).find(m => m.name === f.name)?.expression?.trim() || (sv.has(f.name) ? `= ${f.name}` : '');
-    if (!expr) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: kein Mapping`)}`;
-    const v = forTarget(feelToScala(expr, sv, ctx.types, f), !!f.optional);
-    if (!v.needed) return `${scalaName(f.name)} = ${v.scala}`;
-    const tmp = `${f.name}${++ctx.n.value}`;
-    pre.push(`${tmp} <- ZIO.fromOption(${v.scala}).orElseFail(CustomError(${JSON.stringify(`${o.name}: ${f.name} fehlt`)}))`);
-    return `${scalaName(f.name)} = ${tmp}`;
-  });
+  const args = mapFields(fields, f => (o.outMappings ?? []).find(m => m.name === f.name)?.expression ?? '', pre);
   return `Out(\n${indent(args.join(',\n'), '  ')}\n)`;
 }
 
