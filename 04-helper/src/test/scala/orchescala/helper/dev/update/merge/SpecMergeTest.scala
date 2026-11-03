@@ -283,8 +283,8 @@ class SpecMergeTest extends FunSuite:
   test("a file cannot be written midway: the merge stops there - what was written and deleted before is reported"):
     inProject: project =>
       os.write(project / "old.txt", "old")
-      // b/c.txt cannot be written: a folder is in its place
-      os.makeDir.all(project / "b" / "c.txt")
+      // b/c.txt cannot be written: a folder with a file is in its place
+      os.write(project / "b" / "c.txt" / "keep.txt", "keep", createFolders = true)
       val plan = MergePlan(
         "acme-demo",
         Seq(
@@ -302,6 +302,9 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.read(project / "a.txt"), "a")
       assert(!os.exists(project / "old.txt"))
       assert(!os.exists(project / "d.txt"))
+      // the file it stopped at is as it was, nothing of the write is left
+      assertEquals(os.read(project / "b" / "c.txt" / "keep.txt"), "keep")
+      assertEquals(os.list(project / "b").map(_.last), Seq("c.txt"))
       // an exception without a message: the exception itself, not "null"
       val noMessage = MergeIncomplete(stopped.done, "b/c.txt", NullPointerException())
       assert(noMessage.getMessage.contains("(java.lang.NullPointerException)"), noMessage.getMessage)
