@@ -128,7 +128,7 @@ object SpecSources:
       extract: os.Path => Seq[String] = dir => Seq("tar", "-x", "-C", dir.toString)
   ): Option[os.Path] =
     // git never asks for a credential: it fails at once instead of waiting for its timeout; and it
-    // answers in English whatever the locale - its messages tell "no spec" from a failure
+    // answers in English whatever the locale - "not a git repository" tells no repository from a failure
     val noPrompt           = Map("GIT_TERMINAL_PROMPT" -> "0", "LC_ALL" -> "C", "LANGUAGE" -> "C")
     def git(args: String*) = ExternalTool.call("git" +: args, ExternalTool.gitTimeout, cwd = project, env = noPrompt)
     // None only where git says there is no spec - any other failure (dubious ownership, a damaged
@@ -139,14 +139,14 @@ object SpecSources:
       val root   = git("rev-parse", "--show-toplevel")
       if root.exitCode != 0 && root.err.text().contains("not a git repository") then break(None)
       val top    = os.Path(orFail(root).out.trim())
-      val spec   = s"$rev:${orFail(git("rev-parse", "--show-prefix")).out.trim()}$specDir"
+      val path   = s"${orFail(git("rev-parse", "--show-prefix")).out.trim()}$specDir"
+      val spec   = s"$rev:$path"
       // --verify --quiet: exit code 1 - no such commit (none yet)
       val commit = git("rev-parse", "--verify", "--quiet", s"$rev^{commit}")
       if commit.exitCode == 1 then break(None)
       orFail(commit)
-      val there  = git("cat-file", "-e", spec)
-      if there.exitCode != 0 && there.err.text().contains("does not exist") then break(None)
-      orFail(there)
+      // no spec/ in the commit: ls-tree lists nothing - by its output, not by a message
+      if orFail(git("ls-tree", "--full-tree", "--name-only", rev, "--", path)).out.trim().isEmpty then break(None)
       val archive = orFail(ExternalTool.call(Seq("git", "archive", "--format=tar", spec), ExternalTool.gitTimeout, cwd = top, env = noPrompt))
       val dir     = os.temp.dir(prefix = "orch-spec-")
       var kept    = false
