@@ -57,6 +57,11 @@ export function fmtTimestamp(iso: string): string {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// A URL for display: %20 and umlauts readable; a malformed one stays as it is
+export function displayUrl(url: string): string {
+  try { return decodeURI(url); } catch { return url; }
+}
+
 export function basename(path: string): string {
   const i = path.lastIndexOf('/');
   return i >= 0 ? path.slice(i + 1) : path;
