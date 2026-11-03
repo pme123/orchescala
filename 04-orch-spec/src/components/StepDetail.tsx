@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, conditionExpected, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -1660,6 +1660,10 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
   const collection = mi.collection ?? '';
   const feel = collection.trim() ? checkFeel(`= ${collection}`, variables, LIST_EXPECTED) : null;
   const element = mi.element ?? '';
+  // what the collection points to and what the element is then — type and origin visible
+  const hit = collectionNode(collection, variables ?? []);
+  const elem = element.trim() && /^[A-Za-z_]\w*$/.test(element.trim()) ? elementNode(element.trim(), collection, variables ?? []) : null;
+  const elemKind = elem?.type === 'context' ? 'class' : 'scalar';
   const badElement = !!element.trim() && !/^[A-Za-z_][\w]*$/.test(element.trim());
   const set = (k: 'collection' | 'element', v: string) => {
     const { [k]: _, ...rest } = mi;
@@ -1674,7 +1678,15 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
         <Repeat size={10} /> Mehrfachausführung{mi.sequential ? ' (nacheinander)' : ' (parallel)'}
       </div>
       <div className="space-y-0.5">
-        <div>Sammlung — je Element läuft der Schritt einmal</div>
+        <div className="flex items-center gap-1.5">
+          <span className="flex-1 min-w-0">Sammlung — je Element läuft der Schritt einmal</span>
+          {hit && hit.type !== 'any' && (
+            <span title={`${hit.label} — ${hit.source}`}
+              className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(hit.type === 'list' ? 'list' : 'class', isDark).cls}`}>
+              {kindStyle(hit.type === 'list' ? 'list' : 'class', isDark).icon}<span className="truncate">{hit.label}</span>
+            </span>
+          )}
+        </div>
         <FeelInput value={collection ? `= ${collection}` : ''} disabled={!canEdit} isDark={isDark} variables={variables}
           onChange={v => set('collection', v.replace(/^\s*=\s*/, ''))}
           placeholder="= order.items"
@@ -1684,6 +1696,12 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
           </p>
         ))}
+        {hit?.type === 'any' && (
+          <p className={`flex items-start gap-1 ${warn}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+            <span>Typ von «{collection.trim()}» unbekannt ({hit.source}) — ob es eine Liste ist und welche Felder das Element hat, lässt sich nicht prüfen. Den Typ dort nachziehen, woher die Variable kommt.</span>
+          </p>
+        )}
       </div>
       <div className="space-y-0.5">
         <div>Instanzvariable — das aktuelle Element · Zähler <span className="font-mono">loopCounter</span></div>
@@ -1691,6 +1709,18 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
           placeholder="item"
           title={`Name der Variable für das aktuelle Element — im BPMN ${engine === 'c8' ? 'inputElement' : 'camunda:elementVariable'}; im Schritt und allem darin bekannt.`}
           className={`w-full font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
+        {elem && elem.type !== 'any' && (
+          <div className="flex items-start gap-1.5" title={elem.description}>
+            <span className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(elemKind, isDark).cls}`}>
+              {kindStyle(elemKind, isDark).icon}<span className="truncate">{elem.label}</span>
+            </span>
+            {!!elem.children?.length && (
+              <span className={`min-w-0 font-mono text-[9px] ${c.muted}`}>
+                {elem.children.map(f => `${element.trim()}.${f.name}`).join(' · ')}
+              </span>
+            )}
+          </div>
+        )}
         {badElement && (
           <p className={`flex items-start gap-1 ${err}`}>
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Nur ein Variablenname — Buchstaben, Ziffern, «_», kein Punkt.</span>

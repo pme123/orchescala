@@ -734,21 +734,40 @@ export function withMultiInstance(vars: VarNode[], scopes: MultiInstanceSpec[] |
   add({ name: 'loopCounter', type: 'number', label: 'Int', source: 'Mehrfachausführung', description: 'Nummer des aktuellen Durchlaufs, ab 1' });
   for (const mi of scopes) {
     const name = mi.element?.trim();
-    if (!name) continue;
-    const coll = mi.collection?.trim() ?? '';
-    let pool = vars;
-    let hit: VarNode | undefined;
-    if (/^[A-Za-z_]\w*(\s*\.\s*[A-Za-z_]\w*)*$/.test(coll)) {
-      for (const seg of coll.replace(/\s/g, '').split('.')) { hit = pool.find(v => v.name === seg); if (!hit) break; pool = hit.children ?? []; }
-    } else hit = undefined;
-    const fields = hit?.type === 'list' && hit.children?.length ? hit.children : null;
-    add({
-      name, source: 'Mehrfachausführung', description: `Aktuelles Element von «${coll || 'Sammlung'}»`,
-      type: fields ? 'context' : 'any', label: fields ? 'Element' : '?',
-      ...(fields ? { children: fields } : {}),
-    });
+    if (name) add(elementNode(name, mi.collection ?? '', vars));
   }
   return out;
+}
+
+/** The variable a collection path points to (`order.items`) — undefined for any other expression or an unknown path */
+export function collectionNode(collection: string, vars: VarNode[]): VarNode | undefined {
+  const coll = collection.trim();
+  if (!/^[A-Za-z_]\w*(\s*\.\s*[A-Za-z_]\w*)*$/.test(coll)) return undefined;
+  let pool = vars;
+  let hit: VarNode | undefined;
+  for (const seg of coll.replace(/\s/g, '').split('.')) { hit = pool.find(v => v.name === seg); if (!hit) return undefined; pool = hit.children ?? []; }
+  return hit;
+}
+
+/**
+ * The current element of a multi-instance: the element type of the collection
+ * (`Seq[PrintContent]` → `PrintContent` with its fields, `Seq[String]` → text);
+ * without a known list its type stays open.
+ */
+export function elementNode(name: string, collection: string, vars: VarNode[]): VarNode {
+  const coll = collection.trim();
+  const hit = collectionNode(coll, vars);
+  const list = hit?.type === 'list' ? hit : null;
+  const base = list ? typeShape(list.label).base : '';
+  const scalar = list && !list.children?.length && isScalar(base) ? SCALAR_FEEL[base] ?? 'string' : null;
+  const fields = list?.children?.length ? list.children : null;
+  return {
+    name, source: 'Mehrfachausführung',
+    description: `Aktuelles Element von «${coll || 'Sammlung'}»${list ? ` (${list.label} · ${list.source})` : ''}`,
+    type: fields ? 'context' : scalar ?? 'any',
+    label: list && base && (fields || scalar) ? base : fields ? 'Element' : '?',
+    ...(fields ? { children: fields } : {}),
+  };
 }
 
 /**
