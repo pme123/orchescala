@@ -111,7 +111,7 @@ function PasteFieldButton({ typeId, valueIndex, isDark }: { typeId: string; valu
   const m = useClipboard().model;
   const c = cls(isDark);
   if (!actions || m?.kind !== 'field') return null;
-  const mit = m.types.length ? ` — mit ${m.types.length === 1 ? 'einer Klasse' : `${m.types.length} Klassen`} als Kopie` : '';
+  const mit = m.types.length ? ' — mit seinem Typ; Klassen, die es hier noch nicht gibt, kommen als Kopie mit' : '';
   return (
     <button onClick={() => actions.pasteField(typeId, valueIndex)}
       title={`Feld «${m.field.name}» aus «${m.source.title || m.source.slug}» einfügen${mit}`}
