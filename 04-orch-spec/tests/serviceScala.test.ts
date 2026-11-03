@@ -401,3 +401,10 @@ test('an Out that is a plain enum (cases without fields): per case its condition
   const worker = workerOf(plain);
   assert.match(worker, /\n {4}val body = out\.outputBody\n {4}if body\.address\.isDefined then\n {6}Right\(Out\.Active\)\n {4}else\n {6}Right\(Out\.Blocked\)\n {2}end outputMapper/, worker);
 });
+
+test('an Out with cases: an enum without cases yet is no Out (yet); a condition that does not translate is a ??? with its FEEL', () => {
+  const none: ServiceCollectionSpec = { ...collection(), types: collection().types.map(t => (t.id !== 't-out' ? t : { ...t, kind: 'enum', fields: undefined, values: [] })) };
+  assert.match(workerOf(none), /\n {4}Right\(\n {6}NoOutput\(\)\n {4}\)\n {2}end outputMapper/);
+  const untranslated = withAdtOut(collection(), [{ name: 'Found', condition: '= count(body) > 1' }]);
+  assert.match(workerOf(untranslated), /\n {4}if \?\?\? \/\* TODO Bedingung: count\(body\) > 1 \*\/ then\n/, workerOf(untranslated));
+});

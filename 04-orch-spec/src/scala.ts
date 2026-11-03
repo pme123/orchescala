@@ -1479,7 +1479,6 @@ export function isSimpleEnum(typeRef: string, idx: TypeIndex): boolean {
 /** Name of a case without backticks — as it appears in `values`. */
 export const caseName = (c: string): string => c.replace(/^`|`$/g, '');
 /** A case as a Scala identifier: `canceled`, but `` `output-mocked` `` */
-/** A case as a Scala identifier — backticks where it needs them. */
 export const caseIdent = (c: string): string => scalaIdent(caseName(c));
 
 /**

@@ -1,6 +1,8 @@
 // An `Out` with cases (enum / ADT) in the output mapping of a service or an orchestration:
 // per case a condition (FEEL) and a FEEL expression per field of the case. The worker takes
-// the first case whose condition holds; a case without a condition is the otherwise.
+// the first case whose condition holds, in the order of the Out's cases (not the order they
+// are saved in); the last case without a condition is the otherwise. A condition that does not
+// translate to Scala is a `???` with the FEEL, like every other mapping.
 import type { Field, Mapping, TypeDef } from '../types.ts';
 import type { OutCase } from './types.ts';
 
