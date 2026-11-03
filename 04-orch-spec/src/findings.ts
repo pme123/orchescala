@@ -9,7 +9,7 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
+import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
@@ -46,11 +46,13 @@ export function collectFindings(spec: ProcessSpec, model: Model | null, steps: S
   const variables = overview.variables.filter(v => !v.local).map(v => v.node);
   const own = processVariableWarnings(overview);
   if (own.length) out.set(PROCESS_FINDINGS, { errors: [], warnings: own, inline: own });
+  // at each step what the steps before it wrote — the latest writer decides the type
+  const byStep = variablesByStep(spec, model, variables);
   const scopes = multiInstanceScopes(spec.steps);
   const wiring = wiringSteps(spec);
   const kinds = timerKinds(spec.steps);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables, { scopes, wiring, kinds });
+    const f = stepFindings(step, spec, model, byStep.get(step.id) ?? variables, { scopes, wiring, kinds });
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;

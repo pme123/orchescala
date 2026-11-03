@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -375,7 +375,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   // The process variables with their paths — for the FEEL check and suggestions;
   // for the outputs first the result of the service (the fields of its Out)
   const scopes = useMemo(() => multiInstanceScopes(spec.steps).get(step.id), [spec.steps, step.id]);
-  const baseVariables = useMemo(() => processVariables(spec, model), [spec, model]);
+  // as they are at this step: what a step before it wrote replaces the earlier type
+  const baseVariables = useMemo(() => variablesByStep(spec, model).get(step.id) ?? processVariables(spec, model), [spec, model, step.id]);
   const variables = useMemo(() => withMultiInstance(baseVariables, scopes), [baseVariables, scopes]);
   // the collection of a multi-instance is read before its instances — without its own element
   const outerVariables = useMemo(() => withMultiInstance(baseVariables, step.multiInstance ? scopes?.slice(0, -1) : scopes), [baseVariables, scopes, step.multiInstance]);
@@ -1814,6 +1815,9 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
           </p>
         ))}
+        {hit && hit.type !== 'any' && (
+          <p className={`text-[9px] ${c.muted}`}>Typ aus: {hit.source}</p>
+        )}
         {hit?.type === 'any' && (
           <p className={`flex items-start gap-1 ${warn}`}>
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
@@ -1822,23 +1826,19 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
         )}
       </div>
       <div className="space-y-0.5">
-        <div>Instanzvariable — das aktuelle Element · Zähler <span className="font-mono">loopCounter</span></div>
+        <div className="flex items-center gap-1.5">
+          <span className="flex-1 min-w-0">Instanzvariable — das aktuelle Element · Zähler <span className="font-mono">loopCounter</span></span>
+          {elem && elem.type !== 'any' && (
+            <span title={`${elem.description ?? ''}${elem.children?.length ? `\nFelder: ${elem.children.map(f => f.name).join(', ')}` : ''}`}
+              className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(elemKind, isDark).cls}`}>
+              {kindStyle(elemKind, isDark).icon}<span className="truncate">{elem.label}</span>
+            </span>
+          )}
+        </div>
         <input value={element} disabled={!canEdit} onChange={e => set('element', e.target.value)}
           placeholder="item"
           title={`Name der Variable für das aktuelle Element — im BPMN ${engine === 'c8' ? 'inputElement' : 'camunda:elementVariable'}; im Schritt und allem darin bekannt.`}
           className={`w-full font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
-        {elem && elem.type !== 'any' && (
-          <div className="flex items-start gap-1.5" title={elem.description}>
-            <span className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle(elemKind, isDark).cls}`}>
-              {kindStyle(elemKind, isDark).icon}<span className="truncate">{elem.label}</span>
-            </span>
-            {!!elem.children?.length && (
-              <span className={`min-w-0 font-mono text-[9px] ${c.muted}`}>
-                {elem.children.map(f => `${element.trim()}.${f.name}`).join(' · ')}
-              </span>
-            )}
-          </div>
-        )}
         {hidden && (
           <p className={`flex items-start gap-1 ${warn}`}>
             <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
