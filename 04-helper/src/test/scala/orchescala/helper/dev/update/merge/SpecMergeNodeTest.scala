@@ -16,10 +16,10 @@ class SpecMergeNodeTest extends FunSuite:
 
   private def tool(name: String) = scala.util.Try(os.read.bytes(os.resource / "orch-doc-tools" / name)).isSuccess
 
-  // locally skipped - on CI (the environment variable CI is set) a missing precondition is an
-  // error: the merge from Orch Spec must be tested there. Intended - set CI locally only with Node.js.
+  // locally skipped - on GitHub Actions (GITHUB_ACTIONS is set) a missing precondition is an
+  // error: the merge from Orch Spec must be tested there
   private def required(ok: Boolean, what: String): Unit =
-    if sys.env.contains("CI") then assert(ok, s"$what on CI - the merge from Orch Spec must be tested there")
+    if sys.env.contains("GITHUB_ACTIONS") then assert(ok, s"$what on CI - the merge from Orch Spec must be tested there")
     else assume(ok, what)
 
   private def inGitProject(body: DevConfig ?=> os.Path => Unit): Unit =

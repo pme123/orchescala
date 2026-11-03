@@ -100,8 +100,6 @@ object SpecMerge:
     val neu         = newPlanned.map(_._2)
     messages ++= neu.flatMap(_.notes)
 
-    // a file two entries give is taken from the first - if they give it with different contents,
-    // a note (for the new export: that is what is written)
     // a file several processes give: the first one is taken - noted only for the new export, the
     // one that is written; the base only decides what changed
     def byPath(planned: Seq[(String, ProcessFiles)], note: Boolean): Map[os.RelPath, GeneratedFile] =

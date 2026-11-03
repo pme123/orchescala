@@ -60,6 +60,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
     try
       before = SpecSources.folder(project, SpecSource.GitRev("HEAD"))
       println(s"Spec before: ${if before.isDefined then "HEAD:spec" else "(none - the first merge)"} - after: $after")
+      if NodeSpecExporter.hasNode then println("Comparing the spec (Orch Spec's spec2diff.js) ...")
       specDiff(before, after).foreach: text =>
         println("\nWhat changed in the spec:")
         print(text)
