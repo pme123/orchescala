@@ -1818,7 +1818,7 @@ function MiResultSection({ mi, isDark, canEdit, engine, inside, onChange }: {
           {engine === 'c8'
             ? `${C8_LABEL}: outputCollection «${name.trim()}» und outputElement am Loop.`
             : `${C7_LABEL}: je Instanz schreibt ein Listener «${name.trim()}_<loopCounter>», am ausgehenden Fluss sammelt einer sie ein (asyncAfter gegen OptimisticLocking).`}
-          {' '}Nur Referenzen und Status ablegen, keine Inhalte — eine Variable hat ihre Grenzen (${C8_LABEL} rund 4 MB).
+          {' '}Nur Referenzen und Status ablegen, keine Inhalte — eine Variable hat ihre Grenzen ({C8_LABEL} rund 4 MB).
         </p>
       )}
     </div>
