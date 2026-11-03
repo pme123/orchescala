@@ -45,6 +45,9 @@ textarea.grow { field-sizing: content; min-height: 2.2em; }
    bpmn-js zeichnet dunkle Linien; im dunklen Modus bleibt die Zeichenfläche
    deshalb hell — invertieren würde die Farben der Marker verfälschen. */
 .bpmn-host .djs-container { background: #ffffff; }
+/* The context pad, popup menu and search take the text colour from their parent - in dark
+   mode that would be the light app text on the white canvas, so the icons would vanish. */
+.bpmn-host .djs-container { color: var(--color-grey-225-10-15); }
 .bpmn-host .djs-palette { font-size: 11px; }
 
 /* Nur-Lesen: Werkzeuge aus, Diagramm bleibt bedienbar (zoomen, wählen) */
