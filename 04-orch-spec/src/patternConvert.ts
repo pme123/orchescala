@@ -113,6 +113,12 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   // a parameter of one engine only (`engines`: the process ID C8 gets when inserted, C7 reads it at
   // runtime) does not go over - and the other way round it takes its default: no change either way
   const oneEngine = new Map<PatternDef, Set<string>>();
+  const defaultsCache = new Map<PatternDef, Record<string, string>>();
+  const defaultsOf = (def: PatternDef) => {
+    let d = defaultsCache.get(def);
+    if (!d) { d = resolvedDefaults(xml, def); defaultsCache.set(def, d); }
+    return d;
+  };
   const onTarget = (def: PatternDef, p: Record<string, string>) => {
     let skip = oneEngine.get(def);
     if (!skip) {
@@ -149,9 +155,11 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     }
     // a parameter the target engine does not have, with a value other than its default (set by
     // hand, or stale - the caller ID after a rename): it does not go over
-    const defaults = resolvedDefaults(xml, def);
-    const differs = patternParams(def)
-      .filter(p => p.engines && !p.engines.includes(target) && h.params[p.name] && h.params[p.name] !== (defaults[p.name] ?? ''))
+    const absent = patternParams(def).filter(p => p.engines && !p.engines.includes(target) && h.params[p.name]);
+    // (the defaults only when there is such a parameter - they read the diagram; once per pattern)
+    const defaults = absent.length ? defaultsOf(def) : {};
+    const differs = absent
+      .filter(p => h.params[p.name] !== (defaults[p.name] ?? ''))
       .map(p => `«${p.label ?? p.name}» ist «${paramView(h.params[p.name])}», nicht die Vorgabe «${paramView(defaults[p.name] ?? '')}»`);
     if (differs.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${differs.join(', ')} — auf ${engineLabel(target)} gibt es den Parameter nicht, beim Zurückwechseln gilt die Vorgabe.` });
   }

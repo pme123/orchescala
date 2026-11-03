@@ -298,7 +298,7 @@ export function processChoices(model: Model | null, exclude?: string): string[] 
     ...(model?.services ?? []).map(s => s.calledProcess),
   ];
   // (an expression as called process - `${…}`, `=…` - is no process to choose)
-  return [...new Set(names.filter((p): p is string => !!p && p !== exclude && PROCESS_ID.test(p)))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(names.filter((p): p is string => !!p && p !== exclude && PROCESS_ID.test(p)))].sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 /** A parameter kind Orch Spec knows (PARAM_KINDS) */
