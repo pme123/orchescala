@@ -130,7 +130,7 @@ object ExternalTool:
   end stopAll
 
   /** A URL with a user or token (`https://user:token@host`) - shown without them. */
-  private[merge] def withoutCredentials(text: String): String =
+  def withoutCredentials(text: String): String =
     text.replaceAll("""://[^/\s@]+@""", "://***@")
 
   /** How much of a stopped tool's output its ToolTimeout shows - the end of it. */

@@ -42,7 +42,8 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
           // what the user can act on: a message, no stack trace
           case e @ (_: ToolTimeout | _: MergeAborted | _: java.io.IOException | _: IllegalArgumentException |
               _: IllegalStateException | _: os.SubprocessException) =>
-            println(Console.RED + Option(e.getMessage).getOrElse(e.toString) + Console.RESET)
+            // the output of a tool in it: a URL without its user or token
+            println(Console.RED + ExternalTool.withoutCredentials(Option(e.getMessage).getOrElse(e.toString)) + Console.RESET)
             false
   end run
 
