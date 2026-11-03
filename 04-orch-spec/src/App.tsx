@@ -387,10 +387,19 @@ export default function App() {
             )}
             {previousStorage && (
               <button onClick={() => void resumePrevious()}
-                className={`w-full mb-3 flex items-center justify-center gap-2 text-xs px-3 py-2 rounded border transition-colors ${
+                title={previousStorage.webUrl}
+                className={`w-full mb-3 flex flex-col items-center gap-0.5 text-xs px-3 py-2 rounded border transition-colors ${
                   isDark ? 'border-blue-500/40 text-blue-300 hover:bg-blue-500/10' : 'border-blue-300 text-blue-700 hover:bg-blue-50'}`}>
-                <Undo2 size={12} /> Zurück zu «{previousStorage.name}»
-                <span className={`text-[10px] ${textMuted}`}>({previousStorage.kind === 'sharepoint' ? 'SharePoint' : 'lokaler Ordner'})</span>
+                <span className="flex items-center gap-2">
+                  <Undo2 size={12} /> Zurück zu «{previousStorage.name}»
+                  <span className={`text-[10px] ${textMuted}`}>({previousStorage.kind === 'sharepoint' ? 'SharePoint' : 'lokaler Ordner'})</span>
+                </span>
+                {/* where it lives: the SharePoint URL; a browser does not reveal the full path of a local folder */}
+                <span className={`max-w-full truncate font-mono text-[10px] ${textMuted}`}>
+                  {previousStorage.webUrl
+                    ? (() => { try { return decodeURI(previousStorage.webUrl); } catch { return previousStorage.webUrl; } })()
+                    : 'Ordner auf diesem Gerät - den vollen Pfad gibt der Browser nicht preis'}
+                </span>
               </button>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
