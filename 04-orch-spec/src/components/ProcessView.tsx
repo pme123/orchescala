@@ -20,7 +20,7 @@ import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
-import { juelOptions } from '../feel';
+import { juelOptions, processVariables } from '../feel';
 import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields, patternDefs } from '../patterns';
@@ -535,7 +535,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   // ── Comments ─────────────────────────────────────────────────────────────
   const commentCounts = useMemo(() => (spec ? countIndex(spec) : { exact: new Map(), under: new Map() }), [spec]);
-  const targets = useMemo(() => (spec ? commentTargets(spec, allSteps(spec.steps)) : []), [spec]);
+  // the process variables are derived (see VariableList) — each one can carry comments
+  const targets = useMemo(() => (spec ? commentTargets(spec, allSteps(spec.steps), processVariables(spec, model).map(v => v.name)) : []), [spec, model]);
 
   /**
    * To the location of a comment: switch view, open collapsed

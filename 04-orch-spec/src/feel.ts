@@ -245,6 +245,8 @@ export interface VariableInfo {
   sources: VariableSource[];
   /** its entry in `spec.variables` (Bedeutung) */
   declared?: Variable;
+  /** the description the source gives (field description) — without the Bedeutung of `spec.variables` */
+  hint?: string;
   /** an entry of `spec.variables` that no source knows */
   orphan?: boolean;
   /** not a process variable: the element or counter of a multi-instance, set only inside that step */
@@ -260,7 +262,9 @@ export interface VariableConflict { name: string; sources: VariableSource[] }
  */
 export function variableOverview(spec: ProcessSpec, model: Model | null): { variables: VariableInfo[]; conflicts: VariableConflict[]; orphans: string[] } {
   const candidates = variableCandidates(spec, model, true);
-  const { nodes, orphans, local } = withDeclared(effectiveVariables(candidates), spec, model);
+  const effective = effectiveVariables(candidates);
+  const hints = new Map(effective.filter(n => n.description).map(n => [n.name, n.description!]));
+  const { nodes, orphans, local } = withDeclared(effective, spec, model);
   const declared = new Map((spec.variables ?? []).filter(v => v.name?.trim()).map(v => [v.name.trim(), v]));
   const sourcesOf = new Map<string, VariableSource[]>();
   for (const c of candidates) {
@@ -272,6 +276,7 @@ export function variableOverview(spec: ProcessSpec, model: Model | null): { vari
   const variables: VariableInfo[] = nodes.map(node => ({
     name: node.name, node, sources: sourcesOf.get(node.name) ?? [],
     ...(declared.has(node.name) ? { declared: declared.get(node.name) } : {}),
+    ...(hints.has(node.name) ? { hint: hints.get(node.name) } : {}),
     ...(orphans.includes(node.name) ? { orphan: true } : {}),
   }));
   for (const [name, where] of local) {
