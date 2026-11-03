@@ -394,12 +394,12 @@ export default function App() {
                   <Undo2 size={12} /> Zurück zu «{previousStorage.name}»
                   <span className={`text-[10px] ${textMuted}`}>({previousStorage.kind === 'sharepoint' ? 'SharePoint' : 'lokaler Ordner'})</span>
                 </span>
-                {/* where it lives: the SharePoint URL; a browser does not reveal the full path of a local folder */}
-                <span className={`max-w-full truncate font-mono text-[10px] ${textMuted}`}>
-                  {previousStorage.webUrl
-                    ? (() => { try { return decodeURI(previousStorage.webUrl); } catch { return previousStorage.webUrl; } })()
-                    : 'Ordner auf diesem Gerät - den vollen Pfad gibt der Browser nicht preis'}
-                </span>
+                {/* where it lives: the SharePoint URL (a browser does not reveal the full path of a local folder) */}
+                {previousStorage.webUrl && (
+                  <span className={`max-w-full truncate font-mono text-[10px] ${textMuted}`}>
+                    {(() => { try { return decodeURI(previousStorage.webUrl); } catch { return previousStorage.webUrl; } })()}
+                  </span>
+                )}
               </button>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
