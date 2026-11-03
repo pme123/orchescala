@@ -298,6 +298,11 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.perms(project / "run.sh").toString, "rwxr-xr-x")
       assert(os.isLink(project / "linked.txt"), "the link was replaced")
       assertEquals(os.read(project / "real.txt"), "new")
+      // a link pointing nowhere: written through it, it stays a link
+      os.symlink(project / "dangling.txt", os.rel / "absent.txt")
+      SpecMerge.merge(project, MergePlan("acme-demo", Seq(PlannedFile("dangling.txt", Owner.spec, Action.create, content = Some("d")))), OnConflict.KeepCode)
+      assert(os.isLink(project / "dangling.txt"))
+      assertEquals(os.read(project / "absent.txt"), "d")
       assertEquals(os.list(project).map(_.last).filter(_.endsWith(".merging")), Seq.empty)
       // a new file gets the usual permissions - not those of a temporary file (owner only)
       val created = MergePlan("acme-demo", Seq(PlannedFile("docs/new.txt", Owner.spec, Action.create, content = Some("new"))))
