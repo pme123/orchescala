@@ -32,6 +32,8 @@ test('caseChain: the conditions in order, the last case without one is the other
   assert.equal(caseChain([{ cond: 'a', value: 'A' }, { cond: 'b', value: 'B' }], 'X'), 'if a then\n  A\nelse if b then\n  B\nelse\n  X');
   assert.equal(caseChain([{ cond: 'a', value: 'A' }, { value: 'B' }], 'X'), 'if a then\n  A\nelse\n  B');
   assert.equal(caseChain([{ value: 'A' }], 'X'), 'A');
+  // a blank line in a value stays blank - no trailing spaces
+  assert.equal(caseChain([{ cond: 'a', value: 'x\n\ny' }], 'X'), 'if a then\n  x\n\n  y\nelse\n  X');
 });
 
 test('caseChain: a case without a condition before the last one would lose the others - an error', () => {

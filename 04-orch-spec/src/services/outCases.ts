@@ -55,7 +55,7 @@ export const outCaseMapping = (c: OutCase, field: string): string =>
  */
 export function caseChain(branches: Array<{ cond?: string; value: string }>, otherwise: string): string {
   const lines: string[] = [];
-  const block = (v: string) => v.split('\n').map(l => `  ${l}`).join('\n');
+  const block = (v: string) => v.split('\n').map(l => (l ? `  ${l}` : l)).join('\n');
   for (const [i, b] of branches.entries()) {
     if (b.cond === undefined) {
       if (i < branches.length - 1) throw new Error(`caseChain: only the last branch can be without a condition (branch ${i + 1} of ${branches.length})`);

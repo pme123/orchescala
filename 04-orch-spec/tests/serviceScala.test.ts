@@ -408,3 +408,9 @@ test('an Out with cases: an enum without cases yet is no Out (yet); a condition 
   const untranslated = withAdtOut(collection(), [{ name: 'Found', condition: '= count(body) > 1' }]);
   assert.match(workerOf(untranslated), /\n {4}if \?\?\? \/\* TODO Bedingung: count\(body\) > 1 \*\/ then\n/, workerOf(untranslated));
 });
+
+test('an Out with cases: body next to a text in the Scala is a use - its val is there', () => {
+  // the text is stripped for the check, the body beside it stays
+  const worker = workerOf(withAdtOut(collection(), [{ name: 'Found', condition: '= body.name = "Muster \\"body\\""' }]));
+  assert.match(worker, /\n {4}val body = out\.outputBody\n {4}if body\.name == "Muster \\"body\\"" then\n/, worker);
+});
