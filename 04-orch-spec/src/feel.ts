@@ -251,6 +251,8 @@ export interface VariableInfo {
   orphan?: boolean;
   /** not a process variable: the element or counter of a multi-instance, set only inside that step */
   local?: string;
+  /** known only after this step — the collected results of a multi-instance (see variablesByStep) */
+  after?: string;
 }
 
 /** Two sources give the same variable different types. */
@@ -273,8 +275,10 @@ export function variableOverview(spec: ProcessSpec, model: Model | null): { vari
     if (!list.some(s => s.source === c.source)) list.push({ source: c.source, label: c.label, type: c.type });
     sourcesOf.set(c.name, list);
   }
+  const later = miResultNames(spec.steps);
   const variables: VariableInfo[] = nodes.map(node => ({
     name: node.name, node, sources: sourcesOf.get(node.name) ?? [],
+    ...(later.has(node.name) && node.source === `Ergebnisse von ${later.get(node.name)}` ? { after: later.get(node.name) } : {}),
     ...(declared.has(node.name) ? { declared: declared.get(node.name) } : {}),
     ...(hints.has(node.name) ? { hint: hints.get(node.name) } : {}),
     ...(orphans.includes(node.name) ? { orphan: true } : {}),
@@ -348,6 +352,8 @@ function effectiveVariables(candidates: VarNode[]): VarNode[] {
 function withDeclared(known: VarNode[], spec: ProcessSpec, model: Model | null): { nodes: VarNode[]; orphans: string[]; local: Map<string, string> } {
   const declared = (spec.variables ?? []).filter(v => v.name?.trim());
   if (!declared.length) return { nodes: known, orphans: [], local: new Map() };
+  // the collected results of a multi-instance: set after that step — no orphans, no process variables from the start
+  const later = miResultNames(spec.steps);
   const at = new Map(known.map((n, i) => [n.name, i]));
   const nodes = [...known];
   const orphans: string[] = [];
@@ -363,12 +369,23 @@ function withDeclared(known: VarNode[], spec: ProcessSpec, model: Model | null):
       continue;
     }
     if (local.has(name)) { localHit.set(name, local.get(name)!); continue; }
+    if (later.has(name)) continue;
     if (orphans.includes(name)) continue;
     orphans.push(name);
     at.set(name, nodes.length);
     nodes.push(declaredNode(v, spec, model, b));
   }
   return { nodes, orphans, local: localHit };
+}
+
+/** The lists of collected multi-instance results — `name → step name` */
+function miResultNames(steps: Step[] | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const s of allSteps(steps)) {
+    const name = s.multiInstance?.result?.collection?.trim();
+    if (name && s.multiInstance?.result?.element?.trim() && !out.has(name)) out.set(name, s.name || s.id);
+  }
+  return out;
 }
 
 /** The element and counter names of the multi-instance steps — `name → «Mehrfachausführung von …»`. */
@@ -485,6 +502,16 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     // (above with the outputs) — the resultVariable stays local to the task
     if (spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name)) continue;
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
+  }
+
+  // A multi-instance with collected results writes the list after it — its entries typed by
+  // what the instance knows. Only for the overview: the steps know it only after the
+  // multi-instance (variablesByStep), so it is no process variable from the start.
+  if (all) for (const s of allSteps(spec.steps)) {
+    const result = s.multiInstance?.result;
+    if (!result?.collection?.trim() || !result.element?.trim()) continue;
+    const inside = withMultiInstance([...writesInside(s, spec, model, b), ...effectiveVariables(out)], [s.multiInstance!]);
+    add(resultListNode(result.collection.trim(), result.element, inside, `Ergebnisse von ${s.name || s.id}`));
   }
 
   // What the engine itself keeps — in Camunda 7 on the execution (`execution.…`,

@@ -155,3 +155,21 @@ test('conflict between two steps, or two sources at the start - the rule says wh
     { source: 'In', label: 'Int', type: 'number' }, { source: 'InConfig', label: 'String', type: 'string' }] });
   assert.equal(atStart, 'Int (In) · String (InConfig) — es gilt Int.');
 });
+
+test('the collected results of a multi-instance are a source - typed by what the instance knows', () => {
+  const s = spec({
+    variables: [{ name: 'printed', description: 'die gedruckten Dokumente' }],
+    steps: [get, { id: 'PrintTask', name: 'Print', kind: 'service', topic: 'acme-print-do',
+      multiInstance: { collection: 'contentForPrinting', element: 'printContent', result: { collection: 'printed', element: '{docId: printContent.docId}' } } } as Step],
+  });
+  const { variables, orphans } = variableOverview(s, model);
+  assert.deepEqual(orphans, []);
+  const printed = variables.find(v => v.name === 'printed')!;
+  assert.equal(printed.node.source, 'Ergebnisse von Print');
+  assert.equal(printed.node.type, 'list');
+  assert.deepEqual(printed.node.children?.map(c => `${c.name}: ${c.label}`), ['docId: String']);
+  assert.equal(printed.node.description, 'die gedruckten Dokumente');
+  // known only after the multi-instance - no process variable from the start
+  assert.equal(printed.after, 'Print');
+  assert.equal(processVariables(s, model).some(v => v.name === 'printed'), false);
+});

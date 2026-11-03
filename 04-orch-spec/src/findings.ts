@@ -44,7 +44,8 @@ export const PROCESS_FINDINGS = '#process';
 export function collectFindings(spec: ProcessSpec, model: Model | null, steps: Step[]): Map<string, Finding> {
   const out = new Map<string, Finding>();
   const overview = variableOverview(spec, model);
-  const variables = overview.variables.filter(v => !v.local).map(v => v.node);
+  // the process variables from the start — without what a multi-instance collects (known after it)
+  const variables = overview.variables.filter(v => !v.local && !v.after).map(v => v.node);
   const own = processVariableWarnings(overview);
   if (own.length) out.set(PROCESS_FINDINGS, { errors: [], warnings: own, inline: own });
   // at each step what the steps before it wrote — the latest writer decides the type
