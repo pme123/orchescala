@@ -774,6 +774,54 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   return out;
 }
 
+/** What the step and the steps inside it write — inside a multi-instance they stay in the instance */
+function writesInside(step: Step, spec: ProcessSpec, model: Model | null, b: Builder): VarNode[] {
+  const out: VarNode[] = [];
+  for (const s of [step, ...allSteps(step.children)]) for (const n of writesOf(s, spec, model, b)) if (!out.some(v => v.name === n.name)) out.push(n);
+  return out;
+}
+
+/**
+ * The variables the entry of a result may read: those at the step, the element and
+ * `loopCounter`, and what the step and the steps inside it write in the instance.
+ */
+export function miInsideVariables(step: Step, spec: ProcessSpec, model: Model | null, vars: VarNode[]): VarNode[] {
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  return step.multiInstance ? withMultiInstance([...writesInside(step, spec, model, b), ...vars], [step.multiInstance]) : vars;
+}
+
+/**
+ * The list of the results: `{aId: aId, bId: bId}` gives entries with the fields `aId`
+ * and `bId` (typed where the value is a known variable or path), a single value the
+ * entries of its type.
+ */
+export function resultListNode(name: string, element: string, inside: VarNode[], source: string): VarNode {
+  const body = element.trim();
+  const ctx = /^\{([\s\S]*)\}$/.exec(body);
+  const typeOf = (expr: string): VarNode | undefined => collectionNode(expr.trim(), inside);
+  if (ctx) {
+    const entries: string[] = [];
+    let depth = 0, from = 0;
+    const inner = ctx[1];
+    for (let i = 0; i < inner.length; i++) {
+      const ch = inner[i];
+      if ('{[('.includes(ch)) depth++;
+      else if ('}])'.includes(ch)) depth--;
+      else if (ch === ',' && depth === 0) { entries.push(inner.slice(from, i)); from = i + 1; }
+    }
+    entries.push(inner.slice(from));
+    const children: VarNode[] = entries.map(e => /^\s*"?([A-Za-z_][\w ]*?)"?\s*:\s*([\s\S]+)$/.exec(e)).filter(Boolean).map(m => {
+      const hit = typeOf(m![2]);
+      return hit ? { ...hit, name: m![1].trim(), source } : { name: m![1].trim(), type: 'any' as FeelType, label: '?', source };
+    });
+    return { name, type: 'list', label: 'Seq[Ergebnis]', source, children };
+  }
+  const hit = typeOf(body);
+  return hit
+    ? { name, type: 'list', label: `Seq[${hit.label}]`, source, ...(hit.children?.length ? { children: hit.children } : {}) }
+    : { name, type: 'list', label: 'Seq[?]', source };
+}
+
 /**
  * The process variables as they are **at** each step: what a step before it wrote
  * replaces what the process knew so far — the InitIn says `Seq[PrintDocument.In]`, a worker
@@ -788,6 +836,12 @@ export function variablesByStep(spec: ProcessSpec, model: Model | null, base: Va
   for (const s of allSteps(spec.steps)) {
     out.set(s.id, now);
     const writes = writesOf(s, spec, model, b);
+    // a multi-instance with results: the list after it, its entries as the result reads them
+    const result = s.multiInstance?.result;
+    if (result?.collection?.trim() && result.element?.trim()) {
+      const inside = withMultiInstance([...writesInside(s, spec, model, b), ...now], [s.multiInstance!]);
+      writes.unshift(resultListNode(result.collection.trim(), result.element, inside, `Ergebnisse von ${s.name || s.id}`));
+    }
     if (!writes.length) continue;
     const names = new Set(writes.map(w => w.name));
     now = [...now.map(v => (names.has(v.name) ? writes.find(w => w.name === v.name)! : v)), ...writes.filter(w => !now.some(v => v.name === w.name))];
@@ -1151,12 +1205,13 @@ export function referencedVariables(expression: string): string[] {
   const bound = new Set<string>();
   for (const m of code.matchAll(/\b(?:for|some|every)\s+([A-Za-z_][\w]*)\s+in\b/g)) bound.add(m[1]);
   for (const m of code.matchAll(/,\s*([A-Za-z_][\w]*)\s+in\b/g)) bound.add(m[1]);
-  // keys of a context (`{ a: x }`) are not variables
-  for (const m of code.matchAll(/[{,]\s*([A-Za-z_][\w]*)\s*:/g)) bound.add(m[1]);
+  // keys of a context (`{ a: x }`) are not variables — by their place: in `{aId: aId}` the value is one
+  const keys = new Set<number>();
+  for (const m of code.matchAll(/[{,]\s*([A-Za-z_][\w]*)\s*:/g)) keys.add(m.index! + m[0].indexOf(m[1]));
   for (const m of code.matchAll(/(?<![\w.])([A-Za-z_][\w]*)(?![\w])/g)) {
     const name = m[1].replace(/^__bq(\d+)$/, (_, i: string) => quoted[+i]);
     const rest = code.slice(m.index! + name.length);
-    if (FEEL_WORDS.has(name) || bound.has(m[1])) continue;
+    if (FEEL_WORDS.has(name) || bound.has(m[1]) || keys.has(m.index!)) continue;
     if (/^\s*\(/.test(rest)) continue;                     // function call
     if (/^\s+[A-Za-z_]/.test(rest) && !/^\s+(?:in|and|or|then|else|return|satisfies|instance|between|of)\b/.test(rest)) continue; // part of a function name with spaces
     if (!names.includes(name)) names.push(name);

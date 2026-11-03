@@ -26,6 +26,7 @@ import { catalogEntry } from './interactions.ts';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
+import { writeMiResult } from './miResult.ts';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -727,6 +728,15 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
  * same sense stays in its notation (`items` instead of `${items}`).
  */
 function writeMultiInstance(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
+  writeMiInput(doc, el, engine, step, issues);
+  // the results as one list — natively in Camunda 8, generated in Camunda 7 (see miResult.ts)
+  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+  if (mi && step.multiInstance) {
+    writeMiResult(doc, el, mi, engine, step.multiInstance, text => issues.push({ stepId: step.id, where: 'Ergebnisse sammeln', text }));
+  }
+}
+
+function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
   const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
   if (!mi || !step.multiInstance) return;
   const collection = step.multiInstance.collection?.trim() ?? '';

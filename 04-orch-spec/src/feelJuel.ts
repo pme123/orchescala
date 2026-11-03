@@ -484,6 +484,23 @@ export function isJsonLiteral(body: string): boolean {
   }
 }
 
+/**
+ * A FEEL value (list, context, value, variable, path) as a Groovy expression — without the
+ * script around it. `reads`: it needs the read helper `v(…)` (`GROOVY_READ`).
+ */
+export function feelToGroovyValue(body: string): { ok: true; expr: string; reads: boolean } | { ok: false; reason: string } {
+  const r = feelToGroovy(`[${body.trim()}]`);
+  if (!r.ok) return r;
+  // the script ends with `Spin.JSON(groovy.json.JsonOutput.toJson([<expr>]))`
+  const last = r.script.split('\n').pop() ?? '';
+  const m = /^org\.camunda\.spin\.Spin\.JSON\(groovy\.json\.JsonOutput\.toJson\(\[([\s\S]*)\]\)\)$/.exec(last);
+  if (!m) return { ok: false, reason: 'unerwarteter Aufbau' };
+  return { ok: true, expr: m[1], reads: r.script.includes(GROOVY_READ) };
+}
+
+/** The read helper of the generated scripts — `v('order', 'items')` */
+export const GROOVY_READ_HELPER = (): string => GROOVY_READ;
+
 /** A FEEL list or context as a Groovy script that yields JSON (Spin) */
 export function feelToGroovy(body: string): GroovyResult {
   const src = body.trim();

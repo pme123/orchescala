@@ -15,6 +15,7 @@ import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './j
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
+import { readMiResult, resultLocals } from './miResult.ts';
 import { parseErrorList } from './errorCodes.ts';
 export { feelString } from './errorCodes.ts';
 import { nowIsoWithTimezone, slugify, todayIso } from './util.ts';
@@ -662,11 +663,18 @@ function buildStep(ctx: BuildCtx, scope: Scope, el: Element, path: Set<string>):
     const elem = (zb ? attr(zb, 'inputElement') : undefined) ?? attr(mi, 'elementVariable');
     const imported = coll ? importExpression(coll) : '';
     const collection = imported.startsWith('=') ? imported.slice(1).trim() : imported || undefined;
+    const result = readMiResult(el, mi);
     step.multiInstance = {
       ...(collection ? { collection } : {}),
       ...(elem?.trim() ? { element: elem.trim() } : {}),
       ...(mi.getAttribute('isSequential') === 'true' ? { sequential: true } : {}),
+      ...(result ? { result } : {}),
     };
+    // the locals of the result (`=null → aId`, an empty parameter) are part of the construct, not inputs
+    if (result) {
+      const locals = new Set(resultLocals(step.multiInstance));
+      io.inputs = io.inputs.filter(m => !(locals.has(m.name) && /^(=\s*null)?$/.test(m.expression.trim())));
+    }
   }
 
   if (io.inputs.length) step.inputs = io.inputs;
@@ -1209,6 +1217,10 @@ function keepMultiInstance(s: Step, prev: Step, base: Step | undefined) {
     if (!unchanged) continue;
     if (was[k]) mi[k] = was[k]; else delete mi[k];
   }
+  // the results likewise — as a whole
+  const key = (r: MultiInstanceSpec['result']) => (r ? `${r.collection.trim()}=${r.element.trim()}` : '');
+  const resultUnchanged = base ? key(base.multiInstance?.result) === key(mi.result) : !mi.result || key(mi.result) === key(was.result);
+  if (resultUnchanged) { if (was.result) mi.result = was.result; else delete mi.result; }
   s.multiInstance = mi;
 }
 

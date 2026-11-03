@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, withMultiInstance, type ExpectedType, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -29,6 +29,7 @@ import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, typeUnknown, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
+import { resultLocals } from '../miResult';
 import { uid } from '../util';
 import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
 
@@ -264,6 +265,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const variables = useMemo(() => withMultiInstance(baseVariables, scopes), [baseVariables, scopes]);
   // the collection of a multi-instance is read before its instances — without its own element
   const outerVariables = useMemo(() => withMultiInstance(baseVariables, step.multiInstance ? scopes?.slice(0, -1) : scopes), [baseVariables, scopes, step.multiInstance]);
+  // what the entry of a multi-instance result may read — the element and what is set in the instance
+  const insideVariables = useMemo(() => miInsideVariables(step, spec, model, outerVariables), [step, spec, model, outerVariables]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
   // The Scala types of the service object from the domain catalog — the yardstick for
   // type and required, where the step has no In/Out class of its own
@@ -498,7 +501,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           collection and element are set here and written on export */}
       {step.multiInstance && (
         <MultiInstanceBox mi={step.multiInstance} isDark={isDark} canEdit={canEdit} engine={spec.engine}
-          variables={outerVariables}
+          variables={outerVariables} inside={insideVariables}
           onChange={mi => onPatch(step.id, { multiInstance: mi })} />
       )}
 
@@ -1653,9 +1656,12 @@ const LIST_EXPECTED: ExpectedType = { accepts: ['list'], label: 'Sammlung', kind
  * and the name of the variable for the current element. Sequential or parallel is
  * set in the diagram.
  */
-function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: {
+function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, inside, onChange }: {
   mi: MultiInstanceSpec; isDark: boolean; canEdit: boolean; engine: EngineId | undefined;
-  variables: VarNode[] | null; onChange: (mi: MultiInstanceSpec) => void;
+  variables: VarNode[] | null;
+  /** what the entry of the result may read: element, loopCounter, what is set in the instance */
+  inside: VarNode[];
+  onChange: (mi: MultiInstanceSpec) => void;
 }) {
   const c = cls(isDark);
   const collection = mi.collection ?? '';
@@ -1740,6 +1746,81 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, onChange }: 
           </p>
         )}
       </div>
+      <MiResultSection mi={mi} isDark={isDark} canEdit={canEdit} engine={engine} inside={inside} onChange={onChange} />
+    </div>
+  );
+}
+
+/**
+ * «Ergebnisse sammeln»: what each instance yields, as one list after the step — in the
+ * order of the collection. Camunda 8 natively, Camunda 7 generated (see miResult.ts).
+ */
+function MiResultSection({ mi, isDark, canEdit, engine, inside, onChange }: {
+  mi: MultiInstanceSpec; isDark: boolean; canEdit: boolean; engine: EngineId | undefined;
+  inside: VarNode[]; onChange: (mi: MultiInstanceSpec) => void;
+}) {
+  const c = cls(isDark);
+  const r = mi.result;
+  const name = r?.collection ?? '';
+  const element = r?.element ?? '';
+  const set = (patch: Partial<NonNullable<MultiInstanceSpec['result']>>) => {
+    const next = { collection: name, element, ...patch };
+    const { result: _, ...rest } = mi;
+    onChange(next.collection.trim() || next.element.trim() ? { ...rest, result: next } : rest);
+  };
+  const feel = element.trim() ? checkFeel(`= ${element}`, inside, null) : null;
+  const badName = !!name.trim() && !/^[A-Za-z_]\w*$/.test(name.trim());
+  const locals = resultLocals(mi);
+  const list = name.trim() && element.trim() ? resultListNode(name.trim(), element, inside, '') : null;
+  const err = isDark ? 'text-rose-400' : 'text-rose-600';
+  const warn = isDark ? 'text-amber-400' : 'text-amber-600';
+  return (
+    <div className={`space-y-0.5 pt-1.5 border-t ${isDark ? 'border-violet-500/30' : 'border-violet-200'}`}>
+      <div className="flex items-center gap-1.5">
+        <span className="flex-1 min-w-0">Ergebnisse sammeln — eine Liste nach dem Schritt, in der Reihenfolge der Sammlung</span>
+        {list && (
+          <span title={list.children?.length ? `Felder: ${list.children.map(f => `${f.name}: ${f.label}`).join(', ')}` : list.label}
+            className={`flex-shrink-0 max-w-[12rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${kindStyle('list', isDark).cls}`}>
+            {kindStyle('list', isDark).icon}<span className="truncate">{list.label}</span>
+          </span>
+        )}
+      </div>
+      <div className="flex items-start gap-1">
+        <input value={name} disabled={!canEdit} onChange={e => set({ collection: e.target.value })}
+          placeholder="results"
+          title={`Name der Liste — im BPMN ${engine === 'c8' ? 'outputCollection' : 'die Variable, in die der Listener am ausgehenden Fluss sammelt'}`}
+          className={`w-28 flex-shrink-0 font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none ${c.input}`} />
+        <div className="flex-1 min-w-0">
+          <FeelInput value={element ? `= ${element}` : ''} disabled={!canEdit} isDark={isDark} variables={inside}
+            onChange={v => set({ element: v.replace(/^\s*=\s*/, '') })}
+            placeholder="= {docId: docId, status: status}"
+            title={`Eintrag je Element als FEEL — nach jeder Instanz in ihr ausgewertet${engine === 'c8' ? ' (outputElement)' : ''}.`} />
+        </div>
+      </div>
+      {badName && (
+        <p className={`flex items-start gap-1 ${err}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Nur ein Variablenname — Buchstaben, Ziffern, «_».</span>
+        </p>
+      )}
+      {feel?.issues.map((it, k) => (
+        <p key={k} className={`flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+        </p>
+      ))}
+      {!!locals.length && (
+        <p className={`text-[9px] ${c.muted}`}
+          title="Was die Instanz setzt, bleibt so in ihr und kommt in den Eintrag — sonst schrieben sich die parallelen Instanzen gegenseitig in den Prozess.">
+          lokal je Instanz: <span className="font-mono">{locals.join(', ')}</span>
+        </p>
+      )}
+      {list && (
+        <p className={`text-[9px] ${c.muted}`}>
+          {engine === 'c8'
+            ? `${C8_LABEL}: outputCollection «${name.trim()}» und outputElement am Loop.`
+            : `${C7_LABEL}: je Instanz schreibt ein Listener «${name.trim()}_<loopCounter>», am ausgehenden Fluss sammelt einer sie ein (asyncAfter gegen OptimisticLocking).`}
+          {' '}Nur Referenzen und Status ablegen, keine Inhalte — eine Variable hat ihre Grenzen (${C8_LABEL} rund 4 MB).
+        </p>
+      )}
     </div>
   );
 }
