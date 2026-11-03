@@ -28,6 +28,7 @@
 // its content is the blocks and the extensions of the process itself.
 
 import { PARAM_KINDS } from './types.ts';
+import type { ParamKind } from './types.ts';
 import type { AppliedPattern, EngineId, Field, Model, PatternDef, PatternParam, ProcessSpec, TypeDef } from './types.ts';
 import { STANDARD_PATTERN_DEFS } from './standardPatterns.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
@@ -293,9 +294,11 @@ export function processChoices(model: Model | null, exclude?: string): string[] 
 }
 
 /** Parameters of a pattern with a kind Orch Spec does not know (from a pattern file) - a hint for the admin */
+export const isParamKind = (k: unknown): k is ParamKind => (PARAM_KINDS as readonly unknown[]).includes(k);
+
 export function unknownParamKinds(def: PatternDef): string[] {
   return patternParams(def)
-    .filter(p => p.kind != null && !(PARAM_KINDS as readonly unknown[]).includes(p.kind))
+    .filter(p => p.kind != null && !isParamKind(p.kind))
     .map(p => `«${p.name}» (${String(p.kind)})`);
 }
 
@@ -1853,7 +1856,8 @@ export function processIssue(value: string | undefined, ownProcess: string | und
   if (!v) return 'fehlt - die Call Activity ruft keinen Prozess auf. Im Pattern einen Prozess wählen.';
   if (ownProcess && v === ownProcess) return 'ist der Prozess selbst - er ruft sich selbst auf.';
   // text only - an expression or a placeholder would stand there as it is
-  if (/^(=|\$\{|#\{)|\{\{/.test(v)) return 'ist die ID eines Prozesses - nur Text, kein Ausdruck und kein Platzhalter.';
+  if (/^(=|\$\{|#\{)/.test(v)) return 'ist die ID eines Prozesses - nur Text, kein Ausdruck.';
+  if (/\{\{\s*\w+\s*\}\}/.test(v)) return 'enthält einen Platzhalter ({{…}}) - der kommt hier nicht ersetzt hinein.';
   return null;
 }
 

@@ -831,7 +831,8 @@ test('the hint for a process parameter - the same in the pattern and on insertin
   assert.equal(processIssue('acme-eventsV1', 'acme-demoV1'), null);
   assert.equal(processIssue('acme-eventsV1', undefined), null);
   // text only
-  for (const v of ['=foo', '${foo}', '#{foo}', '{{x}}', 'acme-{{x}}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /nur Text/, v);
+  for (const v of ['=foo', '${foo}', '#{foo}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /kein Ausdruck/, v);
+  for (const v of ['{{x}}', 'acme-{{ x }}']) assert.match(processIssue(v, 'acme-demoV1') ?? '', /Platzhalter/, v);
 });
 
 test('the caller ID on C8 after a rename - said in the pattern', () => {
