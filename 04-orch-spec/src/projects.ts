@@ -113,6 +113,8 @@ export interface RebuildResult {
   apis: Array<{ project: string; name: string; text: string }>;
   /** projects whose `03-api` could not be read (no permission …) - the build goes on without their services */
   apiErrors: Array<{ project: string; error: string }>;
+  /** the one time of this build - the projects' scannedAt, the services' builtAt */
+  scannedAt: string;
   files: number;
   skipped: number;
 }
@@ -255,7 +257,7 @@ export async function rebuild(
     gezaehlt.push({ ...rest, types: types.length - vorher, scannedAt, ...(dependencies ? { dependencies } : {}) });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
-  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped, apis, apiErrors };
+  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped, apis, apiErrors, scannedAt };
 }
 
 /**

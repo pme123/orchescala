@@ -27,7 +27,7 @@ import { load } from 'js-yaml';
 import { mergeDomainTypes, type DiscardedPackage } from '../domainScan';
 import { catalogFromOpenApi, mergeServices } from '../openApi';
 import { forgetProject, grantAccess, move, projectsInFolder, rebuild, rememberProject } from '../projects';
-import { rebuiltServices } from '../catalogMerge';
+import { localProjectOf, NO_PROJECT, rebuiltServices } from '../catalogMerge';
 import { countByKind, fillGapsOnly, readSite } from '../siteCatalog';
 import type { DomainType, Model, ProjectFolder } from '../types';
 import { cls } from '../ui';
@@ -118,10 +118,13 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
       gelesen++;
       prozesse += r.processes.length;
       // read locally: overrides a delivered entry of the same id or topic (see catalogMerge)
-      const m = mergeServices(next, r.services.map(s => ({ ...s, builtAt })));
+      const built = r.services.map(s => ({ ...s, builtAt }));
+      const m = mergeServices(next, built);
       next = m.services;
       added += m.added;
-      typen = mergeDomainTypes(typen, r.types).types;
+      // its types belong to the same project as its services - «zurück zur Auslieferung» takes both
+      const project = localProjectOf(built[0], new Set(projects.map(p => p.name))) ?? NO_PROJECT;
+      typen = mergeDomainTypes(typen, r.types.map(t => (t.source ? t : { ...t, source: `${project}/03-api/${f.name}` }))).types;
     }
     if (!gelesen) {
       setMsg(`Keine verwertbare OpenAPI gefunden${fehler.length ? ` (${fehler.length} Datei(en) unlesbar)` : ''}.`);
@@ -285,8 +288,9 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
       // the services of the projects from their 03-api/OpenApi.yml - built locally (builtAt), with the
       // folder as their project; a fresh build replaces those read before for the same projects
       const built = rebuiltServices(services, r.apis,
-        a => catalogFromOpenApi(/\.json$/i.test(a.name) ? JSON.parse(a.text) : load(a.text), a.name), new Date().toISOString());
-      const typen = mergeDomainTypes(r.types, built.types).types;
+        a => catalogFromOpenApi(/\.json$/i.test(a.name) ? JSON.parse(a.text) : load(a.text), a.name), r.scannedAt,
+        { listed: projects.map(p => p.name), types: model.domainTypes ?? [] });
+      const typen = mergeDomainTypes(mergeDomainTypes(r.types, built.types).types, built.keptTypes).types;
       const { incoming } = built;
       const unreadable = [...built.unreadable, ...r.apiErrors.map(e => `${e.project} (${e.error})`)];
       const res = await onSave({

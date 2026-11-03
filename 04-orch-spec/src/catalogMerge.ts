@@ -126,7 +126,7 @@ export function projectOfService(s: ServiceDef, names: Iterable<string>): string
  * one read with «OpenAPI einlesen» has a group from its process id - a listed project it starts
  * with is the better guess there.
  */
-function localProjectOf(s: ServiceDef, listed: ReadonlySet<string>): string | null {
+export function localProjectOf(s: ServiceDef, listed: ReadonlySet<string>): string | null {
   if (s.generated || !s.builtAt) return null;
   if (s.group && listed.has(s.group)) return s.group;
   return projectOfService(s, listed) || s.group || NO_PROJECT;
@@ -141,8 +141,17 @@ const later = (a?: string, b?: string): string | undefined =>
   Number.isNaN(time(a)) ? (Number.isNaN(time(b)) ? undefined : b) : Number.isNaN(time(b)) || time(a) >= time(b) ? a : b;
 /** is `a` before `b` - both valid times */
 export const isBefore = (a?: string, b?: string): boolean => !Number.isNaN(time(a)) && !Number.isNaN(time(b)) && time(a) < time(b);
+/** a time for the overview: the date - with the time of day when `other` is from the same day */
+export const stampLabel = (iso?: string, other?: string): string => {
+  if (Number.isNaN(time(iso))) return '?';
+  const d = new Date(iso!);
+  const sameDay = !Number.isNaN(time(other)) && new Date(other!).toDateString() === d.toDateString();
+  return sameDay ? d.toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : d.toLocaleDateString('de-CH');
+};
 
-const keysOf = (s: ServiceDef) => [s.id, s.topic, s.calledProcess].filter((k): k is string => !!k);
+/** the keys a service is known by - like with like: an id only meets an id, a topic a topic */
+const keysOf = (s: ServiceDef) =>
+  [['id', s.id], ['topic', s.topic], ['calls', s.calledProcess]].filter(([, v]) => !!v).map(([k, v]) => `${k}:${v}`);
 
 /** the dependencies of the catalog's projects — those it read a `PROJECT.conf` of */
 const dependenciesOf = (gen: CatalogFile): Record<string, string[]> | null => {
@@ -167,13 +176,14 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
     const newer = Object.fromEntries(NEWER_SCAN.filter(k => own?.[k] != null && t[k] == null).map(k => [k, own![k]]));
     return { ...t, ...newer, generated: true };
   });
-  // locally built services override delivered ones of the same id, topic or called process
+  // locally built services override delivered ones of the same id, topic or called process (each with its like)
   const listed = new Set((user.projects ?? []).map(p => p.name));
   const localServices = user.services.filter(s => localProjectOf(s, listed) != null);
   const localSet = new Set(localServices);
   const localKeys = new Set(localServices.flatMap(keysOf));
   const keptGen = genServices.filter(s => !keysOf(s).some(k => localKeys.has(k)));
-  const kennt = new Set(keptGen.flatMap(keysOf));
+  // a legacy entry steps back behind the delivery and behind a local build
+  const kennt = new Set([...keptGen.flatMap(keysOf), ...localKeys]);
   const typIds = new Set(genTypes.map(t => t.id));
   // the example values (`default…`) follow the types: a project's come from the side whose scan
   // applies — a moved one would otherwise stay twice, and the catalog's (listed first) be chosen
@@ -289,7 +299,11 @@ export function rebuiltServices(
   apis: Array<{ project: string; name: string; text: string }>,
   parse: (api: { name: string; text: string }) => { services: ServiceDef[]; types: DomainType[] },
   builtAt: string,
-): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; unreadable: string[] } {
+  /** `listed`: the projects of the local list - for a service read with «OpenAPI einlesen» whose
+   * group is not the folder; `types`: the model's types - those an OpenAPI gave a project whose
+   * OpenAPI did not come in now stay (`keptTypes`) */
+  opts: { listed?: Iterable<string>; types?: DomainType[] } = {},
+): { kept: ServiceDef[]; incoming: ServiceDef[]; types: DomainType[]; keptTypes: DomainType[]; unreadable: string[] } {
   const incoming: ServiceDef[] = [];
   const types: DomainType[] = [];
   const unreadable: string[] = [];
@@ -306,7 +320,9 @@ export function rebuiltServices(
   // only the projects whose OpenAPI came in replace their services: a project that could not be
   // read or parsed keeps what it had
   const projects = new Set(apis.map(a => a.project).filter(p => !unreadable.includes(p)));
-  const listed = new Set<string>();
-  const kept = existing.filter(sv => !sv.generated && !(sv.builtAt && projects.has(localProjectOf(sv, listed) ?? '')));
-  return { kept, incoming, types, unreadable };
+  const listed = new Set(opts.listed ?? []);
+  const kept = existing.filter(sv => !sv.generated && !projects.has(localProjectOf(sv, listed) ?? ''));
+  const fromApi = (t: DomainType) => /^[^/]+\/03-api\//.test(t.source ?? '');
+  const keptTypes = (opts.types ?? []).filter(t => !t.generated && fromApi(t) && !projects.has(t.source!.split('/')[0]));
+  return { kept, incoming, types, keptTypes, unreadable };
 }

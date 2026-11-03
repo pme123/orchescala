@@ -32,7 +32,7 @@ import { appProblem } from '../pages/runtime/validate';
 import { draftAfterSave, ThemeEditor } from '../pages/designer/ThemeEditor';
 import type { Theme } from '../pages/runtime/spec';
 import CatalogBuild from './CatalogBuild';
-import { isBefore, localOverrides, withoutLocalProject } from '../catalogMerge';
+import { isBefore, localOverrides, stampLabel, withoutLocalProject } from '../catalogMerge';
 import { useConfirm } from './Confirm';
 import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
@@ -176,14 +176,7 @@ const ownPart = (m: Model): Model => ({
   domainDefaults: m.domainDefaults?.filter(d => !d.generated),
 });
 
-const valid = (iso?: string): iso is string => !!iso && !Number.isNaN(Date.parse(iso));
-/** the date - with the time when both stands are from the same day */
-const when = (iso: string | undefined, other: string | undefined) => {
-  if (!valid(iso)) return '?';
-  const d = new Date(iso);
-  const sameDay = valid(other) && new Date(other).toDateString() === d.toDateString();
-  return sameDay ? d.toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : d.toLocaleDateString('de-CH');
-};
+const when = stampLabel;
 
 /**
  * What the local build overrides of the delivered catalog, per project - so an old local state

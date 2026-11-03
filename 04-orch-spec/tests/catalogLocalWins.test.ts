@@ -2,7 +2,7 @@
 // delivery on purpose. Legacy entries of the model.json (an old import) stay behind it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isBefore, localOverrides, mergeGeneratedCatalog, NO_PROJECT, projectOfService, rebuiltServices, withoutLocalProject } from '../src/catalogMerge';
+import { isBefore, localOverrides, mergeGeneratedCatalog, NO_PROJECT, projectOfService, rebuiltServices, stampLabel, withoutLocalProject } from '../src/catalogMerge';
 import type { CatalogFile } from '../src/catalogImport';
 import type { DomainType, Model, ServiceDef } from '../src/types';
 
@@ -168,4 +168,42 @@ test('nested project names: the group the build set wins over the prefix', () =>
   const m = user({ services: [built], projects: [{ id: 'p1', name: 'acme' }, { id: 'p2', name: 'acme-cards' }] });
   assert.deepEqual(withoutLocalProject(m, 'acme').services.map(s => s.id), ['acme-cards-x']);
   assert.deepEqual(withoutLocalProject(m, 'acme-cards').services, []);
+});
+
+test('rebuiltServices: one read before with «OpenAPI einlesen» (group from the process id) is replaced too', () => {
+  const api = [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }];
+  const read = svc('acme-services-clientsV1-Old', { group: 'clientsV1', builtAt: 'x' });   // removed from the OpenAPI since
+  const none = () => ({ services: [], types: [] });
+  assert.deepEqual(rebuiltServices([read], api, none, 't', { listed: ['acme-services'] }).kept, []);
+  // a project not in this build keeps it
+  assert.deepEqual(rebuiltServices([read], [], none, 't', { listed: ['acme-services'] }).kept, [read]);
+});
+
+test('rebuiltServices: the types an OpenAPI gave a project stay unless its OpenAPI comes in again', () => {
+  const fromApi = (id: string, project: string) => ({ ...type(id, project), source: `${project}/03-api/OpenApi.yml` } as DomainType);
+  const types = [fromApi('acme.services.domain.A', 'acme-services'), fromApi('acme.cards.domain.B', 'acme-cards'), type('acme.cards.domain.C', 'acme-cards'), { ...fromApi('d.D', 'acme-x'), generated: true }];
+  const r = rebuiltServices([], [{ project: 'acme-services', name: 'OpenApi.yml', text: '' }], () => ({ services: [], types: [] }), 't', { types });
+  // the scanned type (01-domain) comes from the scan, the delivered one is not the model's
+  assert.deepEqual(r.keptTypes.map(t => t.id), ['acme.cards.domain.B']);
+});
+
+test('a legacy entry with the topic of a local service (another id) steps back - no duplicate', () => {
+  const local = svc('acme-new.worker.Get', { topic: 'acme-new-get', builtAt: 'x', group: 'acme-new' });
+  const legacy = svc('acme-new-get-old', { topic: 'acme-new-get' });
+  const merged = mergeGeneratedCatalog(user({ services: [local, legacy] }), delivered);
+  assert.deepEqual(merged.services.filter(s => s.topic === 'acme-new-get').map(s => s.id), [local.id]);
+});
+
+test('like with like: a local service calling a process does not hide the delivered service with that id', () => {
+  const caller = svc('acme-new-Caller', { topic: undefined, calledProcess: 'acme-cards-orderV1-Eval', builtAt: 'x', group: 'acme-new' });
+  const merged = mergeGeneratedCatalog(user({ services: [caller] }), delivered);
+  assert.equal(byId(merged, 'acme-cards-orderV1-Eval').length, 1);
+  assert.deepEqual(localOverrides(user({ services: [caller] }), delivered), []);
+});
+
+test('stampLabel: the date - with the time of day when the other stand is from the same day', () => {
+  // around midday UTC: the same day in every usual time zone
+  assert.match(stampLabel('2026-11-03T11:00:00Z', '2026-11-03T12:00:00Z'), /\d{1,2}:\d{2}/);
+  assert.doesNotMatch(stampLabel('2026-11-03T11:00:00Z', '2026-10-30T12:00:00Z'), /:/);
+  assert.equal(stampLabel(undefined, '2026-11-03T12:00:00Z'), '?');
 });
