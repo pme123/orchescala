@@ -8,7 +8,8 @@
 //
 // In Orchescala this is a CustomTask (`CompanyBpmnCustomTaskDsl`) and its CustomWorker —
 // see scalaOrchestration.ts.
-import { importBpmn, isEventBoundary } from '../bpmn.ts';
+import { importBpmn } from '../bpmn.ts';
+import { serviceStepIssues } from './serviceMode.ts';
 import type { Branch, Field, Mapping, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
 import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
@@ -103,22 +104,9 @@ export function flatSteps(steps: Step[], out: Step[] = []): Step[] {
   return out;
 }
 
-/** What the flow may contain — what a worker runs in one go. */
+/** What the flow may contain — what a worker runs in one go (a missing service is checked with the tasks). */
 export function flowIssues(steps: Step[]): Array<{ stepId: string; text: string }> {
-  const out: Array<{ stepId: string; text: string }> = [];
-  for (const s of flatSteps(steps)) {
-    const name = s.name || s.id;
-    if (s.kind === 'gateway') {
-      if (s.gatewayType !== 'parallel' && s.gatewayType !== 'exclusive') out.push({ stepId: s.id, text: `«${name}»: nur parallele und exklusive Gateways.` });
-    } else if (!['start', 'end', 'service', 'script'].includes(s.kind)) {
-      out.push({ stepId: s.id, text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks.` });
-    }
-    if (s.loop || s.multiInstance) out.push({ stepId: s.id, text: `«${name}»: Schleifen gibt es in einer Orchestrierung nicht.` });
-    // a boundary error is described as in a process — the worker handles it in code (a TODO in the export)
-    if ((s.errors ?? []).some(e => !e.side && !e.timer && !isEventBoundary(e))) out.push({ stepId: s.id, text: `«${name}»: Fehlerpfad — im Export ein TODO, der Worker behandelt den Fehler im Code.` });
-    if ((s.errors ?? []).some(e => e.side || e.timer || isEventBoundary(e))) out.push({ stepId: s.id, text: `«${name}»: Timer und Ereignisse am Rand gibt es in einem Worker nicht.` });
-  }
-  return out;
+  return flatSteps(steps).flatMap(s => serviceStepIssues(s, true).map(i => ({ stepId: s.id, text: i.text })));
 }
 
 // ── the services it can call ────────────────────────────────────────────────
