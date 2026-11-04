@@ -10,13 +10,15 @@
 //                                                 process instance — each instance its own
 //                                                 variable, so nobody overwrites anybody —
 //                                                 and `results_n` (`nrOfInstances`)
-//   camunda:asyncAfter="true"                     the usual guard against OptimisticLocking
-//                                                 at the join of the instances
+//   camunda:asyncAfter="true" at the loop         the usual guard against OptimisticLocking
+//                                                 at the join: at `multiInstanceLoopCharacteristics`
+//                                                 it applies to each inner instance (at the
+//                                                 activity it would apply to the body)
 //   take listener on the way out (once)           collects `results_0 … results_(n-1)` into
 //                                                 `results` and removes the helpers
 // The scripts carry a mark with the FEEL — the import and the engine conversion read
 // the construct back from it. A second mark line names what the generator added
-// (`asyncAfter`, the locals), so that taking the result away removes exactly that.
+// (`loopAsyncAfter`, the locals), so that taking the result away removes exactly that.
 
 import type { EngineId, MultiInstanceResult, MultiInstanceSpec } from './types';
 import { referencedVariables } from './feel.ts';
@@ -31,11 +33,19 @@ const ZEEBE_NS = 'http://camunda.org/schema/zeebe/1.0';
 export const MI_RESULT_MARK = '// orch-spec:mi-result ';
 /** mark of the listener that collects: `// orch-spec:mi-collect results` */
 export const MI_COLLECT_MARK = '// orch-spec:mi-collect ';
-/** what the generator added at the element: `// orch-spec:mi-added asyncAfter locals=aId,bId` */
+/** what the generator added: `// orch-spec:mi-added loopAsyncAfter locals=aId,bId` */
 export const MI_ADDED_MARK = '// orch-spec:mi-added ';
 
 /** words of Groovy and Java — no name for a process variable that scripts and JUEL read */
-const RESERVED = new Set(['abstract', 'as', 'assert', 'boolean', 'break', 'byte', 'case', 'catch', 'char', 'class', 'const', 'continue', 'def', 'default', 'do', 'double', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'float', 'for', 'goto', 'if', 'implements', 'import', 'in', 'instanceof', 'int', 'interface', 'long', 'native', 'new', 'null', 'package', 'private', 'protected', 'public', 'return', 'short', 'static', 'super', 'switch', 'synchronized', 'this', 'throw', 'throws', 'trait', 'transient', 'true', 'try', 'var', 'void', 'volatile', 'while', 'execution', 'loopCounter', 'nrOfInstances', 'nrOfActiveInstances', 'nrOfCompletedInstances']);
+const RESERVED = new Set([
+  'abstract', 'as', 'assert', 'boolean', 'break', 'byte', 'case', 'catch', 'char', 'class',
+  'const', 'continue', 'def', 'default', 'do', 'double', 'else', 'enum', 'extends', 'false',
+  'final', 'finally', 'float', 'for', 'goto', 'if', 'implements', 'import', 'in', 'instanceof',
+  'int', 'interface', 'long', 'native', 'new', 'null', 'package', 'private', 'protected', 'public',
+  'return', 'short', 'static', 'super', 'switch', 'synchronized', 'this', 'throw', 'throws',
+  'trait', 'transient', 'true', 'try', 'var', 'void', 'volatile', 'while', 'execution',
+  'loopCounter', 'nrOfInstances', 'nrOfActiveInstances', 'nrOfCompletedInstances',
+]);
 
 /**
  * Why a list name does not work — or null. It goes into the generated scripts as is
@@ -123,11 +133,12 @@ export function readMiResult(el: Element, mi: Element): MultiInstanceResult | un
 const asyncAfterOf = (el: Element) => el.getAttributeNS(CAMUNDA_NS, 'asyncAfter') || el.getAttribute('camunda:asyncAfter');
 
 /** What the generator added, from the mark line of the end listener */
-function addedBy(listener: Element): { asyncAfter: boolean; locals: string[] } {
+function addedBy(listener: Element): { loopAsync: boolean; elAsync: boolean; locals: string[] } {
   const line = scriptOf(listener).split('\n').find(l => l.startsWith(MI_ADDED_MARK));
   const words = line ? line.slice(MI_ADDED_MARK.length).trim().split(/\s+/) : [];
   const locals = words.find(w => w.startsWith('locals='))?.slice('locals='.length).split(',').filter(Boolean) ?? [];
-  return { asyncAfter: words.includes('asyncAfter'), locals };
+  // `asyncAfter`: at the activity, as first written — `loopAsyncAfter`: at the loop
+  return { loopAsync: words.includes('loopAsyncAfter'), elAsync: words.includes('asyncAfter'), locals };
 }
 
 /**
@@ -139,9 +150,12 @@ export function removeC7MiResult(el: Element) {
   for (const l of markedListeners(el, MI_RESULT_MARK)) {
     const added = addedBy(l);
     removeEl(l);
-    if (added.asyncAfter && asyncAfterOf(el) === 'true') {
-      el.removeAttributeNS(CAMUNDA_NS, 'asyncAfter');
-      el.removeAttribute('camunda:asyncAfter');
+    const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+    for (const [on, holder] of [[added.elAsync, el], [added.loopAsync, mi]] as const) {
+      if (on && holder && asyncAfterOf(holder) === 'true') {
+        holder.removeAttributeNS(CAMUNDA_NS, 'asyncAfter');
+        holder.removeAttribute('camunda:asyncAfter');
+      }
     }
     const ext = firstNamed(el, 'extensionElements');
     const io = ext ? firstNamed(ext, 'inputOutput') : null;
@@ -278,9 +292,10 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     addedLocals.push(v);
   }
   // the join of parallel instances: after each one a transaction of its own
-  const addedAsync = asyncAfterOf(el) !== 'true';
-  if (addedAsync) el.setAttributeNS(CAMUNDA_NS, 'camunda:asyncAfter', 'true');
-  const added = [...(addedAsync ? ['asyncAfter'] : []), ...(addedLocals.length ? [`locals=${addedLocals.join(',')}`] : [])];
+  // the inner instances, each in a transaction of its own after it (not the body)
+  const addedAsync = asyncAfterOf(mi) !== 'true';
+  if (addedAsync) mi.setAttributeNS(CAMUNDA_NS, 'camunda:asyncAfter', 'true');
+  const added = [...(addedAsync ? ['loopAsyncAfter'] : []), ...(addedLocals.length ? [`locals=${addedLocals.join(',')}`] : [])];
 
   // per instance: its own variable on the process instance
   const listener = (event: string, lines: string[]) => {
@@ -297,8 +312,9 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     ...(added.length ? [`${MI_ADDED_MARK}${added.join(' ')}`] : []),
     ...(value.reads ? [GROOVY_READ_HELPER()] : []),
     `execution.getProcessInstance().setVariable('${name}_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${value.expr})))`,
-    // how many to collect — from the engine, not from the collection, which may have changed
-    `execution.getProcessInstance().setVariable('${name}_n', execution.getVariable('nrOfInstances'))`,
+    // how many to collect — from the engine, not from the collection, which may have changed;
+    // written by the first instance only, so that the instances do not update one variable
+    `if (execution.getVariable('loopCounter') == 0) execution.getProcessInstance().setVariable('${name}_n', execution.getVariable('nrOfInstances'))`,
   ]));
   // once, on the way out: collect in the order of the collection, remove the helpers.
   // Each outgoing flow carries it; when several are taken, the first one collects —

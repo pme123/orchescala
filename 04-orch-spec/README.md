@@ -1689,7 +1689,7 @@ gelten die Regeln:
 | `camunda:decisionRef` / `resultVariable` | `zeebe:calledDecision` |
 | `camunda:assignee` / `candidateGroups` / `formKey` | `zeebe:userTask` + `assignmentDefinition` / `formDefinition` |
 | `camunda:collection` / `elementVariable` | `zeebe:loopCharacteristics` |
-| «Ergebnisse sammeln» (Orch Spec): leere `inputParameter` je lokaler Variable, End-Listener je Instanz schreibt `<liste>_<loopCounter>` und `<liste>_n`, `camunda:asyncAfter`, `take`-Listener am ausgehenden Fluss sammelt ein — auf einer Camunda-7-Engine noch nicht geprüft | `outputCollection` / `outputElement` am Loop, die gelesenen Variablen als `=null`-Input je Instanz |
+| «Ergebnisse sammeln» (Orch Spec): leere `inputParameter` je lokaler Variable, End-Listener je Instanz schreibt `<liste>_<loopCounter>` (die erste auch `<liste>_n`), `camunda:asyncAfter` an `multiInstanceLoopCharacteristics` (je innere Instanz), `take`-Listener am ausgehenden Fluss sammelt ein — auf einer Camunda-7-Engine noch nicht geprüft | `outputCollection` / `outputElement` am Loop, die gelesenen Variablen als `=null`-Input je Instanz |
 | `camunda:modelerTemplate` | `zeebe:modelerTemplate` (der Service-Verweis bleibt) |
 | Listener `execution.setVariable("x", v)` an einem None-/Link-Event, Start- oder Boundary-Event | Output-Mapping `x` am Event |
 | … an einer Aufgabe mit Ausgaben (`event="end"`) | ein weiteres Output-Mapping `x` |

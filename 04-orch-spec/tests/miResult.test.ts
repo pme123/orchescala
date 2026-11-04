@@ -61,7 +61,9 @@ test('Camunda 7: local parameter, end listener per instance, asyncAfter, collect
   const out = writeBpmn(c7(), withResult(spec));
   assert.deepEqual(out.issues.filter(i => i.where === 'Ergebnisse sammeln'), []);
   assert.match(out.xml, /<camunda:inputParameter name="aId"\s*\/>/);
-  assert.match(out.xml, /camunda:asyncAfter="true"/);
+  // at the loop - each inner instance, not the body
+  assert.match(out.xml, /<bpmn:multiInstanceLoopCharacteristics [^>]*camunda:asyncAfter="true"/);
+  assert.doesNotMatch(out.xml, /<bpmn:callActivity [^>]*asyncAfter/);
   assert.ok(out.xml.includes(`${MI_RESULT_MARK}results = {aId: aId, item: item}`));
   assert.match(out.xml, /execution\.getProcessInstance\(\)\.setVariable\('results_' \+ execution\.getVariable\('loopCounter'\)/);
   assert.match(out.xml, /<camunda:executionListener event="take">/);
@@ -158,10 +160,10 @@ test('Camunda 7: the generated scripts, line by line', () => {
   const [end, take] = scriptsOf(writeBpmn(c7(), withResult(c7Spec())).xml);
   const endLines = end.trim().split('\n');
   assert.equal(endLines[0], `${MI_RESULT_MARK}results = {aId: aId, item: item}`);
-  assert.equal(endLines[1], `${MI_ADDED_MARK}asyncAfter locals=aId`);
+  assert.equal(endLines[1], `${MI_ADDED_MARK}loopAsyncAfter locals=aId`);
   assert.deepEqual(endLines.slice(-2), [
     "execution.getProcessInstance().setVariable('results_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(['aId': v('aId'), 'item': v('item')])))",
-    "execution.getProcessInstance().setVariable('results_n', execution.getVariable('nrOfInstances'))",
+    "if (execution.getVariable('loopCounter') == 0) execution.getProcessInstance().setVariable('results_n', execution.getVariable('nrOfInstances'))",
   ]);
   const takeLines = take.trim().split('\n');
   assert.equal(takeLines[0], `${MI_COLLECT_MARK}results`);
@@ -197,14 +199,16 @@ test('taking the result away removes asyncAfter and the locals the generator add
   assert.doesNotMatch(plain, /asyncAfter/);
   assert.doesNotMatch(plain, /inputParameter/);
   assert.doesNotMatch(plain, /executionListener/);
-  // set by hand before: asyncAfter and an own aId parameter stay
+  // set by hand before: asyncAfter at the activity and at the loop, an own aId parameter - all stay
   const own = c7().replace('<bpmn:callActivity id="HandleItemsCall" name="Handle Items">',
-    '<bpmn:callActivity id="HandleItemsCall" name="Handle Items" camunda:asyncAfter="true"><bpmn:extensionElements><camunda:inputOutput><camunda:inputParameter name="aId" /></camunda:inputOutput></bpmn:extensionElements>');
+    '<bpmn:callActivity id="HandleItemsCall" name="Handle Items" camunda:asyncAfter="true"><bpmn:extensionElements><camunda:inputOutput><camunda:inputParameter name="aId" /></camunda:inputOutput></bpmn:extensionElements>')
+    .replace('<bpmn:multiInstanceLoopCharacteristics camunda:collection', '<bpmn:multiInstanceLoopCharacteristics camunda:asyncAfter="true" camunda:collection');
   const ownSpec = { ...importBpmn(own, 'items').spec, engine: 'c7' as const };
   const withIt = writeBpmn(own, withResult(ownSpec)).xml;
   assert.ok(!withIt.includes(MI_ADDED_MARK), 'nothing added');
   const back = writeBpmn(withIt, withoutResult(withIt)).xml;
-  assert.match(back, /camunda:asyncAfter="true"/);
+  assert.match(back, /<bpmn:callActivity [^>]*camunda:asyncAfter="true"/);
+  assert.match(back, /<bpmn:multiInstanceLoopCharacteristics [^>]*camunda:asyncAfter="true"/);
   assert.match(back, /<camunda:inputParameter name="aId"\s*\/>/);
 });
 
@@ -307,4 +311,52 @@ test('Camunda 7: an entry over several lines comes back as it was', () => {
   const second = again(xml);
   assert.deepEqual(stepOf(importBpmn(second, 'items').spec).multiInstance?.result, { collection: 'results', element });
   assert.equal(again(second), second);
+});
+
+test('Camunda 7: an end listener of the first version (asyncAfter at the activity) is cleaned up', () => {
+  const xml = writeBpmn(c7(), withResult(c7Spec())).xml
+    .replace(`${MI_ADDED_MARK}loopAsyncAfter`, `${MI_ADDED_MARK}asyncAfter`)
+    .replace(/<bpmn:multiInstanceLoopCharacteristics [^>]*>/, tag => tag.replace(' camunda:asyncAfter="true"', ''))
+    .replace('<bpmn:callActivity id="HandleItemsCall"', '<bpmn:callActivity camunda:asyncAfter="true" id="HandleItemsCall"');
+  const plain = writeBpmn(xml, withoutResult(xml)).xml;
+  assert.doesNotMatch(plain, /asyncAfter/);
+});
+
+test('in a subprocess: the flows next to the step, collected there', () => {
+  const nested = c7().replace(/<bpmn:startEvent id="StartEvent">[\s\S]*<\/bpmn:process>/, `<bpmn:startEvent id="StartEvent"><bpmn:outgoing>o1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:subProcess id="Sub" name="Sub"><bpmn:incoming>o1</bpmn:incoming><bpmn:outgoing>o2</bpmn:outgoing>
+      <bpmn:startEvent id="SubStart"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:callActivity id="HandleItemsCall" name="Handle Items"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing><bpmn:multiInstanceLoopCharacteristics camunda:collection="items" camunda:elementVariable="item" /></bpmn:callActivity>
+      <bpmn:endEvent id="SubEnd"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="f1" sourceRef="SubStart" targetRef="HandleItemsCall"/>
+      <bpmn:sequenceFlow id="f2" sourceRef="HandleItemsCall" targetRef="SubEnd"/>
+    </bpmn:subProcess>
+    <bpmn:endEvent id="EndEvent"><bpmn:incoming>o2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="o1" sourceRef="StartEvent" targetRef="Sub"/>
+    <bpmn:sequenceFlow id="o2" sourceRef="Sub" targetRef="EndEvent"/>
+  </bpmn:process>`);
+  const spec = { ...importBpmn(nested, 'items').spec, engine: 'c7' as const };
+  const withIt = (s: ProcessSpec): ProcessSpec => ({ ...s, steps: s.steps.map(x => (x.id === 'Sub' ? { ...x, children: (x.children ?? []).map(c => (c.id === 'HandleItemsCall' ? { ...c, multiInstance: { ...c.multiInstance, result: { collection: 'results', element: '{item: item}' } } } : c)) } : x)) });
+  const out = writeBpmn(nested, withIt(spec));
+  assert.deepEqual(out.issues.filter(i => i.where === 'Ergebnisse sammeln'), [], out.issues.map(i => i.text).join(' / '));
+  assert.match(out.xml, /<bpmn:sequenceFlow id="f2"[^>]*>[\s\S]*?orch-spec:mi-collect results/);
+  assert.doesNotMatch(out.xml.split('<bpmn:sequenceFlow id="o2"')[1] ?? '', /mi-collect/);
+});
+
+test('engine conversion: a path as collection - C8 to C7 iterable, and back to the path', async () => {
+  const { convertBpmn } = await import('../src/engineConvert');
+  const xml8 = c8('<bpmn:multiInstanceLoopCharacteristics><bpmn:extensionElements><zeebe:loopCharacteristics inputCollection="=order.items" inputElement="item" /></bpmn:extensionElements></bpmn:multiInstanceLoopCharacteristics>');
+  const to7 = convertBpmn(xml8, 'c7').xml;
+  assert.match(to7, /camunda:collection="\$\{order\.prop\(&quot;items&quot;\)\.elements\(\)\}"/);
+  assert.match(convertBpmn(to7, 'c8').xml, /inputCollection="=order\.items"/);
+});
+
+test('engine conversion: asyncAfter set by hand survives C7 to C8 to C7 with a result', async () => {
+  const { convertBpmn } = await import('../src/engineConvert');
+  const own = c7().replace('<bpmn:callActivity id="HandleItemsCall" name="Handle Items">', '<bpmn:callActivity id="HandleItemsCall" name="Handle Items" camunda:asyncAfter="true">');
+  const xml7 = writeBpmn(own, withResult({ ...importBpmn(own, 'items').spec, engine: 'c7' })).xml;
+  const round = convertBpmn(convertBpmn(xml7, 'c8').xml, 'c7').xml;
+  assert.ok(round.includes(`${MI_RESULT_MARK}results = {aId: aId, item: item}`));
+  assert.equal(round.split(MI_COLLECT_MARK).length - 1, 1);
+  assert.match(round, /<bpmn:multiInstanceLoopCharacteristics [^>]*camunda:asyncAfter="true"/);
 });
