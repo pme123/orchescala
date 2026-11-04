@@ -32,8 +32,9 @@ const c7 = () => c8('<bpmn:multiInstanceLoopCharacteristics camunda:collection="
   .replace('Camunda Cloud', 'Camunda Platform');
 
 const stepOf = (s: ProcessSpec) => allSteps(s.steps).find(x => x.id === 'HandleItemsCall')!;
-const withResult = (s: ProcessSpec, result = { collection: 'results', element: '{aId: aId, item: item}' }): ProcessSpec => ({
-  ...s, steps: s.steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, multiInstance: { ...x.multiInstance, result } } : x)),
+// the called process returns aId - set in the instance, so a local of the result
+const withResult = (s: ProcessSpec, result = { collection: 'results', element: '{aId: aId, item: item}' }, sets: string[] = ['aId']): ProcessSpec => ({
+  ...s, steps: s.steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, multiInstance: { ...x.multiInstance, result }, ...(sets.length ? { outputVariables: sets } : {}) } : x)),
 });
 
 test('locals: what the entry reads - without the element and the engine variables', () => {
@@ -128,9 +129,10 @@ test('checks: a local nobody sets, outputs on a parallel multi-instance, a C7 wo
   const messages = (s: ProcessSpec) => [...collectFindings(s, null, allSteps(s.steps)).values()].flatMap(f => [...f.errors, ...f.warnings]);
   const base = { ...importBpmn(c8(), 'items').spec, engine: 'c8' as const };
   // nobody sets aId
-  assert.ok(messages(withResult(base)).some(m => m.includes('«aId» setzt kein Schritt')), messages(withResult(base)).join(' / '));
+  const nobody = withResult(base, undefined, []);
+  assert.ok(messages(nobody).some(m => m.includes('«aId» setzt kein Schritt')), messages(nobody).join(' / '));
   // the step itself sets it as output: no more «setzt kein Schritt», but «überschreiben sich»
-  const withOut = withResult({ ...base, steps: base.steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, outputs: [{ name: 'aId', expression: '= aId' }] } : x)) });
+  const withOut = withResult({ ...base, steps: base.steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, outputs: [{ name: 'aId', expression: '= aId' }] } : x)) }, undefined, []);
   const m2 = messages(withOut);
   assert.ok(!m2.some(m => m.includes('setzt kein Schritt')), m2.join(' / '));
   assert.ok(m2.some(m => m.includes('überschreiben sich')), m2.join(' / '));
@@ -157,17 +159,25 @@ test('Camunda 7: the generated scripts, line by line', () => {
   const endLines = end.trim().split('\n');
   assert.equal(endLines[0], `${MI_RESULT_MARK}results = {aId: aId, item: item}`);
   assert.equal(endLines[1], `${MI_ADDED_MARK}asyncAfter locals=aId`);
-  assert.equal(endLines.at(-1), "execution.getProcessInstance().setVariable('results_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(['aId': v('aId'), 'item': v('item')])))");
+  assert.deepEqual(endLines.slice(-2), [
+    "execution.getProcessInstance().setVariable('results_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(['aId': v('aId'), 'item': v('item')])))",
+    "execution.getProcessInstance().setVariable('results_n', execution.getVariable('nrOfInstances'))",
+  ]);
   const takeLines = take.trim().split('\n');
   assert.equal(takeLines[0], `${MI_COLLECT_MARK}results`);
-  assert.deepEqual(takeLines.slice(-6, -1), [
-    "def items = v('items')",
-    'def n = items == null ? 0 : items.size()',
-    "if (n > 0 && !execution.hasVariable('results_0')) return",
+  // the count comes from the engine; without one: empty collection, or collected already
+  assert.deepEqual(takeLines.slice(-10), [
+    "def n = execution.getVariable('results_n')",
+    'if (n == null) {',
+    "  def items = v('items')",
+    '  if (items != null && items.size() > 0) return',
+    '  n = 0',
+    '}',
     "def list = (0..<n).collect { v('results_' + it) }",
     "(0..<n).each { execution.removeVariable('results_' + it) }",
+    "execution.removeVariable('results_n')",
+    "execution.setVariable('results', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))",
   ]);
-  assert.equal(takeLines.at(-1), "execution.setVariable('results', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))");
 });
 
 test('a list name that is no identifier: nothing written, an error at the step', async () => {
@@ -206,31 +216,78 @@ test('no outgoing flow: nothing written, not half of it', () => {
   assert.doesNotMatch(out.xml, /asyncAfter|inputParameter/);
 });
 
-test('several outgoing flows: each collects, guarded so only the first one does', () => {
+test('several outgoing flows: each carries the collector, guarded so only the first one collects', () => {
   const two = c7()
     .replace('<bpmn:outgoing>f2</bpmn:outgoing>', '<bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing>')
     .replace('<bpmn:sequenceFlow id="f2"', '<bpmn:endEvent id="EndEvent2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent><bpmn:sequenceFlow id="f3" sourceRef="HandleItemsCall" targetRef="EndEvent2"/><bpmn:sequenceFlow id="f2"');
   const out = writeBpmn(two, withResult({ ...importBpmn(two, 'items').spec, engine: 'c7' })).xml;
   const takes = scriptsOf(out).filter(s => s.trim().startsWith(MI_COLLECT_MARK));
   assert.equal(takes.length, 2);
-  for (const t of takes) assert.ok(t.includes("if (n > 0 && !execution.hasVariable('results_0')) return"));
+  for (const t of takes) assert.ok(t.includes('if (items != null && items.size() > 0) return'));
 });
 
-test('checks: the same list twice, inside a parallel outer multi-instance, the collection changed inside', async () => {
+test('checks: the same list twice, inside a parallel outer multi-instance', async () => {
   const { stepFindings } = await import('../src/findings');
   const result = { collection: 'results', element: '{item: item}' };
   const inner: Step = { id: 'Inner', name: 'Inner', kind: 'subprocess', multiInstance: { collection: 'item.parts', element: 'part', result }, children: [] } as unknown as Step;
   const outer: Step = { id: 'Outer', name: 'Outer', kind: 'subprocess', multiInstance: { collection: 'items', element: 'item' }, children: [inner] } as unknown as Step;
-  const other: Step = { id: 'Other', name: 'Other', kind: 'subprocess', multiInstance: { collection: 'items', element: 'item', result }, children: [
-    { id: 'Change', name: 'Change', kind: 'subprocess', outputs: [{ name: 'items', expression: '= []' }] } as unknown as Step,
-  ] } as unknown as Step;
+  const other: Step = { id: 'Other', name: 'Other', kind: 'subprocess', multiInstance: { collection: 'items', element: 'item', result }, children: [] } as unknown as Step;
   const spec = { processId: 'p', engine: 'c7', steps: [outer, other] } as unknown as ProcessSpec;
   const w = (s: Step) => stepFindings(s, spec, null, []).warnings;
   assert.ok(w(inner).some(m => m.includes('sammelt auch «Other»')), w(inner).join(' / '));
   assert.ok(w(inner).some(m => m.includes('in einer parallelen Mehrfachausführung')), w(inner).join(' / '));
-  assert.ok(w(other).some(m => m.includes('setzt «items»')), w(other).join(' / '));
-  // Camunda 8: native, no helpers — only the same list name counts
+  assert.ok(!w(other).some(m => m.includes('in einer parallelen Mehrfachausführung')), 'not nested');
+  // Camunda 8: native, no helpers - only the same list name counts
   const c8spec = { ...spec, engine: 'c8' } as ProcessSpec;
   const w8 = stepFindings(inner, c8spec, null, []).warnings;
   assert.ok(w8.some(m => m.includes('sammelt auch')) && !w8.some(m => m.includes('parallelen Mehrfachausführung')), w8.join(' / '));
 });
+
+test('locals: only what the instance sets - a variable from the process stays readable', async () => {
+  const { collectFindings } = await import('../src/findings');
+  const result = { collection: 'results', element: '{aId: aId, customerId: customerId}' };
+  // C8: customerId is read from the process - no =null for it
+  const c8spec = withResult({ ...importBpmn(c8(), 'items').spec, engine: 'c8' as const }, result);
+  const xml8 = writeBpmn(c8(), c8spec).xml;
+  assert.match(xml8, /target="aId"/);
+  assert.doesNotMatch(xml8, /target="customerId"/);
+  // C7 likewise
+  const xml7 = writeBpmn(c7(), withResult(c7Spec(), result)).xml;
+  assert.match(xml7, /<camunda:inputParameter name="aId"/);
+  assert.doesNotMatch(xml7, /name="customerId"/);
+  // the check: unknown in the process, it stays null in each entry
+  const msgs = [...collectFindings(c8spec, null, allSteps(c8spec.steps)).values()].flatMap(f => f.warnings);
+  assert.ok(msgs.some(m => m.includes('«customerId» setzt kein Schritt')), msgs.join(' / '));
+  assert.ok(!msgs.some(m => m.includes('«aId»')), 'aId is set in the instance');
+});
+
+test('Camunda 8: taking the result away removes the =null locals too', () => {
+  const spec8 = { ...importBpmn(c8(), 'items').spec, engine: 'c8' as const };
+  const with8 = writeBpmn(c8(), withResult(spec8)).xml;
+  assert.match(with8, /source="=null"/);
+  const back = importBpmn(with8, 'items').spec;
+  const without = writeBpmn(with8, { ...back, engine: 'c8', steps: back.steps.map(x => ({ ...x, multiInstance: x.multiInstance ? { ...x.multiInstance, result: undefined } : undefined })) }).xml;
+  assert.doesNotMatch(without, /source="=null"|outputCollection/);
+  // another entry: the old local goes, the new one comes
+  const changed = writeBpmn(with8, withResult({ ...back, engine: 'c8' }, { collection: 'results', element: '{bId: bId}' }, ['bId'])).xml;
+  assert.doesNotMatch(changed, /target="aId"/);
+  assert.match(changed, /target="bId"/);
+});
+
+test('Camunda 7: a collector on a flow moved to another source is removed', () => {
+  const xml = writeBpmn(c7(), withResult(c7Spec())).xml;
+  // in the modeler: f2 now starts at the start event, f1 leaves the call activity
+  const moved = xml.replace('<bpmn:sequenceFlow id="f2" sourceRef="HandleItemsCall"', '<bpmn:sequenceFlow id="f2" sourceRef="StartEvent"');
+  assert.ok(moved !== xml && moved.includes(MI_COLLECT_MARK));
+  const again = writeBpmn(moved, { ...withResult(importBpmn(moved, 'items').spec), engine: 'c7' });
+  assert.ok(!again.xml.includes(MI_COLLECT_MARK), 'no flow leaves the step any more - no collector anywhere');
+});
+
+test('Camunda 8: an instance variable without a collection is reported, no half loop written', () => {
+  const plain = c8('<bpmn:multiInstanceLoopCharacteristics />');
+  const spec = importBpmn(plain, 'items').spec;
+  const out = writeBpmn(plain, { ...spec, engine: 'c8', steps: spec.steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, multiInstance: { element: 'item' } } : x)) });
+  assert.ok(out.issues.some(i => i.where === 'Mehrfachausführung' && i.text.includes('inputCollection')), out.issues.map(i => i.text).join(' / '));
+  assert.doesNotMatch(out.xml, /zeebe:loopCharacteristics/);
+});
+

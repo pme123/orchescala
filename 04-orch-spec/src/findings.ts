@@ -378,13 +378,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       // Camunda 7: the helpers lie on the process instance — parallel outer instances share them
       const outer = (scopes.get(step.id) ?? []).slice(0, -1);
       if (outer.some(o => !o.sequential)) warnings.push(`Ergebnisse sammeln in einer parallelen Mehrfachausführung — in ${C7_LABEL} liegen die Zwischenwerte am Prozess, die äusseren Instanzen überschreiben sie gegenseitig. Aussen sequenziell ausführen oder erst aussen sammeln.`);
-      // the length is read again when collecting — a change inside loses entries
-      const changed = referencedVariables(`= ${mi.collection ?? ''}`).filter(n => set.has(n));
-      if (changed.length) warnings.push(`Ergebnisse sammeln: ein Schritt in der Mehrfachausführung setzt ${changed.map(n => `«${n}»`).join(', ')} — ${C7_LABEL} liest die Sammlung beim Einsammeln nochmals, ändert sich ihre Länge, fehlen Einträge.`);
     }
-    const missing = resultLocals(mi).filter(n => !set.has(n));
+    // read from the instance or from the process — neither: null in each entry
+    const known = new Set(baseVariables.map(v => v.name));
+    const missing = resultLocals(mi).filter(n => !set.has(n) && !known.has(n));
     if (missing.length) {
-      warnings.push(`Ergebnisse sammeln: ${missing.map(n => `«${n}»`).join(', ')} setzt kein Schritt in der Mehrfachausführung — im Eintrag bleibt es null. In den Ausgaben eines Schritts darin setzen.`);
+      warnings.push(`Ergebnisse sammeln: ${missing.map(n => `«${n}»`).join(', ')} setzt kein Schritt in der Mehrfachausführung und der Prozess kennt es nicht — im Eintrag bleibt es null. In den Ausgaben eines Schritts darin setzen.`);
     }
     for (const i of checkFeel(`= ${mi.result.element}`, miInsideVariables(step, spec, model, baseVariables), null).issues) {
       (i.level === 'error' ? errors : warnings).push(`Ergebnisse sammeln: ${i.text}`);

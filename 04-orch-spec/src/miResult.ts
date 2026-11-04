@@ -8,7 +8,8 @@
 //   <camunda:inputParameter name="aId" />         local per inner instance
 //   end listener (per instance)                   writes `results_<loopCounter>` onto the
 //                                                 process instance — each instance its own
-//                                                 variable, so nobody overwrites anybody
+//                                                 variable, so nobody overwrites anybody —
+//                                                 and `results_n` (`nrOfInstances`)
 //   camunda:asyncAfter="true"                     the usual guard against OptimisticLocking
 //                                                 at the join of the instances
 //   take listener on the way out (once)           collects `results_0 … results_(n-1)` into
@@ -53,12 +54,15 @@ const ENGINE_VARS = new Set(['loopCounter', 'nrOfInstances', 'nrOfActiveInstance
  * The variables made local per inner instance: what the result reads — except the
  * element of the collection and the engine's own. What an instance sets (the outputs of
  * the steps in it) then stays in it and reaches the result, not the process.
+ * `inside` (what the steps in the instance set): only those — a variable the entry
+ * reads from the process stays readable, a local would hide it behind null.
  */
-export function resultLocals(mi: Pick<MultiInstanceSpec, 'element' | 'result'>): string[] {
+export function resultLocals(mi: Pick<MultiInstanceSpec, 'element' | 'result'>, inside?: Iterable<string>): string[] {
   const element = mi.result?.element?.trim();
   if (!element) return [];
+  const only = inside ? new Set(inside) : null;
   return [...new Set(referencedVariables(`= ${element}`))]
-    .filter(n => n !== mi.element?.trim() && !ENGINE_VARS.has(n));
+    .filter(n => n !== mi.element?.trim() && !ENGINE_VARS.has(n) && (!only || only.has(n)));
 }
 
 /** a usable result — a valid name and an expression */
@@ -113,6 +117,7 @@ function addedBy(listener: Element): { asyncAfter: boolean; locals: string[] } {
  * (`asyncAfter`, the empty locals) — a value set by hand stays.
  */
 export function removeC7MiResult(el: Element) {
+  removeCollectors(el);
   for (const l of markedListeners(el, MI_RESULT_MARK)) {
     const added = addedBy(l);
     removeEl(l);
@@ -131,19 +136,57 @@ export function removeC7MiResult(el: Element) {
     }
     if (ext && !kids(ext).length) removeEl(ext);
   }
-  for (const f of outgoing(el)) {
-    for (const l of markedListeners(f, MI_COLLECT_MARK)) removeEl(l);
+}
+
+/**
+ * The collecting listeners around the element: those on its outgoing flows, and on any
+ * flow next to it whose source does not collect that list (any more) — a flow moved to
+ * another source in the modeler, or the multi-instance gone. Otherwise such a listener
+ * would set the list at the wrong place.
+ */
+function removeCollectors(el: Element) {
+  const id = el.getAttribute('id');
+  const parent = el.parentElement;
+  if (!parent) return;
+  const nameOf = (l: Element) => scriptOf(l).split('\n')[0].slice(MI_COLLECT_MARK.length).trim();
+  const collects = (source: Element | undefined, name: string) =>
+    !!source && markedListeners(source, MI_RESULT_MARK).some(l => scriptOf(l).slice(MI_RESULT_MARK.length).startsWith(`${name} =`));
+  const siblings = kids(parent);
+  for (const f of siblings.filter(c => local(c) === 'sequenceFlow')) {
+    const sourceId = f.getAttribute('sourceRef');
+    const source = siblings.find(c => c.getAttribute('id') === sourceId);
+    const stale = markedListeners(f, MI_COLLECT_MARK).filter(l => sourceId === id || !collects(source, nameOf(l)));
+    for (const l of stale) removeEl(l);
     const ext = firstNamed(f, 'extensionElements');
-    if (ext && !kids(ext).length) removeEl(ext);
+    if (stale.length && ext && !kids(ext).length) removeEl(ext);
   }
 }
 
-/** Remove the C8 construct (`outputCollection` / `outputElement`) */
-export function removeC8MiResult(mi: Element) {
+/**
+ * Remove the C8 construct: `outputCollection` / `outputElement`, and the `=null` locals
+ * of what the entry read. Returns the names of the locals that were there.
+ */
+export function removeC8MiResult(mi: Element, el?: Element): string[] {
   const ext = firstNamed(mi, 'extensionElements');
   const zb = ext ? firstNamed(ext, 'loopCharacteristics') : null;
+  const old = el ? readMiResult(el, mi) : undefined;
   zb?.removeAttribute('outputCollection');
   zb?.removeAttribute('outputElement');
+  if (!el || !old) return [];
+  const names = new Set(resultLocals({ element: zb?.getAttribute('inputElement') ?? undefined, result: old }));
+  const elExt = firstNamed(el, 'extensionElements');
+  const io = elExt ? firstNamed(elExt, 'ioMapping') : null;
+  const removed: string[] = [];
+  for (const p of io ? kids(io) : []) {
+    const target = p.getAttribute('target') ?? '';
+    if (local(p) === 'input' && names.has(target) && /^=\s*null$/.test((p.getAttribute('source') ?? '').trim())) {
+      removeEl(p);
+      removed.push(target);
+    }
+  }
+  if (io && !kids(io).length) removeEl(io);
+  if (elExt && !kids(elExt).length) removeEl(elExt);
+  return removed;
 }
 
 function ensureExt(doc: Document, owner: Element): Element {
@@ -159,17 +202,18 @@ function ensureExt(doc: Document, owner: Element): Element {
  * Write the construct for the engine — or take it out, if the step has no result (any
  * more). `issue` gets what cannot be translated.
  */
-export function writeMiResult(doc: Document, el: Element, mi: Element, engine: EngineId, spec: MultiInstanceSpec, issue: (text: string) => void) {
+export function writeMiResult(doc: Document, el: Element, mi: Element, engine: EngineId, spec: MultiInstanceSpec, issue: (text: string) => void, inside?: Iterable<string>) {
   const result = hasResult(spec.result) ? spec.result : undefined;
   if (engine === 'c8') {
-    if (!result) { removeC8MiResult(mi); return; }
+    removeC8MiResult(mi, el);
+    if (!result) return;
     const miExt = ensureExt(doc, mi);
     let zb = firstNamed(miExt, 'loopCharacteristics');
     if (!zb) { zb = doc.createElementNS(ZEEBE_NS, 'zeebe:loopCharacteristics'); appendEl(miExt, zb); }
     zb.setAttribute('outputCollection', result.collection.trim());
     zb.setAttribute('outputElement', `=${result.element.trim()}`);
     // local per inner instance: `=null → aId` — input mappings of a multi-instance act per instance
-    const locals = resultLocals(spec);
+    const locals = resultLocals(spec, inside);
     if (!locals.length) return;
     const ext = ensureExt(doc, el);
     let io = firstNamed(ext, 'ioMapping');
@@ -200,7 +244,7 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
   // local per inner instance: an empty input parameter
   let io = firstNamed(ext, 'inputOutput');
   const addedLocals: string[] = [];
-  for (const v of resultLocals(spec)) {
+  for (const v of resultLocals(spec, inside)) {
     if (!io) { io = doc.createElementNS(CAMUNDA_NS, 'camunda:inputOutput'); prependEl(ext, io); }
     if (kids(io).some(c => local(c) === 'inputParameter' && c.getAttribute('name') === v)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
@@ -229,19 +273,26 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     ...(added.length ? [`${MI_ADDED_MARK}${added.join(' ')}`] : []),
     ...(value.reads ? [GROOVY_READ_HELPER()] : []),
     `execution.getProcessInstance().setVariable('${name}_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${value.expr})))`,
+    // how many to collect — from the engine, not from the collection, which may have changed
+    `execution.getProcessInstance().setVariable('${name}_n', execution.getVariable('nrOfInstances'))`,
   ]));
   // once, on the way out: collect in the order of the collection, remove the helpers.
   // Each outgoing flow carries it; when several are taken, the first one collects —
-  // the others find the helpers gone and leave the list as it is.
+  // the others find the count gone and leave the list as it is. No count at all and an
+  // empty collection: no instance ran, the list is empty.
   for (const f of flows) {
     appendEl(ensureExt(doc, f), listener('take', [
       `${MI_COLLECT_MARK}${name}`,
       GROOVY_READ_HELPER(),
-      `def items = ${coll.expr}`,
-      'def n = items == null ? 0 : items.size()',
-      `if (n > 0 && !execution.hasVariable('${name}_0')) return`,
+      `def n = execution.getVariable('${name}_n')`,
+      'if (n == null) {',
+      `  def items = ${coll.expr}`,
+      '  if (items != null && items.size() > 0) return',
+      '  n = 0',
+      '}',
       `def list = (0..<n).collect { v('${name}_' + it) }`,
       `(0..<n).each { execution.removeVariable('${name}_' + it) }`,
+      `execution.removeVariable('${name}_n')`,
       `execution.setVariable('${name}', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))`,
     ]));
   }

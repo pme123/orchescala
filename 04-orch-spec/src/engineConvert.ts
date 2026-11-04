@@ -173,7 +173,7 @@ export function convertBpmn(xml: string, target: EngineId, opts: ConvertOptions 
   for (const r of miResults) {
     const el = descendants(defs).find(e => e.getAttribute('id') === r.id);
     const mi = el ? kids(el).find(k => local(k) === 'multiInstanceLoopCharacteristics') : undefined;
-    if (el && mi) writeMiResult(doc, el, mi, target, r.spec, text => issues.push({ stepId: r.id, where: 'Ergebnisse sammeln', text }));
+    if (el && mi) writeMiResult(doc, el, mi, target, r.spec, text => issues.push({ stepId: r.id, where: 'Ergebnisse sammeln', text }), r.locals);
   }
 
   // the namespace of the old engine, when nothing is left in it
@@ -198,8 +198,8 @@ export function convertBpmn(xml: string, target: EngineId, opts: ConvertOptions 
  * the conversion, so that the listeners of Camunda 7 and the `=null` locals of Camunda 8
  * are not reported or translated one by one; they are written anew for the target.
  */
-function takeMiResults(defs: Element): Array<{ id: string; spec: MultiInstanceSpec }> {
-  const out: Array<{ id: string; spec: MultiInstanceSpec }> = [];
+function takeMiResults(defs: Element): Array<{ id: string; spec: MultiInstanceSpec; locals: string[] }> {
+  const out: Array<{ id: string; spec: MultiInstanceSpec; locals: string[] }> = [];
   for (const el of descendants(defs)) {
     const mi = kids(el).find(k => local(k) === 'multiInstanceLoopCharacteristics');
     const id = el.getAttribute('id');
@@ -215,20 +215,22 @@ function takeMiResults(defs: Element): Array<{ id: string; spec: MultiInstanceSp
       element: zb?.getAttribute('inputElement') ?? mi.getAttribute('camunda:elementVariable') ?? mi.getAttribute('elementVariable') ?? undefined,
       result,
     };
-    // the locals of the construct — written anew in the form of the target
+    // the locals of the construct — the same ones written anew in the form of the target
+    const present = removeC8MiResult(mi, el);
     const locals = new Set(resultLocals(spec));
     const ext = kids(el).find(k => local(k) === 'extensionElements');
-    for (const holder of ext ? kids(ext).filter(k => local(k) === 'inputOutput' || local(k) === 'ioMapping') : []) {
+    for (const holder of ext ? kids(ext).filter(k => local(k) === 'inputOutput') : []) {
       for (const p of kids(holder)) {
-        const n = local(p);
-        if (n === 'inputParameter' && locals.has(p.getAttribute('name') ?? '') && !(p.textContent ?? '').trim() && !p.children.length) removeEl(p);
-        if (n === 'input' && locals.has(p.getAttribute('target') ?? '') && /^=\s*null$/.test((p.getAttribute('source') ?? '').trim())) removeEl(p);
+        const name = p.getAttribute('name') ?? '';
+        if (local(p) === 'inputParameter' && locals.has(name) && !(p.textContent ?? '').trim() && !p.children.length) {
+          removeEl(p);
+          present.push(name);
+        }
       }
       if (!kids(holder).length) removeEl(holder);
     }
     removeC7MiResult(el);
-    removeC8MiResult(mi);
-    out.push({ id, spec });
+    out.push({ id, spec, locals: present });
   }
   return out;
 }

@@ -21,7 +21,7 @@
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels.ts';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
-import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
+import { juelOptions, multiInstanceScopes, namesWrittenInside, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
 import { catalogEntry } from './interactions.ts';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
@@ -133,6 +133,7 @@ let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
+  writtenInside = step => namesWrittenInside(step, spec, model);
   const steps = new Map(allSteps(spec.steps).map(s => [s.id, s]));
   const scopes = multiInstanceScopes(spec.steps);
   const inCache = new Map<string, JuelOptions>();
@@ -727,12 +728,15 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
  * Empty at the step: out of the diagram as well. What the diagram already says in the
  * same sense stays in its notation (`items` instead of `${items}`).
  */
+/** What the steps in a multi-instance set — only those become locals of its result */
+let writtenInside: (step: Step) => Set<string> = () => new Set();
+
 function writeMultiInstance(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
   writeMiInput(doc, el, engine, step, issues);
   // the results as one list — natively in Camunda 8, generated in Camunda 7 (see miResult.ts)
   const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
   if (mi && step.multiInstance) {
-    writeMiResult(doc, el, mi, engine, step.multiInstance, text => issues.push({ stepId: step.id, where: 'Ergebnisse sammeln', text }));
+    writeMiResult(doc, el, mi, engine, step.multiInstance, text => issues.push({ stepId: step.id, where: 'Ergebnisse sammeln', text }), writtenInside(step));
   }
 }
 
@@ -748,8 +752,12 @@ function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, 
   if (engine === 'c8') {
     let ext = firstNamed(mi, 'extensionElements');
     let lc = ext ? firstNamed(ext, 'loopCharacteristics') : null;
+    // without a collection Camunda 8 refuses the multi-instance — say so, write no half of it
+    if (!collection) {
+      if (element || lc?.getAttribute('inputCollection')) issues.push({ stepId: step.id, where: 'Mehrfachausführung', text: `Keine Sammlung — ${C8_LABEL} braucht sie (inputCollection), sonst lässt sich der Prozess nicht deployen.` });
+      if (!lc) return;
+    }
     if (!lc) {
-      if (!collection && !element) return;
       if (!ext) {
         const prefix = mi.tagName.includes(':') ? `${mi.tagName.split(':')[0]}:` : '';
         ext = doc.createElementNS(BPMN_NS, `${prefix}extensionElements`);
@@ -776,7 +784,10 @@ function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, 
     else if (collection) {
       const r = engineExpression(`= ${collection}`, engine);
       if (r.issue) issues.push({ stepId: step.id, where, text: `Sammlung nicht nach JUEL übersetzbar: ${r.issue}` });
-      const text = !r.issue && /\.prop\("[^"]*"\)\}$/.test(r.text) ? `${r.text.slice(0, -1)}.elements()}` : r.text;
+      const path = !r.issue && /\.prop\("[^"]*"\)\}$/.test(r.text);
+      const text = path ? `${r.text.slice(0, -1)}.elements()}` : r.text;
+      // a path ends in a Spin node — `.elements()` makes it a list; any other expression must give one itself
+      if (!r.issue && !path) issues.push({ stepId: step.id, where, text: `Sammlung «${collection}» als Ausdruck ${text} — er muss eine Liste liefern; ein Spin-JSON-Knoten lässt sich nicht durchlaufen (.elements()).` });
       mi.setAttributeNS(CAMUNDA_NS, 'camunda:collection', text);
     }
   }

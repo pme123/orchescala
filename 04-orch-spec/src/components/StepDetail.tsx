@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
@@ -383,6 +383,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const outerVariables = useMemo(() => withMultiInstance(baseVariables, step.multiInstance ? scopes?.slice(0, -1) : scopes), [baseVariables, scopes, step.multiInstance]);
   // what the entry of a multi-instance result may read — the element and what is set in the instance
   const insideVariables = useMemo(() => miInsideVariables(step, spec, model, outerVariables), [step, spec, model, outerVariables]);
+  const insideNames = useMemo(() => (step.multiInstance?.result ? namesWrittenInside(step, spec, model) : undefined), [step, spec, model]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
   // The Scala types of the service object from the domain catalog — the yardstick for
   // type and required, where the step has no In/Out class of its own
@@ -617,7 +618,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           collection and element are set here and written on export */}
       {step.multiInstance && (
         <MultiInstanceBox mi={step.multiInstance} isDark={isDark} canEdit={canEdit} engine={spec.engine}
-          variables={outerVariables} inside={insideVariables}
+          variables={outerVariables} inside={insideVariables} insideNames={insideNames}
           onChange={mi => onPatch(step.id, { multiInstance: mi })} />
       )}
 
@@ -1772,11 +1773,13 @@ const LIST_EXPECTED: ExpectedType = { accepts: ['list'], label: 'Sammlung', kind
  * and the name of the variable for the current element. Sequential or parallel is
  * set in the diagram.
  */
-function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, inside, onChange }: {
+function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, inside, insideNames, onChange }: {
   mi: MultiInstanceSpec; isDark: boolean; canEdit: boolean; engine: EngineId | undefined;
   variables: VarNode[] | null;
   /** what the entry of the result may read: element, loopCounter, what is set in the instance */
   inside: VarNode[];
+  /** the names the steps in the instance set — the locals of the result */
+  insideNames?: Set<string>;
   onChange: (mi: MultiInstanceSpec) => void;
 }) {
   const c = cls(isDark);
@@ -1862,7 +1865,7 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, inside, onCh
           </p>
         )}
       </div>
-      <MiResultSection mi={mi} isDark={isDark} canEdit={canEdit} engine={engine} inside={inside} onChange={onChange} />
+      <MiResultSection mi={mi} isDark={isDark} canEdit={canEdit} engine={engine} inside={inside} insideNames={insideNames} onChange={onChange} />
     </div>
   );
 }
@@ -1871,9 +1874,9 @@ function MultiInstanceBox({ mi, isDark, canEdit, engine, variables, inside, onCh
  * «Ergebnisse sammeln»: what each instance yields, as one list after the step — in the
  * order of the collection. Camunda 8 natively, Camunda 7 generated (see miResult.ts).
  */
-function MiResultSection({ mi, isDark, canEdit, engine, inside, onChange }: {
+function MiResultSection({ mi, isDark, canEdit, engine, inside, insideNames, onChange }: {
   mi: MultiInstanceSpec; isDark: boolean; canEdit: boolean; engine: EngineId | undefined;
-  inside: VarNode[]; onChange: (mi: MultiInstanceSpec) => void;
+  inside: VarNode[]; insideNames?: Set<string>; onChange: (mi: MultiInstanceSpec) => void;
 }) {
   const c = cls(isDark);
   const r = mi.result;
@@ -1886,7 +1889,7 @@ function MiResultSection({ mi, isDark, canEdit, engine, inside, onChange }: {
   };
   const feel = element.trim() ? checkFeel(`= ${element}`, inside, null) : null;
   const badName = !!name.trim() && !/^[A-Za-z_]\w*$/.test(name.trim());
-  const locals = resultLocals(mi);
+  const locals = resultLocals(mi, insideNames);
   const list = name.trim() && element.trim() ? resultListNode(name.trim(), element, inside, '') : null;
   const err = isDark ? 'text-rose-400' : 'text-rose-600';
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
