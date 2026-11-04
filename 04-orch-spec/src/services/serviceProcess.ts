@@ -10,11 +10,11 @@
 // — the collections as the project would have them, read from their generated Scala, so the
 // step shows their `In` and `Out` with the real types (local wins over the catalog).
 import { scanScala } from '../domainScan';
-import { importBpmn } from '../bpmn';
-import type { Branch, Mapping, Model, ProcessSpec, ServiceMode, Step, TypeDef } from '../types';
+import { importBpmn, withStatus } from '../bpmn';
+import type { Branch, Field, Mapping, Model, ProcessSpec, ServiceMode, ServiceParam, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util';
 import { catalogProjects, collectionFromCatalog, withProjectDomain } from './catalogCollections';
-import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, servicesByTopic, type ServiceRef } from './orchestration';
+import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, serviceMembers, servicesByTopic, type ServiceRef } from './orchestration';
 import { collectionFiles } from './scalaCollection';
 import type { OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
 
@@ -40,7 +40,8 @@ export function newServiceProcess(input: { title: string; project: string; api: 
   const processId = serviceProcessId(input);
   const xml = orchestrationBpmn(processId, input.title);
   const slug = slugify(processId);
-  const { spec } = importBpmn(xml, `${slug}.bpmn`);
+  // a new flow is not implemented yet — on all levels
+  const spec = withStatus(importBpmn(xml, `${slug}.bpmn`).spec, 'draft');
   const now = nowIsoWithTimezone();
   const types: TypeDef[] = [
     { id: uid('t'), name: 'In', kind: 'case', status: 'draft', root: true, fields: [] },
@@ -69,7 +70,25 @@ export function withCollections(model: Model | null, collections: ServiceCollect
     try { return collectionFiles(c, model).flatMap(f => scanScala(f.content, f.path)); }
     catch { return []; }
   });
-  return domain.length ? withProjectDomain(model, domain) : model;
+  if (!domain.length) return model;
+  const merged = withProjectDomain(model, domain);
+  // the fields of In and Out as the parameters of the entry — what a chosen service brings as rows
+  const refs = servicesByTopic(collections);
+  const params = (fields: Field[] | undefined, required: boolean): ServiceParam[] =>
+    (fields ?? []).filter(f => f.name).map(f => ({ name: f.name, ...(f.description ? { description: f.description } : {}), ...(required && !f.optional ? { required: true } : {}) }));
+  return {
+    ...merged,
+    services: merged.services.map(s => {
+      const ref = refs.get(s.topic ?? s.id);
+      if (!ref) return s;
+      const { in: inType, out: outType } = serviceMembers(ref);
+      return {
+        ...s,
+        inputs: ref.service.noIn ? [] : params(inType?.fields, true),
+        outputs: ref.service.noOut ? [] : params(outType?.fields, false),
+      };
+    }),
+  };
 }
 
 /** All services a step can call, by topic: the collections first, then those of the catalog. */
@@ -154,7 +173,8 @@ function flatten(expression: string, results: Map<string, Set<string>>): string 
 export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string, ServiceRef>): { spec: ServiceProcess; xml: string } {
   const processId = serviceProcessId(o);
   const slug = slugify(processId);
-  const { spec } = importBpmn(o.bpmn, `${slug}.bpmn`);
+  // the steps have the status the orchestration had
+  const spec = withStatus(importBpmn(o.bpmn, `${slug}.bpmn`).spec, o.status);
   // the name of each result → the fields read from it
   const results = new Map<string, Set<string>>();
   for (const [id, t] of Object.entries(o.tasks)) {

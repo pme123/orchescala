@@ -58,6 +58,7 @@ test('a new orchestration is a process in service mode: its id, its topic, In an
   assert.equal(spec.slug, 'acme-crm-clientv1-updateclient');
   assert.equal(serviceProcessTopic(spec), 'acme-crm-clientV1.UpdateClient');
   assert.equal(spec.engine, 'c8');
+  assert.deepEqual(allSteps(spec.steps).map(s => s.status), ['draft', 'draft', 'draft']);
   assert.deepEqual(spec.types!.map(x => [x.name, !!x.root, !!x.processOut]), [['In', true, false], ['Out', false, true]]);
   assert.deepEqual(allSteps(spec.steps).map(s => s.kind), ['start', 'service', 'end']);
   assert.match(xml, /<bpmn:process id="acme-crm-clientV1-UpdateClient"/);
@@ -101,6 +102,7 @@ test('an orchestration of before becomes a process: a result read as `getClient.
   assert.equal(spec.description, 'Liest und schreibt');
   const step = (id: string) => allSteps(spec.steps).find(s => s.id === id)!;
   assert.equal(step('Get').topic, 'acme-crm-clientV1.GetClient');
+  assert.ok(allSteps(spec.steps).every(s => s.status === o.status));
   // the fields read are set, the others are there as disabled rows
   assert.deepEqual(step('Get').outputs, [
     { name: 'name', expression: '= name', fromService: true, disabled: true },
@@ -122,6 +124,10 @@ test('the collections are services of the catalog, with their In and Out as doma
   assert.equal(get[0].name, 'GetClient');
   assert.equal(get[0].group, 'Acme CRM');
   assert.ok(m.services.some(s => s.topic === 'acme-crm-clientV1.PutClient'));
+  // In and Out as parameters: what a chosen service brings as rows (required from the In)
+  assert.deepEqual(get[0].inputs, [{ name: 'clientKey', required: true }]);
+  assert.deepEqual(get[0].outputs, [{ name: 'name' }, { name: 'etag' }]);
+  assert.deepEqual(m.services.find(s => s.topic === 'acme-crm-clientV1.PutClient')?.outputs, []);
   const inType = m.domainTypes!.find(d => d.name === 'GetClient.In' && d.pkg === 'acme.crm.domain.client.v1');
   assert.deepEqual(inType?.fields?.map(f => [f.name, f.type]), [['clientKey', 'Long']]);
   assert.equal(withCollections(catalog, []), catalog);
