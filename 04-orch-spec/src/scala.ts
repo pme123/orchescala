@@ -363,17 +363,25 @@ export function isFinished(f: Field, idx: TypeIndex): boolean {
   return isScalar(type) || !!parseDomainRef(type) || !!parseServiceRef(type) || !!idx.byId.get(type)?.name?.trim()
     || isScalaTypeExpression(type)
     // a simple name with a type behind it — from the catalog or built in (`IdentityCorrelation`)
-    || !!idx.domainOf(type);
+    || !!idx.domainOf(type)
+    // or without one: taken as named (`ProcessCallOrigin`), the import is up to the project
+    || isScalaTypeName(type);
 }
 
 /**
  * A Scala type from the domain that the app does not resolve — qualified
  * (`GetClient.Out`) or generic (`MockedServiceResponse[GetClient.Out]`):
- * it is taken over verbatim instead of missing from the export. A simple name
- * (`Adresse`) without a type behind it stays unfinished (see isFinished).
+ * it is taken over verbatim instead of missing from the export.
  */
 export const isScalaTypeExpression = (type: string): boolean =>
   /^[A-Z]\w*(?:\.\w+)+$/.test(type) || /^[A-Z][\w.]*\[.+\]$/.test(type);
+
+/**
+ * A simple Scala type name (`ProcessCallOrigin`) — also without a type behind it in
+ * the model or the catalog it goes into the export as named. Not the ID of an own type
+ * that no longer exists (`t-3f9a…`): that has no name to export.
+ */
+export const isScalaTypeName = (type: string): boolean => /^[A-Z]\w*$/.test(type);
 
 const finished = (fields: Field[] | undefined, idx: TypeIndex): Field[] => (fields ?? []).filter(f => isFinished(f, idx));
 
@@ -1669,7 +1677,10 @@ export function checkTypes(types: TypeDef[] = [], model: Model | null = null): T
           issues.push({ typeId: t.id, field: f.id, message: `Der Service «${svcRef.serviceId}» steht nicht (mehr) im Katalog — Import von «${f.name}» prüfen.` });
         }
       } else if (!isScalar(f.type) && !ids.has(f.type) && !idxAll.domainOf(f.type) && !isScalaTypeExpression(f.type)) {
-        issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden${model?.domainTypes?.length ? '' : ' — kein Katalog geladen (Admin → Katalog)'}.` });
+        const noCatalog = model?.domainTypes?.length ? '' : ' — kein Katalog geladen (Admin → Katalog)';
+        // a type name is exported as named — only a hint; the ID of a deleted own type has no name
+        if (isScalaTypeName(f.type)) issues.push({ typeId: t.id, field: f.id, warn: true, message: `Typ «${f.type}» von «${f.name}» ist weder im Modell noch im Katalog${noCatalog} — wird wie genannt exportiert, Import im Projekt prüfen.` });
+        else issues.push({ typeId: t.id, field: f.id, message: `Typ von «${f.name}» ist nicht (mehr) vorhanden${noCatalog}.` });
       }
       enumCaseIssues(t, f);
       if (f.constraint?.trim() && !constraintKind(f.type)) {
