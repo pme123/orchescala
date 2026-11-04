@@ -8,8 +8,8 @@
 //
 // In Orchescala this is a CustomTask (`CompanyBpmnCustomTaskDsl`) and its CustomWorker —
 // see scalaOrchestration.ts.
-import { importBpmn } from '../bpmn.ts';
-import type { Branch, Field, Step, TypeDef } from '../types';
+import { importBpmn, isEventBoundary } from '../bpmn.ts';
+import type { Branch, Field, Mapping, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
 import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
 import { lowerFirst } from './names.ts';
@@ -84,7 +84,8 @@ export interface Flow {
 }
 
 /** The flow from the BPMN — the same import as for a process. */
-export function flowOf(o: Pick<ServiceOrchestrationSpec, 'bpmn'>): Flow {
+export function flowOf(o: Pick<ServiceOrchestrationSpec, 'bpmn' | 'steps'>): Flow {
+  if (o.steps) return { steps: o.steps };
   try {
     return { steps: importBpmn(o.bpmn, 'orchestrierung.bpmn').spec.steps };
   } catch (e) {
@@ -113,7 +114,9 @@ export function flowIssues(steps: Step[]): Array<{ stepId: string; text: string 
       out.push({ stepId: s.id, text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks.` });
     }
     if (s.loop || s.multiInstance) out.push({ stepId: s.id, text: `«${name}»: Schleifen gibt es in einer Orchestrierung nicht.` });
-    if (s.errors?.length) out.push({ stepId: s.id, text: `«${name}»: Fehlerpfade gibt es nicht — ein Fehler eines Services beendet den Worker.` });
+    // a boundary error is described as in a process — the worker handles it in code (a TODO in the export)
+    if ((s.errors ?? []).some(e => !e.side && !e.timer && !isEventBoundary(e))) out.push({ stepId: s.id, text: `«${name}»: Fehlerpfad — im Export ein TODO, der Worker behandelt den Fehler im Code.` });
+    if ((s.errors ?? []).some(e => e.side || e.timer || isEventBoundary(e))) out.push({ stepId: s.id, text: `«${name}»: Timer und Ereignisse am Rand gibt es in einem Worker nicht.` });
   }
   return out;
 }
@@ -186,7 +189,8 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
     if (s.kind === 'service' && task?.service) {
       const ref = services.get(task.service);
       const outType = ref ? serviceMembers(ref).out : undefined;
-      if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
+      if (task.outputs) out.push(...outputVars(task.outputs, ref && !ref.service.noOut ? outType : undefined));
+      else if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
     } else if (s.kind === 'script') {
       for (const a of task?.assignments ?? []) if (a.name.trim()) out.push({ name: a.name.trim(), scala: a.name.trim(), type: 'String', source: 'Script' });
     } else if (s.kind === 'gateway') {
@@ -196,6 +200,19 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
     }
   }
   return out;
+}
+
+/** The variables a service task sets as a process describes it: per enabled output, typed by the `Out` field it reads. */
+export function outputVars(outputs: Mapping[], outType: TypeDef | undefined): OrchVar[] {
+  return outputs.filter(m => !m.disabled && m.name.trim()).map(m => {
+    const read = /^=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(m.expression.trim())?.[1];
+    const f = read ? (outType?.fields ?? []).find(x => x.name === read) : undefined;
+    const name = m.name.trim();
+    return {
+      name, scala: name, type: f?.type ?? 'String', source: 'Service' as const,
+      ...(f?.collection ? { collection: true } : {}), ...(f?.optional ? { optional: true } : {}),
+    };
+  });
 }
 
 /** The fields of the In — `in.clientKey`; of an ADT also those of its cases (through a match). */
