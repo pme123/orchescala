@@ -34,9 +34,22 @@ export const MI_COLLECT_MARK = '// orch-spec:mi-collect ';
 /** what the generator added at the element: `// orch-spec:mi-added asyncAfter locals=aId,bId` */
 export const MI_ADDED_MARK = '// orch-spec:mi-added ';
 
-/** the name of the list — it goes into the generated scripts as is, so a plain identifier */
-const RESULT_NAME = /^[A-Za-z_]\w*$/;
-export const isResultName = (name: string | undefined): boolean => RESULT_NAME.test(name?.trim() ?? '');
+/** words of Groovy and Java — no name for a process variable that scripts and JUEL read */
+const RESERVED = new Set(['abstract', 'as', 'assert', 'boolean', 'break', 'byte', 'case', 'catch', 'char', 'class', 'const', 'continue', 'def', 'default', 'do', 'double', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'float', 'for', 'goto', 'if', 'implements', 'import', 'in', 'instanceof', 'int', 'interface', 'long', 'native', 'new', 'null', 'package', 'private', 'protected', 'public', 'return', 'short', 'static', 'super', 'switch', 'synchronized', 'this', 'throw', 'throws', 'trait', 'transient', 'true', 'try', 'var', 'void', 'volatile', 'while', 'execution', 'loopCounter', 'nrOfInstances', 'nrOfActiveInstances', 'nrOfCompletedInstances']);
+
+/**
+ * Why a list name does not work — or null. It goes into the generated scripts as is
+ * (a plain identifier), and its helpers are `<name>_0 …` and `<name>_n`: a name that
+ * ends like a helper could meet the helpers of another list.
+ */
+export function resultNameIssue(name: string | undefined): string | null {
+  const n = name?.trim() ?? '';
+  if (!/^[A-Za-z_]\w*$/.test(n)) return 'kein gültiger Variablenname (Buchstaben, Ziffern und _, nicht mit einer Ziffer vorne)';
+  if (RESERVED.has(n)) return 'ein reserviertes Wort';
+  if (/_(n|\d+)$/.test(n)) return 'endet wie die Zwischenwerte (_n, _0 …)';
+  return null;
+}
+export const isResultName = (name: string | undefined): boolean => resultNameIssue(name) === null;
 
 const local = (el: Element): string => {
   const n = el.localName || el.tagName || '';
@@ -97,8 +110,13 @@ export function readMiResult(el: Element, mi: Element): MultiInstanceResult | un
   if (coll && elem) return { collection: coll, element: elem.replace(/^=\s*/, '') };
   const marked = markedListeners(el, MI_RESULT_MARK)[0];
   if (!marked) return undefined;
-  const line = scriptOf(marked).split('\n')[0].slice(MI_RESULT_MARK.length);
-  const m = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(line.trim());
+  const line = scriptOf(marked).split('\n')[0].slice(MI_RESULT_MARK.length).trim();
+  // an entry over several lines comes JSON-encoded (`results =json "{\n…}"`)
+  const json = /^([A-Za-z_]\w*)\s*=json\s+(".*")$/.exec(line);
+  if (json) {
+    try { return { collection: json[1], element: JSON.parse(json[2]) as string }; } catch { return undefined; }
+  }
+  const m = /^([A-Za-z_]\w*)\s*=\s*(.+)$/.exec(line);
   return m ? { collection: m[1], element: m[2].trim() } : undefined;
 }
 
@@ -189,6 +207,12 @@ export function removeC8MiResult(mi: Element, el?: Element): string[] {
   return removed;
 }
 
+/** The first line of the end listener: the entry as it is — over several lines JSON-encoded */
+const markLine = (name: string, element: string): string => {
+  const e = element.trim();
+  return e.includes('\n') ? `${MI_RESULT_MARK}${name} =json ${JSON.stringify(e)}` : `${MI_RESULT_MARK}${name} = ${e}`;
+};
+
 function ensureExt(doc: Document, owner: Element): Element {
   let ext = firstNamed(owner, 'extensionElements');
   if (!ext) {
@@ -269,7 +293,7 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     return l;
   };
   appendEl(ext, listener('end', [
-    `${MI_RESULT_MARK}${name} = ${result.element.trim().replace(/\s*\n\s*/g, ' ')}`,
+    markLine(name, result.element),
     ...(added.length ? [`${MI_ADDED_MARK}${added.join(' ')}`] : []),
     ...(value.reads ? [GROOVY_READ_HELPER()] : []),
     `execution.getProcessInstance().setVariable('${name}_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${value.expr})))`,
@@ -279,7 +303,7 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
   // once, on the way out: collect in the order of the collection, remove the helpers.
   // Each outgoing flow carries it; when several are taken, the first one collects —
   // the others find the count gone and leave the list as it is. No count at all and an
-  // empty collection: no instance ran, the list is empty.
+  // empty collection: no instance ran, each taken flow sets the empty list.
   for (const f of flows) {
     appendEl(ensureExt(doc, f), listener('take', [
       `${MI_COLLECT_MARK}${name}`,

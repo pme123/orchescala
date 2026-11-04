@@ -8,7 +8,7 @@ import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn, mergeSpec } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
 import { variablesByStep } from '../src/feel';
-import { MI_ADDED_MARK, MI_COLLECT_MARK, MI_RESULT_MARK, resultLocals } from '../src/miResult';
+import { MI_ADDED_MARK, MI_COLLECT_MARK, MI_RESULT_MARK, resultLocals, resultNameIssue } from '../src/miResult';
 import type { ProcessSpec, Step } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -291,3 +291,20 @@ test('Camunda 8: an instance variable without a collection is reported, no half 
   assert.doesNotMatch(out.xml, /zeebe:loopCharacteristics/);
 });
 
+
+test('list names: no keyword, nothing that ends like a helper', () => {
+  for (const ok of ['results', 'letterIds', '_list', 'a_b']) assert.equal(resultNameIssue(ok), null, ok);
+  for (const bad of ['def', 'class', 'in', 'loopCounter', 'results_n', 'results_0', 'a_12', '1a', 'a-b', '']) assert.ok(resultNameIssue(bad), bad);
+});
+
+test('Camunda 7: an entry over several lines comes back as it was', () => {
+  const element = '{\n  aId: aId,\n  item: item\n}';
+  const xml = writeBpmn(c7(), withResult(c7Spec(), { collection: 'results', element })).xml;
+  assert.ok(xml.includes(`${MI_RESULT_MARK}results =json `), xml);
+  assert.deepEqual(stepOf(importBpmn(xml, 'items').spec).multiInstance?.result, { collection: 'results', element });
+  // written again: the entry stays, and from then on the file does not change
+  const again = (x: string) => writeBpmn(x, { ...withResult(importBpmn(x, 'items').spec, { collection: 'results', element }), engine: 'c7' }).xml;
+  const second = again(xml);
+  assert.deepEqual(stepOf(importBpmn(second, 'items').spec).multiInstance?.result, { collection: 'results', element });
+  assert.equal(again(second), second);
+});

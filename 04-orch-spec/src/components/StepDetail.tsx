@@ -29,7 +29,7 @@ import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, typeUnknown, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
-import { resultLocals } from '../miResult';
+import { resultLocals, resultNameIssue } from '../miResult';
 import { uid } from '../util';
 import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
 
@@ -1888,7 +1888,7 @@ function MiResultSection({ mi, isDark, canEdit, engine, inside, insideNames, onC
     onChange(next.collection.trim() || next.element.trim() ? { ...rest, result: next } : rest);
   };
   const feel = element.trim() ? checkFeel(`= ${element}`, inside, null) : null;
-  const badName = !!name.trim() && !/^[A-Za-z_]\w*$/.test(name.trim());
+  const badName = name.trim() ? resultNameIssue(name) : null;
   const locals = resultLocals(mi, insideNames);
   const list = name.trim() && element.trim() ? resultListNode(name.trim(), element, inside, '') : null;
   const err = isDark ? 'text-rose-400' : 'text-rose-600';
@@ -1918,7 +1918,7 @@ function MiResultSection({ mi, isDark, canEdit, engine, inside, insideNames, onC
       </div>
       {badName && (
         <p className={`flex items-start gap-1 ${err}`}>
-          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Nur ein Variablenname — Buchstaben, Ziffern, «_».</span>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Der Name ist {badName}.</span>
         </p>
       )}
       {feel?.issues.map((it, k) => (

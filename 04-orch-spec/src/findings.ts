@@ -18,7 +18,7 @@ import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVaria
 import { correlationOf } from './messageCall';
 import { patternMappings, patternDefs } from './patterns';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, typeUnknown, variantAllows, variantRequires, variantsOf } from './variants';
-import { hasResult, isResultName, resultLocals } from './miResult';
+import { hasResult, resultLocals, resultNameIssue } from './miResult';
 
 export interface Finding {
   errors: string[];
@@ -364,9 +364,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // ── Multi-instance: results and parallel instances ──────────────────────
   const mi = step.multiInstance;
   const listName = mi?.result?.collection?.trim();
-  if (mi && listName && mi.result?.element?.trim() && !isResultName(listName)) {
-    errors.push(`Ergebnisse sammeln: «${listName}» ist kein gültiger Variablenname (Buchstaben, Ziffern und _, nicht mit einer Ziffer vorne) — so wird nichts gesammelt.`);
-  }
+  const nameIssue = listName && mi?.result?.element?.trim() ? resultNameIssue(listName) : null;
+  if (nameIssue) errors.push(`Ergebnisse sammeln: «${listName}» ist ${nameIssue} — so wird nichts gesammelt.`);
   if (mi && hasResult(mi.result)) {
     const set = namesWrittenInside(step, spec, model);
     const name = mi.result.collection.trim();
