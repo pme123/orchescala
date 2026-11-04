@@ -75,9 +75,10 @@ const unchanged = (p: Element, m: Mapping, opts: JuelOptions = juelOpts): boolea
 const SPIN_ENDING = /\.(?:stringValue|numberValue|boolValue|value|elementList)\(\)/g;
 /**
  * A Spin path that only lacks its end (`….prop("clientKey")` instead of
- * `….prop("clientKey").numberValue()`) — written when the type was not yet
- * known. Otherwise equal, so write it anew; whatever someone wrote differently
- * by hand stays.
+ * `….prop("clientKey").numberValue()`) or the checks of an optional field
+ * (`(….hasProp("clientKey") && … ? … : null)`) — written when the type was not yet
+ * known or the field was still required. Otherwise equal, so write it anew; whatever
+ * someone wrote differently by hand (an own condition, another path) stays.
  */
 function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOpts): boolean {
   const body = feelBody(expression);
@@ -91,7 +92,7 @@ function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOp
   // the old row with or without the checks an optional field now gets
   // (`(….hasProp("x") && … ? ….stringValue() : null)`)
   const value = r.value?.replace(/\s+/g, '');
-  return was !== now && (lacks(now) || (!!value && lacks(value)));
+  return was !== now && (lacks(now) || (!!value && (was === value || lacks(value))));
 }
 
 /**
@@ -137,7 +138,8 @@ let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
  * The options for one mapping row: plus what its target field expects — so a
  * Spin path of unknown type still ends right (`docId: String` → `stringValue()`).
  */
-let rowOpts: (stepId: string, tag: 'in' | 'out', name: string) => JuelOptions = (stepId, tag) => tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+const stepOpts = (stepId: string, tag: 'in' | 'out'): JuelOptions => tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+let rowOpts: (stepId: string, tag: 'in' | 'out', name: string) => JuelOptions = stepOpts;
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
@@ -163,7 +165,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     const key = `${stepId}\u0000${tag}\u0000${name.trim()}`;
     let o = rowCache.get(key);
     if (!o) {
-      const base = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+      const base = stepOpts(stepId, tag);
       const step = steps.get(stepId);
       const target = step ? mappingTarget(step, spec, model, tag, name.trim(), juelOpts.vars) : null;
       rowCache.set(key, o = target ? { ...base, target } : base);
@@ -176,7 +178,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     juelOpts = {};
     outputOpts = () => juelOpts;
     inputOpts = () => juelOpts;
-    rowOpts = (stepId, tag) => tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+    rowOpts = stepOpts;
   }
 }
 

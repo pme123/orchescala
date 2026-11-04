@@ -2,8 +2,9 @@
 // `printContent` are not described) used to end without a value —
 // `${printContent.prop("content").prop("docId")}` hands the JSON node to the
 // called process, not the String. The target field knows the type: `docId: String`
-// → `stringValue()`; an optional target first checks every step of unknown type,
-// since `prop` and `stringValue()` on a missing or null field throw.
+// → `stringValue()`; an optional target first checks every step of unknown type
+// (the variable at the start too), since `prop` and `stringValue()` on a missing
+// or null field throw.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -22,6 +23,8 @@ const juel = (body: string, target: JuelTarget | null, vars?: VarNode[]) =>
 /** the checks of an optional field — as the export writes them */
 const has = (base: string, p: string) => `${base}.hasProp("${p}") && !${base}.prop("${p}").isNull()`;
 const PATH = 'printContent.prop("content").prop("docId")';
+/** the checks for `printContent.content.docId` into an optional target */
+const GUARD = `execution.getVariable("printContent") != null && ${has('printContent', 'content')} && ${has('printContent.prop("content")', 'docId')}`;
 
 test('unknown path: the target type decides the end', () => {
   assert.equal(juel('printContent.content.docId', null), PATH);
@@ -31,7 +34,7 @@ test('unknown path: the target type decides the end', () => {
 });
 
 test('unknown path into an optional target: every step of unknown type is checked first', () => {
-  const guard = `${has('printContent', 'content')} && ${has('printContent.prop("content")', 'docId')}`;
+  const guard = GUARD;
   assert.equal(juel('printContent.content.docId', { type: 'string', optional: true }), `(${guard} ? ${PATH}.stringValue() : null)`);
   assert.equal(juel('printContent.content.docId', { type: 'number', optional: true }), `(${guard} ? ${PATH}.numberValue() : null)`);
   assert.equal(juel('printContent.content.docId', { type: 'boolean', optional: true }), `(${guard} ? ${PATH}.boolValue() : null)`);
@@ -44,6 +47,9 @@ test('a described required step is not checked, an unknown one is', () => {
     children: [{ name: 'content', type: 'context', label: 'Content', source: 'In' }] }];
   assert.equal(juel('printContent.content.docId', { type: 'string', optional: true }, vars),
     `(${has('printContent.prop("content")', 'docId')} ? ${PATH}.stringValue() : null)`);
+  // a date or a duration is text in JSON
+  assert.equal(juel('printContent.content.validFrom', { type: 'date', optional: false }), 'printContent.prop("content").prop("validFrom").stringValue()');
+  assert.equal(juel('printContent.content.wait', { type: 'duration', optional: false }), 'printContent.prop("content").prop("wait").stringValue()');
 });
 
 test('a known source type wins, and only the whole expression takes the target', () => {
@@ -122,11 +128,17 @@ const exported = (docId: string, existing = '', edit?: (spec: ProcessSpec, step:
   return writeBpmn(xml, spec, archiveModel(docId)).xml.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 };
 const contains = (xml: string, part: string) => assert.ok(xml.includes(part), `«${part}» missing in\n${xml}`);
-const GUARD = `${has('printContent', 'content')} && ${has('printContent.prop("content")', 'docId')}`;
 
 test('export: the In of the called process gives the type', () => {
+  // two exports with different models — nothing carries over from one to the other
   contains(exported('String'), `sourceExpression="\${${PATH}.stringValue()}"`);
   contains(exported('Option[String]'), `sourceExpression="\${(${GUARD} ? ${PATH}.stringValue() : null)}"`);
+  contains(exported('LocalDate'), `sourceExpression="\${${PATH}.stringValue()}"`);
+  // escaped once in the XML
+  const xml = bpmn('');
+  const spec = importBpmn(xml, 'print').spec;
+  allSteps(spec.steps).find(s => s.id === 'ArchiveCallActivity')!.inputs = [{ name: 'docId', expression: '= printContent.content.docId' }];
+  contains(writeBpmn(xml, spec, archiveModel('Option[String]')).xml, '!= null &amp;&amp; printContent.hasProp(&quot;content&quot;)');
 });
 
 test('export: an output takes the type of its process variable', () => {
@@ -136,6 +148,13 @@ test('export: an output takes the type of its process variable', () => {
     step.outputs = [{ name: 'archivedId', expression: '= result.archive.id' }];
   });
   contains(xml, 'result.prop("archive").prop("id").numberValue()');
+  // an optional process variable: the result is checked first
+  const opt = exported('String', '', (spec, step) => {
+    spec.types = [{ id: 't-root', name: 'In', kind: 'case', root: true, fields: [{ id: 'f', name: 'archivedId', type: 'Long', optional: true }] }] as TypeDef[];
+    step.inputs = [];
+    step.outputs = [{ name: 'archivedId', expression: '= result.archive.id' }];
+  });
+  contains(opt, `\${(execution.getVariable("result") != null && ${has('result', 'archive')} && ${has('result.prop("archive")', 'id')} ? result.prop("archive").prop("id").numberValue() : null)}`);
 });
 
 test('export: an existing row that only lacks its end is written anew', () => {
@@ -143,6 +162,9 @@ test('export: an existing row that only lacks its end is written anew', () => {
   contains(exported('Option[String]', oldIn(`\${${PATH}}`)), `\${(${GUARD} ? ${PATH}.stringValue() : null)}`);
   // already guarded, only without the end
   contains(exported('Option[String]', oldIn(`\${(${GUARD} ? ${PATH} : null)}`)), `\${(${GUARD} ? ${PATH}.stringValue() : null)}`);
+  // with the end, but without the checks — the field has become optional since
+  contains(exported('Option[String]', oldIn(`\${${PATH}.stringValue()}`)), `\${(${GUARD} ? ${PATH}.stringValue() : null)}`);
+  // the JSON node on purpose is not told apart from a missing end — it gets the end too
 });
 
 test('export: a correct or hand-written row stays literally', () => {
@@ -153,4 +175,7 @@ test('export: a correct or hand-written row stays literally', () => {
   const own = `\${(flag ? ${PATH} : null)}`;
   const xml = exported('Option[String]', oldIn(own), (_spec, step) => { step.inputs = [{ name: 'docId', expression: '= if flag then printContent.content.docId else null' }]; });
   assert.ok(!xml.includes(`${PATH}.stringValue()`), xml);
+  // an own condition with the end stays, even where the export would guard
+  const ownEnd = `\${(flag ? ${PATH}.stringValue() : null)}`;
+  contains(exported('Option[String]', oldIn(ownEnd), (_spec, step) => { step.inputs = [{ name: 'docId', expression: '= if flag then printContent.content.docId else null' }]; }), ownEnd);
 });

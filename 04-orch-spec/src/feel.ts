@@ -442,6 +442,9 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   return { accepts, label: p.type, kind, ...(values?.length ? { values } : {}) };
 }
 
+/** simple types a Spin path can end in (`stringValue()`, `numberValue()`, `boolValue()`) */
+const TARGET_TYPES: ReadonlySet<FeelType> = new Set(['string', 'number', 'boolean', 'date', 'date time', 'time', 'duration']);
+
 /**
  * The target of a mapping as the JUEL export needs it (see `JuelOptions.target`):
  * an input goes into the In of the service or the called process (own class or
@@ -452,7 +455,7 @@ export function mappingTarget(step: Step, spec: ProcessSpec, model: Model | null
   vars: readonly VarNode[] = processVariables(spec, model)): JuelTarget | null {
   if (list === 'out') {
     const v = vars.find(x => x.name === name);
-    return v && v.type !== 'any' && v.type !== 'list' && v.type !== 'context' && v.type !== 'nil' ? { type: v.type, optional: !!v.optional } : null;
+    return v && TARGET_TYPES.has(v.type) ? { type: v.type, optional: !!v.optional } : null;
   }
   if (isInitWorker(step, spec.processId ?? '')) return null;
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
@@ -461,7 +464,8 @@ export function mappingTarget(step: Step, spec: ProcessSpec, model: Model | null
     ? (own ? expectedFor(classFieldsOf(own).find(f => f.name === name), spec.types ?? [], model) : null)
     : expectedFromDomain(stepDomainMember(step, spec, model, 'In'), name, model);
   if (!expected || (expected.kind !== 'scalar' && expected.kind !== 'enum')) return null;
-  const type = expected.accepts.find(t => t !== 'nil');
+  // `LocalDate` accepts text and a date — both end in `stringValue()`
+  const type = expected.accepts.find(t => TARGET_TYPES.has(t));
   return type ? { type, optional: expected.accepts.includes('nil') } : null;
 }
 

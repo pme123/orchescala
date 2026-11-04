@@ -88,8 +88,10 @@ export interface JuelOptions {
    * What the target field of the mapping expects (`docId: Option[String]`). If the
    * type of the source path is unknown (`any` or not described), its end comes from
    * here (`stringValue()` …) — and an optional target first checks every step
-   * whose type is unknown (`hasProp`, `isNull`): `prop` and `stringValue()` on a
-   * missing or null field throw. The variable at the start is not checked.
+   * whose type is unknown (`hasProp`, `isNull`; the variable at the start with
+   * `execution.getVariable("x") != null`): `prop` and `stringValue()` on a
+   * missing or null field throw. A required target gets no checks — a missing
+   * value is an error there anyway (`prop` throws as it did before).
    */
   target?: JuelTarget | null;
 }
@@ -182,8 +184,8 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
    */
   const guards = (n: SyntaxNode, unknown = false): string[] => {
     if (n.name === 'VariableName') {
-      const name = text(n);
-      return varOf(n)?.optional || opts.optional?.has(name) ? [`${unsetSafe(n)} != null`] : [];
+      const name = text(n), v = varOf(n);
+      return v?.optional || opts.optional?.has(name) || (unknown && (!v || v.type === 'any')) ? [`${unsetSafe(n)} != null`] : [];
     }
     if (n.name !== 'PathExpression' || !spin(n)) return [];
     const [base, , prop] = children(n).filter(k => !k.type.isError);
