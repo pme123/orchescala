@@ -14,7 +14,8 @@
 //   take listener on the way out (once)           collects `results_0 … results_(n-1)` into
 //                                                 `results` and removes the helpers
 // The scripts carry a mark with the FEEL — the import and the engine conversion read
-// the construct back from it.
+// the construct back from it. A second mark line names what the generator added
+// (`asyncAfter`, the locals), so that taking the result away removes exactly that.
 
 import type { EngineId, MultiInstanceResult, MultiInstanceSpec } from './types';
 import { referencedVariables } from './feel.ts';
@@ -29,6 +30,12 @@ const ZEEBE_NS = 'http://camunda.org/schema/zeebe/1.0';
 export const MI_RESULT_MARK = '// orch-spec:mi-result ';
 /** mark of the listener that collects: `// orch-spec:mi-collect results` */
 export const MI_COLLECT_MARK = '// orch-spec:mi-collect ';
+/** what the generator added at the element: `// orch-spec:mi-added asyncAfter locals=aId,bId` */
+export const MI_ADDED_MARK = '// orch-spec:mi-added ';
+
+/** the name of the list — it goes into the generated scripts as is, so a plain identifier */
+const RESULT_NAME = /^[A-Za-z_]\w*$/;
+export const isResultName = (name: string | undefined): boolean => RESULT_NAME.test(name?.trim() ?? '');
 
 const local = (el: Element): string => {
   const n = el.localName || el.tagName || '';
@@ -54,9 +61,9 @@ export function resultLocals(mi: Pick<MultiInstanceSpec, 'element' | 'result'>):
     .filter(n => n !== mi.element?.trim() && !ENGINE_VARS.has(n));
 }
 
-/** a usable result — name and expression set */
+/** a usable result — a valid name and an expression */
 export const hasResult = (r: MultiInstanceResult | undefined): r is MultiInstanceResult =>
-  !!r?.collection?.trim() && !!r.element?.trim();
+  isResultName(r?.collection) && !!r?.element?.trim();
 
 /** The script of a listener — its text, if it is one */
 const scriptOf = (listener: Element): string => {
@@ -91,10 +98,44 @@ export function readMiResult(el: Element, mi: Element): MultiInstanceResult | un
   return m ? { collection: m[1], element: m[2].trim() } : undefined;
 }
 
-/** Remove the C7 construct (listeners) — the locals and `asyncAfter` stay, they do no harm */
+const asyncAfterOf = (el: Element) => el.getAttributeNS(CAMUNDA_NS, 'asyncAfter') || el.getAttribute('camunda:asyncAfter');
+
+/** What the generator added, from the mark line of the end listener */
+function addedBy(listener: Element): { asyncAfter: boolean; locals: string[] } {
+  const line = scriptOf(listener).split('\n').find(l => l.startsWith(MI_ADDED_MARK));
+  const words = line ? line.slice(MI_ADDED_MARK.length).trim().split(/\s+/) : [];
+  const locals = words.find(w => w.startsWith('locals='))?.slice('locals='.length).split(',').filter(Boolean) ?? [];
+  return { asyncAfter: words.includes('asyncAfter'), locals };
+}
+
+/**
+ * Remove the C7 construct: the listeners, and what the generator added at the element
+ * (`asyncAfter`, the empty locals) — a value set by hand stays.
+ */
 export function removeC7MiResult(el: Element) {
-  for (const l of markedListeners(el, MI_RESULT_MARK)) removeEl(l);
-  for (const f of outgoing(el)) for (const l of markedListeners(f, MI_COLLECT_MARK)) removeEl(l);
+  for (const l of markedListeners(el, MI_RESULT_MARK)) {
+    const added = addedBy(l);
+    removeEl(l);
+    if (added.asyncAfter && asyncAfterOf(el) === 'true') {
+      el.removeAttributeNS(CAMUNDA_NS, 'asyncAfter');
+      el.removeAttribute('camunda:asyncAfter');
+    }
+    const ext = firstNamed(el, 'extensionElements');
+    const io = ext ? firstNamed(ext, 'inputOutput') : null;
+    if (io) {
+      for (const p of kids(io)) {
+        const empty = !(p.textContent ?? '').trim() && !p.children.length;
+        if (local(p) === 'inputParameter' && empty && added.locals.includes(p.getAttribute('name') ?? '')) removeEl(p);
+      }
+      if (!kids(io).length) removeEl(io);
+    }
+    if (ext && !kids(ext).length) removeEl(ext);
+  }
+  for (const f of outgoing(el)) {
+    for (const l of markedListeners(f, MI_COLLECT_MARK)) removeEl(l);
+    const ext = firstNamed(f, 'extensionElements');
+    if (ext && !kids(ext).length) removeEl(ext);
+  }
 }
 
 /** Remove the C8 construct (`outputCollection` / `outputElement`) */
@@ -150,11 +191,15 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
   const value = feelToGroovyValue(result.element);
   if (!value.ok) { issue(`Eintrag je Element nicht nach Groovy übersetzbar: ${value.reason}`); return; }
   const coll = spec.collection?.trim() ? feelToGroovyValue(spec.collection) : null;
-  if (!coll?.ok) { issue('ohne lesbare Sammlung lassen sich die Ergebnisse nicht einsammeln — die Sammlung als Variable oder Pfad angeben.'); return; }
+  if (!coll?.ok) { issue('Ohne lesbare Sammlung lassen sich die Ergebnisse nicht einsammeln — die Sammlung als Variable oder Pfad angeben.'); return; }
+  // without a way out nothing would collect — then nothing is written, not half of it
+  const flows = outgoing(el);
+  if (!flows.length) { issue(`Kein ausgehender Sequenzfluss — «${name}» wird nicht eingesammelt, nichts geschrieben.`); return; }
   const ext = ensureExt(doc, el);
 
   // local per inner instance: an empty input parameter
   let io = firstNamed(ext, 'inputOutput');
+  const addedLocals: string[] = [];
   for (const v of resultLocals(spec)) {
     if (!io) { io = doc.createElementNS(CAMUNDA_NS, 'camunda:inputOutput'); prependEl(ext, io); }
     if (kids(io).some(c => local(c) === 'inputParameter' && c.getAttribute('name') === v)) continue;
@@ -162,7 +207,12 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     p.setAttribute('name', v);
     const firstOut = kids(io).find(c => local(c) === 'outputParameter') ?? null;
     if (firstOut) io.insertBefore(p, firstOut); else appendEl(io, p);
+    addedLocals.push(v);
   }
+  // the join of parallel instances: after each one a transaction of its own
+  const addedAsync = asyncAfterOf(el) !== 'true';
+  if (addedAsync) el.setAttributeNS(CAMUNDA_NS, 'camunda:asyncAfter', 'true');
+  const added = [...(addedAsync ? ['asyncAfter'] : []), ...(addedLocals.length ? [`locals=${addedLocals.join(',')}`] : [])];
 
   // per instance: its own variable on the process instance
   const listener = (event: string, lines: string[]) => {
@@ -176,21 +226,20 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
   };
   appendEl(ext, listener('end', [
     `${MI_RESULT_MARK}${name} = ${result.element.trim().replace(/\s*\n\s*/g, ' ')}`,
+    ...(added.length ? [`${MI_ADDED_MARK}${added.join(' ')}`] : []),
     ...(value.reads ? [GROOVY_READ_HELPER()] : []),
     `execution.getProcessInstance().setVariable('${name}_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${value.expr})))`,
   ]));
-  // the join of parallel instances: after each one a transaction of its own
-  el.setAttributeNS(CAMUNDA_NS, 'camunda:asyncAfter', 'true');
-
-  // once, on the way out: collect in the order of the collection, remove the helpers
-  const flows = outgoing(el);
-  if (!flows.length) issue(`kein ausgehender Sequenzfluss — «${name}» wird nicht eingesammelt.`);
+  // once, on the way out: collect in the order of the collection, remove the helpers.
+  // Each outgoing flow carries it; when several are taken, the first one collects —
+  // the others find the helpers gone and leave the list as it is.
   for (const f of flows) {
     appendEl(ensureExt(doc, f), listener('take', [
       `${MI_COLLECT_MARK}${name}`,
       GROOVY_READ_HELPER(),
       `def items = ${coll.expr}`,
       'def n = items == null ? 0 : items.size()',
+      `if (n > 0 && !execution.hasVariable('${name}_0')) return`,
       `def list = (0..<n).collect { v('${name}_' + it) }`,
       `(0..<n).each { execution.removeVariable('${name}_' + it) }`,
       `execution.setVariable('${name}', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))`,

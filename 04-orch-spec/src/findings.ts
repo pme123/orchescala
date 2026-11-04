@@ -18,7 +18,7 @@ import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVaria
 import { correlationOf } from './messageCall';
 import { patternMappings, patternDefs } from './patterns';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, typeUnknown, variantAllows, variantRequires, variantsOf } from './variants';
-import { hasResult, resultLocals } from './miResult';
+import { hasResult, isResultName, resultLocals } from './miResult';
 
 export interface Finding {
   errors: string[];
@@ -363,8 +363,25 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
 
   // ── Multi-instance: results and parallel instances ──────────────────────
   const mi = step.multiInstance;
+  const listName = mi?.result?.collection?.trim();
+  if (mi && listName && mi.result?.element?.trim() && !isResultName(listName)) {
+    errors.push(`Ergebnisse sammeln: «${listName}» ist kein gültiger Variablenname (Buchstaben, Ziffern und _, nicht mit einer Ziffer vorne) — so wird nichts gesammelt.`);
+  }
   if (mi && hasResult(mi.result)) {
     const set = namesWrittenInside(step, spec, model);
+    const name = mi.result.collection.trim();
+    // two collecting multi-instances with the same list: the second overwrites the first —
+    // in Camunda 7 their helpers (`<name>_0 …`) on the process instance mix as well
+    const same = allSteps(spec.steps).filter(s => s.id !== step.id && hasResult(s.multiInstance?.result) && s.multiInstance?.result?.collection.trim() === name);
+    if (same.length) warnings.push(`Ergebnisse sammeln: «${name}» sammelt auch ${same.map(s => `«${s.name || s.id}»`).join(', ')} — die Listen überschreiben sich${spec.engine !== 'c8' ? `, in ${C7_LABEL} mischen sich auch die Zwischenwerte` : ''}. Einen eigenen Namen wählen.`);
+    if (spec.engine !== 'c8') {
+      // Camunda 7: the helpers lie on the process instance — parallel outer instances share them
+      const outer = (scopes.get(step.id) ?? []).slice(0, -1);
+      if (outer.some(o => !o.sequential)) warnings.push(`Ergebnisse sammeln in einer parallelen Mehrfachausführung — in ${C7_LABEL} liegen die Zwischenwerte am Prozess, die äusseren Instanzen überschreiben sie gegenseitig. Aussen sequenziell ausführen oder erst aussen sammeln.`);
+      // the length is read again when collecting — a change inside loses entries
+      const changed = referencedVariables(`= ${mi.collection ?? ''}`).filter(n => set.has(n));
+      if (changed.length) warnings.push(`Ergebnisse sammeln: ein Schritt in der Mehrfachausführung setzt ${changed.map(n => `«${n}»`).join(', ')} — ${C7_LABEL} liest die Sammlung beim Einsammeln nochmals, ändert sich ihre Länge, fehlen Einträge.`);
+    }
     const missing = resultLocals(mi).filter(n => !set.has(n));
     if (missing.length) {
       warnings.push(`Ergebnisse sammeln: ${missing.map(n => `«${n}»`).join(', ')} setzt kein Schritt in der Mehrfachausführung — im Eintrag bleibt es null. In den Ausgaben eines Schritts darin setzen.`);

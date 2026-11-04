@@ -8,7 +8,7 @@ import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn, mergeSpec } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
 import { variablesByStep } from '../src/feel';
-import { MI_COLLECT_MARK, MI_RESULT_MARK, resultLocals } from '../src/miResult';
+import { MI_ADDED_MARK, MI_COLLECT_MARK, MI_RESULT_MARK, resultLocals } from '../src/miResult';
 import type { ProcessSpec, Step } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -140,4 +140,97 @@ test('checks: a local nobody sets, outputs on a parallel multi-instance, a C7 wo
     steps: withResult(base).steps.map(x => (x.id === 'HandleItemsCall' ? { ...x, kind: 'service' as const, topic: 'acme-items-handle', outputVariables: ['aId'] } : x)),
   };
   assert.ok(messages(worker).some(m => m.includes('ohne manuelles Output-Mapping')), messages(worker).join(' / '));
+});
+
+// ── review #115: script text, names, flows, what the generator added ─────────
+
+const c7Spec = () => ({ ...importBpmn(c7(), 'items').spec, engine: 'c7' as const });
+const scriptsOf = (xml: string) => [...xml.matchAll(/<camunda:script[^>]*>([\s\S]*?)<\/camunda:script>/g)].map(m => m[1]
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&'));
+const withoutResult = (xml: string): ProcessSpec => {
+  const s = importBpmn(xml, 'items').spec;
+  return { ...s, engine: 'c7', steps: s.steps.map(x => ({ ...x, multiInstance: x.multiInstance ? { ...x.multiInstance, result: undefined } : undefined })) };
+};
+
+test('Camunda 7: the generated scripts, line by line', () => {
+  const [end, take] = scriptsOf(writeBpmn(c7(), withResult(c7Spec())).xml);
+  const endLines = end.trim().split('\n');
+  assert.equal(endLines[0], `${MI_RESULT_MARK}results = {aId: aId, item: item}`);
+  assert.equal(endLines[1], `${MI_ADDED_MARK}asyncAfter locals=aId`);
+  assert.equal(endLines.at(-1), "execution.getProcessInstance().setVariable('results_' + execution.getVariable('loopCounter'), org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(['aId': v('aId'), 'item': v('item')])))");
+  const takeLines = take.trim().split('\n');
+  assert.equal(takeLines[0], `${MI_COLLECT_MARK}results`);
+  assert.deepEqual(takeLines.slice(-6, -1), [
+    "def items = v('items')",
+    'def n = items == null ? 0 : items.size()',
+    "if (n > 0 && !execution.hasVariable('results_0')) return",
+    "def list = (0..<n).collect { v('results_' + it) }",
+    "(0..<n).each { execution.removeVariable('results_' + it) }",
+  ]);
+  assert.equal(takeLines.at(-1), "execution.setVariable('results', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))");
+});
+
+test('a list name that is no identifier: nothing written, an error at the step', async () => {
+  const { collectFindings } = await import('../src/findings');
+  for (const bad of ["res'); System.exit(0); ('", 'res\nults', '1results', 'my results']) {
+    const spec = withResult(c7Spec(), { collection: bad, element: '{item: item}' });
+    const out = writeBpmn(c7(), spec);
+    assert.ok(!out.xml.includes(MI_RESULT_MARK) && !out.xml.includes(MI_COLLECT_MARK), bad);
+    assert.doesNotMatch(out.xml, /asyncAfter/);
+    const msgs = [...collectFindings(spec, null, allSteps(spec.steps)).values()].flatMap(f => f.errors);
+    assert.ok(msgs.some(m => m.includes('kein gültiger Variablenname')), `${bad}: ${msgs.join(' / ')}`);
+  }
+});
+
+test('taking the result away removes asyncAfter and the locals the generator added - not those set by hand', () => {
+  const plain = writeBpmn(writeBpmn(c7(), withResult(c7Spec())).xml, withoutResult(writeBpmn(c7(), withResult(c7Spec())).xml)).xml;
+  assert.doesNotMatch(plain, /asyncAfter/);
+  assert.doesNotMatch(plain, /inputParameter/);
+  assert.doesNotMatch(plain, /executionListener/);
+  // set by hand before: asyncAfter and an own aId parameter stay
+  const own = c7().replace('<bpmn:callActivity id="HandleItemsCall" name="Handle Items">',
+    '<bpmn:callActivity id="HandleItemsCall" name="Handle Items" camunda:asyncAfter="true"><bpmn:extensionElements><camunda:inputOutput><camunda:inputParameter name="aId" /></camunda:inputOutput></bpmn:extensionElements>');
+  const ownSpec = { ...importBpmn(own, 'items').spec, engine: 'c7' as const };
+  const withIt = writeBpmn(own, withResult(ownSpec)).xml;
+  assert.ok(!withIt.includes(MI_ADDED_MARK), 'nothing added');
+  const back = writeBpmn(withIt, withoutResult(withIt)).xml;
+  assert.match(back, /camunda:asyncAfter="true"/);
+  assert.match(back, /<camunda:inputParameter name="aId"\s*\/>/);
+});
+
+test('no outgoing flow: nothing written, not half of it', () => {
+  const last = c7().replace('<bpmn:outgoing>f2</bpmn:outgoing>', '').replace(/<bpmn:endEvent[\s\S]*?<\/bpmn:endEvent>/, '').replace(/<bpmn:sequenceFlow id="f2"[^>]*\/>/, '');
+  const out = writeBpmn(last, withResult({ ...importBpmn(last, 'items').spec, engine: 'c7' }));
+  assert.ok(out.issues.some(i => i.where === 'Ergebnisse sammeln' && i.text.startsWith('Kein ausgehender Sequenzfluss')), out.issues.map(i => i.text).join(' / '));
+  assert.ok(!out.xml.includes(MI_RESULT_MARK));
+  assert.doesNotMatch(out.xml, /asyncAfter|inputParameter/);
+});
+
+test('several outgoing flows: each collects, guarded so only the first one does', () => {
+  const two = c7()
+    .replace('<bpmn:outgoing>f2</bpmn:outgoing>', '<bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f3</bpmn:outgoing>')
+    .replace('<bpmn:sequenceFlow id="f2"', '<bpmn:endEvent id="EndEvent2"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent><bpmn:sequenceFlow id="f3" sourceRef="HandleItemsCall" targetRef="EndEvent2"/><bpmn:sequenceFlow id="f2"');
+  const out = writeBpmn(two, withResult({ ...importBpmn(two, 'items').spec, engine: 'c7' })).xml;
+  const takes = scriptsOf(out).filter(s => s.trim().startsWith(MI_COLLECT_MARK));
+  assert.equal(takes.length, 2);
+  for (const t of takes) assert.ok(t.includes("if (n > 0 && !execution.hasVariable('results_0')) return"));
+});
+
+test('checks: the same list twice, inside a parallel outer multi-instance, the collection changed inside', async () => {
+  const { stepFindings } = await import('../src/findings');
+  const result = { collection: 'results', element: '{item: item}' };
+  const inner: Step = { id: 'Inner', name: 'Inner', kind: 'subprocess', multiInstance: { collection: 'item.parts', element: 'part', result }, children: [] } as unknown as Step;
+  const outer: Step = { id: 'Outer', name: 'Outer', kind: 'subprocess', multiInstance: { collection: 'items', element: 'item' }, children: [inner] } as unknown as Step;
+  const other: Step = { id: 'Other', name: 'Other', kind: 'subprocess', multiInstance: { collection: 'items', element: 'item', result }, children: [
+    { id: 'Change', name: 'Change', kind: 'subprocess', outputs: [{ name: 'items', expression: '= []' }] } as unknown as Step,
+  ] } as unknown as Step;
+  const spec = { processId: 'p', engine: 'c7', steps: [outer, other] } as unknown as ProcessSpec;
+  const w = (s: Step) => stepFindings(s, spec, null, []).warnings;
+  assert.ok(w(inner).some(m => m.includes('sammelt auch «Other»')), w(inner).join(' / '));
+  assert.ok(w(inner).some(m => m.includes('in einer parallelen Mehrfachausführung')), w(inner).join(' / '));
+  assert.ok(w(other).some(m => m.includes('setzt «items»')), w(other).join(' / '));
+  // Camunda 8: native, no helpers — only the same list name counts
+  const c8spec = { ...spec, engine: 'c8' } as ProcessSpec;
+  const w8 = stepFindings(inner, c8spec, null, []).warnings;
+  assert.ok(w8.some(m => m.includes('sammelt auch')) && !w8.some(m => m.includes('parallelen Mehrfachausführung')), w8.join(' / '));
 });
