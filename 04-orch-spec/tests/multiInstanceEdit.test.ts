@@ -84,3 +84,44 @@ test('merge: a collection changed in the diagram wins', () => {
   const fresh = importBpmn(xml.replace('=a', '=c'), 'letters').spec;
   assert.deepEqual(stepOf(mergeSpec(fresh, edited, base).spec).multiInstance, { collection: 'c', element: 'y' });
 });
+
+// ── review #115: the C7 collection, and writing twice changes nothing ────────
+
+const c7Write = (collection: string, mi = '<bpmn:multiInstanceLoopCharacteristics />') => {
+  const spec = { ...importBpmn(c7(mi), 'letters').spec, engine: 'c7' as const };
+  return writeBpmn(c7(mi), withMi(spec, { collection, element: 'x' }));
+};
+const miIssues = (r: ReturnType<typeof writeBpmn>) => r.issues.filter(i => i.where === 'Mehrfachausführung').map(i => i.text);
+
+test('Camunda 7 collection: a path gets .elements(), a filter stays a list, anything else is reported', () => {
+  const nested = c7Write('a.b.c');
+  assert.match(nested.xml, /camunda:collection="\$\{a\.prop\(&quot;b&quot;\)\.prop\(&quot;c&quot;\)\.elements\(\)\}"/);
+  assert.deepEqual(miIssues(nested), []);
+  const filter = c7Write('a[item.x > 1]');
+  assert.match(filter.xml, /\.elementList\(\)\}"/);
+  assert.doesNotMatch(filter.xml, /\.elements\(\)/);
+  assert.deepEqual(miIssues(filter), []);
+  // one entry of a list - no list itself
+  const one = c7Write('items[1]');
+  assert.match(one.xml, /camunda:collection="\$\{items\[0\]\}"/);
+  assert.ok(miIssues(one).some(t => t.includes('muss eine Liste liefern')), miIssues(one).join(' / '));
+  // no JUEL counterpart: the issue of the translation
+  assert.ok(miIssues(c7Write('reverse(items)')).some(t => t.includes('nicht nach JUEL übersetzbar')));
+});
+
+test('written twice: the second export changes nothing - in the notation of the diagram', () => {
+  const twice = (xml: string, engine: 'c7' | 'c8') => {
+    const first = writeBpmn(xml, { ...importBpmn(xml, 'letters').spec, engine }).xml;
+    const second = writeBpmn(first, { ...importBpmn(first, 'letters').spec, engine }).xml;
+    return { first, second };
+  };
+  for (const [xml, engine, keep] of [
+    [c7('<bpmn:multiInstanceLoopCharacteristics camunda:collection="${items}" camunda:elementVariable="item" />'), 'c7', 'camunda:collection="${items}"'],
+    [c7('<bpmn:multiInstanceLoopCharacteristics camunda:collection="items" camunda:elementVariable="item" />'), 'c7', 'camunda:collection="items"'],
+    [c8('<bpmn:multiInstanceLoopCharacteristics><bpmn:extensionElements><zeebe:loopCharacteristics inputCollection="=  items " inputElement="item" /></bpmn:extensionElements></bpmn:multiInstanceLoopCharacteristics>'), 'c8', 'inputCollection="=  items "'],
+  ] as const) {
+    const { first, second } = twice(xml, engine);
+    assert.ok(first.includes(keep), `${keep}\n${first}`);
+    assert.equal(second, first);
+  }
+});

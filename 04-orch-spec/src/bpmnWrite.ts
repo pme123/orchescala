@@ -133,7 +133,6 @@ let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
-  writtenInside = step => namesWrittenInside(step, spec, model);
   const steps = new Map(allSteps(spec.steps).map(s => [s.id, s]));
   const scopes = multiInstanceScopes(spec.steps);
   const inCache = new Map<string, JuelOptions>();
@@ -152,7 +151,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     return o;
   };
   try {
-    return writeBpmnWith(xml, spec);
+    return writeBpmnWith(xml, spec, model);
   } finally {
     juelOpts = {};
     outputOpts = () => juelOpts;
@@ -160,7 +159,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
   }
 }
 
-function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
+function writeBpmnWith(xml: string, spec: ProcessSpec, model: Model | null): WriteResult {
   const issues: WriteIssue[] = [];
   const engine: EngineId = spec.engine ?? 'c7';
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -259,7 +258,8 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
     if (el) writeBoundaryTimers(doc, byId, engine, step, issues);
-    if (el) writeMultiInstance(doc, el, engine, step, issues);
+    // what the steps in a multi-instance set — only those become locals of its result
+    if (el) writeMultiInstance(doc, el, engine, step, issues, step.multiInstance?.result ? namesWrittenInside(step, spec, model) : undefined);
     // Signal or message of the boundary events — into their boundary event
     for (const e of step.errors ?? []) {
       const b = isEventBoundary(e) && e.boundaryId && !e.pattern ? byId.get(e.boundaryId) : undefined;
@@ -719,6 +719,16 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
   appendEl(def, t);
 }
 
+/** The multi-instance of a step: collection and element, and its collected results */
+function writeMultiInstance(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[], inside: Set<string> | undefined) {
+  writeMiInput(doc, el, engine, step, issues);
+  // the results as one list — natively in Camunda 8, generated in Camunda 7 (see miResult.ts)
+  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+  if (mi && step.multiInstance) {
+    writeMiResult(doc, el, mi, engine, step.multiInstance, text => issues.push({ stepId: step.id, where: 'Ergebnisse sammeln', text }), inside);
+  }
+}
+
 /**
  * Collection and element of a multi-instance — set at the step. Camunda 8:
  * `<zeebe:loopCharacteristics inputCollection="=order.items" inputElement="item" />`,
@@ -728,18 +738,6 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
  * Empty at the step: out of the diagram as well. What the diagram already says in the
  * same sense stays in its notation (`items` instead of `${items}`).
  */
-/** What the steps in a multi-instance set — only those become locals of its result */
-let writtenInside: (step: Step) => Set<string> = () => new Set();
-
-function writeMultiInstance(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
-  writeMiInput(doc, el, engine, step, issues);
-  // the results as one list — natively in Camunda 8, generated in Camunda 7 (see miResult.ts)
-  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
-  if (mi && step.multiInstance) {
-    writeMiResult(doc, el, mi, engine, step.multiInstance, text => issues.push({ stepId: step.id, where: 'Ergebnisse sammeln', text }), writtenInside(step));
-  }
-}
-
 function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
   const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
   if (!mi || !step.multiInstance) return;
@@ -786,8 +784,10 @@ function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, 
       if (r.issue) issues.push({ stepId: step.id, where, text: `Sammlung nicht nach JUEL übersetzbar: ${r.issue}` });
       const path = !r.issue && /\.prop\("[^"]*"\)\}$/.test(r.text);
       const text = path ? `${r.text.slice(0, -1)}.elements()}` : r.text;
-      // a path ends in a Spin node — `.elements()` makes it a list; any other expression must give one itself
-      if (!r.issue && !path) issues.push({ stepId: step.id, where, text: `Sammlung «${collection}» als Ausdruck ${text} — er muss eine Liste liefern; ein Spin-JSON-Knoten lässt sich nicht durchlaufen (.elements()).` });
+      // a path ends in a Spin node — `.elements()` makes it a list; a filter gives one
+      // already (`.elementList()`); any other expression must give one itself
+      const list = /\.(elements|elementList)\(\)\}$/.test(r.text);
+      if (!r.issue && !path && !list) issues.push({ stepId: step.id, where, text: `Sammlung «${collection}» als Ausdruck ${text} — er muss eine Liste liefern; ein Spin-JSON-Knoten lässt sich nicht durchlaufen (.elements()).` });
       mi.setAttributeNS(CAMUNDA_NS, 'camunda:collection', text);
     }
   }
