@@ -87,10 +87,11 @@ function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOp
   const was = old.trim().replace(/^[$#]\{|\}$/g, '').replace(/\s+/g, '');
   const now = r.juel.replace(/\s+/g, '');
   const count = (t: string) => (t.match(SPIN_ENDING) ?? []).length;
-  // an optional field now comes guarded: `(….hasProp("x") && … ? ….stringValue() : null)`
-  const guarded = /^\(.*\?(.*):null\)$/.exec(now);
-  const value = guarded && !was.includes('?') ? guarded[1] : now;
-  return was !== now && was.replace(SPIN_ENDING, '') === value.replace(SPIN_ENDING, '') && count(value) > count(was);
+  const lacks = (to: string) => was.replace(SPIN_ENDING, '') === to.replace(SPIN_ENDING, '') && count(to) > count(was);
+  // the old row with or without the checks an optional field now gets
+  // (`(….hasProp("x") && … ? ….stringValue() : null)`)
+  const value = r.value?.replace(/\s+/g, '');
+  return was !== now && (lacks(now) || (!!value && lacks(value)));
 }
 
 /**
@@ -157,11 +158,17 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     if (!o) cache.set(stepId, o = { ...juelOpts, vars: withMultiInstance(resultVariables(step, spec, model, catalogEntry(step, model)), scopes.get(stepId)) });
     return o;
   };
+  const rowCache = new Map<string, JuelOptions>();
   rowOpts = (stepId, tag, name) => {
-    const base = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
-    const step = steps.get(stepId);
-    const target = step ? mappingTarget(step, spec, model, tag, name.trim()) : null;
-    return target ? { ...base, target } : base;
+    const key = `${stepId}\u0000${tag}\u0000${name.trim()}`;
+    let o = rowCache.get(key);
+    if (!o) {
+      const base = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+      const step = steps.get(stepId);
+      const target = step ? mappingTarget(step, spec, model, tag, name.trim(), juelOpts.vars) : null;
+      rowCache.set(key, o = target ? { ...base, target } : base);
+    }
+    return o;
   };
   try {
     return writeBpmnWith(xml, spec);

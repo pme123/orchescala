@@ -29,7 +29,7 @@ import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSett
 import { packageOf } from './scala.ts';
 import { catalogObject, domainRef, parseDomainRef } from './serviceTypes.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
-import type { JuelOptions } from './feelJuel';
+import type { JuelOptions, JuelTarget } from './feelJuel';
 import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantsOf } from './variants.ts';
 
 export type FeelType =
@@ -448,20 +448,18 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
  * domain catalog), an output into a process variable. A scalar or a simple enum
  * only — null otherwise.
  */
-export function mappingTarget(step: Step, spec: ProcessSpec, model: Model | null, list: 'in' | 'out', name: string): { type: FeelType; optional: boolean } | null {
-  let expected: ExpectedType | null = null;
+export function mappingTarget(step: Step, spec: ProcessSpec, model: Model | null, list: 'in' | 'out', name: string,
+  vars: readonly VarNode[] = processVariables(spec, model)): JuelTarget | null {
   if (list === 'out') {
-    const v = processVariables(spec, model).find(x => x.name === name);
+    const v = vars.find(x => x.name === name);
     return v && v.type !== 'any' && v.type !== 'list' && v.type !== 'context' && v.type !== 'nil' ? { type: v.type, optional: !!v.optional } : null;
   }
   if (isInitWorker(step, spec.processId ?? '')) return null;
   const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
-  if (ia?.inTypeId) {
-    const t = (spec.types ?? []).find(x => x.id === ia.inTypeId);
-    expected = t ? expectedFor(classFieldsOf(t).find(f => f.name === name), spec.types ?? [], model) : null;
-  } else {
-    expected = expectedFromDomain(stepDomainMember(step, spec, model, 'In'), name, model);
-  }
+  const own = ia?.inTypeId ? (spec.types ?? []).find(x => x.id === ia.inTypeId) : undefined;
+  const expected = ia?.inTypeId
+    ? (own ? expectedFor(classFieldsOf(own).find(f => f.name === name), spec.types ?? [], model) : null)
+    : expectedFromDomain(stepDomainMember(step, spec, model, 'In'), name, model);
   if (!expected || (expected.kind !== 'scalar' && expected.kind !== 'enum')) return null;
   const type = expected.accepts.find(t => t !== 'nil');
   return type ? { type, optional: expected.accepts.includes('nil') } : null;
