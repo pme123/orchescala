@@ -24,7 +24,7 @@
 import type { EngineId, MultiInstanceSpec } from './types.ts';
 import { readMiResult, removeC7MiResult, removeC8MiResult, resultLocals, writeMiResult } from './miResult.ts';
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
-import { feelBody, feelToJuel, type JuelOptions } from './feelJuel.ts';
+import { feelBody, feelToJuel, iterableJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -665,7 +665,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       const lc = z('loopCharacteristics');
       if (lc) {
         const coll = lc.getAttribute('inputCollection');
-        if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? toJuel(coll, 'Sammlung', issue, ctx.juel) : coll);
+        // a path into a JSON variable as a Java list — a Spin node itself cannot be iterated
+        if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? iterableJuel(toJuel(coll, 'Sammlung', issue, ctx.juel)).text : coll);
         setC(el, 'elementVariable', lc.getAttribute('inputElement') ?? '');
         if (lc.getAttribute('outputCollection')) issue('Mehrfachausführung', `outputCollection/outputElement gibt es in ${C7_LABEL} nicht — Ergebnisse von Hand sammeln.`);
       }

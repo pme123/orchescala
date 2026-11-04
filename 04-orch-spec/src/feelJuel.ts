@@ -501,6 +501,13 @@ export function feelToGroovyValue(body: string): { ok: true; expr: string; reads
 /** The read helper of the generated scripts — `v('order', 'items')` */
 export const GROOVY_READ_HELPER = (): string => GROOVY_READ;
 
+/**
+ * A JUEL collection of a Camunda 7 multi-instance that can be iterated: a path into a
+ * JSON variable ends in a Spin node — `.elements()` makes it a Java list.
+ */
+export const iterableJuel = (juel: string): { text: string; path: boolean } =>
+  /\.prop\("[^"]*"\)\}$/.test(juel) ? { text: `${juel.slice(0, -1)}.elements()}`, path: true } : { text: juel, path: false };
+
 /** A FEEL list or context as a Groovy script that yields JSON (Spin) */
 export function feelToGroovy(body: string): GroovyResult {
   const src = body.trim();

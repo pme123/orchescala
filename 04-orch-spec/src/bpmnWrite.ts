@@ -23,7 +23,7 @@ import { C8_LABEL } from './engineLabels.ts';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
 import { juelOptions, multiInstanceScopes, namesWrittenInside, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
 import { catalogEntry } from './interactions.ts';
-import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel.ts';
+import { engineExpression, feelBody, feelToGroovy, feelToJuel, iterableJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import { writeMiResult } from './miResult.ts';
@@ -782,8 +782,7 @@ function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, 
     else if (collection) {
       const r = engineExpression(`= ${collection}`, engine);
       if (r.issue) issues.push({ stepId: step.id, where, text: `Sammlung nicht nach JUEL übersetzbar: ${r.issue}` });
-      const path = !r.issue && /\.prop\("[^"]*"\)\}$/.test(r.text);
-      const text = path ? `${r.text.slice(0, -1)}.elements()}` : r.text;
+      const { text, path } = r.issue ? { text: r.text, path: false } : iterableJuel(r.text);
       // a path ends in a Spin node — `.elements()` makes it a list; a filter gives one
       // already (`.elementList()`); any other expression must give one itself
       const list = /\.(elements|elementList)\(\)\}$/.test(r.text);
