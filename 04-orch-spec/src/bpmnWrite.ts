@@ -21,7 +21,7 @@
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels.ts';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
-import { juelOptions, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
+import { juelOptions, mappingTarget, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
 import { catalogEntry } from './interactions.ts';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
@@ -87,7 +87,10 @@ function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOp
   const was = old.trim().replace(/^[$#]\{|\}$/g, '').replace(/\s+/g, '');
   const now = r.juel.replace(/\s+/g, '');
   const count = (t: string) => (t.match(SPIN_ENDING) ?? []).length;
-  return was !== now && was.replace(SPIN_ENDING, '') === now.replace(SPIN_ENDING, '') && count(now) > count(was);
+  // an optional field now comes guarded: `(….hasProp("x") && … ? ….stringValue() : null)`
+  const guarded = /^\(.*\?(.*):null\)$/.exec(now);
+  const value = guarded && !was.includes('?') ? guarded[1] : now;
+  return was !== now && was.replace(SPIN_ENDING, '') === value.replace(SPIN_ENDING, '') && count(value) > count(was);
 }
 
 /**
@@ -129,6 +132,11 @@ let outputOpts: (stepId: string) => JuelOptions = () => juelOpts;
  * its path would end without `boolValue()` & co. (as in the findings, see withMultiInstance)
  */
 let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
+/**
+ * The options for one mapping row: plus what its target field expects — so a
+ * Spin path of unknown type still ends right (`docId: String` → `stringValue()`).
+ */
+let rowOpts: (stepId: string, tag: 'in' | 'out', name: string) => JuelOptions = (stepId, tag) => tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
@@ -149,12 +157,19 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     if (!o) cache.set(stepId, o = { ...juelOpts, vars: withMultiInstance(resultVariables(step, spec, model, catalogEntry(step, model)), scopes.get(stepId)) });
     return o;
   };
+  rowOpts = (stepId, tag, name) => {
+    const base = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+    const step = steps.get(stepId);
+    const target = step ? mappingTarget(step, spec, model, tag, name.trim()) : null;
+    return target ? { ...base, target } : base;
+  };
   try {
     return writeBpmnWith(xml, spec);
   } finally {
     juelOpts = {};
     outputOpts = () => juelOpts;
     inputOpts = () => juelOpts;
+    rowOpts = (stepId, tag) => tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
   }
 }
 
@@ -984,7 +999,7 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (TECHNICAL.has(name)) continue;
     const tag = local(p) === 'inputParameter' ? 'in' : 'out';
     const row = (tag === 'in' ? ins : outs).find(m => m.name.trim() === name);
-    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, tag === 'in' ? inputOpts(stepId) : outputOpts(stepId)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
+    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, rowOpts(stepId, tag, name)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
       keep.add(`${tag}:${name}`);
       continue;
     }
@@ -999,14 +1014,14 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (keep.has(`in:${m.name.trim()}`) || scriptGone(m, `Eingabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
     p.setAttribute('name', m.name.trim());
-    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true, inputOpts(stepId)));
+    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true, rowOpts(stepId, 'in', m.name)));
     appendEl(io, p);
   }
   for (const m of outs) {
     if (keep.has(`out:${m.name.trim()}`) || scriptGone(m, `Ausgabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:outputParameter');
     p.setAttribute('name', m.name.trim());
-    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true, outputOpts(stepId)));
+    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true, rowOpts(stepId, 'out', m.name)));
     appendEl(io, p);
   }
   if (!kids(io).length) removeEl(io);
@@ -1028,14 +1043,14 @@ function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Ma
     if (n !== 'in' && n !== 'out') continue;
     if (attr(p, 'businessKey') || attr(p, 'variables')) continue;
     if (TECHNICAL.has(attr(p, 'target') ?? '') || TECHNICAL.has(attr(p, 'source') ?? '')) continue;
-    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, n === 'in' ? inputOpts(stepId) : outputOpts(stepId)));
+    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, rowOpts(stepId, n, m.name)));
     if (row) { kept.add(row); continue; }
     removeEl(p);
   }
   const put = (tag: 'in' | 'out', m: Mapping, where: string) => {
     if (kept.has(m)) return;
     const name = m.name.trim();
-    const opts = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+    const opts = rowOpts(stepId, tag, name);
     const existing = ioParam(tag, name);
     // a local variable in the `inputOutput`: unchanged it stays, a
     // script anyway; a changed text is replaced there — unless

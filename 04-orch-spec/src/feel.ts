@@ -30,7 +30,7 @@ import { packageOf } from './scala.ts';
 import { catalogObject, domainRef, parseDomainRef } from './serviceTypes.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
 import type { JuelOptions } from './feelJuel';
-import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants.ts';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantsOf } from './variants.ts';
 
 export type FeelType =
   | 'string' | 'number' | 'boolean' | 'date' | 'date time' | 'time' | 'duration'
@@ -440,6 +440,31 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   // if the value is missing, the default applies — null is then allowed
   if (shape.optional || p.default?.trim()) accepts = [...accepts, 'nil'];
   return { accepts, label: p.type, kind, ...(values?.length ? { values } : {}) };
+}
+
+/**
+ * The target of a mapping as the JUEL export needs it (see `JuelOptions.target`):
+ * an input goes into the In of the service or the called process (own class or
+ * domain catalog), an output into a process variable. A scalar or a simple enum
+ * only — null otherwise.
+ */
+export function mappingTarget(step: Step, spec: ProcessSpec, model: Model | null, list: 'in' | 'out', name: string): { type: FeelType; optional: boolean } | null {
+  let expected: ExpectedType | null = null;
+  if (list === 'out') {
+    const v = processVariables(spec, model).find(x => x.name === name);
+    return v && v.type !== 'any' && v.type !== 'list' && v.type !== 'context' && v.type !== 'nil' ? { type: v.type, optional: !!v.optional } : null;
+  }
+  if (isInitWorker(step, spec.processId ?? '')) return null;
+  const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
+  if (ia?.inTypeId) {
+    const t = (spec.types ?? []).find(x => x.id === ia.inTypeId);
+    expected = t ? expectedFor(classFieldsOf(t).find(f => f.name === name), spec.types ?? [], model) : null;
+  } else {
+    expected = expectedFromDomain(stepDomainMember(step, spec, model, 'In'), name, model);
+  }
+  if (!expected || (expected.kind !== 'scalar' && expected.kind !== 'enum')) return null;
+  const type = expected.accepts.find(t => t !== 'nil');
+  return type ? { type, optional: expected.accepts.includes('nil') } : null;
 }
 
 /** Is the field required according to the domain catalog (not `Option[…]`)? null = field unknown. */
