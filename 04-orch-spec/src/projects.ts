@@ -284,7 +284,8 @@ export async function grantAccess(
   const keep = 'project' in target ? await intoProject(dir, target.project.name) : dir;
   if (!keep) return false;
   await putHandle(key, keep);
-  await onPicked?.(dir);
+  // the access is granted — what follows from the chosen folder must not undo that
+  try { await onPicked?.(dir); } catch (e) { console.warn('grantAccess: after the pick', e); }
   return true;
 }
 
