@@ -56,7 +56,7 @@ export function resultNameIssue(name: string | undefined): string | null {
   const n = name?.trim() ?? '';
   if (!/^[A-Za-z_]\w*$/.test(n)) return 'kein gültiger Variablenname (Buchstaben, Ziffern und _, nicht mit einer Ziffer vorne)';
   if (RESERVED.has(n)) return 'ein reserviertes Wort';
-  if (/_(n|\d+)$/.test(n)) return 'endet wie die Zwischenwerte (_n, _0 …)';
+  if (/_(n|\d+|collected)$/.test(n)) return 'endet wie die Zwischenwerte (_n, _0 …, _collected)';
   return null;
 }
 export const isResultName = (name: string | undefined): boolean => resultNameIssue(name) === null;
@@ -272,8 +272,6 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
   const name = result.collection.trim();
   const value = feelToGroovyValue(result.element);
   if (!value.ok) { issue(`Eintrag je Element nicht nach Groovy übersetzbar: ${value.reason}`); return; }
-  const coll = spec.collection?.trim() ? feelToGroovyValue(spec.collection) : null;
-  if (!coll?.ok) { issue('Ohne lesbare Sammlung lassen sich die Ergebnisse nicht einsammeln — die Sammlung als Variable oder Pfad angeben.'); return; }
   // without a way out nothing would collect — then nothing is written, not half of it
   const flows = outgoing(el);
   if (!flows.length) { issue(`Kein ausgehender Sequenzfluss — «${name}» wird nicht eingesammelt, nichts geschrieben.`); return; }
@@ -291,8 +289,7 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     if (firstOut) io.insertBefore(p, firstOut); else appendEl(io, p);
     addedLocals.push(v);
   }
-  // the join of parallel instances: after each one a transaction of its own
-  // the inner instances, each in a transaction of its own after it (not the body)
+  // the join of parallel instances: each inner instance (not the body) in a transaction of its own after it
   const addedAsync = asyncAfterOf(mi) !== 'true';
   if (addedAsync) mi.setAttributeNS(CAMUNDA_NS, 'camunda:asyncAfter', 'true');
   const added = [...(addedAsync ? ['loopAsyncAfter'] : []), ...(addedLocals.length ? [`locals=${addedLocals.join(',')}`] : [])];
@@ -317,23 +314,22 @@ export function writeMiResult(doc: Document, el: Element, mi: Element, engine: E
     `if (execution.getVariable('loopCounter') == 0) execution.getProcessInstance().setVariable('${name}_n', execution.getVariable('nrOfInstances'))`,
   ]));
   // once, on the way out: collect in the order of the collection, remove the helpers.
-  // Each outgoing flow carries it; when several are taken, the first one collects —
-  // the others find the count gone and leave the list as it is. No count at all and an
-  // empty collection: no instance ran, each taken flow sets the empty list.
+  // Each outgoing flow carries it. Flows taken together leave the activity in one
+  // transaction: the first one collects and sets a transient flag, the others see it and
+  // leave the list as it is. No count and no flag: no instance ran, the list is empty.
+  // The collection is not read again — it may have changed in the meantime. The script's
+  // own names start with `__`, so that they meet no variable of the process.
   for (const f of flows) {
     appendEl(ensureExt(doc, f), listener('take', [
       `${MI_COLLECT_MARK}${name}`,
       GROOVY_READ_HELPER(),
-      `def n = execution.getVariable('${name}_n')`,
-      'if (n == null) {',
-      `  def items = ${coll.expr}`,
-      '  if (items != null && items.size() > 0) return',
-      '  n = 0',
-      '}',
-      `def list = (0..<n).collect { v('${name}_' + it) }`,
-      `(0..<n).each { execution.removeVariable('${name}_' + it) }`,
+      `if (execution.getVariable('${name}_collected')) return`,
+      `def __n = execution.getVariable('${name}_n') ?: 0`,
+      `def __list = (0..<__n).collect { v('${name}_' + it) }`,
+      `(0..<__n).each { execution.removeVariable('${name}_' + it) }`,
       `execution.removeVariable('${name}_n')`,
-      `execution.setVariable('${name}', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))`,
+      `execution.setVariable('${name}', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(__list)))`,
+      `execution.getProcessInstance().setVariable('${name}_collected', org.camunda.bpm.engine.variable.Variables.untypedValue(true, true))`,
     ]));
   }
 }

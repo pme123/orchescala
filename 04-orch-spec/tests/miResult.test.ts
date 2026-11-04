@@ -68,7 +68,7 @@ test('Camunda 7: local parameter, end listener per instance, asyncAfter, collect
   assert.match(out.xml, /execution\.getProcessInstance\(\)\.setVariable\('results_' \+ execution\.getVariable\('loopCounter'\)/);
   assert.match(out.xml, /<camunda:executionListener event="take">/);
   assert.ok(out.xml.includes(`${MI_COLLECT_MARK}results`));
-  assert.match(out.xml, /def items = v\('items'\)/);
+  assert.doesNotMatch(out.xml, /v\('items'\)/, 'the collection is not read again');
   assert.match(out.xml, /execution\.removeVariable\('results_' \+ it\)/);
   const back = stepOf(importBpmn(out.xml, 'items').spec);
   assert.deepEqual(back.multiInstance?.result, { collection: 'results', element: '{aId: aId, item: item}' });
@@ -167,19 +167,18 @@ test('Camunda 7: the generated scripts, line by line', () => {
   ]);
   const takeLines = take.trim().split('\n');
   assert.equal(takeLines[0], `${MI_COLLECT_MARK}results`);
-  // the count comes from the engine; without one: empty collection, or collected already
-  assert.deepEqual(takeLines.slice(-10), [
-    "def n = execution.getVariable('results_n')",
-    'if (n == null) {',
-    "  def items = v('items')",
-    '  if (items != null && items.size() > 0) return',
-    '  n = 0',
-    '}',
-    "def list = (0..<n).collect { v('results_' + it) }",
-    "(0..<n).each { execution.removeVariable('results_' + it) }",
+  // the count comes from the engine; a transient flag says another flow collected already
+  assert.deepEqual(takeLines.slice(-7), [
+    "if (execution.getVariable('results_collected')) return",
+    "def __n = execution.getVariable('results_n') ?: 0",
+    "def __list = (0..<__n).collect { v('results_' + it) }",
+    "(0..<__n).each { execution.removeVariable('results_' + it) }",
     "execution.removeVariable('results_n')",
-    "execution.setVariable('results', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(list)))",
+    "execution.setVariable('results', org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(__list)))",
+    "execution.getProcessInstance().setVariable('results_collected', org.camunda.bpm.engine.variable.Variables.untypedValue(true, true))",
   ]);
+  // only the script's own names - no plain `items`, `n` or `list` that a process variable could meet
+  assert.doesNotMatch(take, /\bdef (n|items|list)\b/);
 });
 
 test('a list name that is no identifier: nothing written, an error at the step', async () => {
@@ -227,7 +226,7 @@ test('several outgoing flows: each carries the collector, guarded so only the fi
   const out = writeBpmn(two, withResult({ ...importBpmn(two, 'items').spec, engine: 'c7' })).xml;
   const takes = scriptsOf(out).filter(s => s.trim().startsWith(MI_COLLECT_MARK));
   assert.equal(takes.length, 2);
-  for (const t of takes) assert.ok(t.includes('if (items != null && items.size() > 0) return'));
+  for (const t of takes) assert.ok(t.includes("if (execution.getVariable('results_collected')) return"));
 });
 
 test('checks: the same list twice, inside a parallel outer multi-instance', async () => {
@@ -298,7 +297,7 @@ test('Camunda 8: an instance variable without a collection is reported, no half 
 
 test('list names: no keyword, nothing that ends like a helper', () => {
   for (const ok of ['results', 'letterIds', '_list', 'a_b']) assert.equal(resultNameIssue(ok), null, ok);
-  for (const bad of ['def', 'class', 'in', 'loopCounter', 'results_n', 'results_0', 'a_12', '1a', 'a-b', '']) assert.ok(resultNameIssue(bad), bad);
+  for (const bad of ['def', 'class', 'in', 'loopCounter', 'results_n', 'results_0', 'a_12', 'a_collected', '1a', 'a-b', '']) assert.ok(resultNameIssue(bad), bad);
 });
 
 test('Camunda 7: an entry over several lines comes back as it was', () => {
@@ -359,4 +358,12 @@ test('engine conversion: asyncAfter set by hand survives C7 to C8 to C7 with a r
   assert.ok(round.includes(`${MI_RESULT_MARK}results = {aId: aId, item: item}`));
   assert.equal(round.split(MI_COLLECT_MARK).length - 1, 1);
   assert.match(round, /<bpmn:multiInstanceLoopCharacteristics [^>]*camunda:asyncAfter="true"/);
+});
+
+test('Camunda 7: a collection named like a script local - the scripts stay the same', () => {
+  const xml = c7().replace('camunda:collection="items"', 'camunda:collection="list"');
+  const out = writeBpmn(xml, withResult({ ...importBpmn(xml, 'items').spec, engine: 'c7' }));
+  assert.deepEqual(out.issues.filter(i => i.where === 'Ergebnisse sammeln'), []);
+  const take = scriptsOf(out.xml).find(t => t.trim().startsWith(MI_COLLECT_MARK))!;
+  assert.doesNotMatch(take, /v\('list'\)|\blist\b(?!\))/);
 });
