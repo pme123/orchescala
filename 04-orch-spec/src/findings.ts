@@ -376,6 +376,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (spec.engine !== 'c8') {
       // Camunda 7: the helpers lie on the process instance — parallel outer instances share them
       const outer = (scopes.get(step.id) ?? []).slice(0, -1);
+      // a boundary event that leaves the step: no collector on that path — the helpers stay
+      const leaving = (step.errors ?? []).filter(e => e.boundary && !e.side && e.interrupting !== false);
+      if (leaving.length) warnings.push(`Ergebnisse sammeln: verlässt der Schritt über ein Randereignis (${leaving.map(e => `«${e.label || e.code}»`).join(', ')}), wird in ${C7_LABEL} nicht eingesammelt — «${name}» bleibt ungesetzt, die Zwischenwerte (${name}_0 …) bleiben am Prozess.`);
       if (outer.some(o => !o.sequential)) warnings.push(`Ergebnisse sammeln in einer parallelen Mehrfachausführung — in ${C7_LABEL} liegen die Zwischenwerte am Prozess, die äusseren Instanzen überschreiben sie gegenseitig. Aussen sequenziell ausführen oder erst aussen sammeln.`);
     }
     // read from the instance or from the process — neither: null in each entry

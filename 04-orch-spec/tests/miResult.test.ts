@@ -367,3 +367,16 @@ test('Camunda 7: a collection named like a script local - the scripts stay the s
   const take = scriptsOf(out.xml).find(t => t.trim().startsWith(MI_COLLECT_MARK))!;
   assert.doesNotMatch(take, /v\('list'\)|\blist\b(?!\))/);
 });
+
+test('checks: Camunda 7 - an interrupting boundary event on a collecting multi-instance', async () => {
+  const { stepFindings } = await import('../src/findings');
+  const result = { collection: 'results', element: '{item: item}' };
+  const step = (errors: Step['errors']): Step => ({ id: 'M', name: 'M', kind: 'subprocess', multiInstance: { collection: 'items', element: 'item', result }, children: [], errors } as unknown as Step);
+  const w = (s: Step, engine: 'c7' | 'c8' = 'c7') => stepFindings(s, { processId: 'p', engine, steps: [s] } as unknown as ProcessSpec, null, []).warnings;
+  const timeout = [{ code: 'timeout', label: 'Timeout', boundary: true, steps: [] }] as unknown as Step['errors'];
+  assert.ok(w(step(timeout)).some(m => m.includes('Randereignis («Timeout»)')), w(step(timeout)).join(' / '));
+  // non-interrupting, or Camunda 8: nothing
+  const side = [{ code: 'reminder', boundary: true, interrupting: false, steps: [] }] as unknown as Step['errors'];
+  assert.ok(!w(step(side)).some(m => m.includes('Randereignis')));
+  assert.ok(!w(step(timeout), 'c8').some(m => m.includes('Randereignis')));
+});
