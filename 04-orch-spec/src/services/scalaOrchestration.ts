@@ -15,6 +15,7 @@
 import { caseIdent, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
+import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala.ts';
 import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, serviceMembers, servicePackages,
@@ -233,7 +234,7 @@ function collectionImports(o: ServiceOrchestrationSpec, collections: ServiceColl
   const visit = (id: string | undefined) => {
     for (const c of collections) {
       const t = c.types.find(x => x.id === id);
-      if (t && !t.interactionId) used.add(`import ${typeHome(c, t.id)}.schema.*`);
+      if (t && !t.interactionId) used.add(`import ${schemaPackageOf(c, t.id) ?? `${typeHome(c, t.id)}.schema`}.*`);
     }
   };
   for (const t of o.types) for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) visit(f.type);

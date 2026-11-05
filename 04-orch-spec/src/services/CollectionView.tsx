@@ -155,7 +155,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     const source = hit?.source ?? 'Katalog';
     const r = syncWithCatalog(cur, hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model);
     if (!r) { setSyncNote(hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt'); return; }
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length) { setSyncNote(`Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`}`); return; }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length) { setSyncNote(`Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`}`); return; }
     setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}) });
   };
   const runSync = async () => {
@@ -187,7 +187,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const applySync = (r: CatalogSync) => {
     update(() => r.spec);
     setSyncPreview(null);
-    const parts = [[r.added.length, 'neu'], [r.updated.length, 'aktualisiert'], [r.addedTypes.length, 'neue Typen'], [r.removed.length, 'entfernt']] as const;
+    const parts = [[r.added.length, 'neu'], [r.updated.length, 'aktualisiert'], [r.addedTypes.length, 'neue Typen'], [r.adopted.length, 'aus der Hierarchie'], [r.renamedApis.length, 'API-Pakete'], [r.removed.length, 'entfernt']] as const;
     setSyncNote(`Abgleich: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(', ')}`);
   };
 
@@ -243,9 +243,10 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       {exportOpen && <CollectionExport spec={spec} model={model} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
         <OpenApiImport spec={spec} model={model} isDark={isDark} initial={importFile} onClose={() => { setImportOpen(false); setImportFile(undefined); }}
-          onApply={(next, added) => {
+          onApply={(next, added, adopted) => {
             update(() => next);
             setImportOpen(false);
+            if (adopted.length) setSyncNote(`Aus der Hierarchie übernommen: ${adopted.map(a => a.from.split('.').slice(-2).join('.')).join(', ')}`);
             const first = next.services.find(s => s.name === added[0]);
             if (first) setSelection({ kind: 'service', id: first.id });
           }} />
@@ -522,6 +523,8 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & 
     ['Neue Services', sync.added, isDark ? 'text-emerald-300' : 'text-emerald-700'],
     ['Aktualisiert', sync.updated, isDark ? 'text-sky-300' : 'text-sky-700'],
     ['Neue Typen der API', sync.addedTypes, isDark ? 'text-emerald-300' : 'text-emerald-700'],
+    ['API-Paket aus dem Projekt', sync.renamedApis, isDark ? 'text-sky-300' : 'text-sky-700'],
+    ['Aus der Hierarchie übernommen — statt eigener Typen', sync.adopted.map(a => a.from), isDark ? 'text-sky-300' : 'text-sky-700'],
     ['Entfernt — CustomWorker, kein REST-Service', sync.removed, 'text-rose-500'],
   ];
   return (
@@ -567,7 +570,7 @@ function ApiField({ value, canEdit, onCommit }: { value: { api: string; apiVersi
   const keys = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') e.currentTarget.blur(); };
   return (
     <div className="flex items-center gap-1 font-mono">
-      <input value={api} disabled={!canEdit} list="collection-apis" title={ok ? 'API — aus dem Katalog des Projekts wählen oder eintippen' : 'API: ein Name in camelCase, z. B. client'}
+      <input value={api} disabled={!canEdit} list="collection-apis" title={ok ? 'API — aus dem Katalog des Projekts wählen oder eintippen' : 'API: ein Name in camelCase, z. B. client — geschachtelt mit «.», z. B. clientMaster.naturalPersons'}
         onChange={e => setApi(apiName(e.target.value))} onBlur={commit} onKeyDown={keys}
         className={`min-w-0 flex-1 bg-transparent outline-none ${ok ? c.text : 'text-rose-500'}`} />
       <span className={c.muted}>v</span>

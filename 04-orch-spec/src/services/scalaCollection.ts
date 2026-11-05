@@ -14,6 +14,7 @@ import type { Field, Model, TypeDef } from '../types';
 import {
   apiKey, apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection.ts';
+import { reach, schemaHomes, typesOf } from './hierarchy.ts';
 import { asText, feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
@@ -342,15 +343,6 @@ end ${s.name}Worker
 }
 
 /** The own types a type reaches through its fields — itself included. */
-function reach(id: string | undefined, types: TypeDef[], seen = new Set<string>()): Set<string> {
-  if (!id || seen.has(id)) return seen;
-  const t = types.find(x => x.id === id);
-  if (!t) return seen;
-  seen.add(id);
-  for (const f of [...(t.fields ?? []), ...(t.values ?? []).flatMap(v => v.fields ?? [])]) reach(f.type, types, seen);
-  return seen;
-}
-
 /**
  * `serviceBasePath` of an API: the URL of the API and the base of the company —
  * its placeholders are what the company knows (`$bankNumber`), to fill in by hand.
@@ -371,12 +363,6 @@ export function defaultServiceBasePath(c: ServiceCollectionSpec): string {
 }
 
 /** The own types a service uses — In, Out, bodies and parameters. */
-function typesOf(s: CollectionService, types: TypeDef[]): Set<string> {
-  const seen = new Set<string>();
-  for (const id of [s.noIn ? undefined : s.inTypeId, s.noOut ? undefined : s.outTypeId, s.serviceIn?.type, s.serviceOut?.type, ...s.params.map(p => p.type)]) reach(id, types, seen);
-  return seen;
-}
-
 /**
  * All files of the collection — what the helper writes into the project. Per API
  * its package: the super trait, the ServiceTasks, the ServiceWorkers. A type of the
@@ -387,43 +373,70 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
   const services = c.services.filter(s => s.name.trim());
   const apis = apisOf({ ...c, services });
   const schema = c.types.filter(t => !t.interactionId && t.name?.trim());
-  // the owner API of each schema type: the first one whose services use it — or the first API
-  const owner = new Map<string, ApiRef>();
-  for (const a of apis) {
-    for (const s of services.filter(x => sameApi(apiOf(c, x), a))) {
-      for (const id of typesOf(s, c.types)) if (!owner.has(id) && schema.some(t => t.id === id)) owner.set(id, a);
-    }
-  }
-  if (apis[0]) for (const t of schema) if (!owner.has(t.id)) owner.set(t.id, apis[0]);
+  // where each schema type lives: the schema of its first API — or of the level its APIs share
+  const homes = schemaHomes(c);
   const schemaImports = (ids: Set<string>): string[] =>
-    [...new Set([...ids].map(id => owner.get(id)).filter((a): a is ApiRef => !!a).map(a => `import ${collectionPackage(a)}.schema.*`))].sort();
+    [...new Set([...ids].map(id => homes.get(id)?.pkg).filter((p): p is string => !!p).map(p => `import ${p}.*`))].sort();
+  const indexes = new Map<string, TypeIndex>();
+  const indexOf = (a: ApiRef): TypeIndex => {
+    const pkg = collectionPackage(a);
+    if (!indexes.has(pkg)) indexes.set(pkg, indexTypes(c.types, model, home, pkg));
+    return indexes.get(pkg)!;
+  };
 
   const out: ScalaFile[] = [];
   for (const a of apis) {
-    const pkg = collectionPackage(a);
-    const idx = indexTypes(c.types, model, home, pkg);
+    const idx = indexOf(a);
     const own = services.filter(s => sameApi(apiOf(c, s), a));
     const dDir = domainDir(a);
     const wDir = workerDir(a);
     out.push({ path: `${dDir}/${collectionTrait(a)}.scala`, content: superTrait(c, a, apis.length === 1) });
     for (const s of own) out.push({ path: `${dDir}/${s.name}.scala`, content: domainObject(c, s, idx, schemaImports(typesOf(s, c.types))) });
-    for (const t of schema.filter(x => owner.get(x.id) === a && !idx.referenced.has(x.id))) {
-      // a type of another API it points to: imported from there
-      const others = schemaImports(reach(t.id, c.types)).filter(i => i !== `import ${pkg}.schema.*`);
-      const imports = [...others, ...importsOf(t, idx)];
-      out.push({
-        path: `${dDir}/schema/${t.name}.scala`,
-        content: `${packageClause(`${pkg}.schema`)}\n${imports.length ? `\n${imports.join('\n')}\n` : ''}\n${renderType(t, idx)}\n`,
-      });
-    }
     out.push({
       path: `${wDir}/exports.scala`,
       content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c, a)}\n`,
     });
     for (const s of own) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types))) });
   }
-  return out;
+  // the types: in the schema of their API, or of the level the APIs share
+  const files = new Map<string, ScalaFile[]>();
+  for (const t of schema) {
+    const h = homes.get(t.id);
+    if (!h) continue;
+    const idx = indexOf(h.api);
+    if (idx.referenced.has(t.id)) continue;
+    // a type of another schema it points to: imported from there
+    const others = schemaImports(reach(t.id, c.types)).filter(i => i !== `import ${h.pkg}.*`);
+    const imports = [...others, ...importsOf(t, idx)];
+    const list = files.get(h.pkg) ?? [];
+    list.push({
+      path: `01-domain/src/main/scala/${h.pkg.replace(/\./g, '/')}/${t.name}.scala`,
+      content: `${packageClause(h.pkg)}\n${imports.length ? `\n${imports.join('\n')}\n` : ''}\n${renderType(t, idx)}\n`,
+    });
+    files.set(h.pkg, list);
+  }
+  return orderFiles(out, files);
 }
+
+/** The schema files right after the domain files of their API (before its worker) — shared ones at the end. */
+function orderFiles(out: ScalaFile[], schemaFiles: Map<string, ScalaFile[]>): ScalaFile[] {
+  const result: ScalaFile[] = [];
+  const done = new Set<string>();
+  for (let i = 0; i < out.length; i++) {
+    result.push(out[i]);
+    const next = out[i + 1];
+    // the last domain file of an API: its schema follows
+    if (out[i].path.startsWith('01-domain/') && (!next || !next.path.startsWith('01-domain/') || dirOf(next.path) !== dirOf(out[i].path))) {
+      const pkg = `${dirOf(out[i].path).replace('01-domain/src/main/scala/', '').replace(/\//g, '.')}.schema`;
+      for (const f of schemaFiles.get(pkg) ?? []) result.push(f);
+      done.add(pkg);
+    }
+  }
+  for (const [pkg, list] of schemaFiles) if (!done.has(pkg)) result.push(...list);
+  return result;
+}
+
+const dirOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
 
 /** The files as one text — the same frame as the process export, the helper splits it again. */
 export function collectionBundle(c: ServiceCollectionSpec, model: Model | null = null): string {

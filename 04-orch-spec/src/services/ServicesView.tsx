@@ -230,7 +230,7 @@ function NewCollection({ existing, projects, onCreate, onClose }: {
   const taken = existing.includes(slug);
   const problem = !input.title ? 'Titel fehlt'
     : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
-      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
+      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client — geschachtelt mit «.», z. B. clientMaster.naturalPersons'
         : apiVersion < 1 ? 'Version ab 1'
           : input.pathPrefix && !input.pathPrefix.startsWith('/') ? 'Teilpfad beginnt mit «/»'
             : taken ? `services/${slug}.json gibt es schon` : '';
@@ -317,7 +317,7 @@ function NewOrchestration({ existing, projects, onCreate, onClose }: {
   const slug = slugify(`${input.project}-${input.name}`);
   const problem = !input.title ? 'Titel fehlt'
     : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
-      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client'
+      : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client — geschachtelt mit «.», z. B. clientMaster.naturalPersons'
         : !/^[A-Z][A-Za-z0-9]*$/.test(input.name) ? 'Name: ein Scala-Objekt, z. B. UpdateClient'
           : existing.includes(slug) ? `services/${slug}.json gibt es schon` : '';
   const field = `w-full px-2 py-1 rounded border bg-transparent text-[11px] outline-none ${c.border2} ${c.text}`;

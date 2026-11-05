@@ -11,7 +11,7 @@
 import { importBpmn } from '../bpmn.ts';
 import type { Branch, Field, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
-import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
+import { apiLeaf, apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
 import { lowerFirst } from './names.ts';
 import type { CollectionService, OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
 import { fieldAccess, type CaseAccess } from '../scala.ts';
@@ -70,7 +70,7 @@ export function newOrchestration(input: { title: string; project: string; api: s
     slug: slugify(`${input.project}-${input.name}`),
     title: input.title, project: input.project, api: input.api, apiVersion: input.apiVersion, name: input.name,
     status: 'draft', createdAt: now, updatedAt: now,
-    bpmn: orchestrationBpmn(`${input.project}-${input.api}V${input.apiVersion}-${input.name}`, input.title),
+    bpmn: orchestrationBpmn(`${input.project}-${apiLeaf(input.api)}V${input.apiVersion}-${input.name}`, input.title),
     tasks: {}, types: [inType, outType], inTypeId: inType.id, outTypeId: outType.id,
   };
 }

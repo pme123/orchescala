@@ -22,11 +22,12 @@
 import { resolveType } from '../interactions';
 import { Converter } from '../projectImport';
 import { isCompoundType, typeShape, type TypeShape } from '../scalaTypes';
-import { domainRef, objectOf } from '../serviceTypes';
+import { catalogObject, domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
 import { knownPrefixes } from '../stepIds';
-import { apiKey, apiOf, apisOf, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, workerPackage, type ApiRef } from './collection';
+import { adoptHierarchyTypes, type Adopted } from './hierarchy';
+import { API_NAME, apiKey, apiLeaf, apiOf, apisOf, renameApi, topicPrefix, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, workerPackage, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
@@ -57,6 +58,20 @@ function isCustomWorker(s: ServiceDef, model: Model | null, knowsRequests: boole
   return knowsRequests && !inDom.ownerPath && !domainMember(s, 'ServiceIn', model) && !domainMember(s, 'ServiceOut', model);
 }
 
+/**
+ * The API of a service with its levels, as the package of its object says it: the topic
+ * names only the last one (`acme-crm-multipleNaturalPersonsV1.GetX`), the object lives in
+ * `acme.crm.domain.clientMaster.multipleNaturalPersons.v1` → `clientMaster.multipleNaturalPersons`.
+ * Without a domain (or another package): the name of the topic.
+ */
+export function nestedApi(project: string, api: string, version: number, pkg: string | undefined): string {
+  const stem = `${project.split('-').filter(Boolean).join('.')}.domain.`;
+  const tail = `.v${version}`;
+  if (!pkg?.startsWith(stem) || !pkg.endsWith(tail)) return api;
+  const full = pkg.slice(stem.length, -tail.length);
+  return full !== api && apiLeaf(full) === api && API_NAME.test(full) ? full : api;
+}
+
 /** The projects of the catalog with their APIs — the service workers grouped by their topic. */
 export function catalogProjects(model: Model | null): CatalogProject[] {
   const projects = new Map<string, CatalogProject>();
@@ -66,11 +81,15 @@ export function catalogProjects(model: Model | null): CatalogProject[] {
     if (isCustomWorker(s, model, knowsRequests)) continue;
     const m = TOPIC.exec(s.topic ?? s.id);
     if (!m) continue;
-    const [, project, api, version] = m;
+    const [, project, leaf, version] = m;
     const p = projects.get(project) ?? { project, ...(s.group ? { group: s.group } : {}), apis: [] };
-    const prefix = `${project}-${api}V${version}`;
+    const prefix = `${project}-${leaf}V${version}`;
     let a = p.apis.find(x => x.prefix === prefix);
-    if (!a) { a = { prefix, project, api, apiVersion: Number(version), services: [] }; p.apis.push(a); }
+    if (!a) {
+      const api = nestedApi(project, leaf, Number(version), catalogObject(s.id, model)?.pkg);
+      a = { prefix, project, api, apiVersion: Number(version), services: [] };
+      p.apis.push(a);
+    }
     if (!a.services.some(x => x.id === s.id)) a.services.push(s);
     projects.set(project, p);
   }
@@ -223,7 +242,7 @@ export function catalogTitle(project: CatalogProject, apis: CatalogApi[]): strin
   const base = project.group || project.project;
   if (!apis.length || apis.length === project.apis.length) return base;
   const name = (a: CatalogApi) =>
-    `${capitalize(a.api)}${project.apis.filter(x => x.api === a.api).length > 1 ? ` V${a.apiVersion}` : ''}`;
+    `${capitalize(apiLeaf(a.api))}${project.apis.filter(x => x.api === a.api).length > 1 ? ` V${a.apiVersion}` : ''}`;
   return `${base} ${apis.map(name).join(' + ')}`;
 }
 
@@ -243,15 +262,16 @@ export function collectionFromCatalog(project: CatalogProject, apis: CatalogApi[
   // the start the company puts into serviceBasePath (`/banks/{bankNumber}`): its
   // placeholders are no parameters of the services
   const pathBase = suggestPathBase(spec);
-  if (!pathBase) return spec;
+  // a class the project has higher up in the hierarchy of an API: taken from there
+  if (!pathBase) return adoptHierarchyTypes(spec, model).spec;
   const withBase = { ...spec, pathBase };
-  return {
+  return adoptHierarchyTypes({
     ...withBase,
     services: withBase.services.map(s => {
       const fromBase = basePathParams(withBase, s);
       return { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) };
     }),
-  };
+  }, model).spec;
 }
 
 /**
@@ -312,6 +332,10 @@ export interface CatalogSync {
   removed: string[];
   /** types of the API new in the collection */
   addedTypes: string[];
+  /** APIs the project has in a hierarchy — `multipleNaturalPersons v1 → clientMaster.multipleNaturalPersons` */
+  renamedApis: string[];
+  /** types of the collection the project has higher up in the hierarchy — taken from there */
+  adopted: Adopted[];
 }
 
 const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
@@ -327,9 +351,19 @@ const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
  * an OpenAPI, status and description. Services of its APIs the collection lacks are added,
  * custom workers an older import took over are removed. `null`: the catalog does not know the project.
  */
-export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): CatalogSync | null {
-  const project = catalogProjects(model).find(p => p.project === c.project);
+export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null): CatalogSync | null {
+  const project = catalogProjects(model).find(p => p.project === given.project);
   if (!project) return null;
+  // an API is the same by its topics (the last part and the version) — where the project
+  // has it in a hierarchy (`clientMaster.multipleNaturalPersons`), the collection follows
+  let c = given;
+  const renamedApis: string[] = [];
+  for (const x of apisOf(given)) {
+    const a = project.apis.find(y => y.prefix === topicPrefix(x));
+    if (!a || sameApi(a, x)) continue;
+    c = renameApi(c, x, a);
+    renamedApis.push(`${x.api} v${x.apiVersion} → ${a.api}`);
+  }
   const apis = project.apis.filter(a => apisOf(c).some(x => sameApi(x, a)));
   if (!apis.length) return null;
   const fresh = collectionFromCatalog(project, apis, model, c.title);
@@ -444,7 +478,9 @@ export function syncWithCatalog(c: ServiceCollectionSpec, model: Model | null): 
     const fromBase = basePathParams(spec, s);
     return fromBase.size ? { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) } : s;
   });
-  return { spec, added: added.map(s => s.name), updated, removed, addedTypes };
+  // own types the project has higher up in the hierarchy: taken from there
+  const h = adoptHierarchyTypes(spec, model);
+  return { spec: h.spec, added: added.map(s => s.name), updated, removed, addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)), renamedApis, adopted: h.adopted };
 }
 
 /**

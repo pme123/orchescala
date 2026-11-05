@@ -44,17 +44,41 @@ export function withServiceApis(c: ServiceCollectionSpec): ServiceCollectionSpec
 }
 
 
-/** `acme.crm.domain.client.v1` */
+// ── Nested APIs ─────────────────────────────────────────────────────────────
+//
+// An API may sit in a hierarchy: `clientMaster.multipleNaturalPersons`. Only the
+// package follows it (`acme.crm.domain.clientMaster.multipleNaturalPersons.v1`);
+// the name is its last part, as without nesting — trait `MultipleNaturalPersonsV1`,
+// topic `acme-crm-multipleNaturalPersonsV1.GetX`. Classes the APIs of a level share
+// live in the `schema` of that level (`acme.crm.domain.clientMaster.schema`).
+
+/** `clientMaster.multipleNaturalPersons` → `multipleNaturalPersons` — the name of the API */
+export const apiLeaf = (api: string): string => api.split('.').pop() ?? api;
+
+/** `clientMaster.multipleNaturalPersons` → `['clientMaster']` — the levels above the API */
+export const apiParents = (api: string): string[] => api.split('.').slice(0, -1);
+
+/**
+ * The packages of shared classes for an API, nearest first:
+ * `acme.crm.domain.clientMaster.schema` — and the `schema` of each level above.
+ */
+export function hierarchySchemaPackages(c: Pick<ServiceCollectionSpec, 'project' | 'api'>): string[] {
+  const stem = [...c.project.split('-').filter(Boolean), 'domain'];
+  const parents = apiParents(c.api);
+  return parents.map((_, i) => [...stem, ...parents.slice(0, parents.length - i), 'schema'].join('.'));
+}
+
+/** `acme.crm.domain.client.v1` — nested: `acme.crm.domain.clientMaster.multipleNaturalPersons.v1` */
 export const collectionPackage = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>): string =>
   [...c.project.split('-').filter(Boolean), 'domain', c.api, `v${c.apiVersion}`].join('.');
 
-/** `ClientV1` — the super trait of all services of the API */
+/** `ClientV1` — the super trait of all services of the API (nested: of its last part) */
 export const collectionTrait = (c: Pick<ServiceCollectionSpec, 'api' | 'apiVersion'>): string =>
-  `${capitalize(c.api)}V${c.apiVersion}`;
+  `${capitalize(apiLeaf(c.api))}V${c.apiVersion}`;
 
-/** `acme-crm-clientV1` — the topics of the services start with it */
+/** `acme-crm-clientV1` — the topics of the services start with it (nested: the last part) */
 export const topicPrefix = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>): string =>
-  `${c.project}-${c.api}V${c.apiVersion}`;
+  `${c.project}-${apiLeaf(c.api)}V${c.apiVersion}`;
 
 /** `acme-crm-clientV1.GetClient` — also the id in the service catalog */
 export const serviceTopic = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>, s: Pick<CollectionService, 'name'>): string =>
@@ -81,10 +105,10 @@ export function collectionSlug(c: Pick<ServiceCollectionSpec, 'project' | 'title
   return !title || title === project || title.startsWith(`${project}-`) ? title || project : `${project}-${title}`;
 }
 
-/** A valid Scala identifier for the API (`client`, `paymentRules`). */
-export const API_NAME = /^[a-z][A-Za-z0-9]*$/;
-/** What is typed as API, as a name: `NaturalPerson` (an OpenAPI tag) → `naturalPerson` */
-export const apiName = (typed: string): string => typed.trim().replace(/^[A-Z]/, c => c.toLowerCase());
+/** A valid Scala package for the API (`client`, `paymentRules`) — nested with `.` (`clientMaster.naturalPersons`). */
+export const API_NAME = /^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*$/;
+/** What is typed as API, as a name: `NaturalPerson` (an OpenAPI tag) → `naturalPerson`, each level so */
+export const apiName = (typed: string): string => typed.trim().replace(/(^|\.)([A-Z])/g, (_, dot: string, c: string) => dot + c.toLowerCase());
 /**
  * `acme-crm`, `acme-coreNeo_2` — at least two parts joined by `-` (company
  * and project). A part is letters, digits and `_`, not starting with a digit:
@@ -273,7 +297,7 @@ export function suggestPathBase(c: ServiceCollectionSpec): string {
 export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): string[] {
   const out: string[] = [];
   if (!/^[A-Z][A-Za-z0-9]*$/.test(s.name)) out.push(`«${s.name}» ist kein Scala-Objektname (gross, ohne Sonderzeichen).`);
-  if (!API_NAME.test(apiOf(c, s).api)) out.push(`API «${apiOf(c, s).api}» ist kein Paketname (klein, camelCase).`);
+  if (!API_NAME.test(apiOf(c, s).api)) out.push(`API «${apiOf(c, s).api}» ist kein Paketname (klein, camelCase, Ebenen mit «.»).`);
   if (c.services.some(x => x.id !== s.id && x.name === s.name)) out.push(`«${s.name}» gibt es zweimal.`);
   if (!s.path) out.push('Pfad fehlt — der Katalog kennt ihn nicht (Katalog neu aufbauen: er liest jetzt `val path`), aus der OpenAPI ergänzen (gleicher Name) oder von Hand.');
   else if (!s.path.startsWith('/')) out.push('Der Pfad beginnt mit «/».');
