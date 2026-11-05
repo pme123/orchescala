@@ -421,13 +421,16 @@ trait DocCreator extends DependencyCreator, Helpers:
               case _                =>
                 (s"${c.projectName}", s"${c.projectVersion}", s"${c.versionPrevious}")
 
-          // the exact version in use - also when it is behind the release (the page marks that)
+          // the dependency's version in this release (VERSIONS.conf) if the package declares its
+          // minor - else the minor it declares (`2.30.*`), which the page marks as not in the release
           s"|| **$name** | $version | $versionPrevious " +
             filteredConfigs
               .map(c2 =>
                 c.dependencies
                   .find(_.projectName == c2.projectName)
-                  .map(_.projectVersion.toString)
+                  .map: d =>
+                    if d.minorVersion == c2.minorVersion then c2.version
+                    else s"${d.minorVersion}.*"
                   .getOrElse("")
               )
               .mkString("| ", " | ", " |")
