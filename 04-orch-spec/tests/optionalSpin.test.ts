@@ -29,6 +29,8 @@ test('an optional field is checked before it is read', () => {
     ok: true,
     juel: '(card.hasProp("newModuleDebitInsurance") && !card.prop("newModuleDebitInsurance").isNull() ? card.prop("newModuleDebitInsurance").boolValue() : null)',
     plain: '(card.hasProp("newModuleDebitInsurance") && !card.prop("newModuleDebitInsurance").isNull() ? card.prop("newModuleDebitInsurance").boolValue() : null)',
+    // the value without its checks — to compare with an older row
+    value: 'card.prop("newModuleDebitInsurance").boolValue()',
   });
   // a required field is read as before
   assert.equal((feelToJuel('card.clientKey', { vars: [card] }) as { juel: string }).juel, 'card.prop("clientKey").numberValue()');

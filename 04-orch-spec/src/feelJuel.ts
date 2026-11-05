@@ -46,8 +46,15 @@ import type { EngineId } from './types';
 import type { FeelType, VarNode } from './feel';
 
 export type JuelResult =
-  | { ok: true; juel: string; /** bare variable path without `${}` — for `camunda:in source` */ plain?: string }
+  | {
+      ok: true; juel: string;
+      /** bare variable path without `${}` — for `camunda:in source` */ plain?: string;
+      /** a guarded path (`(….hasProp("x") && … ? v : null)`): `v` alone — to compare with an older row */ value?: string;
+    }
   | { ok: false; reason: string };
+
+/** What the target field of a mapping expects — see `JuelOptions.target` */
+export interface JuelTarget { type: FeelType; optional: boolean }
 
 /** Body of a FEEL value: `= a + 1` → `a + 1`; null if it is not FEEL. */
 export function feelBody(expression: string): string | null {
@@ -77,6 +84,19 @@ export interface JuelOptions {
   vars?: readonly VarNode[];
   /** Variables that are not JSON in Camunda 7 (result of a DMN decision) — their paths stay `a.b` */
   plainRoots?: ReadonlySet<string>;
+  /**
+   * What the target field of the mapping expects (`docId: Option[String]`). If the
+   * type of the source path is unknown (`any` or not described), its end comes from
+   * here (`stringValue()` …) — and an optional target first checks every step
+   * whose type is unknown (`hasProp`, `isNull`; the variable at the start with
+   * `execution.getVariable("x") != null`): `prop` and `stringValue()` on a
+   * missing or null field throw. A required target gets no checks — a missing
+   * value is an error there anyway (`prop` throws as it did before).
+   * Only a path as the whole expression takes the target: a bare variable (`x`, a
+   * `source` in Camunda 7) and a path inside a calculation (`a.b + 1`) get neither
+   * the end nor the checks.
+   */
+  target?: JuelTarget | null;
 }
 
 /** How a Spin path ends, depending on the type of the field */
@@ -100,6 +120,8 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   const text = (n: SyntaxNode) => src.slice(n.from, n.to);
   /** out: the bare path (`plain`, for `camunda:in source`) — without `execution.getVariable` */
   let wrap = true;
+  /** the guarded value of the whole expression, without its checks (see `JuelResult.value`) */
+  let topValue: string | undefined;
   const getVariable = (name: string) => `execution.getVariable("${name}")`;
   /**
    * A variable that may be missing here: compared with `null` or checked
@@ -140,10 +162,17 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     }
     return null;
   };
+  /** the target of the mapping speaks for the whole expression when the path itself has no type */
+  const fromTarget = (n: SyntaxNode, top: boolean): boolean => {
+    const known = varOf(n)?.type;
+    return top && !!opts.target && (!known || known === 'any') && !!SPIN_VALUE[opts.target.type];
+  };
+  const typeOf = (n: SyntaxNode, top: boolean): FeelType =>
+    fromTarget(n, top) ? opts.target!.type : varOf(n)?.type ?? 'any';
   /** the end of a Spin path: the value as `use` needs it */
-  const ending = (n: SyntaxNode, chain: string, use: Use): string => {
+  const ending = (n: SyntaxNode, chain: string, use: Use, top = false): string => {
     if (!spin(n)) return chain;
-    const type = varOf(n)?.type ?? 'any';
+    const type = typeOf(n, top);
     if (use === 'list') return `${chain}.elementList()`;
     if (use === 'empty') return type === 'string' ? `${chain}.stringValue()` : type === 'list' ? `${chain}.elementList()` : chain;
     const value = SPIN_VALUE[type];
@@ -154,25 +183,30 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
    * What a Spin path must check before it reads: per optional step (according to the
    * data model) `hasProp` and `isNull` — `prop` throws «Unable to find …» otherwise;
    * an optional variable at the start with `!= null`. Empty if nothing may be missing.
+   * `unknown`: also every step whose type is unknown (for an optional target).
    */
-  const guards = (n: SyntaxNode): string[] => {
+  const guards = (n: SyntaxNode, unknown = false): string[] => {
     if (n.name === 'VariableName') {
-      const name = text(n);
-      return varOf(n)?.optional || opts.optional?.has(name) ? [`${unsetSafe(n)} != null`] : [];
+      const name = text(n), v = varOf(n);
+      return v?.optional || opts.optional?.has(name) || (unknown && (!v || v.type === 'any')) ? [`${unsetSafe(n)} != null`] : [];
     }
     if (n.name !== 'PathExpression' || !spin(n)) return [];
     const [base, , prop] = children(n).filter(k => !k.type.isError);
     if (!base || !prop || (base.name !== 'VariableName' && base.name !== 'PathExpression')) return [];
-    const before = guards(base);
-    if (!varOf(n)?.optional) return before;
+    const before = guards(base, unknown);
+    const v = varOf(n);
+    if (!v?.optional && !(unknown && (!v || v.type === 'any'))) return before;
     const b = tr(base), p = JSON.stringify(text(prop));
     return [...before, `${b}.hasProp(${p})`, `!${b}.prop(${p}).isNull()`];
   };
-  const val = (n: SyntaxNode, use: Use): string => {
-    const v = ending(n, tr(n), use);
+  const val = (n: SyntaxNode, use: Use, top = false): string => {
+    const v = ending(n, tr(n), use, top);
     if ((use !== 'value' && use !== 'scalar') || n.name !== 'PathExpression' || !spin(n)) return v;
-    const g = guards(n);
-    return g.length ? `(${g.join(' && ')} ? ${v} : null)` : v;
+    // unknown whether the steps may be missing — the optional target says so
+    const g = guards(n, fromTarget(n, top) && opts.target!.optional);
+    if (!g.length) return v;
+    if (top) topValue = v;
+    return `(${g.join(' && ')} ? ${v} : null)`;
   };
   /** is the value set? For a Spin path every step — `prop` throws if the field is missing */
   const present = (n: SyntaxNode): string => {
@@ -278,7 +312,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     switch (n.name) {
       case 'Expression':
         if (kids.length !== 1) throw new Unsupported('unerwarteter Aufbau');
-        return val(kids[0], 'value');
+        return val(kids[0], 'value', true);
       case 'VariableName': {
         const name = text(n);
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
@@ -419,11 +453,12 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
 
   try {
     const juel = tr(top);
+    const value = topValue;
     const first = children(top)[0];
     // the bare path — without `execution.getVariable`, that does not belong in a `source`
     wrap = false;
     const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? tr(top) : undefined;
-    return { ok: true, juel, ...(plain ? { plain } : {}) };
+    return { ok: true, juel, ...(plain ? { plain } : {}), ...(value ? { value } : {}) };
   } catch (e) {
     if (e instanceof Unsupported) return { ok: false, reason: e.message };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
