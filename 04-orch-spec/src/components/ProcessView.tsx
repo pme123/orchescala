@@ -48,8 +48,7 @@ import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements 
 import { collectDiagram, overlayPasted } from '../copyPaste';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
-import { isServiceProcess, serviceProcessId, serviceProcessTopic, withCollectionTypes, withCollections, type ServiceProcess } from '../services/serviceProcess';
-import { API_NAME } from '../services/collection';
+import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, withCollectionTypes, withCollections, type ServiceProcess } from '../services/serviceProcess';
 
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
@@ -1008,6 +1007,9 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     update({ ...cur, processId: id, ...(m ? { project: m[1] } : {}) });
   };
 
+  // the process IDs of the other specifications — an orchestration renamed must not take one of them
+  const otherProcessIds = useMemo(() => specs.filter(s => s.slug !== slug).map(s => s.data.processId).filter((x): x is string => !!x), [specs, slug]);
+
   // Service mode: API, version and name make the process ID (`acme-crm-clientV1-UpdateClient`) —
   // a change renames the process in the diagram too, as a change of the process ID does
   const commitServiceRef = (next: { api: string; apiVersion: number; name: string }) => {
@@ -1318,8 +1320,9 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                     className={`flex-1 min-w-0 bg-transparent outline-none text-base font-semibold ${c.text} disabled:opacity-100`} />
                   <CommentBubble target={processTarget} title="Kommentare zum Prozess" />
                 </div>
-{isServiceProcess(spec) ? (
-                  <ServiceRefFields spec={spec} canEdit={canEdit} isDark={isDark} onCommit={commitServiceRef} />
+                {isServiceProcess(spec) ? (
+                  <ServiceRefFields spec={spec} canEdit={canEdit} isDark={isDark} onCommit={commitServiceRef}
+                    others={otherProcessIds} />
                 ) : (
                 <>
                 <input value={idDraft} disabled={!canEdit}
@@ -1488,8 +1491,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
  * Service mode: where the CustomTask lives — API, version and name, applied on leaving a field;
  * below them the topic of the worker and the project.
  */
-function ServiceRefFields({ spec, canEdit, isDark, onCommit }: {
+function ServiceRefFields({ spec, canEdit, isDark, onCommit, others }: {
   spec: ServiceProcess; canEdit: boolean; isDark: boolean; onCommit: (ref: { api: string; apiVersion: number; name: string }) => void;
+  /** the process IDs of the other specifications */
+  others: string[];
 }) {
   const c = cls(isDark);
   const [api, setApi] = useState(spec.service.api);
@@ -1497,10 +1502,7 @@ function ServiceRefFields({ spec, canEdit, isDark, onCommit }: {
   const [name, setName] = useState(spec.service.name);
   useEffect(() => { setApi(spec.service.api); setVersion(String(spec.service.apiVersion)); setName(spec.service.name); },
     [spec.service.api, spec.service.apiVersion, spec.service.name]);
-  const problem = !API_NAME.test(api.trim()) ? 'API: klein beginnen, Buchstaben und Ziffern (client, crm).'
-    : !/^[1-9]\d*$/.test(version.trim()) ? 'Version: eine Zahl ab 1.'
-      : !/^[A-Z][A-Za-z0-9]*$/.test(name.trim()) ? 'Name: ein Scala-Objekt, gross beginnend (UpdateClient).'
-        : null;
+  const problem = serviceRefProblem({ project: spec.project, api: api.trim(), apiVersion: version.trim(), name: name.trim() }, others);
   const commit = () => { if (!problem) onCommit({ api: api.trim(), apiVersion: Number(version.trim()), name: name.trim() }); };
   const input = `font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none bg-transparent disabled:opacity-100 ${c.border2} ${c.text}`;
   const keys = (reset: () => void) => (e: React.KeyboardEvent<HTMLInputElement>) => {

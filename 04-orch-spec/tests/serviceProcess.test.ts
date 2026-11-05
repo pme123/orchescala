@@ -209,3 +209,13 @@ test('take-over: the process cannot be created — nothing else happens', async 
   assert.deepEqual(store.calls, ['createSpec']);
   assert.deepEqual(r, { ok: false, written: false, message: 'gibt es schon' });
 });
+
+test('renaming an orchestration: the format of API, version and name, and not to a process ID there is already', async () => {
+  const { serviceRefProblem } = await import('../src/services/serviceProcess');
+  const ref = { project: 'acme-crm', api: 'client', apiVersion: '1', name: 'UpdateClient' };
+  assert.equal(serviceRefProblem(ref, ['acme-crm-clientV1-Other']), null);
+  assert.match(serviceRefProblem(ref, ['acme-crm-clientV1-UpdateClient'])!, /gibt es schon/);
+  assert.match(serviceRefProblem({ ...ref, api: 'Client' }, [])!, /^API/);
+  assert.match(serviceRefProblem({ ...ref, apiVersion: '0' }, [])!, /^Version/);
+  assert.match(serviceRefProblem({ ...ref, name: 'updateClient' }, [])!, /^Name/);
+});

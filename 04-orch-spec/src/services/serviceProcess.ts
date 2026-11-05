@@ -187,6 +187,19 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
   };
 }
 
+/**
+ * What is wrong with API, version and name of an orchestration — `null`: fine. `others`: the
+ * process IDs of the other specifications; the new one must not be one of them.
+ */
+export function serviceRefProblem(ref: { project?: string; api: string; apiVersion: string; name: string }, others: Iterable<string>): string | null {
+  if (!/^[a-z][A-Za-z0-9]*$/.test(ref.api)) return 'API: klein beginnen, Buchstaben und Ziffern (client, crm).';
+  if (!/^[1-9]\d*$/.test(ref.apiVersion)) return 'Version: eine Zahl ab 1.';
+  if (!/^[A-Z][A-Za-z0-9]*$/.test(ref.name)) return 'Name: ein Scala-Objekt, gross beginnend (UpdateClient).';
+  const id = serviceProcessId({ project: ref.project ?? '', api: ref.api, apiVersion: Number(ref.apiVersion), name: ref.name });
+  for (const o of others) if (o === id) return `${id} gibt es schon.`;
+  return null;
+}
+
 // ── an orchestration of before ──────────────────────────────────────────────
 
 /**

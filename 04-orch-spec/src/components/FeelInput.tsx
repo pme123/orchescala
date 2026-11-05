@@ -95,13 +95,15 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
 
   /** A bracket edit as typing — through the browser, so that ⌘Z undoes it. */
   const applyEdit = (el: HTMLTextAreaElement, ed: BracketEdit) => {
+    let done = true;
     if (ed.insert || ed.to > ed.from) {
       el.setSelectionRange(ed.from, ed.to);
-      const done = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
+      // `execCommand` keeps the browser's undo; where it is not there, the value goes through the caller
+      done = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
       if (!done) onChange(value.slice(0, ed.from) + ed.insert + value.slice(ed.to));
     }
-    el.setSelectionRange(ed.selStart, ed.selEnd);
-    // the value comes back from the caller — the selection stays as set
+    if (done) el.setSelectionRange(ed.selStart, ed.selEnd);
+    // the value comes back from the caller — the selection once it is rendered
     requestAnimationFrame(() => { if (document.activeElement === el) el.setSelectionRange(ed.selStart, ed.selEnd); });
   };
 

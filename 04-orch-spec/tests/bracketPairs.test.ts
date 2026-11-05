@@ -35,3 +35,12 @@ test('Backspace between an empty pair removes both', () => {
   assert.equal(backspaceEdit('= sum(x)', 7, 7), null);
   assert.equal(backspaceEdit('= ()', 2, 4), null);
 });
+
+test('a quote steps over only where it ends a string — before a string it opens one', () => {
+  // `= |"abc"`: a new quote, not a step over the one of the string
+  assert.equal(bracketEdit('= "abc"', 2, 2, '"', true), null);
+  // `= "abc|"`: it ends the string — step over
+  assert.equal(apply('= "abc"', bracketEdit('= "abc"', 6, 6, '"', true)), '= "abc"|7-7');
+  // an escaped quote does not end the string
+  assert.equal(apply('= "a\\"b"', bracketEdit('= "a\\"b"', 7, 7, '"', true)), '= "a\\"b"|8-8');
+});
