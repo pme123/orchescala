@@ -25,7 +25,7 @@ import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
 import { checkTypes, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
-import { BRANCH_COLORS, cls, patternTone } from '../ui';
+import { BRANCH_COLORS, PanelWidthHandle, cls, patternTone, useStoredWidth } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
 import { useConfirm } from './Confirm';
@@ -398,13 +398,16 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
     pickType(r.id);
   };
   const typeClip = clip.model?.kind === 'type' ? clip.model : null;
+  // the list of the types: wider by dragging its edge — long names stay readable
+  const [listW, setListW] = useStoredWidth('orch-spec.typeListWidth', 288, 220, 640);
 
   return (
     <ClipContext.Provider value={clipActions}>
     <SpecContext.Provider value={spec}>
     <div className="flex h-full min-h-0">
       {/* ── Types ──────────────────────────────────────────────────────────── */}
-      <div className={`w-72 flex-shrink-0 border-r ${c.border} flex flex-col`}>
+      <div style={{ width: listW }} className={`relative flex-shrink-0 border-r ${c.border} flex flex-col`}>
+        <PanelWidthHandle isDark={isDark} side="right" width={listW} min={220} max={640} onWidth={setListW} />
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div className="mb-2">
             <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Prozess</div>

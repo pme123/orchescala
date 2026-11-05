@@ -244,14 +244,15 @@ const kurz = (s: string | undefined, n = 40) => {
  * order of the file would be the order of writing — which
  * does not help when reviewing.
  */
-export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[]): CommentTargetInfo[] {
+export function commentTargets(spec: ProcessSpec, stepsInOrder: Step[], variableNames: string[] = []): CommentTargetInfo[] {
   const out: CommentTargetInfo[] = [];
   const P = 'Prozess';
   const titel = spec.title || spec.name || 'Prozess';
   out.push({ key: processTarget, label: titel, group: P, element: titel });
   out.push({ key: sub(processTarget, 'description'), label: 'Beschrieb / Ausgangslage / Ziel', group: P, element: titel, part: 'Beschrieb / Ausgangslage / Ziel' });
-  for (const v of spec.variables ?? []) {
-    if (v.name) out.push({ key: sub(processTarget, `var:${v.name}`), label: `Variable ${v.name}`, group: P, element: titel, part: `Variable ${v.name}` });
+  // the process variables: the entries of the list and — if the caller knows them — every derived one
+  for (const name of new Set([...(spec.variables ?? []).map(v => v.name), ...variableNames])) {
+    if (name) out.push({ key: sub(processTarget, `var:${name}`), label: `Variable ${name}`, group: P, element: titel, part: `Variable ${name}` });
   }
 
   const A = 'Ablauf';

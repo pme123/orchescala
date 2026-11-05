@@ -18,7 +18,7 @@ import { blockOfTarget, blockTarget, carryComments, cleanSpec, pageCommentTarget
 import { knownPrefixes } from '../../stepIds';
 import { useStore } from '../../store';
 import { taskStepText, userTasksOfPage, userTaskSteps } from '../taskLinks';
-import { cls } from '../../ui';
+import { PanelWidthHandle, cls, useStoredWidth } from '../../ui';
 import PageView from '../runtime/PageView';
 import { themeStyle } from '../runtime/theme';
 import type { Gateway } from '../runtime/gatewayTypes';
@@ -110,6 +110,12 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
   const [run, setRun] = useState(0);
   const [adding, setAdding] = useState(false);
   const [left, setLeft] = useState<'outline' | 'data'>('outline');
+  // the panels at the sides: wider by dragging their edge - kept in the browser
+  const [outlineW, setOutlineW] = useStoredWidth('orch-spec.pageOutlineWidth', 256, 220, 640);
+  const [dataW, setDataW] = useStoredWidth('orch-spec.pageDataWidth', 320, 220, 640);
+  const leftW = left === 'data' ? dataW : outlineW;
+  // properties, Claude, comments and history take turns on the right - one width for all of them
+  const [sideW, setSideW] = useStoredWidth('orch-spec.pageSideWidth', 400, 320, 800);
   const [drag, setDrag] = useState<{ from: BlockKey; over?: BlockKey; place?: Place } | null>(null);
   // the keyboard always reads the actions of this render (they depend on page and selection)
   const keys = useRef<{
@@ -519,7 +525,9 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
       <CommentsContext.Provider value={commentsCtx}>
       <div className="flex-1 flex min-h-0">
         {/* Outline */}
-        <div className={`${left === 'data' ? 'w-80' : 'w-64'} flex-shrink-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
+        <div style={{ width: leftW }} className="relative flex-shrink-0 flex">
+          <PanelWidthHandle isDark={isDark} side="right" width={leftW} min={220} max={640} onWidth={left === 'data' ? setDataW : setOutlineW} />
+        <div className={`flex-1 min-w-0 border-r overflow-y-auto ${c.border} ${c.panel}`}>
           <div className={`sticky top-0 z-10 flex border-b ${c.border} ${isDark ? 'bg-[#141518]' : 'bg-[#fbfaf7]'}`}>
             {(['outline', 'data'] as const).map((t) => (
               <button key={t} type="button" onClick={() => setLeft(t)}
@@ -618,6 +626,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
             </div>
           )}
         </div>
+        </div>
 
         {/* Preview - the same renderer as the app */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -653,7 +662,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
         {auditOpen && page && (
           <AuditPanel slug={slug} version={savedVersion} places={commentPlaces} isDark={isDark} load={loadPageAudit}
             focus={auditFocus} onFocus={setAuditFocus} onGoto={gotoComment}
-            onClose={() => setAuditOpen(false)} width={400} onWidth={() => undefined} overlay={false} />
+            onClose={() => setAuditOpen(false)} width={sideW} onWidth={setSideW} overlay={false} />
         )}
         {commentsOpen && page && (
           <CommentsPanel<PageSpec> spec={page.spec ?? {}} isDark={isDark} targets={commentPlaces}
@@ -663,10 +672,11 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
             canEdit={canEdit} author={author} onChange={changeComments}
             users={mentionUsers} searchUsers={searchDirectory} onDirectoryProblem={(r) => r.reason !== 'noLogin' && setNotice({ tone: 'warn', message: `${r.message} «@» schlägt bis dahin nur bekannte Personen vor.` })}
             teamsEnabled={model?.notifications?.teams?.enabled === true}
-            width={400} onWidth={() => undefined} overlay={false} />
+            width={sideW} onWidth={setSideW} overlay={false} />
         )}
         {aiKey && canEdit && (
-          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+          <div style={{ width: sideW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+            <PanelWidthHandle isDark={isDark} width={sideW} min={320} max={800} onWidth={setSideW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
             <AiPanel isDark={isDark} apiKey={aiKey} slug={slug} page={page} app={pagesApp?.data} targets={targets}
               pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
@@ -684,7 +694,9 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
           </div>
         )}
         {/* Properties */}
-        <div className={`w-[400px] flex-shrink-0 border-l overflow-y-auto ${c.border} ${c.panel} ${(aiKey && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
+        <div style={{ width: sideW }} className={`relative flex-shrink-0 flex ${(aiKey && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
+          <PanelWidthHandle isDark={isDark} width={sideW} min={320} max={800} onWidth={setSideW} />
+        <div className={`flex-1 min-w-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (
             // key: another building block gets fresh forms (no half JSON text of the previous one)
             <>
@@ -704,6 +716,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
             <PageProps key="page" isDark={isDark} page={page} targets={targets} paths={paths} onChange={(p) => update(p, coalesceKey('page', latest.current ?? page, p))}
               meta={{ model, prefixes, preferred, canEdit: editable }} />
           )}
+        </div>
         </div>
       </div>
       </CommentsContext.Provider>

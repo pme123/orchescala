@@ -5,7 +5,7 @@ import {
   Play, Square, Cog, User, GitBranch, Boxes, Send, Inbox, Table2, Code2, Hand, SquarePlus, SquareDashed,
   CornerDownRight, Zap, Repeat, ShieldCheck, Split, Merge, Unlink, Puzzle, Flag,
 } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { STATUS_META, type Status, type Step, type StepKind } from './types';
 
 export const cls = (isDark: boolean) => ({
@@ -157,6 +157,21 @@ export const BRANCH_COLORS = [
 ];
 
 export const GATEWAY_ICON = { exclusive: Split, parallel: Merge, inclusive: Split, eventBased: Zap };
+
+/**
+ * The width of a panel the user can drag (see `PanelWidthHandle`) — kept in the
+ * browser under `key`, so the panel opens again as wide as it was left.
+ */
+export function useStoredWidth(key: string, initial: number, min: number, max: number): [number, (w: number) => void] {
+  const [width, setWidth] = useState(() => {
+    try { const n = Number(localStorage.getItem(key)); return n >= min && n <= max ? n : initial; } catch { return initial; }
+  });
+  const set = (w: number) => {
+    setWidth(w);
+    try { localStorage.setItem(key, String(w)); } catch { /* not kept then */ }
+  };
+  return [width, set];
+}
 
 /**
  * Handle on the edge of a panel: dragging changes the width (between `min`

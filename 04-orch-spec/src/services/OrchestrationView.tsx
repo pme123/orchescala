@@ -12,7 +12,7 @@ import { StandaloneTypeEditor } from '../components/TypeBuilder';
 import { fieldVariables } from '../feel';
 import { useStore } from '../store';
 import { STATUSES, STATUS_META, type Mapping, type Model, type Status, type Step, type TypeDef } from '../types';
-import { cls } from '../ui';
+import { PanelWidthHandle, cls, useStoredWidth } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { collectionPackage, processFrame } from './collection';
 import { MappingRow, NothingChoice, OutCasesEditor, SaveBadge } from './CollectionView';
@@ -47,6 +47,8 @@ export default function OrchestrationView({ slug, onBack }: { slug: string; onBa
   const c = cls(isDark);
   const [spec, setSpec] = useState<ServiceOrchestrationSpec | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // the panel beside the diagram: wider by dragging its edge - kept in the browser
+  const [panelW, setPanelW] = useStoredWidth('orch-spec.orchestrationPanelWidth', 480, 320, 900);
   const [saveState, setSaveState] = useState<'saved' | 'dirty' | 'saving' | 'conflict' | 'error'>('saved');
   const [saveError, setSaveError] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -167,7 +169,9 @@ export default function OrchestrationView({ slug, onBack }: { slug: string; onBa
         </div>
 
         {/* what the selected element does — or the orchestration as a whole */}
-        <div className={`w-[30rem] flex-shrink-0 border-l ${c.border} overflow-y-auto p-3 space-y-3`}>
+        <div style={{ width: panelW }} className="relative flex-shrink-0 flex">
+          <PanelWidthHandle isDark={isDark} width={panelW} min={320} max={900} onWidth={setPanelW} />
+        <div className={`flex-1 min-w-0 border-l ${c.border} overflow-y-auto p-3 space-y-3`}>
           {step && step.kind !== 'start' && step.kind !== 'end' ? (
             <>
               <div className="flex items-center gap-2">
@@ -206,6 +210,7 @@ export default function OrchestrationView({ slug, onBack }: { slug: string; onBa
               canEdit={canEdit} isDark={isDark} update={update}
               onSelect={id => { setSelected(id); bpmn.current?.select(id); }} />
           )}
+        </div>
         </div>
       </div>
     </div>
