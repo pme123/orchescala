@@ -7,7 +7,7 @@
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
 import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, FolderOpen, ListOrdered, Loader2, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
 import FeelInput from '../components/FeelInput';
@@ -35,15 +35,28 @@ import { outCaseFields, outCaseMapping, outCaseOf, prunedOutCases, withOutCase }
 import { fieldsOnce } from '../scala';
 import { ProjectSelect } from '../components/SpecMeta';
 import { defaultServiceBasePath } from './scalaCollection';
+import { withCollectionTypes } from './serviceProcess';
+import type { Model } from '../types';
 
 type Selection = { kind: 'overview' } | { kind: 'service'; id: string } | { kind: 'type'; id: string };
 
 /** width of the list of services and types — dragged at its edge, kept per browser */
 const LIST_W_KEY = 'orch-spec.serviceListWidth';
 
+/** The model of a collection: the catalog with the classes of the other collections — what its types can refer to. */
+const TypeModel = createContext<Model | null | undefined>(undefined);
+function useTypeModel(): Model | null {
+  const { model } = useStore();
+  const own = useContext(TypeModel);
+  return own === undefined ? model : own;
+}
+
 export default function CollectionView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const { isDark, model } = useStore();
-  const { loadService, saveService } = useServices();
+  const { loadService, saveService, services } = useServices();
+  // the classes of the other collections — a type here can refer to them (a copied class to its original)
+  const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
+  const typeModel = useMemo(() => withCollectionTypes(model, collections, slug), [model, collections, slug]);
   const { canEdit } = usePermissions();
   const c = cls(isDark);
   const [spec, setSpec] = useState<ServiceCollectionSpec | null>(null);
@@ -192,6 +205,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   };
 
   return (
+    <TypeModel.Provider value={typeModel}>
     <div className="flex flex-col h-full min-h-0">
       {/* head */}
       <div className={`flex items-center gap-3 px-3 py-2 border-b ${c.border}`}>
@@ -240,7 +254,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
           onZip={f => void syncFromFiles(async () => readProjectZip(new Uint8Array(await f.arrayBuffer())), f.name)} />
       )}
       {syncPreview && <SyncPreview sync={syncPreview} isDark={isDark} onCancel={() => setSyncPreview(null)} onApply={() => applySync(syncPreview)} />}
-      {exportOpen && <CollectionExport spec={spec} model={model} isDark={isDark} onClose={() => setExportOpen(false)} />}
+      {exportOpen && <CollectionExport spec={spec} model={typeModel} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
         <OpenApiImport spec={spec} model={model} isDark={isDark} initial={importFile} onClose={() => { setImportOpen(false); setImportFile(undefined); }}
           onApply={(next, added) => {
@@ -307,7 +321,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
               {/* as in the data model of a process: a class, a choice, a class from the clipboard */}
               {canEdit && (
                 <>
-                  <PasteTypeButton spec={processFrame(spec)} model={model} isDark={isDark} onPaste={(types, id) => {
+                  <PasteTypeButton spec={processFrame(spec)} model={typeModel} isDark={isDark} onPaste={(types, id) => {
                     update(s => ({ ...s, types }));
                     setSelection({ kind: 'type', id });
                   }} />
@@ -345,7 +359,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
               onOpenType={id => setSelection({ kind: 'type', id })}
               onRemove={() => { update(s => withoutService(s, service.id)); setSelection({ kind: 'overview' }); }} />
           ) : type ? (
-            <StandaloneTypeEditor key={type.id} type={type} spec={processFrame(spec, typeHome(spec, type.id))} isDark={isDark} canEdit={canEdit} model={model}
+            <StandaloneTypeEditor key={type.id} type={type} spec={processFrame(spec, typeHome(spec, type.id))} isDark={isDark} canEdit={canEdit} model={typeModel}
               onTypes={types => update(s => ({ ...s, types }))}
               onOpenType={id => setSelection({ kind: 'type', id })} />
           ) : (
@@ -354,6 +368,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         </div>
       </div>
     </div>
+    </TypeModel.Provider>
   );
 }
 
@@ -601,7 +616,8 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
   onOpenType: (id: string) => void;
   onRemove: () => void;
 }) {
-  const { isDark, model } = useStore();
+  const { isDark } = useStore();
+  const model = useTypeModel();
   const confirm = useConfirm();
   const c = cls(isDark);
   const frame = useMemo(() => processFrame(spec, collectionPackage(apiOf(spec, s))), [spec, s]);
@@ -817,7 +833,7 @@ function typeLabel(spec: ServiceCollectionSpec, type: string, model: ReturnType<
 function ServiceOutline({ spec, service: s, active, isDark, onJump }: {
   spec: ServiceCollectionSpec; service: CollectionService; active: ServicePart | null; isDark: boolean; onJump: (part: ServicePart) => void;
 }) {
-  const { model } = useStore();
+  const model = useTypeModel();
   const c = cls(isDark);
   const { in: inType, out: outType } = membersOf(spec, s);
   const fromBase = basePathParams(spec, s);
@@ -948,7 +964,7 @@ function TypeSelect({ value, spec, disabled, className, onChange, self }: {
   /** the In / Out of the service itself — `type ServiceIn = In` */
   self?: Array<{ id: string; label: string }>;
 }) {
-  const { model } = useStore();
+  const model = useTypeModel();
   const own = spec.types.filter(t => !t.interactionId);
   const known = (SCALA_TYPES as readonly string[]).includes(value) || own.some(t => t.id === value) || !!self?.some(x => x.id === value);
   // a type of the domain (`dom:<id>`, from the catalog): its name — the project has it already
@@ -973,7 +989,7 @@ function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, 
   /** a copied class becomes a type of the collection — and the body */
   onPasteType?: (types: TypeDef[], id: string) => void;
 }) {
-  const { model } = useStore();
+  const model = useTypeModel();
   const c = cls(isDark);
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
   const own = value && value.type !== self?.id ? spec.types.find(t => t.id === value.type) : undefined;
@@ -1009,7 +1025,7 @@ function ParamRow({ param: p, spec, vars, canEdit, isDark, onChange, onRemove }:
   param: RequestParam; spec: ServiceCollectionSpec; vars: VarNode[]; canEdit: boolean; isDark: boolean;
   onChange: (patch: Partial<RequestParam>) => void; onRemove: () => void;
 }) {
-  const { model } = useStore();
+  const model = useTypeModel();
   const c = cls(isDark);
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
   const target: Field = { id: 'p', name: p.name, type: p.type, collection: p.collection, optional: !p.required };
@@ -1046,7 +1062,7 @@ export function MappingRow({ target, types, value, placeholder, vars, canEdit, i
   missingText?: string;
   onChange: (v: string) => void;
 }) {
-  const { model } = useStore();
+  const model = useTypeModel();
   const c = cls(isDark);
   const check = value.trim() && isFeel(value) ? checkFeel(value, vars, expectedFor(target, types, model)) : null;
   const first = check?.issues.find(i => i.level === 'error') ?? check?.issues[0];

@@ -59,6 +59,26 @@ export function newServiceProcess(input: { title: string; project: string; api: 
 
 // ── the services it can call ────────────────────────────────────────────────
 
+/** The domain a collection exports — read from its Scala; empty if it cannot be generated yet. */
+const domainOf = (c: ServiceCollectionSpec, model: Model | null) => {
+  try { return collectionFiles(c, model).flatMap(f => scanScala(f.content, f.path)); }
+  catch { return []; }
+};
+
+/**
+ * The catalog with the classes of the collections of this folder (but `except`) as domain —
+ * what a process or another collection can refer to, e.g. a copied class to its original.
+ * Only added, tagged with the collection (`DomainType.collection`): the catalog wins, the
+ * services stay as they are, and a class of the same name is not taken for an import.
+ */
+export function withCollectionTypes(model: Model | null, collections: ServiceCollectionSpec[], except?: string): Model | null {
+  const known = new Set((model?.domainTypes ?? []).map(d => d.id));
+  const added = collections.filter(c => c.slug !== except)
+    .flatMap(c => domainOf(c, model).map(d => ({ ...d, collection: c.slug })))
+    .filter(d => !known.has(d.id) && (known.add(d.id), true));
+  return added.length ? { ...(model ?? { version: 1, services: [] }), domainTypes: [...(model?.domainTypes ?? []), ...added] } : model;
+}
+
 /**
  * The catalog with the collections in it — their ServiceTasks as services and their `In`,
  * `Out` and schema types as domain, read from the Scala the collection exports. A collection
@@ -66,10 +86,7 @@ export function newServiceProcess(input: { title: string; project: string; api: 
  */
 export function withCollections(model: Model | null, collections: ServiceCollectionSpec[]): Model | null {
   if (!collections.length) return model;
-  const domain = collections.flatMap(c => {
-    try { return collectionFiles(c, model).flatMap(f => scanScala(f.content, f.path)); }
-    catch { return []; }
-  });
+  const domain = collections.flatMap(c => domainOf(c, model));
   if (!domain.length) return model;
   const merged = withProjectDomain(model, domain);
   // the fields of In and Out as the parameters of the entry — what a chosen service brings as rows

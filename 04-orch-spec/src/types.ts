@@ -828,6 +828,11 @@ export interface DomainType {
   processLabels?: ProcessLabels;
   /** `val topicName` of a worker object — the same for service tasks */
   topicName?: string;
+  /**
+   * from a service collection of this folder (its slug), as it will export it — a class it
+   * can refer to, not one that makes a class of the same name an import (see `referencedClass`)
+   */
+  collection?: string;
   /** kind of the object according to the DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */
   dsl?: string;
   /** key of the object: `name` (user task), `messageName`, `decisionId` — and its value */

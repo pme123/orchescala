@@ -48,7 +48,7 @@ import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements 
 import { collectDiagram, overlayPasted } from '../copyPaste';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
-import { isServiceProcess, serviceProcessId, serviceProcessTopic, withCollections, type ServiceProcess } from '../services/serviceProcess';
+import { isServiceProcess, serviceProcessId, serviceProcessTopic, withCollectionTypes, withCollections, type ServiceProcess } from '../services/serviceProcess';
 import { API_NAME } from '../services/collection';
 
 // The modeler is big — it is only loaded once the diagram is shown.
@@ -184,7 +184,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { services } = useServices();
   const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
   const serviceMode = !!spec?.service;
-  const model = useMemo(() => (serviceMode ? withCollections(storeModel, collections) : storeModel), [serviceMode, storeModel, collections]);
+  // otherwise their classes — a type can refer to them (a copied class to its original)
+  const model = useMemo(() => (serviceMode ? withCollections(storeModel, collections) : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections]);
   const [serviceExportOpen, setServiceExportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());

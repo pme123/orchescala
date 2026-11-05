@@ -92,7 +92,7 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
   // an older catalog that still lists it in an object changes nothing about that
   if (t.domainId && (t.domainId === `${ownPkg}.${t.name}` || t.domainId === `${ownPkg}.schema.${t.name}`)) return {};
   const inOwn = (d: DomainType) => d.pkg === ownPkg || d.pkg.startsWith(`${ownPkg}.`);
-  const hits = (model?.domainTypes ?? []).filter(d =>
+  const hits = (model?.domainTypes ?? []).filter(d => !d.collection &&
     (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') &&
     (d.owner ? d.name === `${d.owner}.${t.name}` : d.name === t.name));
   if (hits.some(d => inOwn(d) && !d.owner)) return {};

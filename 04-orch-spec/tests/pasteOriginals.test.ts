@@ -77,3 +77,34 @@ test('the source notes where the originals live: the schema of every API, a clas
   assert.deepEqual(r.types.slice(1).map(t => t.name), ['Out']);
   assert.deepEqual(r.types[1].fields!.map(f => f.type), [`dom:${v2}.schema.Address`, `dom:${foreign}.Country`]);
 });
+
+test('a collection sees the classes of the other collections — tagged, so a class of the same name stays its own', async () => {
+  const { withCollectionTypes } = await import('../src/services/serviceProcess.ts');
+  const { newCollection } = await import('../src/services/collection.ts');
+  const { referencedClass } = await import('../src/scala.ts');
+  const a = {
+    ...newCollection({ title: 'Personen', project: 'acme-crm', api: 'person', apiVersion: 2 }), slug: 'personen',
+    types: [
+      { id: 'a-in', name: 'In', kind: 'case', interactionId: 'read', fields: [{ id: 'k', name: 'key', type: 'Long' }] },
+      { id: 'a-out', name: 'Out', kind: 'case', interactionId: 'read', fields: [{ id: 'p', name: 'person', type: 'a-person' }] },
+      { id: 'a-person', name: 'NaturalPerson3', kind: 'case', fields: [{ id: 'n', name: 'name', type: 'String' }] },
+    ] as TypeDef[],
+    services: [{ id: 'read', name: 'ReadPerson', api: 'person', apiVersion: 2, status: 'draft' as const, method: 'GET' as const, path: '/persons/{key}', params: [], inTypeId: 'a-in', outTypeId: 'a-out' }],
+  };
+  const b = { ...newCollection({ title: 'Kunden', project: 'acme-crm', api: 'client', apiVersion: 1 }), slug: 'kunden' };
+  const m = withCollectionTypes({ version: 1, services: [] }, [a, b], 'kunden')!;
+  const person = m.domainTypes!.find(d => d.name === 'NaturalPerson3')!;
+  assert.equal(person.id, 'acme.crm.domain.person.v2.schema.NaturalPerson3');
+  assert.equal(person.collection, 'personen');
+  assert.deepEqual(m.services, []);
+  // the own collection is not in it
+  assert.equal(withCollectionTypes(m, [b], 'kunden'), m);
+  // a class of the same name in B stays B's own — not an import of A's
+  assert.equal(referencedClass({ id: 'x', name: 'NaturalPerson3', kind: 'case', fields: [] }, m, 'acme.crm.domain.client.v1').type, undefined);
+  // the Out copied in A, pasted into B: the person is A's original
+  const { classOrigins } = await import('../src/scala.ts');
+  const types = a.types.slice(1);
+  const r = pasteType({ slug: 'kunden', types: [] } as unknown as ProcessSpec, { typeId: 'a-out', types, origins: classOrigins(types, null, ['acme.crm.domain.person.v2']) }, m);
+  assert.deepEqual(r.types.map(t => t.name), ['Out']);
+  assert.equal(r.types[0].fields![0].type, 'dom:acme.crm.domain.person.v2.schema.NaturalPerson3');
+});
