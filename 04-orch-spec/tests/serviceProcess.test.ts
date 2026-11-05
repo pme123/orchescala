@@ -262,3 +262,9 @@ test('service mode: what a worker cannot do is an error, an error path a warning
   assert.ok(levels(step({ topic: 'a.B', loop: { kind: 'multi' } } as Partial<Step>)).includes('error'));
   assert.deepEqual(levels(step({ topic: 'a.B', errors: [{ code: 'E', label: 'E' }] } as Partial<Step>)), ['warn']);
 });
+
+test('renaming an orchestration: not to an ID whose file name another specification has', async () => {
+  const { serviceRefProblem } = await import('../src/services/serviceProcess');
+  // a different ID, the same slug
+  assert.match(serviceRefProblem({ project: 'acme-crm', api: 'client', apiVersion: '1', name: 'UpdateClient' }, ['acme-crm-clientv1-updateclient'])!, /gibt es schon/);
+});

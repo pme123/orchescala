@@ -43,11 +43,12 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
   // taken over already — only the old file is left (removing it failed, or it came back)
   const same = !!existing && isServiceProcess(existing.data) && existing.data.processId === planned?.spec.processId;
   // only with its diagram — a process left without one (a failed take-over) is not one to finish
-  const [hasDiagram, setHasDiagram] = useState<boolean | null>(null);
+  // `unknown`: it could not be read — nothing is suggested then, neither removing nor deleting
+  const [hasDiagram, setHasDiagram] = useState<boolean | 'unknown' | null>(null);
   useEffect(() => {
     if (!same || !planned) { setHasDiagram(null); return; }
     let gone = false;
-    loadBpmn(planned.spec.slug).then(x => { if (!gone) setHasDiagram(!!x); }).catch(() => { if (!gone) setHasDiagram(false); });
+    loadBpmn(planned.spec.slug).then(x => { if (!gone) setHasDiagram(!!x); }).catch(() => { if (!gone) setHasDiagram('unknown'); });
     return () => { gone = true; };
   }, [same, planned, loadBpmn]);
   const done = same && hasDiagram === true;
@@ -101,6 +102,11 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
             </ul>
           )}
           {taken && <p className="text-[11px] text-rose-500">Den Prozess «{taken.data.title || taken.slug}» gibt es schon — zuerst ihn umbenennen oder löschen.</p>}
+          {same && hasDiagram === 'unknown' && (
+            <p className="text-[11px] text-rose-500">
+              Den Prozess gibt es schon, sein Diagramm liess sich aber nicht lesen — die Seite neu laden.
+            </p>
+          )}
           {halfMade && (
             <p className="text-[11px] text-rose-500">
               Den Prozess «{existing!.data.title || existing!.slug}» gibt es schon, aber ohne Diagramm — von einer Übernahme, die nicht fertig wurde.

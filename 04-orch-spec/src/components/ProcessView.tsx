@@ -1008,7 +1008,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   };
 
   // the process IDs of the other specifications — an orchestration renamed must not take one of them
-  const otherProcessIds = useMemo(() => specs.filter(s => s.slug !== slug).map(s => s.data.processId).filter((x): x is string => !!x), [specs, slug]);
+  const otherProcessIds = useMemo(() => specs.filter(s => s.slug !== slug).flatMap(s => [s.slug, s.data.processId]).filter((x): x is string => !!x), [specs, slug]);
 
   // Service mode: API, version and name make the process ID (`acme-crm-clientV1-UpdateClient`) —
   // a change renames the process in the diagram too, as a change of the process ID does
