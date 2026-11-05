@@ -113,6 +113,8 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   const scalaType = !current && isScalaTypeExpression(value);
   // a type name without a type behind it — exported as named, only a hint
   const namedType = !current && !scalaType && isScalaTypeName(value);
+  // a name is exported as written (amber), a lost ID is not (rose)
+  const missingTone = namedType ? (isDark ? 'text-amber-400' : 'text-amber-600') : (isDark ? 'text-rose-400' : 'text-rose-600');
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -162,7 +164,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
         {current ? <current.icon size={10} className={c.muted} />
           // a Scala type from the domain (`MockedServiceResponse[GetX.Out]`) is not an error
           : scalaType ? <Code size={10} className={c.muted} />
-            : <AlertTriangle size={10} className={namedType ? (isDark ? 'text-amber-400' : 'text-amber-600') : isDark ? 'text-rose-400' : 'text-rose-600'} />}
+            : <AlertTriangle size={10} className={missingTone} />}
         <span className={`flex-1 truncate font-mono ${c.text}`}>{current?.name ?? value}</span>
         {!disabled && <ChevronDown size={11} className={c.muted} />}
       </button>

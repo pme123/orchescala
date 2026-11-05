@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { checkTypes, isScalaTypeName, scalaFiles } from '../src/scala';
-import type { TypeDef } from '../src/types';
+import type { Model, TypeDef } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -30,18 +30,24 @@ const types: TypeDef[] = [{
   ],
 }] as TypeDef[];
 
-const exported = () => {
+const exported = (model: Model | null = null) => {
   const spec = importBpmn(bpmn, 'start').spec;
   spec.types = types;
-  return scalaFiles(spec, null).map(f => f.content).join('\n');
+  return scalaFiles(spec, model).map(f => f.content).join('\n');
 };
+
+/** a loaded catalog — without ProcessCallOrigin */
+const catalog = { services: [], domainTypes: [
+  { id: 'acme.demo.Other', name: 'Other', pkg: 'acme.demo', kind: 'enum', importPath: 'acme.demo.Other', values: ['a'] },
+] } as unknown as Model;
 
 test('a type name without a type behind it is exported as named', () => {
   const scala = exported();
   assert.match(scala, /processCallOrigin: ProcessCallOrigin\b/);
   assert.match(scala, /origins: Option\[Seq\[ProcessCallOrigin\]\]/);
   assert.match(scala, /processCallOrigin = ProcessCallOrigin\.MAP/);
-  // the ID of a deleted own type has no name — it stays out
+  // the ID of a deleted own type has no name — it stays out, the class itself is there
+  assert.match(scala, /case class In\(/);
   assert.ok(!scala.includes('t-3f9a1c2b7d'), scala);
   assert.ok(!/\bgone:/.test(scala), scala);
 });
@@ -54,6 +60,22 @@ test('the check notes the name as a hint, the lost ID as an error', () => {
   const gone = issues.find(i => i.field === 'f3')!;
   assert.ok(!gone.warn);
   assert.match(gone.message, /nicht \(mehr\) vorhanden/);
+  assert.match(named.message, /kein Katalog geladen/);
+});
+
+test('a loaded catalog without the type: still exported as named, the hint without «no catalog»', () => {
+  assert.match(exported(catalog), /processCallOrigin: ProcessCallOrigin\b/);
+  const named = checkTypes(types, catalog).find(i => i.field === 'f1')!;
+  assert.equal(named.warn, true);
+  assert.doesNotMatch(named.message, /kein Katalog geladen/);
+});
+
+test('a name the catalog knows is a normal type — no hint', () => {
+  const known = { services: [], domainTypes: [
+    { id: 'acme.demo.ProcessCallOrigin', name: 'ProcessCallOrigin', pkg: 'acme.demo', kind: 'enum', importPath: 'acme.demo.ProcessCallOrigin', values: ['MAP'] },
+  ] } as unknown as Model;
+  assert.match(exported(known), /processCallOrigin: ProcessCallOrigin\b/);
+  assert.equal(checkTypes(types, known).find(i => i.field === 'f1'), undefined);
 });
 
 test('isScalaTypeName: a plain capitalized name only', () => {
@@ -61,4 +83,8 @@ test('isScalaTypeName: a plain capitalized name only', () => {
   assert.ok(!isScalaTypeName('t-3f9a1c2b7d'));
   assert.ok(!isScalaTypeName('processCallOrigin'));
   assert.ok(!isScalaTypeName('GetClient.Out'));
+  assert.ok(!isScalaTypeName(''));
+  assert.ok(!isScalaTypeName('ProcessCallOrigin '));
+  // every ID has a hyphen (`uid` → `t-…`) — never a type name
+  assert.ok(!isScalaTypeName('T-3f9a1c2b7d'));
 });
