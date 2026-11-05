@@ -233,6 +233,8 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
   const spec = withStatus(importBpmn(o.bpmn, `${slug}.bpmn`).spec, o.status);
   // the name of each result → the fields read from it
   const results = new Map<string, Set<string>>();
+  // services without an Out: nothing of them can be read — what reads it stays and is said
+  const empty = new Map<string, Set<string>>();
   const issues: TakeOverIssue[] = [];
   for (const [id, t] of Object.entries(o.tasks)) {
     if (!t.service) continue;
@@ -242,7 +244,7 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
       issues.push({ level: 'error', text: `Schritt «${id}»: Service «${t.service}» nicht gefunden — Ausdrücke mit ${t.result?.trim() || '…'}.… bleiben, wie sie sind, und der Schritt setzt keine Variablen. Danach den Service wählen und die Ausdrücke anpassen.` });
       continue;
     }
-    results.set(t.result?.trim() || ref.service.name.replace(/^./, c => c.toLowerCase()), new Set());
+    (ref.service.noOut ? empty : results).set(t.result?.trim() || ref.service.name.replace(/^./, c => c.toLowerCase()), new Set());
   }
   const flat = (list: Mapping[] | undefined) => list?.map(m => ({ ...m, expression: flatten(m.expression, results) }));
   // first every expression — so all fields read are known before the outputs are written
@@ -250,6 +252,16 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
   const conditions = Object.fromEntries(Object.entries(o.conditions ?? {}).map(([id, c]) => [id, flatten(c, results)]));
   const outMappings = flat(o.outMappings);
   const outCases = o.outCases?.map(c => ({ ...c, ...(c.condition ? { condition: flatten(c.condition, results) } : {}), ...(c.mappings ? { mappings: flat(c.mappings) } : {}) }));
+  // what reads the result of a service without an Out: left as it is, said
+  const everything = [
+    ...Object.values(o.tasks).flatMap(t => [...(t.inputs ?? []), ...(t.assignments ?? [])].map(m => m.expression)),
+    ...Object.values(o.conditions ?? {}), ...(o.outMappings ?? []).map(m => m.expression),
+    ...(o.outCases ?? []).flatMap(c => [c.condition ?? '', ...(c.mappings ?? []).map(m => m.expression)]),
+  ];
+  for (const x of everything) flatten(x, empty);
+  for (const [result, fields] of empty) {
+    if (fields.size) issues.push({ level: 'error', text: `${[...fields].map(f => `${result}.${f}`).join(', ')}: der Service gibt nichts zurück (NoOutput) — bleibt so stehen; danach den Ausdruck anpassen.` });
+  }
   // a field read from two results is one variable now — the later step overwrites it
   const readFrom = new Map<string, string[]>();
   for (const [result, fields] of results) for (const f of fields) readFrom.set(f, [...(readFrom.get(f) ?? []), result]);

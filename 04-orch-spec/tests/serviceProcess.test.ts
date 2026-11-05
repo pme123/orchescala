@@ -235,3 +235,30 @@ test('take-over: a store call that throws is a failure — the process is remove
   assert.ok(!r.ok && !r.written);
   assert.match(!r.ok ? r.message : '', /Netzwerk weg/);
 });
+
+test('a service without an Out: what reads its result stays as it is, and is said before the take-over', () => {
+  const { spec, issues } = takenOver({
+    Get: { service: 'acme-crm-clientV1.PutClient', result: 'put' },
+    Put: { service: 'acme-crm-clientV1.PutClient', inputs: [{ name: 'etag', expression: '= put.etag' }] },
+  });
+  assert.deepEqual(allSteps(spec.steps).find(s => s.id === 'Put')!.inputs, [{ name: 'etag', expression: '= put.etag' }]);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].level, 'error');
+  assert.match(issues[0].text, /put\.etag.*NoOutput/);
+});
+
+test('an orchestration with a broken diagram throws — the view shows it instead of a blank page', () => {
+  const base = newOrchestration({ title: 'x', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'UpdateClient' });
+  assert.throws(() => fromOrchestration({ ...base, bpmn: '<kaputt', tasks: {} }, new Map()));
+});
+
+test('service mode: what a worker cannot do is an error, an error path a warning', async () => {
+  const { serviceStepIssues } = await import('../src/services/serviceMode');
+  const step = (s: Partial<Step>): Step => ({ id: 'x', name: 'x', kind: 'service', status: 'draft', ...s } as Step);
+  const levels = (s: Step) => serviceStepIssues(s).map(i => i.level);
+  assert.deepEqual(levels(step({ topic: 'a.B' })), []);
+  assert.deepEqual(levels(step({})), ['error']);
+  assert.deepEqual(levels(step({ kind: 'user' as Step['kind'] })), ['error']);
+  assert.ok(levels(step({ topic: 'a.B', loop: { kind: 'multi' } } as Partial<Step>)).includes('error'));
+  assert.deepEqual(levels(step({ topic: 'a.B', errors: [{ code: 'E', label: 'E' }] } as Partial<Step>)), ['warn']);
+});

@@ -33,7 +33,12 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
     return () => { gone = true; };
   }, [slug, loadService]);
   const collections = useMemo(() => services.map(s => s.data).filter(isCollection), [services]);
-  const planned = useMemo(() => (loaded ? fromOrchestration(loaded.data, callableServices(collections, model)) : null), [loaded, collections, model]);
+  // an orchestration that cannot be read (a broken diagram …): said, not a blank page
+  const { planned, planError } = useMemo(() => {
+    if (!loaded) return { planned: null, planError: null };
+    try { return { planned: fromOrchestration(loaded.data, callableServices(collections, model)), planError: null }; }
+    catch (e) { return { planned: null, planError: `services/${slug}.json lässt sich nicht übernehmen: ${e instanceof Error ? e.message : String(e)}` }; }
+  }, [loaded, collections, model, slug]);
   const existing = planned ? specs.find(s => s.slug === planned.spec.slug) : undefined;
   // taken over already — only the old file is left (removing it failed, or it came back)
   const same = !!existing && isServiceProcess(existing.data) && existing.data.processId === planned?.spec.processId;
@@ -103,6 +108,7 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
             </p>
           )}
           {error && <p className="text-[11px] text-rose-500 flex items-center gap-1.5"><AlertTriangle size={11} /> {error}</p>}
+          {planError && <p className="text-[11px] text-rose-500 flex items-center gap-1.5"><AlertTriangle size={11} /> {planError}</p>}
           {done && (
             <div className="space-y-2">
               <p className={`text-[11px] ${c.text}`}>
@@ -123,7 +129,7 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
           )}
           {same ? null : canEdit
             ? (
-              <button disabled={busy || !!taken} onClick={() => void takeOver()}
+              <button disabled={busy || !!taken || !planned} onClick={() => void takeOver()}
                 className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
                 {busy ? 'Wird übernommen …' : 'In den Prozess-Editor übernehmen'}
               </button>
