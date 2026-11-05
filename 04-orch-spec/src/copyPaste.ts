@@ -160,6 +160,12 @@ function pasteClosure(spec: ProcessSpec, clip: TypeClip, model?: PasteDomain) {
   return pasteTypes(spec.types, reachable(clip.types, [clip.typeId], refs), new Map(), refs);
 }
 
+/** How many classes a paste brings along as copies, besides the class itself — what the target has stays a reference. */
+export function copiedAlong(spec: ProcessSpec, clip: TypeClip, model?: PasteDomain): number {
+  const refs = originalRefs(spec.types, clip, model, [clip.typeId]);
+  return reachable(clip.types, [clip.typeId], refs).length - 1;
+}
+
 /** Paste a copied class — returns the new classes and the ID of the pasted one. */
 export function pasteType(spec: ProcessSpec, clip: TypeClip, model?: PasteDomain): { types: TypeDef[]; id: string } {
   const { types, idMap } = pasteClosure(spec, clip, model);

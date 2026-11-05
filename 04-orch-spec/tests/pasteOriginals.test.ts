@@ -2,7 +2,7 @@
 // target has them — the domain or the same specification — and only the others as copies.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pasteField, pasteType, replaceType } from '../src/copyPaste.ts';
+import { copiedAlong, pasteField, pasteType, replaceType } from '../src/copyPaste.ts';
 import type { DomainType, ProcessSpec, TypeDef } from '../src/types.ts';
 
 const pkg = 'acme.crm.domain.client.v1';
@@ -30,6 +30,8 @@ test('pasteType: what the domain has is a reference, only the rest comes as a co
   const address = added.find(t => t.name === 'Address')!;
   assert.equal(pasted.fields![1].type, address.id);
   assert.equal(address.fields![0].type, added.find(t => t.name === 'Country')!.id);
+  assert.equal(copiedAlong(process, clip, model), 2);
+  assert.equal(copiedAlong(process, clip), 4);
 });
 
 test('replaceType: the In of the process gets the fields, the person stays the original of the domain', () => {

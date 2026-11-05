@@ -32,7 +32,7 @@ import { useConfirm } from './Confirm';
 import { iaTarget, sub, typeTarget } from '../comments';
 import { uid } from '../util';
 import { getClipboard, setModelClip, useClipboard, type ClipSource } from '../clipboard';
-import { pasteField, pasteType, replaceType, typeClosure } from '../copyPaste';
+import { copiedAlong, pasteField, pasteType, replaceType, typeClosure } from '../copyPaste';
 import { patternOfField } from '../patterns';
 import { interactionStatus } from '../status';
 import { searchByName } from '../typeSearch';
@@ -579,10 +579,11 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
             </button>
             {typeClip && (() => {
               const t = typeClip.types.find(x => x.id === typeClip.typeId);
-              const mit = typeClip.types.length - 1;
+              const mit = copiedAlong(spec, typeClip, model);
+              const refs = typeClip.types.length - 1 - mit;
               return (
                 <button onClick={pasteTypeClip}
-                  title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${typeClip.source.title || typeClip.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist` : ''}`}
+                  title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${typeClip.source.title || typeClip.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist, als Kopie` : ''}${refs ? `; ${refs === 1 ? 'eine Klasse bleibt Verweis' : `${refs} Klassen bleiben Verweis`} auf das Original` : ''}`}
                   className={`w-full flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded border ${c.btn}`}>
                   <ClipboardPaste size={11} className="flex-shrink-0" />
                   <span className="truncate">«{t?.name}» einfügen{mit ? ` (+${mit})` : ''}</span>
@@ -1680,10 +1681,11 @@ export function PasteTypeButton({ spec, model, isDark, onPaste, label }: {
   const c = cls(isDark);
   if (m?.kind !== 'type') return null;
   const t = m.types.find(x => x.id === m.typeId);
-  const mit = m.types.length - 1;
+  const mit = copiedAlong(spec, m, model);
+  const refs = m.types.length - 1 - mit;
   return (
     <button onClick={() => { const r = pasteType(spec, m, model); onPaste(r.types, r.id); }}
-      title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `; die Klassen, auf die sie verweist, als Verweis, wo es sie schon gibt` : ''}`}
+      title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist, als Kopie` : ''}${refs ? `; ${refs === 1 ? 'eine Klasse bleibt Verweis' : `${refs} Klassen bleiben Verweis`} auf das Original` : ''}`}
       className={label ? `flex items-center gap-1 text-[11px] px-2 py-1 rounded border ${c.btn}` : `p-0.5 rounded ${c.hover} ${c.muted}`}>
       <ClipboardPaste size={11} />{label && <span>«{t?.name}» {label}</span>}
     </button>
