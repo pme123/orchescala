@@ -307,7 +307,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
               {/* as in the data model of a process: a class, a choice, a class from the clipboard */}
               {canEdit && (
                 <>
-                  <PasteTypeButton spec={processFrame(spec)} isDark={isDark} onPaste={(types, id) => {
+                  <PasteTypeButton spec={processFrame(spec)} model={model} isDark={isDark} onPaste={(types, id) => {
                     update(s => ({ ...s, types }));
                     setSelection({ kind: 'type', id });
                   }} />
@@ -973,6 +973,7 @@ function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, 
   /** a copied class becomes a type of the collection — and the body */
   onPasteType?: (types: TypeDef[], id: string) => void;
 }) {
+  const { model } = useStore();
   const c = cls(isDark);
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
   const own = value && value.type !== self?.id ? spec.types.find(t => t.id === value.type) : undefined;
@@ -999,7 +1000,7 @@ function BodyPicker({ label, none, value, spec, canEdit, isDark, allowOptional, 
           {own && <button onClick={() => onOpenType(own.id)} className={`text-[10px] hover:underline ${isDark ? 'text-sky-300' : 'text-sky-700'}`}>{own.name} öffnen →</button>}
         </>
       )}
-      {canEdit && onPasteType && <PasteTypeButton spec={processFrame(spec)} isDark={isDark} label="als Body einfügen" onPaste={onPasteType} />}
+      {canEdit && onPasteType && <PasteTypeButton spec={processFrame(spec)} model={model} isDark={isDark} label="als Body einfügen" onPaste={onPasteType} />}
     </div>
   );
 }

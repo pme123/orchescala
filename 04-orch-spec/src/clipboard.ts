@@ -22,6 +22,8 @@ export interface ClipSource {
   slug: string;
   title: string;
   engine?: EngineId;
+  /** the package its classes live in — with it a paste finds the originals in the domain */
+  pkg?: string;
 }
 
 /** The specification part of copied diagram elements */

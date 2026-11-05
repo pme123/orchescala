@@ -373,27 +373,27 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const globalIssues = issues.filter(i => !i.typeId);
 
   const clip = useClipboard();
-  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine };
+  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine, pkg: packageOf(spec, model) };
   const clipActions: ClipActions = {
     copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(types, [t.id]) }),
     copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(types, [f.type]) }),
     pasteField: (typeId, valueIndex) => {
       const m = getClipboard().model;
       if (m?.kind !== 'field') return;
-      const r = pasteField(spec, typeId, m, valueIndex);
+      const r = pasteField(spec, typeId, m, valueIndex, model);
       if (r) setTypes(r.types);
     },
     replaceType: typeId => {
       const m = getClipboard().model;
       if (m?.kind !== 'type') return;
-      const r = replaceType(spec, typeId, m);
+      const r = replaceType(spec, typeId, m, model);
       if (r) setTypes(r);
     },
   };
   const pasteTypeClip = () => {
     const m = getClipboard().model;
     if (m?.kind !== 'type') return;
-    const r = pasteType(spec, m);
+    const r = pasteType(spec, m, model);
     setTypes(r.types);
     pickType(r.id);
   };
@@ -1059,7 +1059,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
         </select>
         {clip && !t.inConfig && (
           <ClipCopyButton onCopy={() => clip.copyType(t)}
-            title={`${t.kind === 'enum' ? 'Auswahl' : 'Klasse'} kopieren — mit den eigenen Klassen, auf die sie verweist. Einfügen links unten im Datenmodell, auch eines anderen Prozesses oder Tabs.`}
+            title={`${t.kind === 'enum' ? 'Auswahl' : 'Klasse'} kopieren — einfügen links unten im Datenmodell, auch eines anderen Prozesses oder Tabs. Die Klassen, auf die sie verweist, bleiben Verweise, wo es sie dort gibt (Domain oder dieselbe Spezifikation); sonst kommen sie als Kopie mit.`}
             className={`p-1.5 rounded border ${c.btn}`} />
         )}
         {clip && canEdit && (t.root || fixed) && <ReplaceTypeButton type={t} isDark={isDark} onReplace={() => clip.replaceType(t.id)} />}
@@ -1618,7 +1618,7 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
   latest.current = types;
   const apply = (fn: (ts: TypeDef[]) => TypeDef[]) => { const next = fn(latest.current); latest.current = next; onTypes(next); };
   // copy and paste as in the data model of a process — classes and fields, also across tabs
-  const clipActions = standaloneClip(spec, latest, apply);
+  const clipActions = standaloneClip(spec, model, latest, apply);
   return (
     <ClipContext.Provider value={clipActions}>
     <SpecContext.Provider value={spec}>
@@ -1646,21 +1646,21 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
  * own (the In/Out of a service, a type of a collection): the same actions, on
  * the latest types.
  */
-function standaloneClip(spec: ProcessSpec, latest: { current: TypeDef[] }, apply: (fn: (ts: TypeDef[]) => TypeDef[]) => void): ClipActions {
-  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine };
+function standaloneClip(spec: ProcessSpec, model: Model | null, latest: { current: TypeDef[] }, apply: (fn: (ts: TypeDef[]) => TypeDef[]) => void): ClipActions {
+  const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine, pkg: packageOf(spec, model) };
   return {
     copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(latest.current, [t.id]) }),
     copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(latest.current, [f.type]) }),
     pasteField: (typeId, valueIndex) => {
       const m = getClipboard().model;
       if (m?.kind !== 'field') return;
-      const r = pasteField({ ...spec, types: latest.current }, typeId, m, valueIndex);
+      const r = pasteField({ ...spec, types: latest.current }, typeId, m, valueIndex, model);
       if (r) apply(() => r.types);
     },
     replaceType: typeId => {
       const m = getClipboard().model;
       if (m?.kind !== 'type') return;
-      const r = replaceType({ ...spec, types: latest.current }, typeId, m);
+      const r = replaceType({ ...spec, types: latest.current }, typeId, m, model);
       if (r) apply(() => r);
     },
   };
@@ -1671,8 +1671,8 @@ function standaloneClip(spec: ProcessSpec, latest: { current: TypeDef[] }, apply
  * (a collection, an orchestration) — only while a class is in the clipboard.
  * `onPaste` gets all types and the id of the pasted class.
  */
-export function PasteTypeButton({ spec, isDark, onPaste, label }: {
-  spec: ProcessSpec; isDark: boolean; onPaste: (types: TypeDef[], id: string) => void;
+export function PasteTypeButton({ spec, model, isDark, onPaste, label }: {
+  spec: ProcessSpec; model: Model | null; isDark: boolean; onPaste: (types: TypeDef[], id: string) => void;
   /** a button with text (`als Body`) — without: only the icon */
   label?: string;
 }) {
@@ -1682,8 +1682,8 @@ export function PasteTypeButton({ spec, isDark, onPaste, label }: {
   const t = m.types.find(x => x.id === m.typeId);
   const mit = m.types.length - 1;
   return (
-    <button onClick={() => { const r = pasteType(spec, m); onPaste(r.types, r.id); }}
-      title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `, mit ${mit === 1 ? 'einer Klasse' : `${mit} Klassen`}, auf die sie verweist` : ''}`}
+    <button onClick={() => { const r = pasteType(spec, m, model); onPaste(r.types, r.id); }}
+      title={`${t?.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t?.name ?? ''}» aus «${m.source.title || m.source.slug}» einfügen — als Kopie${mit ? `; die Klassen, auf die sie verweist, als Verweis, wo es sie schon gibt` : ''}`}
       className={label ? `flex items-center gap-1 text-[11px] px-2 py-1 rounded border ${c.btn}` : `p-0.5 rounded ${c.hover} ${c.muted}`}>
       <ClipboardPaste size={11} />{label && <span>«{t?.name}» {label}</span>}
     </button>
