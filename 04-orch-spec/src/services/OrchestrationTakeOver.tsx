@@ -1,18 +1,19 @@
 // An orchestration of before (`services/<slug>.json`): it is a process in service mode now and
 // opens in the process editor. Taking it over writes the process — same flow and diagram — and
-// then removes the file under `services/`; until then nothing changes.
+// then removes the file under `services/`; until then nothing changes (see takeOver.ts).
 import { AlertTriangle, ArrowLeft, Loader2, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useStore } from '../store';
 import { cls } from '../ui';
 import { orchestrationTopic } from './orchestration';
-import { callableServices, fromOrchestration } from './serviceProcess';
+import { callableServices, fromOrchestration, isServiceProcess } from './serviceProcess';
+import { removeOld, takeOver as runTakeOver } from './takeOver';
 import { useServices } from './store';
 import { isCollection, isOrchestration, type ServiceOrchestrationSpec } from './types';
 
 export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: { slug: string; onBack: () => void; onOpenProcess: (slug: string) => void }) {
-  const { isDark, model, specs, createSpec, saveBpmn } = useStore();
+  const { isDark, model, specs, createSpec, saveBpmn, deleteSpec } = useStore();
   const { loadService, deleteService, services } = useServices();
   const { canEdit } = usePermissions();
   const c = cls(isDark);
@@ -33,21 +34,24 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
   }, [slug, loadService]);
   const collections = useMemo(() => services.map(s => s.data).filter(isCollection), [services]);
   const planned = useMemo(() => (loaded ? fromOrchestration(loaded.data, callableServices(collections, model)) : null), [loaded, collections, model]);
-  const taken = planned ? specs.find(s => s.slug === planned.spec.slug) : undefined;
+  const existing = planned ? specs.find(s => s.slug === planned.spec.slug) : undefined;
+  // taken over already — only the old file is left (removing it failed, or it came back)
+  const done = !!existing && isServiceProcess(existing.data) && existing.data.processId === planned?.spec.processId;
+  const taken = done ? undefined : existing;
+  const store = { createSpec, saveBpmn, deleteSpec, deleteService };
 
-  const takeOver = async () => {
+  const run = async (step: () => ReturnType<typeof removeOld>) => {
     if (!loaded || !planned) return;
     setBusy(true); setError(null);
     try {
-      const r = await createSpec(planned.spec);
-      if (!r.ok) { setError(r.message); return; }
-      const w = await saveBpmn(planned.spec.slug, planned.xml);
-      if (!w.ok) { setError(`Prozess angelegt, aber das Diagramm nicht: ${w.message} — services/${slug}.json bleibt.`); return; }
-      const d = await deleteService(slug, loaded.version);
-      if (!d.ok) { setError(`Übernommen — aber services/${slug}.json ist noch da: ${d.message}`); return; }
-      onOpenProcess(planned.spec.slug);
+      const r = await step();
+      if (r.ok) onOpenProcess(planned.spec.slug);
+      else setError(r.message);
     } finally { setBusy(false); }
   };
+  const old = { slug, version: loaded?.version ?? '' };
+  const takeOver = () => run(() => runTakeOver(store, planned!, old));
+  const finish = () => run(() => removeOld(store, old));
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">
@@ -72,9 +76,36 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
             Felder sind es (<span className="font-mono">etag</span>) — die Ausdrücke werden so umgeschrieben, und der Schritt setzt jedes
             Feld, das gelesen wird. Lesen zwei Services ein Feld gleichen Namens, danach die Mappings prüfen.
           </p>
+          {planned && planned.issues.length > 0 && !done && (
+            <ul className="space-y-1">
+              {planned.issues.map((i, n) => (
+                <li key={n} className={`text-[10px] flex items-start gap-1.5 ${i.level === 'error' ? 'text-rose-500' : isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+                  <AlertTriangle size={10} className="mt-0.5 flex-shrink-0" /> {i.text}
+                </li>
+              ))}
+            </ul>
+          )}
           {taken && <p className="text-[11px] text-rose-500">Den Prozess «{taken.data.title || taken.slug}» gibt es schon — zuerst ihn umbenennen oder löschen.</p>}
           {error && <p className="text-[11px] text-rose-500 flex items-center gap-1.5"><AlertTriangle size={11} /> {error}</p>}
-          {canEdit
+          {done && (
+            <div className="space-y-2">
+              <p className={`text-[11px] ${c.text}`}>
+                Schon als Prozess übernommen — nur <span className="font-mono">services/{slug}.json</span> ist noch da.
+              </p>
+              <div className="flex items-center gap-2">
+                {canEdit && (
+                  <button disabled={busy} onClick={() => void finish()}
+                    className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
+                    {busy ? 'Wird entfernt …' : 'Alte Datei entfernen und Prozess öffnen'}
+                  </button>
+                )}
+                <button onClick={() => planned && onOpenProcess(planned.spec.slug)} className={`text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
+                  Prozess öffnen
+                </button>
+              </div>
+            </div>
+          )}
+          {done ? null : canEdit
             ? (
               <button disabled={busy || !!taken} onClick={() => void takeOver()}
                 className={`text-[11px] px-3 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>

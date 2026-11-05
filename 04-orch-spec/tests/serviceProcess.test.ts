@@ -8,8 +8,9 @@ import { newCollection } from '../src/services/collection';
 import { newOrchestration, servicesByTopic } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import {
-  asOrchestration, fromOrchestration, isServiceProcess, newServiceProcess, serviceProcessTopic, withCollections, type ServiceProcess,
+  asOrchestration, flatten, fromOrchestration, isServiceProcess, newServiceProcess, serviceProcessTopic, withCollections, type ServiceProcess,
 } from '../src/services/serviceProcess';
+import { removeOld, takeOver, type TakeOverStore } from '../src/services/takeOver';
 import type { CollectionService, ServiceCollectionSpec, ServiceOrchestrationSpec } from '../src/services/types';
 import type { Step, TypeDef } from '../src/types';
 
@@ -131,4 +132,80 @@ test('the collections are services of the catalog, with their In and Out as doma
   const inType = m.domainTypes!.find(d => d.name === 'GetClient.In' && d.pkg === 'acme.crm.domain.client.v1');
   assert.deepEqual(inType?.fields?.map(f => [f.name, f.type]), [['clientKey', 'Long']]);
   assert.equal(withCollections(catalog, []), catalog);
+});
+
+test('flatten: only a path that starts with a result, never inside a string', () => {
+  const results = new Map([['getClient', new Set<string>()]]);
+  assert.equal(flatten('= getClient.etag', results), '= etag');
+  assert.equal(flatten('= a.getClient.etag + getClient.name', results), '= a.getClient.etag + name');
+  assert.equal(flatten('= "see getClient.etag" + getClient.etag', results), '= "see getClient.etag" + etag');
+  assert.equal(flatten('= "a \\" getClient.x" + other.y', results), '= "a \\" getClient.x" + other.y');
+  assert.deepEqual([...results.get('getClient')!], ['etag', 'name']);
+});
+
+const takenOver = (tasks: ServiceOrchestrationSpec['tasks']) => {
+  const xml = bpmn(`<bpmn:serviceTask id="Get" /><bpmn:serviceTask id="Put" />${flow('f1', 'Start', 'Get')}${flow('f2', 'Get', 'Put')}${flow('f3', 'Put', 'End')}`);
+  const base = newOrchestration({ title: 'x', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'UpdateClient' });
+  return fromOrchestration({ ...base, bpmn: xml, tasks }, servicesByTopic([collection()]));
+};
+
+test('two results with a field of the same name: a warning before the take-over', () => {
+  const { issues } = takenOver({
+    Get: { service: 'acme-crm-clientV1.GetClient', result: 'first' },
+    Put: { service: 'acme-crm-clientV1.GetClient', result: 'second', inputs: [{ name: 'clientKey', expression: '= first.etag + second.etag' }] },
+  });
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].level, 'warning');
+  assert.match(issues[0].text, /first\.etag und second\.etag/);
+});
+
+test('a service that is not found: its result stays as it is, no outputs, an error before the take-over', () => {
+  const { spec, issues } = takenOver({
+    Get: { service: 'acme-crm-clientV1.Gone', result: 'gone' },
+    Put: { service: 'acme-crm-clientV1.PutClient', inputs: [{ name: 'etag', expression: '= gone.etag' }] },
+  });
+  const step = (id: string) => allSteps(spec.steps).find(s => s.id === id)!;
+  assert.equal(step('Get').outputs, undefined);
+  assert.deepEqual(step('Put').inputs, [{ name: 'etag', expression: '= gone.etag' }]);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].level, 'error');
+  assert.match(issues[0].text, /Gone/);
+});
+
+const ok = async () => ({ ok: true as const });
+const fail = (message: string) => async () => ({ ok: false as const, message });
+const fake = (over: Partial<TakeOverStore>): TakeOverStore & { calls: string[] } => {
+  const calls: string[] = [];
+  const track = <A extends unknown[]>(name: string, f: (...a: A) => Promise<{ ok: true } | { ok: false; message: string }>) => async (...a: A) => { calls.push(name); return f(...a); };
+  return {
+    calls,
+    createSpec: track('createSpec', over.createSpec ?? ok), saveBpmn: track('saveBpmn', over.saveBpmn ?? ok),
+    deleteSpec: track('deleteSpec', over.deleteSpec ?? ok), deleteService: track('deleteService', over.deleteService ?? ok),
+  };
+};
+const planned = () => ({ spec: described(), xml: '<x/>' });
+
+test('take-over: the diagram fails — the process is removed again, the old file stays', async () => {
+  const store = fake({ saveBpmn: fail('gesperrt') });
+  const r = await takeOver(store, planned(), { slug: 'old', version: 'v1' });
+  assert.deepEqual(store.calls, ['createSpec', 'saveBpmn', 'deleteSpec']);
+  assert.ok(!r.ok && !r.written);
+  assert.match(!r.ok ? r.message : '', /services\/old\.json bleibt/);
+});
+
+test('take-over: removing the old file fails — the process is there, finishing it later removes the file', async () => {
+  const store = fake({ deleteService: fail('Version geändert') });
+  const r = await takeOver(store, planned(), { slug: 'old', version: 'v1' });
+  assert.deepEqual(store.calls, ['createSpec', 'saveBpmn', 'deleteService']);
+  assert.ok(!r.ok && r.written);
+  const again = fake({});
+  assert.deepEqual(await removeOld(again, { slug: 'old', version: 'v1' }), { ok: true });
+  assert.deepEqual(again.calls, ['deleteService']);
+});
+
+test('take-over: the process cannot be created — nothing else happens', async () => {
+  const store = fake({ createSpec: fail('gibt es schon') });
+  const r = await takeOver(store, planned(), { slug: 'old', version: 'v1' });
+  assert.deepEqual(store.calls, ['createSpec']);
+  assert.deepEqual(r, { ok: false, written: false, message: 'gibt es schon' });
 });

@@ -11,7 +11,7 @@
 // step shows their `In` and `Out` with the real types (local wins over the catalog).
 import { scanScala } from '../domainScan';
 import { importBpmn, withStatus } from '../bpmn';
-import type { Branch, Field, Mapping, Model, ProcessSpec, ServiceMode, ServiceParam, Step, TypeDef } from '../types';
+import type { Branch, DomainType, Field, Mapping, Model, ProcessSpec, ServiceMode, ServiceParam, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util';
 import { catalogProjects, collectionFromCatalog, withProjectDomain } from './catalogCollections';
 import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, serviceMembers, servicesByTopic, type ServiceRef } from './orchestration';
@@ -59,10 +59,21 @@ export function newServiceProcess(input: { title: string; project: string; api: 
 
 // ── the services it can call ────────────────────────────────────────────────
 
-/** The domain a collection exports — read from its Scala; empty if it cannot be generated yet. */
-const domainOf = (c: ServiceCollectionSpec, model: Model | null) => {
-  try { return collectionFiles(c, model).flatMap(f => scanScala(f.content, f.path)); }
-  catch { return []; }
+/** The domain of a collection — per collection (a new object with every change) and model. */
+const domainCache = new WeakMap<ServiceCollectionSpec, { model: Model | null; types: DomainType[] }>();
+
+/**
+ * The domain a collection exports — read from its Scala. One that cannot be generated (yet)
+ * has none: its classes are not there to refer to, the console says why.
+ */
+const domainOf = (c: ServiceCollectionSpec, model: Model | null): DomainType[] => {
+  const hit = domainCache.get(c);
+  if (hit && hit.model === model) return hit.types;
+  let types: DomainType[] = [];
+  try { types = collectionFiles(c, model).flatMap(f => scanScala(f.content, f.path)); }
+  catch (e) { console.warn(`Collection «${c.title || c.slug}»: ihre Klassen sind nicht im Domain — der Scala-Code lässt sich nicht erzeugen.`, e); }
+  domainCache.set(c, { model, types });
+  return types;
 };
 
 /**
@@ -73,9 +84,15 @@ const domainOf = (c: ServiceCollectionSpec, model: Model | null) => {
  */
 export function withCollectionTypes(model: Model | null, collections: ServiceCollectionSpec[], except?: string): Model | null {
   const known = new Set((model?.domainTypes ?? []).map(d => d.id));
-  const added = collections.filter(c => c.slug !== except)
-    .flatMap(c => domainOf(c, model).map(d => ({ ...d, collection: c.slug })))
-    .filter(d => !known.has(d.id) && (known.add(d.id), true));
+  const added: DomainType[] = [];
+  for (const c of collections) {
+    if (c.slug === except) continue;
+    for (const d of domainOf(c, model)) {
+      if (known.has(d.id)) continue;
+      known.add(d.id);
+      added.push({ ...d, collection: c.slug });
+    }
+  }
   return added.length ? { ...(model ?? { version: 1, services: [] }), domainTypes: [...(model?.domainTypes ?? []), ...added] } : model;
 }
 
@@ -172,32 +189,47 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
 
 // ── an orchestration of before ──────────────────────────────────────────────
 
-/** `getClient.etag` → `etag` — a result of before is now its fields as variables. */
-function flatten(expression: string, results: Map<string, Set<string>>): string {
-  return expression.replace(/\b([a-z][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g, (all, result: string, field: string) => {
+/**
+ * `getClient.etag` → `etag` — a result of before is now its fields as variables. Only a path
+ * that starts with the result (not `a.getClient.etag`), and not inside a string literal.
+ */
+export function flatten(expression: string, results: Map<string, Set<string>>): string {
+  const path = /(?<![\w.])([a-z][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)/g;
+  const code = (part: string) => part.replace(path, (all, result: string, field: string) => {
     const used = results.get(result);
     if (!used) return all;
     used.add(field);
     return field;
   });
+  // the string literals as they are — `"see getClient.etag"` stays
+  return expression.split(/("(?:[^"\\]|\\.)*"?)/).map((part, i) => (i % 2 ? part : code(part))).join('');
 }
+
+/** What a take-over cannot carry over as it was — shown before it is done. */
+export interface TakeOverIssue { level: 'error' | 'warning'; text: string }
 
 /**
  * An orchestration from `services/` as a process in service mode — the same flow and diagram.
  * A service result was one variable (`getClient`), in a process its fields are: `getClient.etag`
  * becomes `etag`, and the step sets each field read that way (the others as disabled rows).
  */
-export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string, ServiceRef>): { spec: ServiceProcess; xml: string } {
+export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string, ServiceRef>): { spec: ServiceProcess; xml: string; issues: TakeOverIssue[] } {
   const processId = serviceProcessId(o);
   const slug = slugify(processId);
   // the steps have the status the orchestration had
   const spec = withStatus(importBpmn(o.bpmn, `${slug}.bpmn`).spec, o.status);
   // the name of each result → the fields read from it
   const results = new Map<string, Set<string>>();
+  const issues: TakeOverIssue[] = [];
   for (const [id, t] of Object.entries(o.tasks)) {
     if (!t.service) continue;
     const ref = refs.get(t.service);
-    results.set(t.result?.trim() || (ref ? ref.service.name.replace(/^./, c => c.toLowerCase()) : id), new Set());
+    // a service that is not found: its fields are not known — what reads its result stays as it is
+    if (!ref) {
+      issues.push({ level: 'error', text: `Schritt «${id}»: Service «${t.service}» nicht gefunden — Ausdrücke mit ${t.result?.trim() || '…'}.… bleiben, wie sie sind, und der Schritt setzt keine Variablen. Danach den Service wählen und die Ausdrücke anpassen.` });
+      continue;
+    }
+    results.set(t.result?.trim() || ref.service.name.replace(/^./, c => c.toLowerCase()), new Set());
   }
   const flat = (list: Mapping[] | undefined) => list?.map(m => ({ ...m, expression: flatten(m.expression, results) }));
   // first every expression — so all fields read are known before the outputs are written
@@ -205,6 +237,12 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
   const conditions = Object.fromEntries(Object.entries(o.conditions ?? {}).map(([id, c]) => [id, flatten(c, results)]));
   const outMappings = flat(o.outMappings);
   const outCases = o.outCases?.map(c => ({ ...c, ...(c.condition ? { condition: flatten(c.condition, results) } : {}), ...(c.mappings ? { mappings: flat(c.mappings) } : {}) }));
+  // a field read from two results is one variable now — the later step overwrites it
+  const readFrom = new Map<string, string[]>();
+  for (const [result, fields] of results) for (const f of fields) readFrom.set(f, [...(readFrom.get(f) ?? []), result]);
+  for (const [field, from] of readFrom) {
+    if (from.length > 1) issues.push({ level: 'warning', text: `«${field}» wird aus ${from.map(r => `${r}.${field}`).join(' und ')} gelesen — jetzt eine Variable, die der spätere Schritt überschreibt. Danach die Mappings prüfen (eine Ausgabe umbenennen).` });
+  }
 
   const outputsOf = (t: OrchTask): Mapping[] | undefined => {
     const ref = t.service ? refs.get(t.service) : undefined;
@@ -250,5 +288,6 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
       },
     },
     xml: o.bpmn,
+    issues,
   };
 }
