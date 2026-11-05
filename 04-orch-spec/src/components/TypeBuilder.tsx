@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
+import { checkTypes, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, isScalaTypeName, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, PanelWidthHandle, cls, patternTone, useStoredWidth } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -211,6 +211,11 @@ function typeChip(f: Field, types: TypeDef[], idx: ReturnType<typeof indexTypes>
   if (isScalaTypeExpression(f.type)) {
     return { icon: null, title: `${f.type} — Scala-Typ aus der Domain, wird wörtlich übernommen`,
       cls: isDark ? 'border-white/10 text-white/60' : 'border-black/10 text-black/60' };
+  }
+  // a type name without a type behind it — exported as named, the import is up to the project
+  if (isScalaTypeName(f.type)) {
+    return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: `«${f.type}» ist weder im Modell noch im Katalog — wird wie genannt exportiert`,
+      cls: isDark ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700' };
   }
   return { icon: <AlertTriangle size={9} className="flex-shrink-0" />, title: `«${f.type}» ist kein bekannter Typ`,
     cls: isDark ? 'border-rose-500/40 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700' };

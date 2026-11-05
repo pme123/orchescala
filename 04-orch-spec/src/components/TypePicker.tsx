@@ -10,7 +10,7 @@ import { AlertTriangle, Braces, ChevronDown, Code, ListOrdered, Plug, Search, Ty
 import { SCALA_TYPES, type Model, type TypeDef } from '../types';
 import { domainRef, serviceTypes, type ServiceType } from '../serviceTypes';
 import { cls } from '../ui';
-import { isScalaTypeExpression } from '../scala';
+import { isScalaTypeExpression, isScalaTypeName } from '../scala';
 import { ORCHESCALA_TYPES } from '../orchescalaTypes';
 import { searchByName } from '../typeSearch';
 
@@ -111,6 +111,10 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
 
   const current = entries.find(e => e.value === value);
   const scalaType = !current && isScalaTypeExpression(value);
+  // a type name without a type behind it — exported as named, only a hint
+  const namedType = !current && !scalaType && isScalaTypeName(value);
+  // a name is exported as written (amber), a lost ID is not (rose)
+  const missingTone = namedType ? (isDark ? 'text-amber-400' : 'text-amber-600') : (isDark ? 'text-rose-400' : 'text-rose-600');
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -154,12 +158,13 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
       <button disabled={disabled}
         onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 20); }}
         title={current?.hint ? `${current.name} — ${current.hint}`
-          : current?.name ?? (scalaType ? `${value} — Scala-Typ aus der Domain, wird wörtlich übernommen` : value)}
+          : current?.name ?? (scalaType ? `${value} — Scala-Typ aus der Domain, wird wörtlich übernommen`
+            : namedType ? `${value} — weder im Modell noch im Katalog, wird wie genannt exportiert` : value)}
         className={`flex items-center gap-1.5 w-full text-[11px] leading-[18px] px-2 py-1 rounded border text-left ${c.border2} ${disabled ? '' : c.hover}`}>
         {current ? <current.icon size={10} className={c.muted} />
           // a Scala type from the domain (`MockedServiceResponse[GetX.Out]`) is not an error
           : scalaType ? <Code size={10} className={c.muted} />
-            : <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
+            : <AlertTriangle size={10} className={missingTone} />}
         <span className={`flex-1 truncate font-mono ${c.text}`}>{current?.name ?? value}</span>
         {!disabled && <ChevronDown size={11} className={c.muted} />}
       </button>
