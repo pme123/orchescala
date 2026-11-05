@@ -227,3 +227,11 @@ test('take-over: the diagram fails and the process cannot be removed again — i
   assert.ok(!r.ok && r.written);
   assert.match(!r.ok ? r.message : '', /unter Prozesse löschen/);
 });
+
+test('take-over: a store call that throws is a failure — the process is removed again', async () => {
+  const store = fake({ saveBpmn: async () => { throw new Error('Netzwerk weg'); } });
+  const r = await takeOver(store, planned(), { slug: 'old', version: 'v1' });
+  assert.deepEqual(store.calls, ['createSpec', 'saveBpmn', 'deleteSpec']);
+  assert.ok(!r.ok && !r.written);
+  assert.match(!r.ok ? r.message : '', /Netzwerk weg/);
+});

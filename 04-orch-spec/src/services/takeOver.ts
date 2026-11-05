@@ -6,6 +6,12 @@ import type { ProcessSpec } from '../types';
 
 type Result = { ok: true } | { ok: false; message: string };
 
+/** A store call that throws is a failure like one that says so. */
+const safe = async (call: () => Promise<Result>): Promise<Result> => {
+  try { return await call(); }
+  catch (e) { return { ok: false, message: e instanceof Error ? e.message : String(e) }; }
+};
+
 /** What a take-over needs from the stores */
 export interface TakeOverStore {
   createSpec: (spec: ProcessSpec) => Promise<Result>;
@@ -19,7 +25,7 @@ export type TakeOverResult = { ok: true } | { ok: false; written: boolean; messa
 
 /** The old file under `services/` goes — the last step of a take-over. */
 export async function removeOld(store: TakeOverStore, old: { slug: string; version: string }): Promise<TakeOverResult> {
-  const d = await store.deleteService(old.slug, old.version);
+  const d = await safe(() => store.deleteService(old.slug, old.version));
   return d.ok ? { ok: true } : {
     ok: false, written: true,
     message: `Der Prozess ist übernommen — services/${old.slug}.json liess sich aber nicht entfernen: ${d.message}. Wurde die Datei inzwischen geändert, die Seite neu laden und nochmals entfernen.`,
@@ -28,12 +34,12 @@ export async function removeOld(store: TakeOverStore, old: { slug: string; versi
 
 /** The process with its diagram, then the old file removed. */
 export async function takeOver(store: TakeOverStore, planned: { spec: ProcessSpec; xml: string }, old: { slug: string; version: string }): Promise<TakeOverResult> {
-  const r = await store.createSpec(planned.spec);
+  const r = await safe(() => store.createSpec(planned.spec));
   if (!r.ok) return { ok: false, written: false, message: r.message };
-  const w = await store.saveBpmn(planned.spec.slug, planned.xml);
+  const w = await safe(() => store.saveBpmn(planned.spec.slug, planned.xml));
   if (!w.ok) {
     // no process without its diagram: back to before
-    const back = await store.deleteSpec(planned.spec.slug);
+    const back = await safe(() => store.deleteSpec(planned.spec.slug));
     return back.ok
       ? { ok: false, written: false, message: `Das Diagramm liess sich nicht speichern: ${w.message} — nichts übernommen, services/${old.slug}.json bleibt.` }
       : { ok: false, written: true, message: `Das Diagramm liess sich nicht speichern (${w.message}), und der angelegte Prozess «${planned.spec.slug}» nicht wieder entfernen: ${back.message} — ihn unter Prozesse löschen, dann nochmals übernehmen.` };
