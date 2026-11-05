@@ -88,6 +88,18 @@ test('the test of the worker: the whole chain in the URI, each case of the In, t
   assert.match(t, /test\("outputMapper ByKey without person"\):[\s\S]*In\.ByKey\.exampleMinimal[\s\S]*Left\(ServiceMappingError\("PostReadPersons: person fehlt in der Antwort"\)\)/);
 });
 
+test('exampleMinimal: a required list or map is empty — as the output mapper makes it of a missing one', () => {
+  const out = renderType(outType, indexTypes([outType, person]));
+  assert.match(out, /object Standard:[\s\S]*lazy val exampleMinimal = example\.copy\(\n {6}persons = Seq\.empty\n {4}\)\n {2}end Standard/);
+  // a required single value stays
+  assert.match(out, /object ByKey:[\s\S]*lazy val exampleMinimal = example\n {2}end ByKey/);
+  const t: TypeDef = { id: 'm', name: 'Tags', kind: 'case', fields: [
+    { id: 'a', name: 'byName', type: 'String', map: true },
+    { id: 'b', name: 'names', type: 'String', collection: true, optional: true },
+  ] };
+  assert.match(renderType(t, indexTypes([t])), /lazy val exampleMinimal = example\.copy\(\n {4}byName = Map\.empty,\n {4}names = None\n {2}\)/);
+});
+
 test('FEEL: `in.` names the In, an element of a list, a case field checked against null', () => {
   const vars = new Map([
     ['clientKey', { scala: 'in.clientKey', type: 'String' }],

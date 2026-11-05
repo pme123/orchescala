@@ -645,13 +645,18 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 }
 
 /**
- * `lazy val exampleMinimal` — the example without everything that may be missing (`mayBeMissing`);
+ * `lazy val exampleMinimal` — the example without everything that may be missing (`mayBeMissing`)
+ * and with a required list or map empty (`Seq.empty` — as a mapper makes it of a missing one);
  * `at` is the indent of the `lazy val` (the closing `)` goes there).
  */
 function exampleMinimal(fields: Field[], idx: TypeIndex, at: string): string {
-  const missing = fields.filter(f => idx.mayBeMissing(f));
-  return missing.length
-    ? `lazy val exampleMinimal = example.copy(\n${indent(missing.map(f => `${scalaName(f.name)} = None`).join(',\n'), `${at}  `)}\n${at})`
+  const minimal = fields.flatMap(f =>
+    idx.mayBeMissing(f) ? [`${scalaName(f.name)} = None`]
+      : f.collection ? [`${scalaName(f.name)} = Seq.empty`]
+        : f.map ? [`${scalaName(f.name)} = Map.empty`]
+          : []);
+  return minimal.length
+    ? `lazy val exampleMinimal = example.copy(\n${indent(minimal.join(',\n'), `${at}  `)}\n${at})`
     : 'lazy val exampleMinimal = example';
 }
 
