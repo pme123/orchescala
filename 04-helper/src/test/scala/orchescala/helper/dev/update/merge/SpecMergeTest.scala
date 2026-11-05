@@ -619,7 +619,11 @@ class SpecMergeTest extends FunSuite:
           s"$nestedDomain/schema/Person.scala"                             -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1.schema\n\ncase class Person(name: String)",
           "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala" -> "package acme.demo.domain\npackage clientMaster.schema\n\ncase class Address(city: String)",
           "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala" ->
-            "package acme.demo.worker.clientMaster.naturalPersons.v1\n\nclass GetPersonsWorker:\n  def run = ???\nend GetPersonsWorker"
+            "package acme.demo.worker.clientMaster.naturalPersons.v1\n\nclass GetPersonsWorker:\n  def run = ???\nend GetPersonsWorker",
+          // the base paths of the project and of the level
+          "03-worker/src/main/scala/acme/demo/worker/exports.scala" -> "package acme.demo.worker\n\nlazy val demoBasePath: String = ???",
+          "03-worker/src/main/scala/acme/demo/worker/clientMaster/exports.scala" ->
+            "package acme.demo.worker\npackage clientMaster\n\ndef clientMasterBasePath: String = s\"$demoBasePath/ClientMaster/v1\""
         )
       )
       val (plan, _) = run(project, Seq.empty, Seq(nested))
@@ -630,6 +634,11 @@ class SpecMergeTest extends FunSuite:
       assertEquals(path(project, "Person.scala"), s"$nestedDomain/schema/Person.scala")
       assertEquals(path(project, "Address.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala")
       assertEquals(path(project, "GetPersonsWorker.scala"), "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala")
+      val bases = plan.files.map(_.path).filter(_.endsWith("exports.scala")).sorted
+      assertEquals(bases, Seq(
+        "03-worker/src/main/scala/acme/demo/worker/clientMaster/exports.scala",
+        "03-worker/src/main/scala/acme/demo/worker/exports.scala"
+      ))
       val app = os.read(project / workerAppRel)
       assert(app.contains("private lazy val naturalPersonsV1Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v1.*"), app)
       assert(app.contains("      GetPersonsWorker(),"), app)

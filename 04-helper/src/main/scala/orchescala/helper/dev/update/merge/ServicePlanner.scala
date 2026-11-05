@@ -24,7 +24,10 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
     val (workerFiles, domainFiles) = files.partition(_.path.segments.headOption.exists(_.endsWith("worker")))
     if domainFiles.isEmpty then
       throw IllegalArgumentException("No service classes in the export - nothing to create.")
-    val workersByApi               = workerFiles.groupBy(f => apiAndVersion(packageOf(f.path / os.up), "worker"))
+    // the base paths of the project and of the levels of nested APIs (`worker/clientMaster/exports.scala`)
+    // - not in an API: next to the workers, created once
+    val (baseFiles, apiWorkerFiles) = workerFiles.partition(f => !ServicePlanner.Version.matches((f.path / os.up).last))
+    val workersByApi               = apiWorkerFiles.groupBy(f => apiAndVersion(packageOf(f.path / os.up), "worker"))
     // the classes the APIs of a level share (`clientMaster/schema/`) - no API of their own
     val (sharedFiles, apiFiles)    = domainFiles.partition(f => ServicePlanner.isSharedSchema(f.path / os.up))
 
@@ -37,14 +40,14 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
           else BpmnGenerator().domainRel(apiName, version)
         val domain               = apiFiles.map: file =>
           GeneratedFile(domainDir / file.path.relativeTo(exportDomainDir), FileKind.Export, file.content)
-        val apiWorkerFiles       = workersByApi.getOrElse(apiName -> versionNr, Seq.empty)
+        val ofApi                = workersByApi.getOrElse(apiName -> versionNr, Seq.empty)
         // the worker in the main sources, its test (`03-worker/src/test/…`) in the test sources
         def workerDir(file: OrchSpecFile) =
           ModuleConfig.workerModule.packagePath(config.projectPath, mainOrTest = ServicePlanner.sourceSet(file)) /
             ServicePlanner.levels(apiName) / version.versionPath
-        val workers              = apiWorkerFiles.map: file =>
+        val workers              = ofApi.map: file =>
           GeneratedFile(workerDir(file) / file.path.last, FileKind.Scaffold, file.content)
-        val workerNames          = apiWorkerFiles.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
+        val workerNames          = ofApi.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
         (domain ++ workers, ServicePlanner.registrations(apiName, versionNr, workerNames))
 
     val shared = sharedFiles.map: file =>
@@ -56,7 +59,11 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
     for (api, version) <- workersByApi.keySet.toSeq.sorted if !apis.contains(api -> version) do
       notes += s"WARNING: workers of $api.v$version without its domain in the export - not created."
 
-    ProcessFiles(perApi.flatMap(_._1) ++ shared, perApi.flatMap(_._2), notes.result())
+    val bases = baseFiles.map: file =>
+      val levels = workerLevelOf(packageOf(file.path / os.up))
+      GeneratedFile(ModuleConfig.workerModule.packagePath(config.projectPath) / levels / file.path.last, FileKind.Scaffold, file.content)
+
+    ProcessFiles(perApi.flatMap(_._1) ++ shared ++ bases, perApi.flatMap(_._2), notes.result())
   end plan
 
   private def domainRoot: os.RelPath = ModuleConfig.domainModule.packagePath(config.projectPath)
@@ -80,6 +87,14 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
       case other                  => throw notOfProject(other, s"$module.<api>.v<version>")
   end apiAndVersion
 
+  // `<projectPackage>.worker` or `<projectPackage>.worker.clientMaster` - the project or a level: its directories
+  private def workerLevelOf(pkg: String): os.RelPath =
+    val root = s"${config.projectPackage}.worker"
+    if pkg == root then os.rel
+    else if pkg.startsWith(s"$root.") then ServicePlanner.levels(pkg.stripPrefix(s"$root."))
+    else throw notOfProject(pkg, "worker.<level>")
+  end workerLevelOf
+
   // `<projectPackage>.domain.clientMaster` - a level of nested APIs
   private def levelOf(pkg: String): String =
     val Expected = s"""${java.util.regex.Pattern.quote(config.projectPackage)}\\.domain\\.(\\w+(?:\\.\\w+)*)""".r
@@ -97,7 +112,7 @@ object ServicePlanner:
     val dir = file.path / os.up
     if dir.last == "schema" then dir / os.up else dir
 
-  private val Version = "v\\d+".r
+  private[merge] val Version = "v\\d+".r
 
   /** `main` or `test` - `03-worker/src/test/scala/…/GetClientWorkerTest.scala` is a test. */
   private[merge] def sourceSet(file: OrchSpecFile): String =
