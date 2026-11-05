@@ -5,6 +5,13 @@ import { href } from '../router';
 import type { CompanyDocs, ReleaseTable } from '../types';
 import { Card, Empty, ExtLink, PageTitle, ProjectChip, ReleaseStatus, Section, cls } from '../ui';
 
+/** How the version in use differs from the release version: the minor (or major) or only the patch. */
+function versionDiff(used: string, release: string): 'same' | 'patch' | 'minor' {
+  if (used === release) return 'same';
+  const minor = (v: string) => v.split('.').slice(0, 2).join('.');
+  return minor(used) === minor(release) ? 'patch' : 'minor';
+}
+
 function DepTable({ t, docs, isDark }: { t: ReleaseTable; docs: CompanyDocs; isDark: boolean }) {
   const c = cls(isDark);
   const { byName } = useDerived(docs);
@@ -46,12 +53,13 @@ function DepTable({ t, docs, isDark }: { t: ReleaseTable; docs: CompanyDocs; isD
                 <td className={`px-2 py-1.5 whitespace-nowrap ${c.muted}`}>{r.previousVersion}</td>
                 {t.columns.map(col => {
                   const v = r.uses[col.project];
-                  const outdated = v && v !== col.version;
+                  const diff = v ? versionDiff(v, col.version) : 'same';
+                  const color = diff === 'minor' ? (isDark ? 'text-red-400 font-bold' : 'text-red-600 font-bold')
+                    : diff === 'patch' ? (isDark ? 'text-amber-300' : 'text-amber-700') : c.muted2;
                   return (
-                    <td key={col.project} className={`px-2 py-1.5 text-center whitespace-nowrap ${
-                      outdated ? (isDark ? 'text-amber-300' : 'text-amber-700') : c.muted2}`}
-                      title={outdated ? `uses ${v}, release has ${col.version}` : undefined}>
-                      {v ? (outdated ? v : '●') : ''}
+                    <td key={col.project} className={`px-2 py-1.5 text-center whitespace-nowrap ${color}`}
+                      title={diff !== 'same' ? `uses ${v}, release has ${col.version}` : undefined}>
+                      {v ? (diff === 'same' ? '●' : v) : ''}
                     </td>
                   );
                 })}
@@ -60,7 +68,9 @@ function DepTable({ t, docs, isDark }: { t: ReleaseTable; docs: CompanyDocs; isD
           </tbody>
         </table>
       </Card>
-      <p className={`text-[10px] mt-2 ${c.muted}`}>● uses the release version · a number marks an older version in use</p>
+      <p className={`text-[10px] mt-2 ${c.muted}`}>
+        ● uses the release version · <span className={isDark ? 'text-amber-300' : 'text-amber-700'}>number</span> another patch in use · <span className={isDark ? 'text-red-400 font-bold' : 'text-red-600 font-bold'}>number</span> not on the release's minor version
+      </p>
     </Section>
   );
 }
