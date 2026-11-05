@@ -54,13 +54,14 @@ export type PasteDomain = { domainTypes?: DomainType[] } | null | undefined;
 /**
  * The copied classes the target has as the original — source ID → the reference in the
  * target: the same class of the same specification (same ID and name), or the class as the
- * domain of the target has it implemented (`dom:<id>`) — the one the import took it from
+ * domain of the target has it implemented (`dom:<id>`) — the first of its `origins` (noted by
+ * the source on copying, see `classOrigins`); without them the one the import took it from
  * (`domainId`), or one of its name in the package of the source (`source.pkg`, also in its
  * `schema`). `except`: classes that are pasted as a copy in any case (the pasted class itself).
  */
 export function originalRefs(
   target: TypeDef[] | undefined,
-  clip: { source?: { pkg?: string }; types: TypeDef[] },
+  clip: { source?: { pkg?: string }; types: TypeDef[]; origins?: Record<string, string[]> },
   model?: PasteDomain,
   except: string[] = [],
 ): Map<string, string> {
@@ -73,7 +74,8 @@ export function originalRefs(
     if (own.get(t.id)?.name === t.name) { refs.set(t.id, t.id); continue; }
     // the In/Out of an interaction lives in its object — never a class of its own in the package
     if (t.interactionId) continue;
-    const id = [t.domainId, pkg && `${pkg}.${t.name}`, pkg && `${pkg}.schema.${t.name}`].find(x => x && domain.has(x));
+    const candidates = clip.origins?.[t.id] ?? [t.domainId, pkg && `${pkg}.${t.name}`, pkg && `${pkg}.schema.${t.name}`];
+    const id = candidates.find(x => x && domain.has(x));
     if (id) refs.set(t.id, `dom:${id}`);
   }
   return refs;
@@ -151,8 +153,11 @@ export function pasteTypes(
   return { types: out, idMap };
 }
 
+/** What the clipboard has of a copied field */
+type FieldClip = { field: Field; types: TypeDef[]; source?: { pkg?: string }; origins?: Record<string, string[]> };
+
 /** What the clipboard has of a copied class */
-type TypeClip = { typeId: string; types: TypeDef[]; source?: { pkg?: string } };
+type TypeClip = { typeId: string; types: TypeDef[]; source?: { pkg?: string }; origins?: Record<string, string[]> };
 
 /** The class itself as a copy, the classes it refers to as references where the target has them. */
 function pasteClosure(spec: ProcessSpec, clip: TypeClip, model?: PasteDomain) {
@@ -223,7 +228,7 @@ const shapeOf = (t: TypeDef, all: TypeDef[]): string => {
  * IDs) under their own name, or a free one if a different class has it. `idMap`: source
  * ID → ID in the target.
  */
-function fieldTypes(target: TypeDef[] | undefined, clip: { field: Field; types: TypeDef[]; source?: { pkg?: string } }, model?: PasteDomain): { types: TypeDef[]; idMap: Map<string, string> } {
+function fieldTypes(target: TypeDef[] | undefined, clip: FieldClip, model?: PasteDomain): { types: TypeDef[]; idMap: Map<string, string> } {
   const own = target ?? [];
   const byId = new Map(own.map(t => [t.id, t]));
   const byName = new Map(own.map(t => [t.name, t]));
@@ -260,7 +265,7 @@ function fieldTypes(target: TypeDef[] | undefined, clip: { field: Field; types: 
 export function pasteField(
   spec: ProcessSpec,
   typeId: string,
-  clip: { field: Field; types: TypeDef[]; source?: { pkg?: string } },
+  clip: FieldClip,
   valueIndex?: number,
   model?: PasteDomain,
 ): { types: TypeDef[]; fieldId: string } | null {

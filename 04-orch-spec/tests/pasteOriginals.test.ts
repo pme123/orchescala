@@ -59,3 +59,21 @@ test('pasteField: a field to a class of the domain refers to it', () => {
   assert.equal(r.types.length, 1);
   assert.equal(r.types[0].fields![0].type, `dom:${pkg}.NaturalPerson`);
 });
+
+test('the source notes where the originals live: the schema of every API, a class of another domain', async () => {
+  const { classOrigins } = await import('../src/scala.ts');
+  const v2 = 'acme.crm.domain.crm.v2';
+  const foreign = 'acme.shared.domain.common.v1.schema';
+  const types: TypeDef[] = [
+    { id: 'c-out', name: 'Out', kind: 'case', interactionId: 'svc', fields: [{ id: 'x', name: 'address', type: 'c-address' }, { id: 'y', name: 'country', type: 'c-country' }] },
+    { id: 'c-address', name: 'Address', kind: 'case', fields: [] },
+    { id: 'c-country', name: 'Country', kind: 'case', fields: [] },
+  ];
+  // Address lives in the schema of the second API; Country is the class of another domain (not exported by the collection)
+  const target = { domainTypes: [dom('Address', `${v2}.schema`), dom('Country', foreign)] };
+  const origins = classOrigins(types, target as never, [pkg, v2]);
+  assert.equal(origins['c-out'], undefined);
+  const r = pasteType(process, { typeId: 'c-out', types, source: { pkg }, origins }, target);
+  assert.deepEqual(r.types.slice(1).map(t => t.name), ['Out']);
+  assert.deepEqual(r.types[1].fields!.map(f => f.type), [`dom:${v2}.schema.Address`, `dom:${foreign}.Country`]);
+});

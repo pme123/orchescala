@@ -109,6 +109,26 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
 }
 
 /**
+ * Where the originals of copied classes live in the domain — per class the domain IDs it
+ * may have: the one the import took it from, the class of another domain it refers to
+ * (see `referencedClass`), and its name in each package of the source (`pkgs`, also in
+ * their `schema`). A paste refers to the first one the target has instead of copying it.
+ */
+export function classOrigins(types: TypeDef[], model: Model | null, pkgs: string[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const t of types) {
+    if (t.interactionId || !t.name?.trim()) continue;
+    const ids = [
+      t.domainId,
+      ...pkgs.map(p => referencedClass(t, model, p).type?.id),
+      ...pkgs.flatMap(p => [`${p}.schema.${t.name}`, `${p}.${t.name}`]),
+    ].filter((x): x is string => !!x);
+    if (ids.length) out[t.id] = [...new Set(ids)];
+  }
+  return out;
+}
+
+/**
  * Is the class in the own process object (`OrderCard.CustomProcessStatus`)?
  * According to the import (`inProcessObject`) or according to the domain — then the
  * export writes it there and not to `schema/`.

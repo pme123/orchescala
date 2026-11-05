@@ -24,7 +24,7 @@ import { parseDomainRef, parseServiceRef } from '../serviceTypes';
 import TypePicker, { NEW_CASE, NEW_ENUM } from './TypePicker';
 import ScalaCode from './ScalaCode';
 import FeelInput from './FeelInput';
-import { checkTypes, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
+import { checkTypes, classOrigins, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, cls, patternTone } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
 import { CommentBubble } from './Comments';
@@ -375,8 +375,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   const clip = useClipboard();
   const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine, pkg: packageOf(spec, model) };
   const clipActions: ClipActions = {
-    copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(types, [t.id]) }),
-    copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(types, [f.type]) }),
+    copyType: t => { const ts = typeClosure(types, [t.id]); setModelClip({ kind: 'type', source, typeId: t.id, types: ts, origins: originsOf(spec, model, ts) }); },
+    copyField: f => { const ts = typeClosure(types, [f.type]); setModelClip({ kind: 'field', source, field: f, types: ts, origins: originsOf(spec, model, ts) }); },
     pasteField: (typeId, valueIndex) => {
       const m = getClipboard().model;
       if (m?.kind !== 'field') return;
@@ -1642,6 +1642,12 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
   );
 }
 
+/** Where the originals of copied classes live — in every package of the source (all APIs of a collection). */
+function originsOf(spec: ProcessSpec, model: Model | null, types: TypeDef[]) {
+  const pkgs = Array.isArray(spec.framePackages) && spec.framePackages.length ? spec.framePackages as string[] : [packageOf(spec, model)];
+  return classOrigins(types, model, pkgs);
+}
+
 /**
  * The copy and paste of the data model of a process for a type edited on its
  * own (the In/Out of a service, a type of a collection): the same actions, on
@@ -1650,8 +1656,8 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
 function standaloneClip(spec: ProcessSpec, model: Model | null, latest: { current: TypeDef[] }, apply: (fn: (ts: TypeDef[]) => TypeDef[]) => void): ClipActions {
   const source: ClipSource = { slug: spec.slug, title: spec.title || spec.name, engine: spec.engine, pkg: packageOf(spec, model) };
   return {
-    copyType: t => setModelClip({ kind: 'type', source, typeId: t.id, types: typeClosure(latest.current, [t.id]) }),
-    copyField: f => setModelClip({ kind: 'field', source, field: f, types: typeClosure(latest.current, [f.type]) }),
+    copyType: t => { const ts = typeClosure(latest.current, [t.id]); setModelClip({ kind: 'type', source, typeId: t.id, types: ts, origins: originsOf(spec, model, ts) }); },
+    copyField: f => { const ts = typeClosure(latest.current, [f.type]); setModelClip({ kind: 'field', source, field: f, types: ts, origins: originsOf(spec, model, ts) }); },
     pasteField: (typeId, valueIndex) => {
       const m = getClipboard().model;
       if (m?.kind !== 'field') return;
