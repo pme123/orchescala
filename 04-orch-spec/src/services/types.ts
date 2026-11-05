@@ -14,7 +14,7 @@
 // app; the export translates them to Scala.
 //
 // File: `services/<slug>.json`.
-import type { CommentThread, Mapping, Status, TypeDef } from '../types';
+import type { CommentThread, Mapping, Status, Step, TypeDef } from '../types';
 
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
@@ -165,6 +165,12 @@ export interface OrchTask {
   inputs?: Mapping[];
   /** service task: the name of its result afterwards (`client`) — without: the service name, first letter small */
   result?: string;
+  /**
+   * service task, as a process describes it: per variable afterwards a FEEL expression against
+   * the fields of the service's `Out` (`etag = etag`). Then the result itself is not known
+   * afterwards — only these variables (a disabled row is not set).
+   */
+  outputs?: Mapping[];
   /** script task: assignments — `name` gets the value of the FEEL `expression` */
   assignments?: Mapping[];
   [key: string]: unknown;
@@ -200,6 +206,8 @@ export interface ServiceOrchestrationSpec {
   updatedAt: string;
   /** the flow — BPMN 2.0, edited like the one of a process */
   bpmn: string;
+  /** the flow as steps already (a process in service mode) — then the BPMN is not read again */
+  steps?: Step[];
   /** per BPMN element ID: what the task does */
   tasks: Record<string, OrchTask>;
   /** per branch of an exclusive gateway (ID of the sequence flow) its condition in FEEL */

@@ -16,6 +16,7 @@ import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from '.
 import { dmnIssues, packageOf } from './scala';
 import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
+import { serviceStepIssues } from './services/serviceMode.ts';
 import { patternMappings, patternDefs } from './patterns';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, typeUnknown, variantAllows, variantRequires, variantsOf } from './variants';
 import { hasResult, resultLocals, resultNameIssue } from './miResult';
@@ -314,6 +315,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const ia: Interaction | null = (spec.interactions ?? []).find(i => i.stepId === step.id) ?? null;
   // without a label in the BPMN the step is named like its ID — the name here goes in on export
   // (in a pattern block the pattern names it)
+  // a process in service mode: only what one worker runs in one go
+  if (spec.service) for (const i of serviceStepIssues(step)) (i.level === 'error' ? errors : warnings).push(i.text);
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // Timer: the wait time is a constant in the InConfig — otherwise it cannot be set per environment
   if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings, { kinds });

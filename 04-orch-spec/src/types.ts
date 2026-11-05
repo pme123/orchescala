@@ -5,6 +5,7 @@
 // their steps (`children`), loops are marked as `loop` on the
 // repeated block. That is exactly the difference to the Confluence table: the
 // whole process is readable at a glance and can be collapsed.
+import type { OutCase } from './services/types';
 
 // ── Status ───────────────────────────────────────────────────────────────────
 // Applies to the process **and** to every single step.
@@ -707,7 +708,27 @@ export interface ProcessSpec {
   patterns?: AppliedPattern[];
   /** IDs of the epics (`Model.epics`) this process contributes to */
   epics?: string[];
+  /**
+   * Service mode: the process is a **service orchestration** — one CustomWorker that calls
+   * service workers, edited like a process (see services/serviceProcess.ts). `project` is the
+   * service project; the process runs no engine, its expressions are FEEL.
+   */
+  service?: ServiceMode;
   steps: Step[];
+  [key: string]: unknown;
+}
+
+/** What a process in service mode needs on top: where its CustomTask lives and how its `Out` is filled. */
+export interface ServiceMode {
+  /** the API it belongs to — package `acme.crm.domain.client.v1`, topic `acme-crm-clientV1.<name>` */
+  api: string;
+  apiVersion: number;
+  /** Scala object of the CustomTask, e.g. `UpdateClient` — also the last part of the topic */
+  name: string;
+  /** per `Out` field a FEEL expression against what is known at the end — without: the variable of the same name */
+  outMappings?: Mapping[];
+  /** an `Out` with cases (enum): per case when it is that case and its fields */
+  outCases?: OutCase[];
   [key: string]: unknown;
 }
 
@@ -822,6 +843,11 @@ export interface DomainType {
   processLabels?: ProcessLabels;
   /** `val topicName` of a worker object — the same for service tasks */
   topicName?: string;
+  /**
+   * from a service collection of this folder (its slug), as it will export it — a class it
+   * can refer to, not one that makes a class of the same name an import (see `referencedClass`)
+   */
+  collection?: string;
   /** kind of the object according to the DSL: `Process`, `UserTask`, `CustomTask`, `SignalEvent`, `MessageEvent`, `Decision` … */
   dsl?: string;
   /** key of the object: `name` (user task), `messageName`, `decisionId` — and its value */

@@ -22,7 +22,12 @@ export interface ClipSource {
   slug: string;
   title: string;
   engine?: EngineId;
+  /** the package its classes live in — with it a paste finds the originals in the domain */
+  pkg?: string;
 }
+
+/** Per copied class (source ID) the domain IDs its original may have — see `classOrigins`. */
+export type ClipOrigins = Record<string, string[]>;
 
 /** The specification part of copied diagram elements */
 export interface DiagramSpec {
@@ -43,8 +48,8 @@ export interface DiagramClip {
 }
 
 export type ModelClip =
-  | { kind: 'type'; source: ClipSource; typeId: string; types: TypeDef[] }
-  | { kind: 'field'; source: ClipSource; field: Field; types: TypeDef[] };
+  | { kind: 'type'; source: ClipSource; typeId: string; types: TypeDef[]; origins?: ClipOrigins }
+  | { kind: 'field'; source: ClipSource; field: Field; types: TypeDef[]; origins?: ClipOrigins };
 
 export interface ClipState {
   diagram?: DiagramClip;

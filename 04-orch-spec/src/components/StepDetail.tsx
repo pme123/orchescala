@@ -3,7 +3,7 @@
 // This is also where the **service selection with prepared mapping** lives: a
 // click on a catalog entry sets the topic and takes over the inputs/outputs
 // of the element template as a template; meanings already maintained stay.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
 import { AlertTriangle, AppWindow, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, MultiInstanceSpec, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
@@ -32,6 +32,9 @@ import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, rout
 import { resultLocals, resultNameIssue } from '../miResult';
 import { uid } from '../util';
 import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
+
+// a process in service mode: how its Out is filled — only loaded there
+const ServiceOutSection = lazy(() => import('../services/ServiceOutSection'));
 
 interface Props {
   step: Step | null;
@@ -106,11 +109,13 @@ function juelIssues(expression: string, engine: EngineId | undefined, json = fal
 }
 
 // ── Process level (no step selected) ─────────────────────────────────────
-function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject, model, onPattern, hasDiagram }: Props) {
+function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRenameProject, model, onPattern, hasDiagram, onEditType }: Props) {
   const c = cls(isDark);
+  // service mode: one CustomWorker — no history to keep, but an Out to fill
+  const service = spec.service && spec.project ? (spec as ProcessSpec & { service: NonNullable<ProcessSpec['service']>; project: string }) : null;
   return (
     <div className="p-4 space-y-4">
-      <h2 className={`text-[10px] uppercase tracking-widest ${c.text}`}>Prozess</h2>
+      <h2 className={`text-[10px] uppercase tracking-widest ${c.text}`}>{service ? 'Service-Orchestrierung' : 'Prozess'}</h2>
       {onRenameProject && (
         <ProjectPicker spec={spec} isDark={isDark} canEdit={canEdit}
           prefixes={projectPrefixes ?? []} onRename={onRenameProject} />
@@ -122,12 +127,18 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
           rows={6} placeholder="Worum geht es fachlich?"
           className={`grow w-full text-[11px] px-2 py-1.5 rounded border outline-none resize-y ${c.input}`} />
       </Field>
-      <Field label="Time to Live (Tage)" isDark={isDark}>
-        <input value={spec.timeToLive ?? ''} disabled={!canEdit}
-          onChange={e => onSpecChange({ ...spec, timeToLive: e.target.value || undefined })}
-          placeholder="z. B. 60 — wie lange die Historie aufbewahrt wird"
-          className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
-      </Field>
+      {service ? (
+        <Suspense fallback={null}>
+          <ServiceOutSection spec={service} model={model} isDark={isDark} canEdit={canEdit} onChange={onSpecChange} onEditType={onEditType} />
+        </Suspense>
+      ) : (
+        <Field label="Time to Live (Tage)" isDark={isDark}>
+          <input value={spec.timeToLive ?? ''} disabled={!canEdit}
+            onChange={e => onSpecChange({ ...spec, timeToLive: e.target.value || undefined })}
+            placeholder="z. B. 60 — wie lange die Historie aufbewahrt wird"
+            className={`w-full text-[11px] px-2 py-1.5 rounded border outline-none font-mono ${c.input}`} />
+        </Field>
+      )}
       <PatternSection target={null} spec={spec} model={model} isDark={isDark} canEdit={canEdit}
         onPattern={onPattern} hasDiagram={hasDiagram} onSpecChange={onSpecChange} />
       <div>
@@ -136,7 +147,8 @@ function SpecPanel({ spec, isDark, canEdit, onSpecChange, projectPrefixes, onRen
       </div>
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
         Einen Schritt im Ablauf anklicken, um ihn zu beschreiben, den Service zu wählen
-        oder den Status zu setzen.
+        oder den Status zu setzen.{service && <> Eine Orchestrierung kennt Service- und Script-Tasks und parallele oder exklusive
+        Gateways — was ein Worker in einem Durchgang ausführt.</>}
       </p>
     </div>
   );
@@ -908,7 +920,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         </Section>
       )}
 
-      {(step.kind === 'service' || step.kind === 'call') && !isInitWorker(step, spec.processId) && (
+      {(step.kind === 'service' || step.kind === 'call') && !isInitWorker(step, spec.processId) && !spec.service && (
         <Section id="mock" label="Mock" count={step.mockKind ? 1 : 0} isDark={isDark}>
           <select value={step.mockKind ?? ''} disabled={!canEdit}
             onChange={e => onPatch(step.id, { mockKind: (e.target.value || undefined) as Step['mockKind'] })}

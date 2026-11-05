@@ -9,7 +9,8 @@
 // In Orchescala this is a CustomTask (`CompanyBpmnCustomTaskDsl`) and its CustomWorker —
 // see scalaOrchestration.ts.
 import { importBpmn } from '../bpmn.ts';
-import type { Branch, Field, Step, TypeDef } from '../types';
+import { serviceStepIssues } from './serviceMode.ts';
+import type { Branch, Field, Mapping, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util.ts';
 import { apiOf, collectionPackage, membersOf, serviceTopic, workerPackage, type ApiRef } from './collection.ts';
 import { lowerFirst } from './names.ts';
@@ -84,7 +85,8 @@ export interface Flow {
 }
 
 /** The flow from the BPMN — the same import as for a process. */
-export function flowOf(o: Pick<ServiceOrchestrationSpec, 'bpmn'>): Flow {
+export function flowOf(o: Pick<ServiceOrchestrationSpec, 'bpmn' | 'steps'>): Flow {
+  if (o.steps) return { steps: o.steps };
   try {
     return { steps: importBpmn(o.bpmn, 'orchestrierung.bpmn').spec.steps };
   } catch (e) {
@@ -102,20 +104,9 @@ export function flatSteps(steps: Step[], out: Step[] = []): Step[] {
   return out;
 }
 
-/** What the flow may contain — what a worker runs in one go. */
+/** What the flow may contain — what a worker runs in one go (a missing service is checked with the tasks). */
 export function flowIssues(steps: Step[]): Array<{ stepId: string; text: string }> {
-  const out: Array<{ stepId: string; text: string }> = [];
-  for (const s of flatSteps(steps)) {
-    const name = s.name || s.id;
-    if (s.kind === 'gateway') {
-      if (s.gatewayType !== 'parallel' && s.gatewayType !== 'exclusive') out.push({ stepId: s.id, text: `«${name}»: nur parallele und exklusive Gateways.` });
-    } else if (!['start', 'end', 'service', 'script'].includes(s.kind)) {
-      out.push({ stepId: s.id, text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks.` });
-    }
-    if (s.loop || s.multiInstance) out.push({ stepId: s.id, text: `«${name}»: Schleifen gibt es in einer Orchestrierung nicht.` });
-    if (s.errors?.length) out.push({ stepId: s.id, text: `«${name}»: Fehlerpfade gibt es nicht — ein Fehler eines Services beendet den Worker.` });
-  }
-  return out;
+  return flatSteps(steps).flatMap(s => serviceStepIssues(s, true).map(i => ({ stepId: s.id, text: i.text })));
 }
 
 // ── the services it can call ────────────────────────────────────────────────
@@ -186,7 +177,8 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
     if (s.kind === 'service' && task?.service) {
       const ref = services.get(task.service);
       const outType = ref ? serviceMembers(ref).out : undefined;
-      if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
+      if (task.outputs) out.push(...outputVars(task.outputs, ref && !ref.service.noOut ? outType : undefined));
+      else if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
     } else if (s.kind === 'script') {
       for (const a of task?.assignments ?? []) if (a.name.trim()) out.push({ name: a.name.trim(), scala: a.name.trim(), type: 'String', source: 'Script' });
     } else if (s.kind === 'gateway') {
@@ -196,6 +188,19 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
     }
   }
   return out;
+}
+
+/** The variables a service task sets as a process describes it: per enabled output, typed by the `Out` field it reads. */
+export function outputVars(outputs: Mapping[], outType: TypeDef | undefined): OrchVar[] {
+  return outputs.filter(m => !m.disabled && m.name.trim()).map(m => {
+    const read = /^=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(m.expression.trim())?.[1];
+    const f = read ? (outType?.fields ?? []).find(x => x.name === read) : undefined;
+    const name = m.name.trim();
+    return {
+      name, scala: name, type: f?.type ?? 'String', source: 'Service' as const,
+      ...(f?.collection ? { collection: true } : {}), ...(f?.optional ? { optional: true } : {}),
+    };
+  });
 }
 
 /** The fields of the In — `in.clientKey`; of an ADT also those of its cases (through a match). */

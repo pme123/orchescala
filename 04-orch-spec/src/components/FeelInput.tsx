@@ -3,11 +3,13 @@
 // If the value starts with `=`, it is a FEEL expression (Camunda 8). While typing,
 // the field suggests the process variables and their paths — `client.` shows
 // the fields of `client`, `client.addr` filters within them. Arrow keys select,
-// Enter or Tab accepts, Escape closes. The check of the expression
+// Enter or Tab accepts, Escape closes. Brackets as in a code editor: a selection is
+// wrapped, in an expression the closing one comes along (see bracketPairs.ts). The check of the expression
 // (syntax, paths, type) is done by the caller; this is only about typing.
 import { useEffect, useRef, useState } from 'react';
 import { FEEL_TYPE_LABEL, completions, isFeel, tokenizeFeel, type Completion, type FeelTokenKind, type VarNode } from '../feel';
 import { cls } from '../ui';
+import { backspaceEdit, bracketEdit, type BracketEdit } from '../bracketPairs';
 
 export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className, size, multiline, mono = true }: {
   value: string;
@@ -91,7 +93,30 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' });
   }, [active, open]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  /** A bracket edit as typing — through the browser, so that ⌘Z undoes it. */
+  const applyEdit = (el: HTMLTextAreaElement, ed: BracketEdit) => {
+    let done = true;
+    if (ed.insert || ed.to > ed.from) {
+      el.setSelectionRange(ed.from, ed.to);
+      // `execCommand` keeps the browser's undo; where it is not there, the value goes through the caller
+      done = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
+      if (!done) onChange(value.slice(0, ed.from) + ed.insert + value.slice(ed.to));
+    }
+    if (done) el.setSelectionRange(ed.selStart, ed.selEnd);
+    // the value comes back from the caller — the selection once it is rendered, unless typed on already
+    const expected = value.slice(0, ed.from) + ed.insert + value.slice(ed.to);
+    requestAnimationFrame(() => { if (document.activeElement === el && el.value === expected) el.setSelectionRange(ed.selStart, ed.selEnd); });
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    // `[` and `{` come with Option (Mac) or AltGr (Ctrl+Alt on Windows) — only shortcuts are left out
+    if (!e.nativeEvent.isComposing && !e.metaKey && !(e.ctrlKey && !e.altKey)) {
+      const ed = e.key === 'Backspace'
+        ? (isFeel(value) ? backspaceEdit(value, el.selectionStart, el.selectionEnd) : null)
+        : e.key.length === 1 ? bracketEdit(value, el.selectionStart, el.selectionEnd, e.key, isFeel(value)) : null;
+      if (ed) { e.preventDefault(); applyEdit(el, ed); return; }
+    }
     if (!open) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => (a + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => (a - 1 + items.length) % items.length); }
