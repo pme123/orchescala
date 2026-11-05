@@ -9,7 +9,7 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, withMultiInstance, type VarNode } from './feel';
+import { checkFeel, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
@@ -18,7 +18,8 @@ import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVaria
 import { correlationOf } from './messageCall';
 import { serviceStepIssues } from './services/serviceMode.ts';
 import { patternMappings, patternDefs } from './patterns';
-import { ALL_VARIANTS, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, variantAllows, variantRequires, variantsOf } from './variants';
+import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingMissing, routingText, typeUnknown, variantAllows, variantRequires, variantsOf } from './variants';
+import { hasResult, resultLocals, resultNameIssue } from './miResult';
 
 export interface Finding {
   errors: string[];
@@ -33,29 +34,76 @@ export interface Finding {
 
 const NONE: Finding = { errors: [], warnings: [], inline: [] };
 
+/** The key of the findings of the process itself (not of a step) in `collectFindings` */
+export const PROCESS_FINDINGS = '#process';
+
 /**
  * All findings of a process, per step — computed once, then retrievable per
- * step ID. The process variables are built once, the
- * result variables per step.
+ * step ID; those of the process itself under `PROCESS_FINDINGS`. The process
+ * variables are built once, the result variables per step.
  */
 export function collectFindings(spec: ProcessSpec, model: Model | null, steps: Step[]): Map<string, Finding> {
   const out = new Map<string, Finding>();
-  const variables = processVariables(spec, model);
+  const overview = variableOverview(spec, model);
+  // the process variables from the start — without what a multi-instance collects (known after it)
+  const variables = overview.variables.filter(v => !v.local && !v.after).map(v => v.node);
+  const own = processVariableWarnings(overview);
+  if (own.length) out.set(PROCESS_FINDINGS, { errors: [], warnings: own, inline: own });
+  // at each step what the steps before it wrote — the latest writer decides the type
+  const byStep = variablesByStep(spec, model, variables);
   const scopes = multiInstanceScopes(spec.steps);
   const wiring = wiringSteps(spec);
   const kinds = timerKinds(spec.steps);
   for (const step of steps) {
-    const f = stepFindings(step, spec, model, variables, { scopes, wiring, kinds });
+    const f = stepFindings(step, spec, model, byStep.get(step.id) ?? variables, { scopes, wiring, kinds });
     if (f.errors.length || f.warnings.length) out.set(step.id, f);
   }
   return out;
 }
 
+/** «In: Seq[String]» — a source with the type it gives */
+const sourceText = (s: VariableSource): string => `${s.label} (${s.source})`;
+
+/** Does a step write it (output, result of a worker, user task or decision) — or is it there from the start? */
+const writtenByStep = (s: VariableSource): boolean => /^(Ausgabe von|Ergebnis)/.test(s.source);
+
+/**
+ * Which type applies where, for a conflict: from the start (In, InitIn, InConfig …) the
+ * first one; once a step has written the variable, the type of the latest writer before
+ * the step (see `variablesByStep`). An old type at the start is then probably stale.
+ */
+export function variableConflictRule(c: VariableConflict): string {
+  const start = c.sources.filter(s => !writtenByStep(s));
+  const steps = c.sources.filter(writtenByStep);
+  if (start.length && steps.length) {
+    return `${start.map(s => s.source).join(' / ')} sagt ${start[0].label}, später schreibt ${steps.map(sourceText).join(' bzw. ')} — `
+      + `ab dort gilt der Typ des letzten Schreibers; ist ${start[0].source} veraltet?`;
+  }
+  if (steps.length) return `${steps.map(sourceText).join(' · ')} — an einem Schritt gilt der Typ des letzten Schreibers davor.`;
+  return `${start.map(sourceText).join(' · ')} — es gilt ${start[0].label}.`;
+}
+
+/** Warning: sources give the variable different types — which applies where, see `variableConflictRule`. */
+export const variableConflictText = (c: VariableConflict): string =>
+  `Prozessvariable «${c.name}» hat verschiedene Typen: ${variableConflictRule(c)} Eine der Quellen anpassen.`;
+
+/** Warning: an entry of the list no source knows. */
+export const variableOrphanText = (name: string): string =>
+  `Prozessvariable «${name}» kommt von nirgends — woher? Weder In, InitIn, InConfig noch ein Schritt oder die Engine setzt sie. Setzt sie ein Skript oder Listener, so lassen, sonst entfernen.`;
+
+/**
+ * The findings on the process variables: type conflicts between the sources and
+ * entries of `spec.variables` without a source — warnings, the variable may be set elsewhere.
+ */
+export function processVariableWarnings(overview: { conflicts: VariableConflict[]; orphans: string[] }): string[] {
+  return [...overview.conflicts.map(variableConflictText), ...overview.orphans.map(variableOrphanText)];
+}
+
 /** The required inputs: not optional in the own In, in the domain — or `required` according to the catalog. */
-function requiredNames(refFields: Field[] | null, dom: DomainType | null, service: ServiceDef | null): string[] {
+function requiredNames(refFields: Field[] | null, dom: DomainType | null, service: ServiceDef | null, enumCase?: string): string[] {
   return refFields
     ? refFields.filter(f => !f.optional).map(f => f.name)
-    : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name)).map(p => p.name)
+    : [...(dom?.fields ?? []), ...(dom?.cases ?? []).flatMap(c => c.fields ?? [])].filter(p => domainRequired(dom, p.name, enumCase)).map(p => p.name)
       .concat((service?.inputs ?? []).filter(p => p.required && domainRequired(dom, p.name) == null).map(p => p.name));
 }
 
@@ -84,15 +132,16 @@ export function missingRequiredInputs(step: Step, spec: ProcessSpec, model: Mode
   if (patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7').inputs.size) return [];
   const types = spec.types ?? [];
   const inT = ia?.inTypeId ? types.find(t => t.id === ia.inTypeId) : undefined;
-  const refFields = ia?.inTypeId ? (inT ? classFieldsOf(inT) : []) : null;
   const service = catalogEntry(step, model);
   const dom = stepDomainMember(step, spec, model, 'In');
   const variants = variantsOf(step, spec, model, 'inputs', service);
   const chosen = chosenVariant(step, 'inputs', variants);
+  const enumCase = caseOf(variants, chosen);
+  const refFields = ia?.inTypeId ? (inT ? classFieldsOf(inT, enumCase) : []) : null;
   const have = new Set((step.inputs ?? []).map(m => m.name.trim()));
   // Switches: one is enough — without a row for any of them, the first (`useCase`)
   const routing = variants?.routing?.some(n => have.has(n)) ? [] : variants?.routing?.slice(0, 1) ?? [];
-  return [...new Set([...requiredNames(refFields, dom, service), ...routing])]
+  return [...new Set([...requiredNames(refFields, dom, service, enumCase), ...routing])]
     .filter(n => (variantRequires(variants, chosen, n) || routing.includes(n)) && !have.has(n));
 }
 
@@ -315,15 +364,54 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     errors.push(`Service «${step.serviceId ?? step.topic}» steht nicht im Katalog.`);
   }
 
+  // ── Multi-instance: results and parallel instances ──────────────────────
+  const mi = step.multiInstance;
+  const listName = mi?.result?.collection?.trim();
+  const nameIssue = listName && mi?.result?.element?.trim() ? resultNameIssue(listName) : null;
+  if (nameIssue) errors.push(`Ergebnisse sammeln: «${listName}» ist ${nameIssue} — so wird nichts gesammelt.`);
+  if (mi && hasResult(mi.result)) {
+    const set = namesWrittenInside(step, spec, model);
+    const name = mi.result.collection.trim();
+    // two collecting multi-instances with the same list: the second overwrites the first —
+    // in Camunda 7 their helpers (`<name>_0 …`) on the process instance mix as well
+    const same = allSteps(spec.steps).filter(s => s.id !== step.id && hasResult(s.multiInstance?.result) && s.multiInstance?.result?.collection.trim() === name);
+    if (same.length) warnings.push(`Ergebnisse sammeln: «${name}» sammelt auch ${same.map(s => `«${s.name || s.id}»`).join(', ')} — die Listen überschreiben sich${spec.engine !== 'c8' ? `, in ${C7_LABEL} mischen sich auch die Zwischenwerte` : ''}. Einen eigenen Namen wählen.`);
+    if (spec.engine !== 'c8') {
+      // Camunda 7: the helpers lie on the process instance — parallel outer instances share them
+      const outer = (scopes.get(step.id) ?? []).slice(0, -1);
+      // a boundary event that leaves the step: no collector on that path — the helpers stay
+      const leaving = (step.errors ?? []).filter(e => e.boundary && !e.side && e.interrupting !== false);
+      if (leaving.length) warnings.push(`Ergebnisse sammeln: verlässt der Schritt über ein Randereignis (${leaving.map(e => `«${e.label || e.code}»`).join(', ')}), wird in ${C7_LABEL} nicht eingesammelt — «${name}» bleibt ungesetzt, die Zwischenwerte (${name}_0 …) bleiben am Prozess.`);
+      if (outer.some(o => !o.sequential)) warnings.push(`Ergebnisse sammeln in einer parallelen Mehrfachausführung — in ${C7_LABEL} liegen die Zwischenwerte am Prozess, die äusseren Instanzen überschreiben sie gegenseitig. Aussen sequenziell ausführen oder erst aussen sammeln.`);
+    }
+    // read from the instance or from the process — neither: null in each entry
+    const known = new Set(baseVariables.map(v => v.name));
+    const missing = resultLocals(mi).filter(n => !set.has(n) && !known.has(n));
+    if (missing.length) {
+      warnings.push(`Ergebnisse sammeln: ${missing.map(n => `«${n}»`).join(', ')} setzt kein Schritt in der Mehrfachausführung und der Prozess kennt es nicht — im Eintrag bleibt es null. In den Ausgaben eines Schritts darin setzen.`);
+    }
+    for (const i of checkFeel(`= ${mi.result.element}`, miInsideVariables(step, spec, model, baseVariables), null).issues) {
+      (i.level === 'error' ? errors : warnings).push(`Ergebnisse sammeln: ${i.text}`);
+    }
+  }
+  if (mi && !mi.sequential && (step.outputs ?? []).some(o => !o.disabled && o.name.trim() && !o.fromService)) {
+    warnings.push('Läuft parallel mehrfach — die Ausgaben am Schritt schreibt jede Instanz in den Prozess, sie überschreiben sich. Die Ergebnisse über «Ergebnisse sammeln» als Liste holen.');
+  }
+  // Camunda 7: a worker without manual mapping writes its Out into the process — in a parallel
+  // multi-instance that collects results, the instances overwrite each other there
+  const collecting = (scopes.get(step.id) ?? []).some(x => !x.sequential && hasResult(x.result));
+  if (collecting && spec.engine !== 'c8' && step.kind === 'service' && !step.manualOutMapping && !isInitWorker(step, processId)) {
+    warnings.push(`In einer parallelen Mehrfachausführung — ohne manuelles Output-Mapping schreibt der Worker sein Ergebnis in den Prozess (${C7_LABEL}), die Instanzen überschreiben sich. Die Ausgaben von Hand mappen.`);
+  }
+
   // ── Mappings: required, duplicate, FEEL ──────────────────────────────────
   // the own class — for an enum also the fields of its cases (the variant says which apply)
-  const classFields = (id: string | undefined): Field[] | null => {
+  // a name several cases have counts with the type of the chosen case
+  const classFields = (id: string | undefined, enumCase: string | undefined): Field[] | null => {
     if (!id) return null;
     const t = types.find(x => x.id === id);
-    return t ? classFieldsOf(t) : [];
+    return t ? classFieldsOf(t, enumCase) : [];
   };
-  const inFields = classFields(ia?.inTypeId);
-  const outFields = classFields(ia?.outTypeId);
   const domainIn = initWorker ? null : stepDomainMember(step, spec, model, 'In');
   const domainOut = initWorker ? null : stepDomainMember(step, spec, model, 'Out');
   const resultVars = withMultiInstance(resultVariables(step, spec, model, service), scopes.get(step.id));
@@ -333,10 +421,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // what a pattern contributes to the element is implementation — not checked,
   // and it does not report missing required fields: the pattern defines the call
   const fromPattern = patternMappings(patternDefs(model), step.patterns, spec.engine ?? 'c7');
-  const check = (list: 'inputs' | 'outputs', rows: Mapping[], refFields: Field[] | null, dom: typeof domainIn, vars: VarNode[]) => {
+  const check = (list: 'inputs' | 'outputs', rows: Mapping[], typeId: string | undefined, dom: typeof domainIn, vars: VarNode[]) => {
     // enum with cases: only the shared fields and those of the chosen variant count
     const variants = variantsOf(step, spec, model, list, service);
     const chosen = chosenVariant(step, list, variants);
+    const enumCase = caseOf(variants, chosen);
+    const refFields = classFields(typeId, enumCase);
     const allowed = (n: string) => variantAllows(variants, chosen, n);
     if (chosen.mixed.length) {
       warnings.push(`${list === 'inputs' ? 'Eingaben' : 'Ausgaben'} aus mehreren Ausprägungen (${chosen.mixed.join(', ')}) — eine Ausprägung wählen oder «alle Ausprägungen», wenn ${list === 'inputs' ? 'der Worker beim Unmarshalling' : 'der Service'} entscheidet.`);
@@ -372,7 +462,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // tasks and custom workers: they read their In directly from the
     // process variables, without mapping
     if (list === 'inputs' && !implicitIn && !fromPattern.inputs.size) {
-      const required = requiredNames(refFields, dom, service).filter(n => variantRequires(variants, chosen, n));
+      const required = requiredNames(refFields, dom, service, enumCase).filter(n => variantRequires(variants, chosen, n));
       for (const n of required) if (!active.some(m => m.name === n)) errors.push(`Pflichtfeld «${n}» fehlt in den Eingaben.`);
       // Switches of the decoder: the service must get one of them
       const routing = routingMissing(variants, active);
@@ -380,7 +470,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     }
     for (const m of active) {
       if (isFeel(m.expression)) {
-        const expected = refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model) : expectedFromDomain(dom, m.name, model);
+        // a different type per case and none chosen: no yardstick
+        const expected = typeUnknown(variants, chosen, m.name) ? null
+          : refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model) : expectedFromDomain(dom, m.name, model, enumCase);
         const r = checkFeel(m.expression, vars, expected);
         for (const i of r.issues) (i.level === 'error' ? errors : warnings).push(`«${m.name}»: ${i.text}`);
         if (spec.engine !== 'c8') {
@@ -400,8 +492,8 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   };
   // what is reported from here on is shown in the panel in place — on the mapping row or the error
   const atPlace = { errors: errors.length, warnings: warnings.length };
-  check('inputs', step.inputs ?? [], inFields, domainIn, variables);
-  check('outputs', step.outputs ?? [], outFields, domainOut, resultVars);
+  check('inputs', step.inputs ?? [], ia?.inTypeId, domainIn, variables);
+  check('outputs', step.outputs ?? [], ia?.outTypeId, domainOut, resultVars);
 
   // ── Handled errors: only report what is wrong ────────────────────────────
   (step.errors ?? []).forEach((e, i, all) => {

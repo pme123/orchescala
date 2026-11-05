@@ -21,9 +21,10 @@
 // a message: listeners, scripts, correlation keys, expressions that cannot
 // be translated. Better visibly open than silently wrong.
 
-import type { EngineId } from './types.ts';
+import type { EngineId, MultiInstanceSpec } from './types.ts';
+import { readMiResult, removeC7MiResult, removeC8MiResult, resultLocals, writeMiResult } from './miResult.ts';
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
-import { feelBody, feelToJuel, type JuelOptions } from './feelJuel.ts';
+import { feelBody, feelToJuel, iterableJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -165,8 +166,15 @@ export function convertBpmn(xml: string, target: EngineId, opts: ConvertOptions 
   defs.setAttributeNS(MODELER_NS, 'modeler:executionPlatform', PLATFORM[target].name);
   defs.setAttributeNS(MODELER_NS, 'modeler:executionPlatformVersion', PLATFORM[target].version);
 
+  // results of a multi-instance: read in the old form, written anew in the new one
+  const miResults = takeMiResults(defs);
   if (target === 'c8') toC8(defs, ctx);
   else toC7(defs, ctx, opts);
+  for (const r of miResults) {
+    const el = descendants(defs).find(e => e.getAttribute('id') === r.id);
+    const mi = el ? kids(el).find(k => local(k) === 'multiInstanceLoopCharacteristics') : undefined;
+    if (el && mi) writeMiResult(doc, el, mi, target, r.spec, text => issues.push({ stepId: r.id, where: 'Ergebnisse sammeln', text }), r.locals);
+  }
 
   // the namespace of the old engine, when nothing is left in it
   const oldNs = target === 'c8' ? CAMUNDA_NS : ZEEBE_NS;
@@ -183,6 +191,48 @@ export function convertBpmn(xml: string, target: EngineId, opts: ConvertOptions 
   const seen = new Set<string>();
   const unique = issues.filter(i => { const k = `${i.stepId}|${i.where}|${i.text}`; return !seen.has(k) && !!seen.add(k); });
   return { xml: out, issues: unique, changed: true };
+}
+
+/**
+ * The results of the multi-instances (see miResult.ts) — taken out of the diagram before
+ * the conversion, so that the listeners of Camunda 7 and the `=null` locals of Camunda 8
+ * are not reported or translated one by one; they are written anew for the target.
+ */
+function takeMiResults(defs: Element): Array<{ id: string; spec: MultiInstanceSpec; locals: string[] }> {
+  const out: Array<{ id: string; spec: MultiInstanceSpec; locals: string[] }> = [];
+  for (const el of descendants(defs)) {
+    const mi = kids(el).find(k => local(k) === 'multiInstanceLoopCharacteristics');
+    const id = el.getAttribute('id');
+    if (!mi || !id) continue;
+    const result = readMiResult(el, mi);
+    if (!result) continue;
+    const miExt = kids(mi).find(k => local(k) === 'extensionElements');
+    const zb = miExt ? kids(miExt).find(k => local(k) === 'loopCharacteristics') : undefined;
+    const coll = zb?.getAttribute('inputCollection') ?? mi.getAttribute('camunda:collection') ?? mi.getAttribute('collection') ?? '';
+    const imported = coll ? importExpression(coll).trim() : '';
+    const spec: MultiInstanceSpec = {
+      collection: imported.startsWith('=') ? imported.slice(1).trim() : imported,
+      element: zb?.getAttribute('inputElement') ?? mi.getAttribute('camunda:elementVariable') ?? mi.getAttribute('elementVariable') ?? undefined,
+      result,
+    };
+    // the locals of the construct — the same ones written anew in the form of the target
+    const present = removeC8MiResult(mi, el);
+    const locals = new Set(resultLocals(spec));
+    const ext = kids(el).find(k => local(k) === 'extensionElements');
+    for (const holder of ext ? kids(ext).filter(k => local(k) === 'inputOutput') : []) {
+      for (const p of kids(holder)) {
+        const name = p.getAttribute('name') ?? '';
+        if (local(p) === 'inputParameter' && locals.has(name) && !(p.textContent ?? '').trim() && !p.children.length) {
+          removeEl(p);
+          present.push(name);
+        }
+      }
+      if (!kids(holder).length) removeEl(holder);
+    }
+    removeC7MiResult(el);
+    out.push({ id, spec, locals: present });
+  }
+  return out;
 }
 
 interface Ctx {
@@ -615,7 +665,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       const lc = z('loopCharacteristics');
       if (lc) {
         const coll = lc.getAttribute('inputCollection');
-        if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? toJuel(coll, 'Sammlung', issue, ctx.juel) : coll);
+        // a path into a JSON variable as a Java list — a Spin node itself cannot be iterated
+        if (coll) setC(el, 'collection', coll.trim().startsWith('=') ? iterableJuel(toJuel(coll, 'Sammlung', issue, ctx.juel)).text : coll);
         setC(el, 'elementVariable', lc.getAttribute('inputElement') ?? '');
         if (lc.getAttribute('outputCollection')) issue('Mehrfachausführung', `outputCollection/outputElement gibt es in ${C7_LABEL} nicht — Ergebnisse von Hand sammeln.`);
       }
