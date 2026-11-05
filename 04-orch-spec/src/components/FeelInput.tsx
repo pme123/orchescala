@@ -103,8 +103,9 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
       if (!done) onChange(value.slice(0, ed.from) + ed.insert + value.slice(ed.to));
     }
     if (done) el.setSelectionRange(ed.selStart, ed.selEnd);
-    // the value comes back from the caller — the selection once it is rendered
-    requestAnimationFrame(() => { if (document.activeElement === el) el.setSelectionRange(ed.selStart, ed.selEnd); });
+    // the value comes back from the caller — the selection once it is rendered, unless typed on already
+    const expected = value.slice(0, ed.from) + ed.insert + value.slice(ed.to);
+    requestAnimationFrame(() => { if (document.activeElement === el && el.value === expected) el.setSelectionRange(ed.selStart, ed.selEnd); });
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

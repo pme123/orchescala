@@ -44,3 +44,10 @@ test('a quote steps over only where it ends a string — before a string it open
   // an escaped quote does not end the string
   assert.equal(apply('= "a\\"b"', bracketEdit('= "a\\"b"', 7, 7, '"', true)), '= "a\\"b"|8-8');
 });
+
+test('a quote after a value ends one, Backspace between two strings removes nothing', () => {
+  assert.equal(bracketEdit('= f(x)', 6, 6, '"', true), null);
+  assert.equal(bracketEdit('= [1]', 5, 5, '"', true), null);
+  assert.equal(backspaceEdit('= "a""b"', 5, 5), null);
+  assert.equal(apply('= ""', backspaceEdit('= ""', 3, 3)), '= |2-2');
+});

@@ -219,3 +219,11 @@ test('renaming an orchestration: the format of API, version and name, and not to
   assert.match(serviceRefProblem({ ...ref, apiVersion: '0' }, [])!, /^Version/);
   assert.match(serviceRefProblem({ ...ref, name: 'updateClient' }, [])!, /^Name/);
 });
+
+test('take-over: the diagram fails and the process cannot be removed again — it says to delete it by hand', async () => {
+  const store = fake({ saveBpmn: fail('gesperrt'), deleteSpec: fail('kein Zugriff') });
+  const r = await takeOver(store, planned(), { slug: 'old', version: 'v1' });
+  assert.deepEqual(store.calls, ['createSpec', 'saveBpmn', 'deleteSpec']);
+  assert.ok(!r.ok && r.written);
+  assert.match(!r.ok ? r.message : '', /unter Prozesse löschen/);
+});

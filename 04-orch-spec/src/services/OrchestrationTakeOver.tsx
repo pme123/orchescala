@@ -43,11 +43,11 @@ export default function OrchestrationTakeOver({ slug, onBack, onOpenProcess }: {
   const run = async (step: () => ReturnType<typeof removeOld>) => {
     if (!loaded || !planned) return;
     setBusy(true); setError(null);
-    try {
-      const r = await step();
-      if (r.ok) onOpenProcess(planned.spec.slug);
-      else setError(r.message);
-    } finally { setBusy(false); }
+    let r: Awaited<ReturnType<typeof step>>;
+    try { r = await step(); } finally { setBusy(false); }
+    // the view goes once it is done — nothing is set on it after that
+    if (r.ok) onOpenProcess(planned.spec.slug);
+    else setError(r.message);
   };
   const old = { slug, version: loaded?.version ?? '' };
   const takeOver = () => run(() => runTakeOver(store, planned!, old));

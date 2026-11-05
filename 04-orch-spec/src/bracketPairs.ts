@@ -32,8 +32,8 @@ export function bracketEdit(text: string, start: number, end: number, key: strin
   if (CLOSERS.has(key) && next === key && (key !== '"' || inString(text, start))) return { from: start, to: start, insert: '', selStart: start + 1, selEnd: start + 1 };
   if (!close) return null;
   if (next && !/[\s)\]},]/.test(next)) return null;
-  // a quote after a word or a quote ends a string — it does not open a pair
-  if (key === '"' && /[\w"]/.test(prev)) return null;
+  // a quote right after a value (a word, a string, a call or a list) ends one — it does not open a pair
+  if (key === '"' && /[\w")\]}]/.test(prev)) return null;
   return { from: start, to: start, insert: `${key}${close}`, selStart: start + 1, selEnd: start + 1 };
 }
 
@@ -52,5 +52,7 @@ export function backspaceEdit(text: string, start: number, end: number): Bracket
   if (start !== end || start === 0) return null;
   const open = text[start - 1];
   if (!PAIRS[open] || PAIRS[open] !== text[start]) return null;
+  // `"a"|"b"`: the end of one string and the start of the next — not an empty pair
+  if (open === '"' && !inString(text, start)) return null;
   return { from: start - 1, to: start + 1, insert: '', selStart: start - 1, selEnd: start - 1 };
 }

@@ -20,7 +20,10 @@ export type TakeOverResult = { ok: true } | { ok: false; written: boolean; messa
 /** The old file under `services/` goes — the last step of a take-over. */
 export async function removeOld(store: TakeOverStore, old: { slug: string; version: string }): Promise<TakeOverResult> {
   const d = await store.deleteService(old.slug, old.version);
-  return d.ok ? { ok: true } : { ok: false, written: true, message: `Der Prozess ist übernommen — services/${old.slug}.json liess sich aber nicht entfernen: ${d.message}` };
+  return d.ok ? { ok: true } : {
+    ok: false, written: true,
+    message: `Der Prozess ist übernommen — services/${old.slug}.json liess sich aber nicht entfernen: ${d.message}. Wurde die Datei inzwischen geändert, die Seite neu laden und nochmals entfernen.`,
+  };
 }
 
 /** The process with its diagram, then the old file removed. */
