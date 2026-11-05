@@ -603,6 +603,34 @@ class SpecMergeTest extends FunSuite:
       val api = os.read(project / apiCreatorRel)
       assert(api.contains("GetClient.example") && !api.contains("UpdateClient.example"), api)
 
+  test("services: a nested API - its levels as directories, the shared schema of the level, named by its last part"):
+    inProject: project =>
+      val nestedDomain = "01-domain/src/main/scala/acme/demo/domain/clientMaster/naturalPersons/v1"
+      val nested       = ServicesExport(
+        "client-master",
+        scalaFiles(
+          s"$nestedDomain/NaturalPersonsV1.scala"                          -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1\n\ntrait NaturalPersonsV1",
+          s"$nestedDomain/GetPersons.scala"                                -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1\n\nobject GetPersons\nend GetPersons",
+          s"$nestedDomain/schema/Person.scala"                             -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1.schema\n\ncase class Person(name: String)",
+          "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala" -> "package acme.demo.domain\npackage clientMaster.schema\n\ncase class Address(city: String)",
+          "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala" ->
+            "package acme.demo.worker.clientMaster.naturalPersons.v1\n\nclass GetPersonsWorker:\n  def run = ???\nend GetPersonsWorker"
+        )
+      )
+      val (plan, _) = run(project, Seq.empty, Seq(nested))
+      assertEquals(plan.notes, Seq.empty)
+      for name <- Seq("NaturalPersonsV1.scala", "GetPersons.scala", "Person.scala", "Address.scala", "GetPersonsWorker.scala")
+      do assertEquals(actionOf(plan, project, name), Action.create, name)
+      assertEquals(path(project, "GetPersons.scala"), s"$nestedDomain/GetPersons.scala")
+      assertEquals(path(project, "Person.scala"), s"$nestedDomain/schema/Person.scala")
+      assertEquals(path(project, "Address.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala")
+      assertEquals(path(project, "GetPersonsWorker.scala"), "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala")
+      val app = os.read(project / workerAppRel)
+      assert(app.contains("private lazy val naturalPersonsV1Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v1.*"), app)
+      assert(app.contains("      GetPersonsWorker(),"), app)
+      val api = os.read(project / apiCreatorRel)
+      assert(api.contains("import acme.demo.domain.clientMaster.naturalPersons.v1.*\n    group(\"NaturalPersonsV1\")("), api)
+
   test("services: an export of another project is refused"):
     inProject: project =>
       val foreign = ServicesExport("x", scalaFiles("01-domain/src/main/scala/other/domain/client/v1/A.scala" -> "package other.domain.client.v1"))
