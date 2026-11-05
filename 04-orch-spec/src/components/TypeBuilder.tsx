@@ -1063,7 +1063,7 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
             title={`${t.kind === 'enum' ? 'Auswahl' : 'Klasse'} kopieren — einfügen links unten im Datenmodell, auch eines anderen Prozesses oder Tabs. Die Klassen, auf die sie verweist, bleiben Verweise, wo es sie dort gibt (Domain oder dieselbe Spezifikation); sonst kommen sie als Kopie mit.`}
             className={`p-1.5 rounded border ${c.btn}`} />
         )}
-        {clip && canEdit && (t.root || fixed) && <ReplaceTypeButton type={t} isDark={isDark} onReplace={() => clip.replaceType(t.id)} />}
+        {clip && canEdit && (t.root || t.processOut || fixed) && <ReplaceTypeButton type={t} isDark={isDark} onReplace={() => clip.replaceType(t.id)} />}
         {canEdit && !t.root && !fixed && (
           <button onClick={async () => { if (await confirm({ title: `Typ «${t.name || 'ohne Namen'}» löschen?` })) onRemove(); }}
             title="Typ löschen" className={`p-1.5 rounded border ${c.btn}`}>
