@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
-import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin } from 'vite';
 
 // Dev server only: serve `sample-data/` under /sample-data, so that the
 // app starts right away with real data via `?demo` (without choosing a folder).
@@ -61,6 +61,11 @@ function devCatalog(catalogEnv: string | undefined): Plugin {
   };
 }
 
+/** the real folder behind `node_modules` — none before the install */
+function realNodeModules(): string[] {
+  try { return [fs.realpathSync(path.resolve(__dirname, 'node_modules'))]; } catch { return []; }
+}
+
 export default defineConfig(({ mode }) => ({
   base: '/orch-spec/',
   plugins: [react(), tailwindcss(), sampleData(), devCatalog(loadEnv(mode, __dirname, '').ORCH_SPEC_CATALOG)],
@@ -68,6 +73,10 @@ export default defineConfig(({ mode }) => ({
     alias: { '@': path.resolve(__dirname, '.') },
   },
   server: {
+    // In a git worktree `node_modules` is a link to the main checkout. Vite follows it to the
+    // real folder and would refuse files there (403) - e.g. the font of the BPMN palette, whose
+    // icons then stay empty. The real folder is allowed besides the project.
+    fs: { allow: [searchForWorkspaceRoot(__dirname), ...realNodeModules()] },
     // sample-data can be chosen as a shared folder — the app's write accesses
     // must not trigger a dev server reload
     watch: { ignored: ['**/sample-data/**'] },

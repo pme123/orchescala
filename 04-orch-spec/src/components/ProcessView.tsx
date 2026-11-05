@@ -13,14 +13,14 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
-import { collectFindings, withServiceRows, type Finding } from '../findings';
+import { collectFindings, PROCESS_FINDINGS, withServiceRows, type Finding } from '../findings';
 import { catalogEntry, healLooseTypes } from '../interactions';
 import { baseOf, commentTargets, countIndex, locate, markNotified, processTarget, rememberPlaces, stepTarget, sub, threadOf } from '../comments';
 import { TEAMS_SCOPES } from '../teams';
 import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
-import { juelOptions } from '../feel';
+import { juelOptions, variableOverview } from '../feel';
 import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields, patternDefs } from '../patterns';
@@ -28,7 +28,7 @@ import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, 
 import { conversionNote, engineLabel } from '../engineLabels';
 import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolIds';
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
-import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon } from '../ui';
+import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon, useStoredWidth } from '../ui';
 import { nowIsoWithTimezone } from '../util';
 import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
 import { findProjectDmns, saveProjectDmns, withDmnFiles } from '../dmnProject';
@@ -218,6 +218,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     const n = Number(localStorage.getItem(COMMENTS_W_KEY));
     return Number.isFinite(n) && n >= 300 ? Math.min(n, 640) : 380;
   });
+  // Claude's panel: its own width, draggable as well
+  const [aiW, setAiW] = useStoredWidth('orch-spec.aiWidth', 400, 320, 800);
   const [narrow, setNarrow] = useState(() => window.innerWidth < OVERLAY_BELOW);
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${OVERLAY_BELOW - 1}px)`);
@@ -533,7 +535,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   // ── Comments ─────────────────────────────────────────────────────────────
   const commentCounts = useMemo(() => (spec ? countIndex(spec) : { exact: new Map(), under: new Map() }), [spec]);
-  const targets = useMemo(() => (spec ? commentTargets(spec, allSteps(spec.steps)) : []), [spec]);
+  // the process variables are derived (see VariableList) — each one can carry comments
+  const targets = useMemo(() => (spec ? commentTargets(spec, allSteps(spec.steps), variableOverview(spec, model).variables.map(v => v.name)) : []), [spec, model]);
 
   /**
    * To the location of a comment: switch view, open collapsed
@@ -1341,12 +1344,17 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                     {/* Findings: only the steps with a triangle — red if there are errors */}
                     {findings.size > 0 && (() => {
                       const errs = [...findings.values()].filter(f => f.errors.length).length;
+                      const atProcess = findings.has(PROCESS_FINDINGS);
+                      const steps = findings.size - (atProcess ? 1 : 0);
                       const tone = errs
                         ? (isDark ? 'border-rose-500/30 bg-rose-500/15 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700')
                         : (isDark ? 'border-amber-500/30 bg-amber-500/15 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-700');
                       return (
                         <button onClick={() => setFindingsOnly(v => !v)}
-                          title={`${findings.size} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''} — nur diese zeigen`}
+                          title={[
+                            steps ? `${steps} Schritte mit Befund${errs ? `, davon ${errs} mit Fehlern` : ''} — nur diese zeigen` : '',
+                            atProcess ? 'Befund am Prozess: Prozessvariablen (ohne Schritt auswählen)' : '',
+                          ].filter(Boolean).join('\n')}
                           className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border transition-opacity ${tone} ${
                             !findingsOnly && (statusFilter) ? 'opacity-30' : ''} ${findingsOnly ? 'ring-1 ring-current' : ''}`}>
                           <AlertTriangle size={9} /> {findings.size}
@@ -1396,7 +1404,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
         )}
         {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
         {aiKey && mayEdit && (
-          <div className={`w-[400px] flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+          <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+            <PanelWidthHandle isDark={isDark} width={aiW} min={320} max={800} onWidth={setAiW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
               <ProcessAiPanel isDark={isDark} apiKey={aiKey} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)}
                 draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}

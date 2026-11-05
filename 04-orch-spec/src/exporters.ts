@@ -15,7 +15,7 @@ import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
 import { convertWithPatterns } from './patternConvert.ts';
 import { engineExpression } from './feelJuel.ts';
-import { juelOptions } from './feel.ts';
+import { juelOptions, variableOverview } from './feel.ts';
 import { gzipSync, strToU8 } from 'fflate';
 import { splitPrefix } from './stepIds.ts';
 import { epicsOf } from './epics.ts';
@@ -256,10 +256,17 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
   ];
   if (spec.description) out.push('## Beschrieb / Ausgangslage / Ziel', '', spec.description, '');
 
-  if (spec.variables?.length) {
+  // the process variables as they come about — type and origin from where they are created,
+  // the Bedeutung from the list of the specification
+  const vars = variableOverview(spec, model).variables.filter(v => !v.local);
+  if (vars.length) {
+    const withExample = vars.some(v => v.declared?.example);
     out.push('## Prozessvariablen', '');
-    out.push(...table(spec.variables.map(v => [`\`${v.name}\``, v.type ?? '', v.description ?? '', v.example ?? '']),
-      ['Name', 'Typ', 'Bedeutung', 'Beispiel']));
+    out.push(...table(vars.map(v => [
+      `\`${v.name}\``, v.node.label && v.node.label !== '?' ? v.node.label : '',
+      v.orphan ? 'ohne Quelle ⚠' : v.node.source, v.declared?.description || v.hint || '',
+      ...(withExample ? [v.declared?.example ?? ''] : []),
+    ]), ['Name', 'Typ', 'Herkunft', 'Bedeutung', ...(withExample ? ['Beispiel'] : [])]));
   }
 
   if (spec.types?.length) {
