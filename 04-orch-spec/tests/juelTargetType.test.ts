@@ -81,6 +81,7 @@ test('mappingTarget: domain In, simple enum, own class, init worker, output', ()
   assert.deepEqual(mappingTarget(call, spec, archiveModel('String'), 'in', 'docId'), { type: 'string', optional: false });
   assert.deepEqual(mappingTarget(call, spec, archiveModel('Option[Long]'), 'in', 'docId'), { type: 'number', optional: true });
   assert.deepEqual(mappingTarget(call, spec, archiveModel('DocKind'), 'in', 'docId'), { type: 'string', optional: false });
+  assert.deepEqual(mappingTarget(call, spec, archiveModel('Option[DocKind]'), 'in', 'docId'), { type: 'string', optional: true });
   // an object is no simple type
   assert.equal(mappingTarget(call, spec, archiveModel('Archive.In'), 'in', 'docId'), null);
 
@@ -88,6 +89,10 @@ test('mappingTarget: domain In, simple enum, own class, init worker, output', ()
   const types = [{ id: 't-in', name: 'In', kind: 'case', fields: [{ id: 'f1', name: 'docId', type: 'Boolean', optional: true }] }] as TypeDef[];
   const ia = { id: 'i1', stepId: 'Archive', kind: 'userTask', name: 'Archive', key: 'archive', inTypeId: 't-in' } as Interaction;
   assert.deepEqual(mappingTarget(call, { ...spec, types, interactions: [ia] }, archiveModel('String'), 'in', 'docId'), { type: 'boolean', optional: true });
+  // an optional own enum
+  const withEnum = [{ id: 't-in', name: 'In', kind: 'case', fields: [{ id: 'f1', name: 'docId', type: 't-kind', optional: true }] },
+    { id: 't-kind', name: 'Kind', kind: 'enum', values: [{ name: 'letter' }, { name: 'contract' }] }] as TypeDef[];
+  assert.deepEqual(mappingTarget(call, { ...spec, types: withEnum, interactions: [ia] }, archiveModel('String'), 'in', 'docId'), { type: 'string', optional: true });
 
   // the init worker reads the In of the process itself — no target
   const init = { id: 'Init', kind: 'service', topic: 'acme-demo-printV1' } as Step;
@@ -211,4 +216,34 @@ test('export: a correct or hand-written row stays literally', () => {
   // an own condition with the end stays, even where the export would guard
   const ownEnd = `\${(flag ? ${PATH}.stringValue() : null)}`;
   contains(exported('Option[String]', oldIn(ownEnd), (_spec, step) => { step.inputs = [{ name: 'docId', expression: '= if flag then printContent.content.docId else null' }]; }), ownEnd);
+});
+
+test('export: a service task — its input parameters take the type of the In', () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d" targetNamespace="x">
+  <bpmn:process id="acme-demo-printV1" isExecutable="true">
+    <bpmn:startEvent id="StartEvent"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="ArchiveTask" name="Archive" camunda:type="external" camunda:topic="acme-demo-archive">
+      <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="EndEvent"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="StartEvent" targetRef="ArchiveTask"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="ArchiveTask" targetRef="EndEvent"/>
+  </bpmn:process>
+</bpmn:definitions>`;
+  const model = archiveModel('Option[String]');
+  (model.domainTypes![0] as { topicName?: string }).topicName = 'acme-demo-archive';
+  const spec = importBpmn(xml, 'print').spec;
+  allSteps(spec.steps).find(s => s.id === 'ArchiveTask')!.inputs = [{ name: 'docId', expression: '= printContent.content.docId' }];
+  const out = writeBpmn(xml, spec, model).xml.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  contains(out, `<camunda:inputParameter name="docId">\${(${GUARD} ? ${PATH}.stringValue() : null)}</camunda:inputParameter>`);
+});
+
+test('export: a written row stays as it is in the next export', () => {
+  for (const [docId, expr] of [['String', `\${${PATH}.stringValue()}`], ['Option[String]', `\${(${GUARD} ? ${PATH}.stringValue() : null)}`]]) {
+    const again = exported(docId, oldIn(expr));
+    contains(again, `sourceExpression="${expr}"`);
+    // not checked twice
+    assert.equal(again.split('.hasProp("docId")').length - 1, docId === 'String' ? 0 : 1, again);
+  }
 });

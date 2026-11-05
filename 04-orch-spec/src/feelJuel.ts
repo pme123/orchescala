@@ -92,6 +92,9 @@ export interface JuelOptions {
    * `execution.getVariable("x") != null`): `prop` and `stringValue()` on a
    * missing or null field throw. A required target gets no checks — a missing
    * value is an error there anyway (`prop` throws as it did before).
+   * Only a path as the whole expression takes the target: a bare variable (`x`, a
+   * `source` in Camunda 7) and a path inside a calculation (`a.b + 1`) get neither
+   * the end nor the checks.
    */
   target?: JuelTarget | null;
 }
