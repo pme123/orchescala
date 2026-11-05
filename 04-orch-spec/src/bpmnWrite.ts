@@ -21,11 +21,12 @@
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels.ts';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
-import { juelOptions, mappingTarget, multiInstanceScopes, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
+import { juelOptions, mappingTarget, multiInstanceScopes, namesWrittenInside, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
 import { catalogEntry } from './interactions.ts';
-import { engineExpression, feelBody, feelToGroovy, feelToJuel, type JuelOptions } from './feelJuel.ts';
+import { engineExpression, feelBody, feelToGroovy, feelToJuel, iterableJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
+import { writeMiResult } from './miResult.ts';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -173,7 +174,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     return o;
   };
   try {
-    return writeBpmnWith(xml, spec);
+    return writeBpmnWith(xml, spec, model);
   } finally {
     juelOpts = {};
     outputOpts = () => juelOpts;
@@ -182,7 +183,7 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
   }
 }
 
-function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
+function writeBpmnWith(xml: string, spec: ProcessSpec, model: Model | null): WriteResult {
   const issues: WriteIssue[] = [];
   const engine: EngineId = spec.engine ?? 'c7';
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -281,6 +282,8 @@ function writeBpmnWith(xml: string, spec: ProcessSpec): WriteResult {
 
     if (el) writeImplementation(doc, el, ensureExt, engine, step, spec.processId, issues);
     if (el) writeBoundaryTimers(doc, byId, engine, step, issues);
+    // what the steps in a multi-instance set — only those become locals of its result
+    if (el) writeMultiInstance(doc, el, engine, step, issues, step.multiInstance?.result ? namesWrittenInside(step, spec, model) : undefined);
     // Signal or message of the boundary events — into their boundary event
     for (const e of step.errors ?? []) {
       const b = isEventBoundary(e) && e.boundaryId && !e.pattern ? byId.get(e.boundaryId) : undefined;
@@ -738,6 +741,81 @@ function writeTimer(doc: Document, el: Element, engine: EngineId, timer: TimerSp
   t.setAttributeNS(XSI_NS, 'xsi:type', `${prefix}tFormalExpression`);
   t.textContent = r.text;
   appendEl(def, t);
+}
+
+/** The multi-instance of a step: collection and element, and its collected results */
+function writeMultiInstance(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[], inside: Set<string> | undefined) {
+  writeMiInput(doc, el, engine, step, issues);
+  // the results as one list — natively in Camunda 8, generated in Camunda 7 (see miResult.ts)
+  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+  if (mi && step.multiInstance) {
+    writeMiResult(doc, el, mi, engine, step.multiInstance, text => issues.push({ stepId: step.id, where: 'Ergebnisse sammeln', text }), inside);
+  }
+}
+
+/**
+ * Collection and element of a multi-instance — set at the step. Camunda 8:
+ * `<zeebe:loopCharacteristics inputCollection="=order.items" inputElement="item" />`,
+ * Camunda 7: `camunda:elementVariable="item"` and `camunda:collection` — a variable by its
+ * name (`items`), a path into a JSON variable as a Java list
+ * (`${order.prop("items").elements()}`) — a Spin node itself cannot be iterated.
+ * Empty at the step: out of the diagram as well. What the diagram already says in the
+ * same sense stays in its notation (`items` instead of `${items}`).
+ */
+function writeMiInput(doc: Document, el: Element, engine: EngineId, step: Step, issues: WriteIssue[]) {
+  const mi = firstNamed(el, 'multiInstanceLoopCharacteristics');
+  if (!mi || !step.multiInstance) return;
+  const collection = step.multiInstance.collection?.trim() ?? '';
+  const element = step.multiInstance.element?.trim() ?? '';
+  const sameCollection = (v: string | undefined) => {
+    const imported = v ? importExpression(v).trim() : '';
+    return (imported.startsWith('=') ? imported.slice(1).trim() : imported) === collection;
+  };
+  if (engine === 'c8') {
+    let ext = firstNamed(mi, 'extensionElements');
+    let lc = ext ? firstNamed(ext, 'loopCharacteristics') : null;
+    // without a collection Camunda 8 refuses the multi-instance — say so, write no half of it
+    if (!collection) {
+      if (element || lc?.getAttribute('inputCollection')) issues.push({ stepId: step.id, where: 'Mehrfachausführung', text: `Keine Sammlung — ${C8_LABEL} braucht sie (inputCollection), sonst lässt sich der Prozess nicht deployen.` });
+      if (!lc) return;
+    }
+    if (!lc) {
+      if (!ext) {
+        const prefix = mi.tagName.includes(':') ? `${mi.tagName.split(':')[0]}:` : '';
+        ext = doc.createElementNS(BPMN_NS, `${prefix}extensionElements`);
+        prependEl(mi, ext);
+      }
+      lc = doc.createElementNS(ZEEBE_NS, 'zeebe:loopCharacteristics');
+      appendEl(ext, lc);
+    }
+    if (!sameCollection(lc.getAttribute('inputCollection') ?? undefined)) {
+      if (collection) lc.setAttribute('inputCollection', `=${collection}`); else lc.removeAttribute('inputCollection');
+    }
+    if (element) lc.setAttribute('inputElement', element); else lc.removeAttribute('inputElement');
+    return;
+  }
+  const where = 'Mehrfachausführung';
+  const drop = (name: string) => {
+    mi.removeAttribute(name);
+    mi.removeAttribute(`camunda:${name}`);
+    mi.removeAttributeNS(CAMUNDA_NS, name);
+  };
+  if (!sameCollection(attr(mi, 'collection'))) {
+    drop('collection');
+    if (/^[A-Za-z_]\w*$/.test(collection)) mi.setAttributeNS(CAMUNDA_NS, 'camunda:collection', collection);
+    else if (collection) {
+      const r = engineExpression(`= ${collection}`, engine);
+      if (r.issue) issues.push({ stepId: step.id, where, text: `Sammlung nicht nach JUEL übersetzbar: ${r.issue}` });
+      const { text, path } = r.issue ? { text: r.text, path: false } : iterableJuel(r.text);
+      // a path ends in a Spin node — `.elements()` makes it a list; a filter gives one
+      // already (`.elementList()`); any other expression must give one itself
+      const list = /\.(elements|elementList)\(\)\}$/.test(r.text);
+      if (!r.issue && !path && !list) issues.push({ stepId: step.id, where, text: `Sammlung «${collection}» als Ausdruck ${text} — er muss eine Liste liefern; ein Spin-JSON-Knoten lässt sich nicht durchlaufen (.elements()).` });
+      mi.setAttributeNS(CAMUNDA_NS, 'camunda:collection', text);
+    }
+  }
+  drop('elementVariable');
+  if (element) mi.setAttributeNS(CAMUNDA_NS, 'camunda:elementVariable', element);
 }
 
 /**

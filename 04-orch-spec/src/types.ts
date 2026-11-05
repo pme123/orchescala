@@ -79,6 +79,21 @@ export interface MultiInstanceSpec {
   /** name of the variable for the current element (`inputElement` or `elementVariable`) */
   element?: string;
   sequential?: boolean;
+  /** collect what each instance yields into one list (see `MultiInstanceResult`) */
+  result?: MultiInstanceResult;
+}
+
+/**
+ * The results of a multi-instance as one list — in the order of the collection, without
+ * the instances overwriting each other. Camunda 8 natively (`outputCollection` /
+ * `outputElement`), Camunda 7 generated: an end listener per instance writes
+ * `<collection>_<loopCounter>`, a listener on the way out collects them.
+ */
+export interface MultiInstanceResult {
+  /** name of the list after the multi-instance, e.g. `results` */
+  collection: string;
+  /** FEEL without `=`, evaluated per instance — e.g. `{aId: aId, bId: bId}` */
+  element: string;
 }
 
 // A gateway branch. `steps` is the block up to the merge.
