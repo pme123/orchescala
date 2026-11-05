@@ -38,9 +38,12 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
         val domain               = apiFiles.map: file =>
           GeneratedFile(domainDir / file.path.relativeTo(exportDomainDir), FileKind.Export, file.content)
         val apiWorkerFiles       = workersByApi.getOrElse(apiName -> versionNr, Seq.empty)
-        val workerDir            = ModuleConfig.workerModule.packagePath(config.projectPath) / ServicePlanner.levels(apiName) / version.versionPath
+        // the worker in the main sources, its test (`03-worker/src/test/…`) in the test sources
+        def workerDir(file: OrchSpecFile) =
+          ModuleConfig.workerModule.packagePath(config.projectPath, mainOrTest = ServicePlanner.sourceSet(file)) /
+            ServicePlanner.levels(apiName) / version.versionPath
         val workers              = apiWorkerFiles.map: file =>
-          GeneratedFile(workerDir / file.path.last, FileKind.Scaffold, file.content)
+          GeneratedFile(workerDir(file) / file.path.last, FileKind.Scaffold, file.content)
         val workerNames          = apiWorkerFiles.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
         (domain ++ workers, ServicePlanner.registrations(apiName, versionNr, workerNames))
 
@@ -95,6 +98,10 @@ object ServicePlanner:
     if dir.last == "schema" then dir / os.up else dir
 
   private val Version = "v\\d+".r
+
+  /** `main` or `test` - `03-worker/src/test/scala/…/GetClientWorkerTest.scala` is a test. */
+  private[merge] def sourceSet(file: OrchSpecFile): String =
+    if file.path.segments.lift(2).contains("test") then "test" else "main"
 
   /** `clientMaster/schema` - the shared classes of a level: a `schema/` not inside a version. */
   private[merge] def isSharedSchema(dir: os.RelPath): Boolean =

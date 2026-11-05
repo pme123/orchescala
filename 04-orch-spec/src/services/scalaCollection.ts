@@ -171,6 +171,98 @@ function sure(t: Translated, what: string): string {
   return `${t.scala}.getOrElse(??? /* TODO ${what} ist optional */)`;
 }
 
+/** The parameters the worker sends — without those of the company's base (`/banks/{bankNumber}`). */
+function requestParams(c: ServiceCollectionSpec, s: CollectionService) {
+  const fromBase = basePathParams(c, s);
+  return s.params.filter(p => !p.disabled && p.name && !(p.in === 'path' && fromBase.has(p.name)));
+}
+
+/** Has the In / Out content — fields, or cases of an ADT (`enum Out`)? */
+const hasMember = (t: TypeDef | undefined, idx: TypeIndex): boolean =>
+  !!(t?.fields ?? []).some(f => isFinished(f, idx)) || (t?.kind === 'enum' && (t.values ?? []).some(v => v.name));
+
+/** The path: `{clientKey}` → `${in.clientKey}` — without the base the company's serviceBasePath has. */
+function apiPath(c: ServiceCollectionSpec, s: CollectionService, inType: TypeDef | undefined): string {
+  const vars = inVars(inType);
+  const byName = new Map(requestParams(c, s).filter(p => p.in === 'path').map(p => [p.name, p]));
+  return workerPath(c, s.path).replace(/\{([^}]+)\}/g, (_, name: string) => {
+    const p = byName.get(name);
+    return p ? `\${${sure(feelToScala(p.expression, vars, c.types, { type: p.type }), `Pfad-Parameter ${name}`)}}` : `\${??? /* TODO Pfad-Parameter ${name} */}`;
+  });
+}
+
+/**
+ * The test of the worker — as `./helper.scala` writes it (`//sbt worker/testOnly *GetClientWorkerTest`),
+ * with what Orch Spec knows: the method, the URI of the example, the mappers with the examples.
+ * A skeleton for the developer: created once, then merged like the worker.
+ */
+function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
+  const ref = apiOf(c, s);
+  const pkg = collectionPackage(ref);
+  const members = membersOf(c, s);
+  const inType = s.noIn ? undefined : members.in;
+  const hasIn = hasMember(inType, idx);
+  const hasOut = !s.noOut && hasMember(members.out, idx);
+  const ex = (has: boolean, name: 'In' | 'Out', minimal = false) => (has ? `${name}.example${minimal ? 'Minimal' : ''}` : `${name === 'In' ? 'NoInput' : 'NoOutput'}()`);
+  const tests: string[] = [`  test("method"):\n    assertEquals(worker.method, Method.${s.method})`];
+  // the URI of the example: the path with the values of `In.example` — a TODO stays one
+  const uriPath = apiPath(c, s, inType);
+  if (!uriPath.includes('???')) {
+    const expected = hasIn ? uriPath.replace(/\bin\./g, 'In.example.') : uriPath;
+    if (!/\bin\b/.test(expected)) {
+      tests.push([
+        '  test("apiUri"):',
+        '    assertEquals(',
+        `      worker.apiUri(${ex(hasIn, 'In')}).toString,`,
+        `      s"$serviceBasePath${expected}"`,
+        '    )',
+      ].join('\n'));
+    }
+  }
+  if (s.serviceIn) {
+    for (const minimal of [false, true]) {
+      tests.push([
+        `  test("inputMapper${minimal ? ' minimal' : ''}"):`,
+        '    assertEquals(',
+        `      worker.inputMapper(${ex(hasIn, 'In', minimal)}),`,
+        `      Some(ServiceIn.example${minimal ? 'Minimal' : ''})`,
+        '    )',
+      ].join('\n'));
+    }
+  }
+  if (hasOut || s.serviceOut) {
+    for (const minimal of [false, true]) {
+      tests.push([
+        `  test("outputMapper${minimal ? ' minimal' : ''}"):`,
+        '    assertEquals(',
+        '      worker.outputMapper(',
+        `        ServiceOut.mock${minimal ? 'Minimal' : ''}.toServiceResponse,`,
+        `        ${ex(hasIn, 'In', minimal)}`,
+        '      ),',
+        `      Right(${ex(hasOut, 'Out', minimal)})`,
+        '    )',
+      ].join('\n'));
+    }
+  }
+  const imports = [...schemaImports, ...bodyImports(s, idx), `import ${pkg}.${s.name}.*`];
+  return `${workerPackageClause(ref)}
+
+${imports.join('\n')}
+
+//sbt worker/testOnly *${s.name}WorkerTest
+class ${s.name}WorkerTest extends munit.FunSuite:
+
+  lazy val worker = ${s.name}Worker()
+
+${tests.join('\n\n')}
+
+end ${s.name}WorkerTest
+`;
+}
+
+/** `03-worker/src/test/scala/…/client/v1` — the tests next to the workers, in the test sources */
+const workerTestDir = (a: ApiRef): string => workerDir(a).replace('/src/main/', '/src/test/');
+
 function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
   const ref = apiOf(c, s);
   const pkg = collectionPackage(ref);
@@ -180,18 +272,11 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
   const outType = s.noOut ? undefined : members.out;
   const types = c.types;
   const vars = inVars(inType);
-  const fromBase = basePathParams(c, s);
-  const params = s.params.filter(p => !p.disabled && p.name && !(p.in === 'path' && fromBase.has(p.name)));
+  const params = requestParams(c, s);
   const translate = (expr: string, target?: Pick<Field, 'type' | 'optional' | 'collection'>) => feelToScala(expr, vars, types, target);
   // an ADT (`enum Out`) has its content in the cases — as in the domain object
-  const hasOut = !!(outType?.fields ?? []).some(f => isFinished(f, idx)) || (outType?.kind === 'enum' && (outType.values ?? []).some(v => v.name));
-
-  // the path: `{clientKey}` → `${in.clientKey}` — without the base the company's serviceBasePath has
-  const byName = new Map(params.filter(p => p.in === 'path').map(p => [p.name, p]));
-  const uriPath = workerPath(c, s.path).replace(/\{([^}]+)\}/g, (_, name: string) => {
-    const p = byName.get(name);
-    return p ? `\${${sure(translate(p.expression, { type: p.type }), `Pfad-Parameter ${name}`)}}` : `\${??? /* TODO Pfad-Parameter ${name} */}`;
-  });
+  const hasOut = hasMember(outType, idx);
+  const uriPath = apiPath(c, s, inType);
 
   const body: string[] = [];
   body.push('  lazy val serviceTask = example', '');
@@ -397,6 +482,7 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
       content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c, a)}\n`,
     });
     for (const s of own) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types))) });
+    for (const s of own) out.push({ path: `${workerTestDir(a)}/${s.name}WorkerTest.scala`, content: workerTest(c, s, idx, schemaImports(typesOf(s, c.types))) });
   }
   // the types: in the schema of their API, or of the level the APIs share
   const files = new Map<string, ScalaFile[]>();

@@ -545,7 +545,9 @@ class SpecMergeTest extends FunSuite:
       scalaFiles(
         s"$domainPkg/ClientV1.scala"           -> "package acme.demo.domain.client.v1\n\ntrait ClientV1",
         s"$domainPkg/GetClient.scala"          -> s"package acme.demo.domain.client.v1\n\nobject GetClient:\n  case class Out($out)\nend GetClient",
-        s"$workerPkg/GetClientWorker.scala"    -> "package acme.demo.worker.client.v1\n\nclass GetClientWorker:\n  def run = ???\nend GetClientWorker"
+        s"$workerPkg/GetClientWorker.scala"    -> "package acme.demo.worker.client.v1\n\nclass GetClientWorker:\n  def run = ???\nend GetClientWorker",
+        s"${workerPkg.replace("/src/main/", "/src/test/")}/GetClientWorkerTest.scala" ->
+          "package acme.demo.worker.client.v1\n\nclass GetClientWorkerTest extends munit.FunSuite:\n  lazy val worker = GetClientWorker()\nend GetClientWorkerTest"
       )
     )
 
@@ -569,6 +571,9 @@ class SpecMergeTest extends FunSuite:
       do assertEquals(actionOf(plan, project, name), Action.create, name)
       assert(path(project, "GetClient.scala").startsWith("01-domain/src/main/scala/acme/demo/domain/client/v1/"))
       assert(path(project, "GetClientWorker.scala").startsWith("03-worker/src/main/scala/acme/demo/worker/client/v1/"))
+      // the test of the worker in the test sources - and not registered as a worker
+      assertEquals(actionOf(plan, project, "GetClientWorkerTest.scala"), Action.create)
+      assertEquals(path(project, "GetClientWorkerTest.scala"), "03-worker/src/test/scala/acme/demo/worker/client/v1/GetClientWorkerTest.scala")
       val app = os.read(project / workerAppRel)
       assertEquals(app.linesIterator.count(_.contains("private lazy val clientV1Workers")), 1, app)
       assert(app.contains("      GetClientWorker(),\n      UpdateClientWorker(),"), app)
