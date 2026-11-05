@@ -11,6 +11,8 @@
 //   = "CH" · = 3 · = true  → "CH" · 3L (for a Long) · true
 //   = "Account"            → ProductType.Account (for an enum field, as the process writes it)
 //   = [ clientKey ]        → Seq(in.clientKey)
+//   = in.clientKey         → in.clientKey      (`in.` names the In — as in the process)
+//   = body.persons[1]      → body.persons.flatMap(_.headOption)   (1-based; [-1] the last)
 //   = if a > 3 then b else c                 → if in.a > 3 then in.b else in.c
 //   = if key != null then [ key ] else keys  → in.key match
 //                                                case Some(key) => Some(Seq(key))
@@ -19,6 +21,7 @@
 //   = if key != null then [ key ] else keys  → in match          (key, keys: fields of some cases of an ADT In)
 //                                                case v: In.ByKey => Seq(v.key)
 //                                                case v: In.Standard => v.keys
+//   key = null             → !in.isInstanceOf[In.ByKey]   (key: required in the cases that have it)
 //
 // Everything else stays FEEL for a human: `??? /* TODO FEEL: … */` — the project
 // compiles and the place is easy to find.
@@ -62,14 +65,19 @@ const ident = (n: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(n) ? n : `\`${n}\`
 
 /** Translate the expression (with or without `=`) for a target field. */
 export function feelToScala(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated {
-  const { type: _type, ...t } = translate(expression, vars, types, target);
+  const { type: _type, collection: _collection, ...t } = translate(expression, vars, types, target);
   return t;
 }
 
+/** `in.clientKey` → `clientKey`: `in` names the In, its fields are the variables (unless a variable is called `in`) */
+function withoutIn(body: string, vars: Map<string, ScalaVar>): string {
+  return vars.has('in') ? body : body.replace(/^in\.(?=[A-Za-z_`])/, '');
+}
+
 /** `feelToScala` with the type of a path (TypeDef id or ScalaType) — for a literal compared with it. */
-function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated & { type?: string } {
+function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated & { type?: string; collection?: boolean } {
   const raw = expression.trim();
-  const body = raw.startsWith('=') ? raw.slice(1).trim() : raw;
+  const body = withoutIn(raw.startsWith('=') ? raw.slice(1).trim() : raw, vars);
   if (!body) return todo(raw, 'kein Wert');
   // not FEEL: a fixed text
   if (!raw.startsWith('=')) return { scala: JSON.stringify(raw), optional: false };
@@ -81,6 +89,16 @@ function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeD
   if (choice) return choice;
   const list = listOf(body, vars, types, target);
   if (list) return list;
+
+  // an element of a list: `persons[1]` (FEEL counts from 1, `[-1]` is the last) — it may be missing
+  const indexed = /^(.+?)\s*\[\s*(-?\d+)\s*\]$/.exec(body);
+  if (indexed) {
+    const n = Number(indexed[2]);
+    const list = translate(`= ${indexed[1]}`, vars, types);
+    if (list.todo || !list.collection || n === 0) return todo(body);
+    const pick = n === 1 ? 'headOption' : n === -1 ? 'lastOption' : n > 0 ? `lift(${n - 1})` : `reverse.lift(${-n - 1})`;
+    return { scala: list.optional ? `${list.scala}.flatMap(_.${pick})` : `${list.scala}.${pick}`, optional: true, ...(list.type ? { type: list.type } : {}) };
+  }
 
   const parts = splitPath(body);
   if (!parts || !parts.every(p => NAME.test(p))) return todo(body);
@@ -113,7 +131,7 @@ function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeD
     }
     shape = field;
   }
-  return { scala, optional, ...(shape.type ? { type: shape.type } : {}) };
+  return { scala, optional, ...(shape.type ? { type: shape.type } : {}), ...(shape.collection ? { collection: true } : {}) };
 }
 
 /**
@@ -184,6 +202,16 @@ function condition(text: string, vars: Map<string, ScalaVar>, types: TypeDef[]):
   const cmp = /^(.+?)\s*(!=|<=|>=|=|<|>)\s*(.+)$/s.exec(t);
   if (cmp) {
     const [, left, op, right] = cmp;
+    // a field of some cases of an ADT In, required where it is: `= null` is «another case»
+    const v = vars.get(bare(withoutIn(left.trim(), vars)));
+    if (right.trim() === 'null' && (op === '=' || op === '!=') && v?.byCase) {
+      const holders = Object.entries(v.byCase.own);
+      if (holders.length && holders.every(([, o]) => !o.optional)) {
+        const is = holders.map(([c]) => `${v.byCase!.at}.isInstanceOf[${c}]`);
+        const any = is.length === 1 ? is[0] : `(${is.join(' || ')})`;
+        return { scala: op === '!=' ? any : `!${any}`, optional: false };
+      }
+    }
     const l = translate(`= ${left}`, vars, types);
     if (l.todo) return null;
     if (right.trim() === 'null') {
@@ -289,7 +317,7 @@ function ifThenElse(body: string, vars: Map<string, ScalaVar>, types: TypeDef[],
   if (!parts) return null;
   const [cond, yes, no] = parts;
   // `x != null` (or `x = null`) of an optional variable: in its branch x is there — a match binds it
-  const known = /^([A-Za-z_][A-Za-z0-9_]*)\s*(!=|=)\s*null$/.exec(cond);
+  const known = /^([A-Za-z_][A-Za-z0-9_]*)\s*(!=|=)\s*null$/.exec(withoutIn(cond, vars));
   const v = known ? vars.get(known[1]) : undefined;
   if (known && v?.byCase) {
     const [present, missing] = known[2] === '!=' ? [yes, no] : [no, yes];

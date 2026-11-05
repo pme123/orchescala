@@ -12,9 +12,10 @@
 import { caseIdent, exampleValue, fieldAccess, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import type { Field, Model, TypeDef } from '../types';
 import {
-  apiKey, apiOf, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
+  apiKey, apiOf, apiParents, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection.ts';
 import { reach, schemaHomes, typesOf } from './hierarchy.ts';
+import { baseChain, chainBelowProject, chainFiles, chainPath, chainServiceBasePath, projectBaseVar } from './basePaths.ts';
 import { asText, feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
@@ -24,8 +25,10 @@ export const indent = (text: string, by = '  ') => text.split('\n').map(l => (l 
 /** `val descr` — one line as a string, several as `"""…""".stripMargin` */
 export function descr(text: string | undefined): string {
   const t = (text ?? '').trim().replace(/"""/g, '\\"\\"\\"');
-  if (!t.includes('\n')) return `  val descr: String = ${scalaKey(t)}`;
-  const [first, ...rest] = t.split('\n');
+  // no blanks at the end of a line — a blank line of the description stays a bare `|`
+  const lines = t.split('\n').map(l => l.trimEnd());
+  if (lines.length === 1) return `  val descr: String = ${scalaKey(t)}`;
+  const [first, ...rest] = lines;
   return [`  val descr: String =`, `    """${first}`, ...rest.map(l => `      |${l}`), '      |""".stripMargin'].join('\n');
 }
 
@@ -149,7 +152,9 @@ end ${name}
 export const workerPackageClause = (ref: ApiRef): string => {
   const parts = workerPackage(ref).split('.');
   const at = parts.indexOf('worker');
-  return `package ${parts.slice(0, at + 1).join('.')}\npackage ${parts.slice(at + 1).join('.')}`;
+  // a nested API: one line per level — what a level has (its base path) is visible without an import
+  const levels = apiParents(ref.api);
+  return [`package ${parts.slice(0, at + 1).join('.')}`, ...levels.map(l => `package ${l}`), `package ${parts.slice(at + 1 + levels.length).join('.')}`].join('\n');
 };
 
 /** What a mapping of the request can read: the fields of the In — of an ADT also those of its cases. */
@@ -171,6 +176,36 @@ function sure(t: Translated, what: string): string {
   return `${t.scala}.getOrElse(??? /* TODO ${what} ist optional */)`;
 }
 
+/** The path after `serviceBasePath`: a nested API has the start of it in its chain of base paths (see basePaths.ts). */
+function pathBelowBase(c: ServiceCollectionSpec, s: CollectionService): string {
+  const path = workerPath(c, s.path);
+  const chain = baseChain(c, apiOf(c, s));
+  const base = chain ? chainPath(chain) : '';
+  return base && (path === base || path.startsWith(`${base}/`)) ? path.slice(base.length) : path;
+}
+
+/** `Seq.empty` / `Map.empty` — what a required list or map is when the value is missing; null: no such default */
+const emptyOf = (f: Pick<Field, 'collection' | 'map'>): string | null => (f.map ? 'Map.empty' : f.collection ? 'Seq.empty' : null);
+
+/**
+ * `= clientKeys` with `clientKeys` a field of only some cases of an ADT In: case by case — a case
+ * without it gets a TODO instead of a silent `None` (its value would be lost). Null: no such mapping.
+ */
+function caseByCase(mapping: string, target: Field, vars: Map<string, ScalaVar>): string | null {
+  const plain = /^=\s*(?:in\.)?([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(mapping.trim());
+  const v = plain ? vars.get(plain[1]) : undefined;
+  if (!plain || !v?.byCase || Object.keys(v.byCase.own).length === v.byCase.cases.length) return null;
+  const name = plain[1];
+  const arms = v.byCase.cases.map(c => {
+    const own = v.byCase!.own[c];
+    if (!own) return `case _: ${c} => ??? /* TODO ${target.name}: ${c} hat kein Feld ${name} */`;
+    const value = target.optional ? (own.optional ? own.scala : `Some(${own.scala})`)
+      : own.optional ? `${own.scala}.getOrElse(${emptyOf(target) ?? `??? /* TODO ${target.name} ist im In optional */`})` : own.scala;
+    return `case v: ${c} => ${value}`;
+  });
+  return `(${v.byCase.at} match { ${arms.join('; ')} })`;
+}
+
 /** The parameters the worker sends — without those of the company's base (`/banks/{bankNumber}`). */
 function requestParams(c: ServiceCollectionSpec, s: CollectionService) {
   const fromBase = basePathParams(c, s);
@@ -185,7 +220,7 @@ const hasMember = (t: TypeDef | undefined, idx: TypeIndex): boolean =>
 function apiPath(c: ServiceCollectionSpec, s: CollectionService, inType: TypeDef | undefined): string {
   const vars = inVars(inType);
   const byName = new Map(requestParams(c, s).filter(p => p.in === 'path').map(p => [p.name, p]));
-  return workerPath(c, s.path).replace(/\{([^}]+)\}/g, (_, name: string) => {
+  return pathBelowBase(c, s).replace(/\{([^}]+)\}/g, (_, name: string) => {
     const p = byName.get(name);
     return p ? `\${${sure(feelToScala(p.expression, vars, c.types, { type: p.type }), `Pfad-Parameter ${name}`)}}` : `\${??? /* TODO Pfad-Parameter ${name} */}`;
   });
@@ -196,7 +231,7 @@ function apiPath(c: ServiceCollectionSpec, s: CollectionService, inType: TypeDef
  * with what Orch Spec knows: the method, the URI of the example, the mappers with the examples.
  * A skeleton for the developer: created once, then merged like the worker.
  */
-function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
+function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[], missing: MissingStep[] = []): string {
   const ref = apiOf(c, s);
   const pkg = collectionPackage(ref);
   const members = membersOf(c, s);
@@ -208,13 +243,16 @@ function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeInd
   // the URI of the example: the path with the values of `In.example` — a TODO stays one
   const uriPath = apiPath(c, s, inType);
   if (!uriPath.includes('???')) {
-    const expected = hasIn ? uriPath.replace(/\bin\./g, 'In.example.') : uriPath;
+    // a nested API: from the base of the project — the test checks the whole chain
+    const chain = baseChain(c, ref);
+    const full = chain ? `$${projectBaseVar(c.project)}${chainBelowProject(chain)}${uriPath}` : `$serviceBasePath${uriPath}`;
+    const expected = hasIn ? full.replace(/\bin\./g, 'In.example.') : full;
     if (!/\bin\b/.test(expected)) {
       tests.push([
         '  test("apiUri"):',
         '    assertEquals(',
         `      worker.apiUri(${ex(hasIn, 'In')}).toString,`,
-        `      s"$serviceBasePath${expected}"`,
+        `      s"${expected}"`,
         '    )',
       ].join('\n'));
     }
@@ -244,7 +282,55 @@ function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeInd
       ].join('\n'));
     }
   }
-  const imports = [...schemaImports, ...bodyImports(s, idx), `import ${pkg}.${s.name}.*`];
+  // an In with cases: the output mapper with each further case — the Out case of the same name, if there is one
+  const inCases = hasIn && inType?.kind === 'enum' ? (inType.values ?? []).filter(v => v.name) : [];
+  const outType = s.noOut ? undefined : members.out;
+  const outCases = hasOut && outType?.kind === 'enum' ? (outType.values ?? []).filter(v => v.name).map(v => v.name) : [];
+  const inExample = (name: string, minimal = false) => {
+    const v = inCases.find(x => x.name === name)!;
+    return (v.fields ?? []).length ? `In.${caseIdent(name)}.example${minimal ? 'Minimal' : ''}` : `In.${caseIdent(name)}`;
+  };
+  if (hasOut || s.serviceOut) {
+    for (const v of inCases.slice(1)) {
+      const out = outCases.includes(v.name) ? (outType!.values!.find(x => x.name === v.name)!.fields?.length ? `Out.${caseIdent(v.name)}.example` : `Out.${caseIdent(v.name)}`) : ex(hasOut, 'Out');
+      tests.push([
+        `  test("outputMapper ${v.name}"):`,
+        '    assertEquals(',
+        '      worker.outputMapper(',
+        '        ServiceOut.mock.toServiceResponse,',
+        `        ${inExample(v.name)}`,
+        '      ),',
+        `      Right(${out})`,
+        '    )',
+      ].join('\n'));
+    }
+  }
+  // a value the response may lack: with `mockMinimal` the output mapper fails with its message —
+  // the first step of the Out (or of an Out case that has an In case of the same name)
+  const failing: { name: string; in: string; step: MissingStep }[] = [];
+  const firstOf = (outCase?: string) => missing.find(m => m.outCase === outCase);
+  if (!outCases.length) {
+    const first = firstOf();
+    if (first?.fromBody) failing.push({ name: `outputMapper without ${first.field}`, in: ex(hasIn, 'In', true), step: first });
+  } else {
+    for (const oc of outCases) {
+      const first = firstOf(oc);
+      if (first?.fromBody && inCases.some(v => v.name === oc)) failing.push({ name: `outputMapper ${oc} without ${first.field}`, in: inExample(oc, true), step: first });
+    }
+  }
+  for (const f of failing) {
+    tests.push([
+      `  test(${JSON.stringify(f.name)}):`,
+      '    assertEquals(',
+      '      worker.outputMapper(',
+      '        ServiceOut.mockMinimal.toServiceResponse,',
+      `        ${f.in}`,
+      '      ),',
+      `      Left(ServiceMappingError(${JSON.stringify(f.step.message)}))`,
+      '    )',
+    ].join('\n'));
+  }
+  const imports = [...(failing.length ? ['import WorkerError.*', ''] : []), ...schemaImports, ...bodyImports(s, idx), `import ${pkg}.${s.name}.*`];
   return `${workerPackageClause(ref)}
 
 ${imports.join('\n')}
@@ -263,7 +349,17 @@ end ${s.name}WorkerTest
 /** `03-worker/src/test/scala/…/client/v1` — the tests next to the workers, in the test sources */
 const workerTestDir = (a: ApiRef): string => workerDir(a).replace('/src/main/', '/src/test/');
 
-function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): string {
+/** A step of the output mapper that fails with a message when the value is missing — for its test. */
+interface MissingStep {
+  /** the case of an ADT Out it belongs to — none: the Out is a class */
+  outCase?: string;
+  field: string;
+  message: string;
+  /** read from the body of the response (not from headers or the In) — `mockMinimal` lacks it */
+  fromBody: boolean;
+}
+
+function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[], missingOut: MissingStep[] = []): string {
   const ref = apiOf(c, s);
   const pkg = collectionPackage(ref);
   const members = membersOf(c, s);
@@ -327,8 +423,10 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
         const m = (s.bodyMappings ?? []).find(x => x.name === f.name)?.expression
           ?? (vars.has(f.name) ? `= ${f.name}` : '');
         if (!m) return `${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — kein Feld gleichen Namens im In */`}`;
+        const byCase = caseByCase(m, f, vars);
+        if (byCase) return `${scalaName(f.name)} = ${byCase}`;
         const v = forTarget(translate(m, f), !!f.optional);
-        return `${scalaName(f.name)} = ${v.needed ? `${v.scala}.getOrElse(??? /* TODO ${f.name} ist im In optional */)` : v.scala}`;
+        return `${scalaName(f.name)} = ${v.needed ? `${v.scala}.getOrElse(${emptyOf(f) ?? `??? /* TODO ${f.name} ist im In optional */`})` : v.scala}`;
       });
       value = `${bodyType.name}(\n${indent(args.join(',\n'), '        ')}\n      )`;
     } else {
@@ -349,15 +447,21 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     if (s.serviceOut) outVars.set('body', { scala: 'body', type: s.serviceOut.type, optional: !!s.serviceOut.optional, collection: !!s.serviceOut.collection });
     outVars.set('headers', { scala: 'headers', headers: s.responseHeaders ?? [] });
     // per field its value — a required one from an optional value is a step that fails with a message
-    const mapFields = (fields: Field[], expressionOf: (f: Field) => string) => {
+    const missing = missingOut;
+    const mapFields = (fields: Field[], expressionOf: (f: Field) => string, outCase?: string) => {
       const steps: string[] = [];
       const args: string[] = [];
       for (const f of fields.filter(x => isFinished(x, idx))) {
         const m = expressionOf(f);
         if (!m.trim()) { args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : `??? /* TODO ${f.name}: kein Mapping — aus body, headers oder dem In */`}`); continue; }
         const v = forTarget(feelToScala(m, outVars, types, f), !!f.optional);
+        // a list (or map) that is missing is empty — no reason to fail
+        const empty = v.needed ? emptyOf(f) : null;
+        if (empty) { args.push(`${scalaName(f.name)} = ${v.scala}.getOrElse(${empty})`); continue; }
         if (v.needed) {
-          steps.push(`${scalaName(f.name)} <- ${v.scala}.toRight(ServiceMappingError(${JSON.stringify(`${s.name}: ${f.name} fehlt in der Antwort`)}))`);
+          const message = `${s.name}: ${f.name} fehlt in der Antwort`;
+          missing.push({ ...(outCase ? { outCase } : {}), field: f.name, message, fromBody: /^body\b/.test(v.scala) });
+          steps.push(`${scalaName(f.name)} <- ${v.scala}.toRight(ServiceMappingError(${JSON.stringify(message)}))`);
           args.push(`${scalaName(f.name)} = ${scalaName(f.name)}`);
         } else args.push(`${scalaName(f.name)} = ${v.scala}`);
       }
@@ -373,7 +477,7 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
       ? caseChain(
         cases.map((c, i) => {
           const oc = outCaseOf(s.outCases, c.name);
-          const m = mapFields(c.fields, f => outCaseMapping(oc, f.name));
+          const m = mapFields(c.fields, f => outCaseMapping(oc, f.name), c.name);
           const name = `Out.${caseIdent(c.name)}`;
           const value = m.args.length ? `${name}(\n${indent(m.args.join(',\n'), '  ')}\n)` : name;
           return {
@@ -435,7 +539,8 @@ end ${s.name}Worker
 function serviceBasePath(c: ServiceCollectionSpec, a: ApiRef): string {
   // as the project has it (`s"$basePath/…/banks/$bankNumber"`) — the Abgleich takes it over
   const own = c.serviceBasePaths?.[apiKey(a)]?.trim();
-  return own || defaultServiceBasePath(c);
+  const chain = baseChain(c, a);
+  return own || (chain ? chainServiceBasePath(chain) : defaultServiceBasePath(c));
 }
 
 /** `serviceBasePath` without an own expression: from the URL of the API and the base of the company */
@@ -481,8 +586,13 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
       path: `${wDir}/exports.scala`,
       content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c, a)}\n`,
     });
-    for (const s of own) out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types))) });
-    for (const s of own) out.push({ path: `${workerTestDir(a)}/${s.name}WorkerTest.scala`, content: workerTest(c, s, idx, schemaImports(typesOf(s, c.types))) });
+    const missing = new Map<string, MissingStep[]>();
+    for (const s of own) {
+      const steps: MissingStep[] = [];
+      out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types)), steps) });
+      missing.set(s.id, steps);
+    }
+    for (const s of own) out.push({ path: `${workerTestDir(a)}/${s.name}WorkerTest.scala`, content: workerTest(c, s, idx, schemaImports(typesOf(s, c.types)), missing.get(s.id) ?? []) });
   }
   // the types: in the schema of their API, or of the level the APIs share
   const files = new Map<string, ScalaFile[]>();
@@ -501,7 +611,8 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
     });
     files.set(h.pkg, list);
   }
-  return orderFiles(out, files);
+  // the base paths of the project and the levels of nested APIs — created once
+  return [...orderFiles(out, files), ...chainFiles(c, apis)];
 }
 
 /** The schema files right after the domain files of their API (before its worker) — shared ones at the end. */

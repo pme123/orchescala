@@ -54,7 +54,8 @@ export interface TypeIndex {
   /** Catalog type behind a `dom:` reference */
   domainOf: (typeRef: string) => DomainType | null;
   /** Example value from the domain for the field (`clientKey` → `defaultClientKey`) — only with a matching type */
-  defaultOf: (f: Field) => DomainDefault | null;
+  /** `asText`: the default has another type, the field is a `String` — `defaultClientKey.toString` */
+  defaultOf: (f: Field) => (DomainDefault & { asText?: boolean }) | null;
   /** Classes of the data model that already exist in another domain — per TypeDef id (see `referencedClass`) */
   referenced: Map<string, DomainType>;
   /** Package of the own project (`acme.product`) */
@@ -164,11 +165,15 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     .filter(d => !roots || isAutoImported(d.pkg) || seesPackage(model, roots, d.pkg))
     .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
   const defaults = ranked.filter(d => d.type);
-  const defaultOf = (f: Field): DomainDefault | null => {
+  const defaultOf = (f: Field): (DomainDefault & { asText?: boolean }) | null => {
     if (!f.name?.trim() || f.enumCase) return null;
     const name = `default${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
     const wanted = typeKey(f.constraint?.trim() ? `${nameOf(f.type)} :| ${f.constraint.trim()}` : nameOf(f.type));
-    return defaults.find(d => d.name === name && typeKey(d.type!) === wanted) ?? null;
+    const exact = defaults.find(d => d.name === name && typeKey(d.type!) === wanted);
+    if (exact) return exact;
+    // a text field and a default of another simple type (`defaultClientKey: Long`): as its text
+    const asText = wanted === 'String' ? defaults.find(d => d.name === name && isScalar(d.type!)) : undefined;
+    return asText ? { ...asText, asText: true } : null;
   };
   return {
     byId,
@@ -519,7 +524,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   }
   // `clientKey = defaultClientKey` — as the projects do by hand
   const fromDomain = idx.defaultOf(f);
-  if (fromDomain) return fromDomain.name;
+  if (fromDomain) return fromDomain.asText ? `${fromDomain.name}.toString` : fromDomain.name;
   // a simple enum from the catalog does not always have an example — its first case
   const domEnum = idx.domainOf(f.type);
   if (domEnum && isSimpleEnum(f.type, idx) && domEnum.values?.length) return `${domEnum.name}.${caseIdent(domEnum.values[0])}`;
@@ -547,7 +552,7 @@ function descriptionLine(text: string): string {
   if (!clean.includes('\n')) return `@description(${scalaKey(clean)})`;
   // the first line stands after `"""`, the others with `|` below it — in
   // `"""…"""` nothing is escaped
-  const [first, ...rest] = clean.split('\n');
+  const [first, ...rest] = clean.split('\n').map(l => l.trimEnd());
   const lines = rest.map(l => `  |${tripleText(l, clean)}`).join('\n');
   return `@description(\n  ${tripleOpen(clean)}${tripleText(first, clean)}\n${lines ? `${lines}\n` : ''}  |""".stripMargin\n)`;
 }
