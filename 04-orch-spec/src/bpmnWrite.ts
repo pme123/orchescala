@@ -21,7 +21,7 @@
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
 import { C8_LABEL } from './engineLabels.ts';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
-import { juelOptions, multiInstanceScopes, namesWrittenInside, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
+import { juelOptions, mappingTarget, multiInstanceScopes, namesWrittenInside, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
 import { catalogEntry } from './interactions.ts';
 import { engineExpression, feelBody, feelToGroovy, feelToJuel, iterableJuel, type JuelOptions } from './feelJuel.ts';
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
@@ -76,9 +76,10 @@ const unchanged = (p: Element, m: Mapping, opts: JuelOptions = juelOpts): boolea
 const SPIN_ENDING = /\.(?:stringValue|numberValue|boolValue|value|elementList)\(\)/g;
 /**
  * A Spin path that only lacks its end (`….prop("clientKey")` instead of
- * `….prop("clientKey").numberValue()`) — written when the type was not yet
- * known. Otherwise equal, so write it anew; whatever someone wrote differently
- * by hand stays.
+ * `….prop("clientKey").numberValue()`) or the checks of an optional field
+ * (`(….hasProp("clientKey") && … ? … : null)`) — written when the type was not yet
+ * known or the field was still required. Otherwise equal, so write it anew; whatever
+ * someone wrote differently by hand (an own condition, another path) stays.
  */
 function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOpts): boolean {
   const body = feelBody(expression);
@@ -88,7 +89,11 @@ function lacksEnding(old: string, expression: string, opts: JuelOptions = juelOp
   const was = old.trim().replace(/^[$#]\{|\}$/g, '').replace(/\s+/g, '');
   const now = r.juel.replace(/\s+/g, '');
   const count = (t: string) => (t.match(SPIN_ENDING) ?? []).length;
-  return was !== now && was.replace(SPIN_ENDING, '') === now.replace(SPIN_ENDING, '') && count(now) > count(was);
+  const lacks = (to: string) => was.replace(SPIN_ENDING, '') === to.replace(SPIN_ENDING, '') && count(to) > count(was);
+  // the old row with or without the checks an optional field now gets
+  // (`(….hasProp("x") && … ? ….stringValue() : null)`)
+  const value = r.value?.replace(/\s+/g, '');
+  return was !== now && (lacks(now) || (!!value && (was === value || lacks(value))));
 }
 
 /**
@@ -130,6 +135,12 @@ let outputOpts: (stepId: string) => JuelOptions = () => juelOpts;
  * its path would end without `boolValue()` & co. (as in the findings, see withMultiInstance)
  */
 let inputOpts: (stepId: string) => JuelOptions = () => juelOpts;
+/**
+ * The options for one mapping row: plus what its target field expects — so a
+ * Spin path of unknown type still ends right (`docId: String` → `stringValue()`).
+ */
+const stepOpts = (stepId: string, tag: 'in' | 'out'): JuelOptions => tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+let rowOpts: (stepId: string, tag: 'in' | 'out', name: string) => JuelOptions = stepOpts;
 
 export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = null): WriteResult {
   juelOpts = juelOptions(spec, model);
@@ -150,12 +161,25 @@ export function writeBpmn(xml: string, spec: ProcessSpec, model: Model | null = 
     if (!o) cache.set(stepId, o = { ...juelOpts, vars: withMultiInstance(resultVariables(step, spec, model, catalogEntry(step, model)), scopes.get(stepId)) });
     return o;
   };
+  const rowCache = new Map<string, JuelOptions>();
+  rowOpts = (stepId, tag, name) => {
+    const key = `${stepId}\u0000${tag}\u0000${name.trim()}`;
+    let o = rowCache.get(key);
+    if (!o) {
+      const base = stepOpts(stepId, tag);
+      const step = steps.get(stepId);
+      const target = step ? mappingTarget(step, spec, model, tag, name.trim(), juelOpts.vars) : null;
+      rowCache.set(key, o = target ? { ...base, target } : base);
+    }
+    return o;
+  };
   try {
     return writeBpmnWith(xml, spec, model);
   } finally {
     juelOpts = {};
     outputOpts = () => juelOpts;
     inputOpts = () => juelOpts;
+    rowOpts = stepOpts;
   }
 }
 
@@ -1062,7 +1086,7 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (TECHNICAL.has(name)) continue;
     const tag = local(p) === 'inputParameter' ? 'in' : 'out';
     const row = (tag === 'in' ? ins : outs).find(m => m.name.trim() === name);
-    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, tag === 'in' ? inputOpts(stepId) : outputOpts(stepId)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
+    if (row && !keep.has(`${tag}:${name}`) && (unchanged(p, row, rowOpts(stepId, tag, name)) || (isComplex(p) && (isScript(row) || feelBody(row.expression) == null)))) {
       keep.add(`${tag}:${name}`);
       continue;
     }
@@ -1077,14 +1101,14 @@ function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mappi
     if (keep.has(`in:${m.name.trim()}`) || scriptGone(m, `Eingabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:inputParameter');
     p.setAttribute('name', m.name.trim());
-    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true, inputOpts(stepId)));
+    setCamundaValue(doc, p, juelOf(m, stepId, `Eingabe «${m.name}»`, issues, true, rowOpts(stepId, 'in', m.name)));
     appendEl(io, p);
   }
   for (const m of outs) {
     if (keep.has(`out:${m.name.trim()}`) || scriptGone(m, `Ausgabe «${m.name}»`)) continue;
     const p = doc.createElementNS(CAMUNDA_NS, 'camunda:outputParameter');
     p.setAttribute('name', m.name.trim());
-    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true, outputOpts(stepId)));
+    setCamundaValue(doc, p, juelOf(m, stepId, `Ausgabe «${m.name}»`, issues, true, rowOpts(stepId, 'out', m.name)));
     appendEl(io, p);
   }
   if (!kids(io).length) removeEl(io);
@@ -1106,14 +1130,14 @@ function writeCamundaInOut(doc: Document, ext: Element, ins: Mapping[], outs: Ma
     if (n !== 'in' && n !== 'out') continue;
     if (attr(p, 'businessKey') || attr(p, 'variables')) continue;
     if (TECHNICAL.has(attr(p, 'target') ?? '') || TECHNICAL.has(attr(p, 'source') ?? '')) continue;
-    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, n === 'in' ? inputOpts(stepId) : outputOpts(stepId)));
+    const row = (n === 'in' ? ins : outs).find(m => !kept.has(m) && (attr(p, 'target') ?? attr(p, 'targetVariable')) === m.name.trim() && unchanged(p, m, rowOpts(stepId, n, m.name)));
     if (row) { kept.add(row); continue; }
     removeEl(p);
   }
   const put = (tag: 'in' | 'out', m: Mapping, where: string) => {
     if (kept.has(m)) return;
     const name = m.name.trim();
-    const opts = tag === 'in' ? inputOpts(stepId) : outputOpts(stepId);
+    const opts = rowOpts(stepId, tag, name);
     const existing = ioParam(tag, name);
     // a local variable in the `inputOutput`: unchanged it stays, a
     // script anyway; a changed text is replaced there — unless

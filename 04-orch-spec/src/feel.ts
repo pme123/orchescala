@@ -29,8 +29,8 @@ import { catalogEntry, initOutputs, interactionKind, interactionOrigin, loopSett
 import { packageOf } from './scala.ts';
 import { catalogObject, domainRef, parseDomainRef } from './serviceTypes.ts';
 import { allSteps, isInitWorker } from './bpmn.ts';
-import type { JuelOptions } from './feelJuel';
-import { ALL_VARIANTS, chosenVariant, variantsOf } from './variants.ts';
+import type { JuelOptions, JuelTarget } from './feelJuel';
+import { ALL_VARIANTS, chosenVariant, classFieldsOf, variantsOf } from './variants.ts';
 
 export type FeelType =
   | 'string' | 'number' | 'boolean' | 'date' | 'date time' | 'time' | 'duration'
@@ -639,6 +639,33 @@ export function expectedFromDomain(dom: DomainType | null, name: string, model: 
   // if the value is missing, the default applies — null is then allowed
   if (shape.optional || p.default?.trim()) accepts = [...accepts, 'nil'];
   return { accepts, label: p.type, kind, ...(values?.length ? { values } : {}) };
+}
+
+/** simple types a Spin path can end in (`stringValue()`, `numberValue()`, `boolValue()`) */
+const TARGET_TYPES: ReadonlySet<FeelType> = new Set(['string', 'number', 'boolean', 'date', 'date time', 'time', 'duration']);
+
+/**
+ * The target of a mapping as the JUEL export needs it (see `JuelOptions.target`):
+ * an input goes into the In of the service or the called process (own class or
+ * domain catalog), an output into a process variable. A scalar or a simple enum
+ * only — null otherwise.
+ */
+export function mappingTarget(step: Step, spec: ProcessSpec, model: Model | null, list: 'in' | 'out', name: string,
+  vars: readonly VarNode[] = processVariables(spec, model)): JuelTarget | null {
+  if (list === 'out') {
+    const v = vars.find(x => x.name === name);
+    return v && TARGET_TYPES.has(v.type) ? { type: v.type, optional: !!v.optional } : null;
+  }
+  if (isInitWorker(step, spec.processId ?? '')) return null;
+  const ia = (spec.interactions ?? []).find(i => i.stepId === step.id);
+  const own = ia?.inTypeId ? (spec.types ?? []).find(x => x.id === ia.inTypeId) : undefined;
+  const expected = ia?.inTypeId
+    ? (own ? expectedFor(classFieldsOf(own).find(f => f.name === name), spec.types ?? [], model) : null)
+    : expectedFromDomain(stepDomainMember(step, spec, model, 'In'), name, model);
+  if (!expected || (expected.kind !== 'scalar' && expected.kind !== 'enum')) return null;
+  // `LocalDate` accepts text and a date — both end in `stringValue()`
+  const type = expected.accepts.find(t => TARGET_TYPES.has(t));
+  return type ? { type, optional: expected.accepts.includes('nil') } : null;
 }
 
 /** Is the field required according to the domain catalog (not `Option[…]`)? null = field unknown. */
