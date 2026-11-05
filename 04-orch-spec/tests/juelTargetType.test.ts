@@ -102,13 +102,13 @@ test('mappingTarget: domain In, simple enum, own class, init worker, output', ()
 
 // ── Export ───────────────────────────────────────────────────────────────────
 
-const bpmn = (extensions: string) => `<?xml version="1.0" encoding="UTF-8"?>
+const bpmn = (extensions: string, loop = '') => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d" targetNamespace="x">
   <bpmn:process id="acme-demo-printV1" isExecutable="true">
     <bpmn:startEvent id="StartEvent"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:callActivity id="ArchiveCallActivity" name="Archive" calledElement="acme-demo-archive">
       <bpmn:extensionElements>${extensions}</bpmn:extensionElements>
-      <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>
+      <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>${loop}
     </bpmn:callActivity>
     <bpmn:endEvent id="EndEvent"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
     <bpmn:sequenceFlow id="f1" sourceRef="StartEvent" targetRef="ArchiveCallActivity"/>
@@ -119,8 +119,8 @@ const bpmn = (extensions: string) => `<?xml version="1.0" encoding="UTF-8"?>
 const xmlAttr = (s: string) => s.replace(/"/g, '&quot;').replace(/&&/g, '&amp;&amp;');
 const oldIn = (expr: string) => `<camunda:in sourceExpression="${xmlAttr(expr)}" target="docId" />`;
 
-const exported = (docId: string, existing = '', edit?: (spec: ProcessSpec, step: Step) => void) => {
-  const xml = bpmn(existing);
+const exported = (docId: string, existing = '', edit?: (spec: ProcessSpec, step: Step) => void, loop = '') => {
+  const xml = bpmn(existing, loop);
   const spec = importBpmn(xml, 'print').spec;
   const step = allSteps(spec.steps).find(s => s.id === 'ArchiveCallActivity')!;
   step.inputs = [{ name: 'docId', expression: '= printContent.content.docId' }];
@@ -158,13 +158,46 @@ test('export: an output takes the type of its process variable', () => {
 });
 
 test('export: an existing row that only lacks its end is written anew', () => {
+  // also a row that hands over the JSON node on purpose — it cannot be told apart from a missing end
   contains(exported('String', oldIn(`\${${PATH}}`)), `\${${PATH}.stringValue()}`);
   contains(exported('Option[String]', oldIn(`\${${PATH}}`)), `\${(${GUARD} ? ${PATH}.stringValue() : null)}`);
   // already guarded, only without the end
   contains(exported('Option[String]', oldIn(`\${(${GUARD} ? ${PATH} : null)}`)), `\${(${GUARD} ? ${PATH}.stringValue() : null)}`);
   // with the end, but without the checks — the field has become optional since
   contains(exported('Option[String]', oldIn(`\${${PATH}.stringValue()}`)), `\${(${GUARD} ? ${PATH}.stringValue() : null)}`);
-  // the JSON node on purpose is not told apart from a missing end — it gets the end too
+});
+
+test('export: a known optional source gets its checks, also in an older row without them', () => {
+  // printContent.content.docId described in the In of the process, docId optional
+  const described = (spec: ProcessSpec) => {
+    spec.types = [
+      { id: 't-root', name: 'In', kind: 'case', root: true, fields: [{ id: 'f1', name: 'printContent', type: 't-pc' }] },
+      { id: 't-pc', name: 'PrintContent', kind: 'case', fields: [{ id: 'f2', name: 'content', type: 't-c' }] },
+      { id: 't-c', name: 'Content', kind: 'case', fields: [{ id: 'f3', name: 'docId', type: 'String', optional: true }] },
+    ] as TypeDef[];
+  };
+  const guarded = `\${(${has('printContent.prop("content")', 'docId')} ? ${PATH}.stringValue() : null)}`;
+  contains(exported('String', '', described), guarded);
+  // the row is the unguarded form of the export — it would throw on a missing docId
+  contains(exported('String', oldIn(`\${${PATH}.stringValue()}`), described), guarded);
+});
+
+test('export: time targets, no simple type, multi-instance, a plain source and Camunda 8', () => {
+  assert.equal(juel('a.b', { type: 'time', optional: false }), 'a.prop("b").stringValue()');
+  assert.equal(juel('a.b', { type: 'date time', optional: false }), 'a.prop("b").stringValue()');
+  // a list or an unknown target: no end, no checks
+  assert.equal(juel('a.b', { type: 'list', optional: true }), 'a.prop("b")');
+  assert.equal(juel('a.b', { type: 'any', optional: true }), 'a.prop("b")');
+  // the element of a multi-instance is a local — checked without `execution.getVariable`
+  const mi = exported('Option[String]', '', (_spec, step) => {
+    step.inputs = [{ name: 'docId', expression: '= item.docId' }];
+    step.multiInstance = { ...step.multiInstance, collection: 'items', element: 'item' };
+  }, '<bpmn:multiInstanceLoopCharacteristics camunda:collection="items" camunda:elementVariable="item" />');
+  contains(mi, `sourceExpression="\${(item != null && ${has('item', 'docId')} ? item.prop("docId").stringValue() : null)}"`);
+  // a bare variable stays a `source` — the checks never go there
+  contains(exported('Option[String]', '', (_spec, step) => { step.inputs = [{ name: 'docId', expression: '= docId' }]; }), '<camunda:in target="docId" source="docId" />');
+  // Camunda 8 keeps FEEL — the target changes nothing
+  contains(exported('Option[String]', '', spec => { spec.engine = 'c8'; }), 'source="=printContent.content.docId"');
 });
 
 test('export: a correct or hand-written row stays literally', () => {
