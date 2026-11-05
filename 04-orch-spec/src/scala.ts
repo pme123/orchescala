@@ -701,6 +701,67 @@ export function inCodeOrder(common: Field[], own: Field[], order: string[] | und
 }
 
 /**
+ * The field that names the case: every case has it, fixed to its own case of the same
+ * simple enum (`useCase: PutUseCaseType.UpdatePrivateIndividual.type`). Null: there is none.
+ */
+function caseSwitch(cases: { name: string; fields: Field[] }[], idx: TypeIndex): { name: string; type: string; byCase: Map<string, string> } | null {
+  if (cases.length < 2 || cases.some(c => !c.fields.length)) return null;
+  for (const f of cases[0].fields) {
+    if (!f.enumCase || f.optional || f.collection || f.map || !isSimpleEnum(f.type, idx)) continue;
+    const byCase = new Map<string, string>();
+    for (const c of cases) {
+      const g = c.fields.find(x => x.name === f.name);
+      if (!g?.enumCase || g.type !== f.type || g.optional || g.collection || g.map) break;
+      byCase.set(c.name, caseName(g.enumCase));
+    }
+    if (byCase.size === cases.length && new Set(byCase.values()).size === cases.length) return { name: f.name, type: f.type, byCase };
+  }
+  return null;
+}
+
+/** The values of a simple enum — own or from the catalog; null: not known. */
+function enumValues(typeRef: string, idx: TypeIndex): string[] | null {
+  const own = idx.byId.get(typeRef);
+  if (own) return (own.values ?? []).map(v => caseName(v.name)).filter(Boolean);
+  const dom = idx.domainOf(typeRef) as { values?: unknown } | undefined;
+  return Array.isArray(dom?.values) ? dom.values.map(v => caseName(String(typeof v === 'string' ? v : (v as { name?: string }).name ?? ''))) : null;
+}
+
+/**
+ * The decoder of an ADT: the JSON names no case. If a field names it (see caseSwitch) the decoder
+ * reads it; otherwise it tries the cases — those that need more first, a case without fields last.
+ */
+function adtDecoder(t: TypeDef, cases: { name: string; fields: Field[] }[], idx: TypeIndex): string {
+  const read = (c: { name: string; fields: Field[] }) =>
+    c.fields.length ? `customDecodeAccumulating[${t.name}.${caseIdent(c.name)}](c)` : `Right(${t.name}.${caseIdent(c.name)})`;
+  const head = `  private lazy val decoder: InOutDecoder[${t.name}] = (c: HCursor) =>`;
+  if (!cases.length) return `${head}\n    ??? /* TODO ${t.name} hat noch keine Fälle */`;
+  const required = (c: { fields: Field[] }) => c.fields.filter(f => !f.optional && !f.default?.trim()).length;
+  const tryAll = (indentBy: string) => {
+    const order = [...cases].sort((a, b) => Number(!a.fields.length) - Number(!b.fields.length) || required(b) - required(a));
+    return [read(order[0]), ...order.slice(1).map(c => `  .orElse(${read(c)})`)].map(l => indentBy + l).join('\n');
+  };
+  const sw = caseSwitch(cases, idx);
+  if (!sw) {
+    return [
+      head,
+      '    // TODO the JSON names no case: the first case that reads it wins — choose it by a field if one decides',
+      tryAll('    '),
+    ].join('\n');
+  }
+  const swType = idx.nameOf(sw.type);
+  const values = enumValues(sw.type, idx);
+  const complete = !!values && values.every(v => [...sw.byCase.values()].includes(v));
+  return [
+    head,
+    `    c.downField(${scalaKey(sw.name)}).as[${swType}].flatMap:`,
+    ...cases.map(c => `      case ${swType}.${caseIdent(sw.byCase.get(c.name)!)} => ${read(c)}`),
+    // a value of the switch no case has — or values not known: the cases are tried
+    ...(complete ? [] : ['      case _ =>', tryAll('        ')]),
+  ].join('\n');
+}
+
+/**
  * Choice with fields per case — like `enum In` of the depot domain: each case
  * a class, the companion with an `example` per case and one for the type.
  */
@@ -744,7 +805,11 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     '',
     `object ${t.name}:`,
     `  given ApiSchema[${t.name}]  = deriveApiSchema`,
-    `  given InOutCodec[${t.name}] = deriveInOutCodec`,
+    // the JSON names no case (no discriminator): an own decoder chooses it, with the decoders of the cases
+    `  given InOutCodec[${t.name}] = CirceCodec.from(decoder, deriveInOutEncoder)`,
+    ...cases.filter(v => fieldsOf(v).length).map(v => `  given InOutDecoder[${t.name}.${caseIdent(v.name)}] = deriveInOutDecoder`),
+    '',
+    adtDecoder(t, cases.map(v => ({ name: v.name, fields: fieldsOf(v) })), idx),
     ...(companions.length ? ['', companions.join('\n\n')] : []),
     '',
     // typed with the enum: the example of a case is typed with the case (for `.copy`) — as the
