@@ -12,13 +12,18 @@ import orchescala.orchspec.Lcs
 final case class PageChange(kind: PageChange.Kind, key: Option[BlockKey], label: String, detail: Option[String])
 
 object PageChange:
-  enum Kind:
-    case added, removed, changed, moved, page
+  /** `wire`: the name in the JSON - `PageChange.kind` of orch-spec (`core.ts`). */
+  enum Kind(val wire: String):
+    case added   extends Kind("added")
+    case removed extends Kind("removed")
+    case changed extends Kind("changed")
+    case moved   extends Kind("moved")
+    case page    extends Kind("page")
 
   /** Without the fields that are not there - orch-spec reads them as `undefined`. */
   given Encoder[PageChange] = c =>
     Json.fromFields(
-      Seq("kind" -> Json.fromString(c.kind.toString)) ++
+      Seq("kind" -> Json.fromString(c.kind.wire)) ++
         c.key.map("key" -> Json.fromString(_)) ++
         Seq("label" -> Json.fromString(c.label)) ++
         c.detail.map("detail" -> Json.fromString(_))
@@ -33,6 +38,12 @@ end PageChange
   * Content is compared as JSON text, the keys in their order - as orch-spec did with `JSON.stringify`.
   * The same block with its keys in another order counts as changed, the same state as a change of
   * the page. orch-spec and the platform write pages in one order, so this is no difference in practice.
+  *
+  * The pairing is a heuristic, taken over unchanged from orch-spec (the RE has seen it since the AI
+  * mode): a block with the same type and title has changed; else one at the same key; else - if it
+  * is the only one of its type left on both sides - that one (a button with a new label after an
+  * insert before it). It reads «changed» where «removed» and «added» would be exact, on purpose: the
+  * RE sees one change instead of two.
   */
 object PageDiff:
   import PageChange.Kind

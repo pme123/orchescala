@@ -22,6 +22,13 @@ abstract class StudioServer extends ZIOAppDefault:
   def routes: Routes[Any, Response] = companyRoutes ++ SpecRoutes.routes ++ SiteRoutes(config.site).routes
 
   def run: ZIO[Any, Throwable, Unit] =
+    // the settings come from the environment (withEnv) - a wrong one ends the start with one line
+    // that names it, not with a stack trace
+    ZIO.attempt(config)
+      .tapError(e => ZIO.logError(s"Orch Studio does not start - the settings: ${Option(e.getMessage).getOrElse(e.toString)}"))
+      .flatMap(serve)
+
+  private def serve(config: StudioConfig): ZIO[Any, Throwable, Unit] =
     val url = s"http://${config.host}:${config.port}"
     val start =
       for

@@ -29,6 +29,10 @@ object SpecRoutes:
   val maxBlocks: Int = 500
   /** Levels of JSON - a page has about 10; deeper ones could overflow the stack of what reads them. */
   val maxDepth: Int = 64
+  /** Diffs at the same time - more wait, so a burst of big ones cannot take all threads. */
+  val maxParallel: Int = 4
+
+  private val running = Unsafe.unsafe(implicit u => Semaphore.unsafe.make(maxParallel.toLong))
 
   def routes: Routes[Any, Response] =
     Routes(
@@ -38,17 +42,27 @@ object SpecRoutes:
   private def pageDiff(req: Request): UIO[Response] =
     if req.header(Header.ContentLength).exists(_.length > maxBody) then ZIO.succeed(tooLarge)
     else
-      req.body.asString.foldZIO(
+      req.body.asArray.foldZIO(
         e => ZIO.succeed(badRequest(s"the body cannot be read: ${Option(e.getMessage).getOrElse(e.toString)}")),
-        body =>
-          if body.length > maxBody then ZIO.succeed(tooLarge)
+        bytes =>
+          // bytes, not characters - the server reads no more than maxBody anyway (serverConfig)
+          if bytes.length > maxBody then ZIO.succeed(tooLarge)
           else
             // anything else than an Either is a bug - a 500 with the cause in the log, never a defect
-            ZIO.attemptBlocking(diff(body)).foldCauseZIO(
+            running.withPermit(ZIO.attemptBlocking(utf8(bytes).flatMap(diff))).foldCauseZIO(
               cause => ZIO.logWarningCause("POST /spec/pages/diff failed", cause).as(Response.status(Status.InternalServerError)),
               result => ZIO.succeed(result.fold(badRequest, json => Response.json(json.noSpaces)))
             )
       )
+
+  /** The body as text - bytes that are no UTF-8 are an error, not replaced. */
+  private def utf8(bytes: Array[Byte]): Either[String, String] =
+    scala.util.Try(
+      java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        .decode(java.nio.ByteBuffer.wrap(bytes)).toString
+    ).toEither.left.map(_ => "the body is no UTF-8")
 
   /** The body `{"before": …, "after": …}` - the differences as JSON, or why not. */
   def diff(body: String): Either[String, Json] =

@@ -88,6 +88,21 @@ object SpecRoutesSpec extends ZIOSpecDefault:
       yield assertTrue(big.forall(_ == 413), normal.statusCode() == 200))
         .provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding("localhost", 0))))
     ,
+    test("bytes that are no UTF-8 - 400"):
+      for
+        r <- SpecRoutes.routes.runZIO(Request.post(URL(Path.decode("/spec/pages/diff")),
+               Body.fromArray(Array[Byte]('{'.toByte, 0xC3.toByte, 0x28.toByte, '}'.toByte))))
+        b <- r.body.asString
+      yield assertTrue(r.status == Status.BadRequest, b.contains("no UTF-8"))
+    ,
+    test("umlauts count as bytes: a body of maxBody characters with umlauts is too large"):
+      for r <- post("ä" * (SpecRoutes.maxBody / 2 + 1))
+      yield assertTrue(r.status == Status.RequestEntityTooLarge)
+    ,
+    test("more diffs at once than maxParallel - all answered"):
+      for rs <- ZIO.foreachPar(1 to SpecRoutes.maxParallel * 3)(_ => post(s"""{"before":$book,"after":$edited}"""))
+      yield assertTrue(rs.forall(_.status == Status.Ok))
+    ,
     test("a STUDIO_PORT that is no port - an error that names it"):
       val error = scala.util.Try(StudioConfig().withEnv(Map("STUDIO_PORT" -> "88a0"))).failed.toOption.map(_.getMessage)
       assertTrue(error.exists(_.contains("STUDIO_PORT")), StudioConfig().withEnv(Map("STUDIO_PORT" -> "9001")).port == 9001)
