@@ -696,9 +696,15 @@ class SpecMergeTest extends FunSuite:
         "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala",
         "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v2/GetPersonsWorkerTest.scala"
       ))
-      // the WorkerApp: a worker of the same name is registered once only (see OrchSpecRegistration.register)
+      // the WorkerApp: each version in its own block - the same worker name, another package
       val app = os.read(project / workerAppRel)
-      assert(app.contains("private lazy val naturalPersonsV1Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v1.*"), app)
+      for v <- Seq(1, 2) do
+        assert(
+          app.contains(
+            s"private lazy val naturalPersonsV${v}Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v$v.*\n    Seq(\n      GetPersonsWorker(),"
+          ),
+          app
+        )
 
   test("services: a worker test without its worker - the test in the test sources, nothing registered for it"):
     inProject: project =>
