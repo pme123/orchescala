@@ -142,6 +142,11 @@ class C8ProcessInstanceService(
           )(err))
   end setCorrelationVariable
 
+  /** The `businessKey` is the instance's business id (C8 8.9): it shows in Operate, can be searched
+    * there and goes on to the instances of its call activities. It stays a variable too - the BPMNs
+    * correlate their messages with `=businessKey` and the workers read it, a job carries no
+    * business id (8.9).
+    */
   private def callStartProcessAsync(
       processDefId: String,
       businessKey: Option[String],
@@ -158,7 +163,7 @@ class C8ProcessInstanceService(
           "processDefinitionId" -> processDefId.asJson, // latest version
           "variables"           -> variables,
           "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
-        )
+        ).deepMerge(businessKey.fold(Json.obj())(bk => Json.obj("businessId" -> bk.asJson)))
       )
       .mapError(withContext(s"Problem starting Process '$processDefId'"))
   end callStartProcessAsync
@@ -280,6 +285,9 @@ class C8ProcessInstanceService(
     * this message with that key gets it (e.g. the event subprocess of «Einmalige Ausführung») -
     * that is no start, answered with 409 (see `ensureStarted`). A process without such a waiting
     * event starts a new instance - as before, and as in C7 (see `correlateWithBusinessKey`).
+    *
+    * A message cannot set the business id of the instance it starts (8.9) - the `businessKey` is
+    * only its variable and correlation key.
     *
     * Landed in a running instance, the message's variables are merged into it - as in C7 with the
     * variables of a correlated message. A process with the pattern can restrict that with output
