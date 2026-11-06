@@ -9,13 +9,14 @@ import orchescala.worker.*
 import zio.*
 import zio.test.*
 
-/** The InitWorker puts `processInstanceId` into the process variables - only if `C8_REST_IT` is
-  * set (and `C8_GRPC_IT`, default `http://localhost:26500`), e.g. a local c8run:
+/** The own process instance in FEEL is `camunda.processInstance.key` (Camunda 8.10) - the InitWorker
+  * does not set a variable `processInstanceId`. Only if `C8_REST_IT` is set (and `C8_GRPC_IT`,
+  * default `http://localhost:26500`), e.g. a local c8run 8.10:
   * {{{
-  * C8_REST_IT=http://localhost:8181 sbt "workerC8/testOnly orchescala.worker.c8.C8ProcessInstanceIdIntegrationTest"
+  * C8_REST_IT=http://localhost:8181 sbt "workerC8/testOnly orchescala.worker.c8.C8ProcessInstanceKeyIntegrationTest"
   * }}}
   */
-object C8ProcessInstanceIdIntegrationTest extends ZIOSpecDefault:
+object C8ProcessInstanceKeyIntegrationTest extends ZIOSpecDefault:
 
   private val processId = "orchescala-it-process-instance-key"
 
@@ -30,7 +31,11 @@ object C8ProcessInstanceIdIntegrationTest extends ZIOSpecDefault:
        |    <bpmn:serviceTask id="init">
        |      <bpmn:extensionElements><zeebe:taskDefinition type="$processId" retries="1"/></bpmn:extensionElements>
        |    </bpmn:serviceTask>
-       |    <bpmn:sequenceFlow id="f2" sourceRef="init" targetRef="end"/>
+       |    <bpmn:sequenceFlow id="f2" sourceRef="init" targetRef="key"/>
+       |    <bpmn:scriptTask id="key">
+       |      <bpmn:extensionElements><zeebe:script expression="=string(camunda.processInstance.key)" resultVariable="ownKey"/></bpmn:extensionElements>
+       |    </bpmn:scriptTask>
+       |    <bpmn:sequenceFlow id="f3" sourceRef="key" targetRef="end"/>
        |    <bpmn:endEvent id="end"/>
        |  </bpmn:process>
        |</bpmn:definitions>""".stripMargin
@@ -46,8 +51,8 @@ object C8ProcessInstanceIdIntegrationTest extends ZIOSpecDefault:
     override protected def customInit(in: NoInput): NoInput = NoInput()
   end InitKeyWorker
 
-  /** Starts the process and returns its key and its variable `processInstanceId` once completed. */
-  private def run(variables: JsonObject): ZIO[Scope, Throwable, (String, Option[Json])] =
+  /** Starts the process and returns its key and its variables once completed. */
+  private def run(variables: JsonObject): ZIO[Scope, Throwable, (String, Map[String, Option[Json]])] =
     val restAddress = sys.env("C8_REST_IT")
     val grpcAddress = sys.env.getOrElse("C8_GRPC_IT", "http://localhost:26500")
     given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
@@ -71,23 +76,28 @@ object C8ProcessInstanceIdIntegrationTest extends ZIOSpecDefault:
                       EngineError.ProcessError("not yet completed")
                     )
                     .retry(Schedule.spaced(2.seconds) && Schedule.recurs(30))
-      variable <- engine.historicVariableService
-                    .getVariables(Some("processInstanceId"), Some(started.processInstanceId), None)
-                    .filterOrFail(_.nonEmpty)(EngineError.ProcessError("no processInstanceId yet"))
+      vars     <- engine.historicVariableService
+                    .getVariables(None, Some(started.processInstanceId), None)
+                    .filterOrFail(_.exists(_.name == "ownKey"))(EngineError.ProcessError("no ownKey yet"))
                     .retry(Schedule.spaced(2.seconds) && Schedule.recurs(15))
-    yield started.processInstanceId -> variable.head.value
+    yield started.processInstanceId -> vars.map(v => v.name -> v.value).toMap
     end for
   end run
 
-  def spec = suite("C8 processInstanceId against a real cluster")(
-    test("the InitWorker sets the key of the process instance - as a String") {
-      for (key, variable) <- run(JsonObject())
-      yield assertTrue(variable.contains(Json.fromString(key)))
+  def spec = suite("C8 own process instance against a real cluster")(
+    test("FEEL has the own key - camunda.processInstance.key, a number made a String") {
+      for (key, vars) <- run(JsonObject())
+      yield assertTrue(vars.get("ownKey").flatten.contains(Json.fromString(key)))
     },
-    test("an id from outside is overwritten - always the own one, like execution.processInstanceId in C7") {
-      for (key, variable) <- run(JsonObject("processInstanceId" -> Json.fromString("outside-id")))
-      yield assertTrue(variable.contains(Json.fromString(key)))
+    test("the InitWorker sets no processInstanceId - one from outside stays as it is") {
+      for
+        (_, without) <- run(JsonObject())
+        (_, outside) <- run(JsonObject("processInstanceId" -> Json.fromString("outside-id")))
+      yield assertTrue(
+        !without.contains("processInstanceId"),
+        outside.get("processInstanceId").flatten.contains(Json.fromString("outside-id"))
+      )
     }
   ) @@ TestAspect.sequential @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@
     TestAspect.timeout(3.minutes)
-end C8ProcessInstanceIdIntegrationTest
+end C8ProcessInstanceKeyIntegrationTest

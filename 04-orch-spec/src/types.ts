@@ -285,6 +285,11 @@ export interface PatternParam {
    * not missed there (the other engine has it otherwise, e.g. at runtime). Without (or empty): both.
    */
   engines?: EngineId[];
+  /**
+   * The characters a value may have (a regular expression for the whole value) - a value that
+   * would break the BPMN (JUEL or FEEL around it) is refused on insertion.
+   */
+  valuePattern?: string;
   [key: string]: unknown;
 }
 

@@ -2146,7 +2146,7 @@ function CorrelationChoice({ corr, engine, isDark, disabled, onChoose }: {
       {corr.misnamed && (
         <p className={`text-[10px] flex items-start gap-1 ${err}`}>
           <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-          <span><span className="font-mono">processInstanceKey</span> ist der alte Name — der InitWorker setzt heute <span className="font-mono">processInstanceId</span>. So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
+          <span><span className="font-mono">{corr.expression?.replace(/^=\s*/, '')}</span> setzt der InitWorker nicht mehr — die eigene Instanz ist <span className="font-mono">camunda.processInstance.key</span> ({C8_LABEL} ab 8.10). So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
         </p>
       )}
       {corr.fixed && (

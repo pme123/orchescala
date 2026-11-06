@@ -230,7 +230,7 @@ export const TECHNICAL = new Set([
 /**
  * The general variables of Orchescala (`GeneralVariables`): every worker
  * accepts them, they may be overridden in any step — e.g.
- * `_idempotentId = processInstanceId`. Hence no extension of the catalog,
+ * `_idempotentId = string(camunda.processInstance.key)`. Hence no extension of the catalog,
  * even though they are not in the service's In.
  * `_identityCorrelationPending` is deliberately missing: only the engine sets it.
  */

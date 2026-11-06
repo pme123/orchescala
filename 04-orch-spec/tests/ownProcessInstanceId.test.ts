@@ -1,11 +1,11 @@
-// The own processInstanceId in Camunda 8 — and signal names with an ID in them.
+// The own process instance in Camunda 8 (camunda.processInstance.key, 8.10) — and signal names with an ID in them.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn } from '../src/bpmn';
 import { convertBpmn } from '../src/engineConvert';
-import { collectFindings } from '../src/findings';
-import type { ProcessSpec } from '../src/types';
+import { feelToJuel } from '../src/feelJuel';
+import { juelToFeel } from '../src/juelFeel';
 import { installXmlNamespaces } from './xmlNamespaces';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -44,11 +44,28 @@ test('C7 -> C8 -> C7: a signal name with an expression becomes FEEL - and back J
   assert.equal(signalName(convertBpmn(c8, 'c7').xml), '${"acme-cancel-".concat(mainProcessInstanceId)}');
 });
 
-test('C8: the InitWorker reading processInstanceId at its own task is reported - it is still empty there', () => {
-  const warningsOf = (spec: ProcessSpec) => collectFindings(spec, null, allSteps(spec.steps)).get('InitProcessTask')?.warnings ?? [];
+test('C7 -> C8: execution.processInstanceId becomes camunda.processInstance.key - there already at the InitWorker', () => {
   const c8 = importBpmn(convertBpmn(c7, 'c8').xml, 'escalation').spec;
   assert.equal(c8.engine, 'c8');
-  assert.ok(warningsOf(c8).some(w => w.includes('processInstanceId') && w.includes('leer')));
-  // in Camunda 7 execution.processInstanceId is already there
-  assert.ok(!warningsOf(importBpmn(c7, 'escalation').spec).some(w => w.includes('leer')));
+  const init = allSteps(c8.steps).find(s => s.id === 'InitProcessTask');
+  assert.equal(init?.inputs?.find(m => m.name === 'processInstanceId')?.expression.replace(/^=\s*/, ''), 'string(camunda.processInstance.key)');
+});
+
+test('JUEL <-> FEEL: the own instance - execution.processInstanceId and camunda.processInstance.key', () => {
+  const feel = juelToFeel('"acme-cancel-".concat(execution.processInstanceId)');
+  assert.ok(feel.ok && feel.feel.includes('string(camunda.processInstance.key)'), JSON.stringify(feel));
+  for (const [body, juel] of [
+    ['string(camunda.processInstance.key)', 'execution.processInstanceId'],
+    ['"cancel-" + string(camunda.processInstance.key)', '"cancel-".concat(execution.processInstanceId)'],
+    // in a text it stays text
+    ['"camunda.processInstance.key"', '"camunda.processInstance.key"'],
+  ]) {
+    const r = feelToJuel(body);
+    assert.ok(r.ok && r.juel.includes(juel), `${body}: ${JSON.stringify(r)}`);
+  }
+  // a path that only ends like it, or a longer name, is another variable - not the own instance
+  for (const body of ['order.camunda.processInstance.key', 'camunda.processInstance.keys']) {
+    const r = feelToJuel(body);
+    assert.ok(r.ok && !r.juel.includes('execution.processInstanceId'), `${body}: ${JSON.stringify(r)}`);
+  }
 });

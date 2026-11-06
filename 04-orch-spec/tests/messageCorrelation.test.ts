@@ -39,15 +39,18 @@ test('import: the correlation key of a waiting message - from zeebe:subscription
 
 test('one of the two ways is chosen - in C8 as the key of the message', () => {
   const step = (correlationKey?: string): Step => ({ id: 'E', kind: 'event', name: 'E', status: 'implemented', eventKind: 'message', eventDirection: 'catch', messageName: 'm', correlationKey });
-  assert.deepEqual(messageCorrelation(step('=processInstanceId'), 'c8'), { choice: 'processInstanceId', param: 'processInstanceId', value: '{{processInstanceId}}', expression: '=processInstanceId' });
+  assert.deepEqual(messageCorrelation(step('=string(camunda.processInstance.key)'), 'c8'), { choice: 'processInstanceId', param: 'processInstanceId', value: '{{processInstanceId}}', expression: '=string(camunda.processInstance.key)' });
+  assert.equal(messageCorrelation(step('= camunda.processInstance.key'), 'c8')?.choice, 'processInstanceId');
   assert.deepEqual(messageCorrelation(step('=businessKey'), 'c8'), { choice: 'businessKey', param: 'businessKey', value: '{{businessKey}}', expression: '=businessKey' });
   assert.equal(messageCorrelation(step(CORRELATION_KEY.processInstanceId), 'c8')?.choice, 'processInstanceId');
   // another expression from the diagram: neither of the two
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.choice, null);
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.value, '{{id}}');
-  // processInstanceKey is the old name — the InitWorker sets processInstanceId
-  assert.equal(messageCorrelation(step('=processInstanceKey'), 'c8')?.misnamed, true);
-  assert.equal(messageCorrelation(step('=processInstanceKey'), 'c8')?.choice, null);
+  // processInstanceId and the older processInstanceKey: no worker sets them in C8 any more
+  for (const old of ['=processInstanceId', '=processInstanceKey']) {
+    assert.equal(messageCorrelation(step(old), 'c8')?.misnamed, true, old);
+    assert.equal(messageCorrelation(step(old), 'c8')?.choice, null, old);
+  }
   assert.equal(messageCorrelation(step(), 'c8')?.missing, true);
   // Camunda 7: without a choice the sender takes one of the two — with a choice, that applies
   assert.equal(messageCorrelation(step(), 'c7')?.either, true);
@@ -61,8 +64,11 @@ test('C7 -> C8: the chosen key goes into the message - instead of the proposal',
   const spec = importBpmn(c7, 'kube').spec;
   const chosen = { ...spec, steps: spec.steps.map(s => (s.id === 'ResetEvent' ? { ...s, correlationKey: CORRELATION_KEY.processInstanceId } : s)) };
   const conv = convertBpmn(c7, 'c8', { correlationKeys: correlationKeysOf(chosen) });
-  assert.equal(reset(importBpmn(conv.xml, 'kube').spec).correlationKey, '=processInstanceId');
+  assert.equal(reset(importBpmn(conv.xml, 'kube').spec).correlationKey, '=string(camunda.processInstance.key)');
   assert.ok(!conv.issues.some(i => i.where === 'Nachricht'));
+  // an older choice from before Camunda 8.10 becomes the own key too
+  const older = { ...spec, steps: spec.steps.map(s => (s.id === 'ResetEvent' ? { ...s, correlationKey: '=processInstanceId' } : s)) };
+  assert.equal(reset(importBpmn(convertBpmn(c7, 'c8', { correlationKeys: correlationKeysOf(older) }).xml, 'kube').spec).correlationKey, '=string(camunda.processInstance.key)');
   // without a choice: the suggestion, reported
   const proposed = convertBpmn(c7, 'c8');
   assert.equal(reset(importBpmn(proposed.xml, 'kube').spec).correlationKey, '=businessKey');

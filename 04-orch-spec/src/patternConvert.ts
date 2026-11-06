@@ -11,7 +11,7 @@
 // So no old form stays beside the new one (C8 output mappings would otherwise become C7 output
 // parameters next to the pattern's listeners).
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
-import { applyPattern, detectPatterns, fragmentFor, patternParams, resolvedDefaults, stripPatternItems, type PatternHit } from './patterns.ts';
+import { NO_DI, applyPattern, detectPatterns, fragmentFor, keepPositions, patternParams, resolvedDefaults, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
 import { paramForChecked, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -146,7 +146,8 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
     if (!again) { failed.set(i, { h, why: res.issues.join(' ') || 'nach dem Einsetzen nicht wiedererkannt' }); continue; }
     // what inserting says (a limitation on the engine, a kept correlation key) - not when it
     // found everything there already
-    if (res.changed) for (const text of res.issues) extra.push({ stepId, where: 'Pattern', text });
+    // (a diagram without shapes stays one - no note about that)
+    if (res.changed) for (const text of res.issues) if (text !== NO_DI) extra.push({ stepId, where: 'Pattern', text });
     const wanted = onTarget(def, paramsIn(h)), found = onTarget(def, again.params);
     if (!sameParams(wanted, found)) {
       const keys = Object.keys({ ...wanted, ...found }).filter(k => (wanted[k] ?? '') !== (found[k] ?? ''));
@@ -163,5 +164,7 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
       .map(p => `«${p.label ?? p.name}» ist «${paramView(h.params[p.name])}», nicht die Vorgabe «${paramView(defaults[p.name] ?? '')}»`);
     if (differs.length) extra.push({ stepId, where: 'Pattern', text: `«${def.name}»: ${differs.join(', ')} — auf ${engineLabel(target)} gibt es den Parameter nicht, beim Zurückwechseln gilt die Vorgabe.` });
   }
+  // a block taken out and inserted again (on the process) stays where it was
+  out = keepPositions(xml, out);
   return { result: { xml: out, issues: [...conv.issues, ...extra], changed: out !== xml }, failed, hits: strip.all.length };
 }

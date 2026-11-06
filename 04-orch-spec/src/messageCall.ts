@@ -5,8 +5,8 @@ import type { EngineId, ProcessSpec, Step } from './types';
 // The gateway takes `POST /message/{messageName}` with `businessKey` or
 // `processInstanceId` as query parameter — the two ways to correlate; at the
 // step one of them is chosen. For this Camunda 8 has the correlation key of the
-// message (`zeebe:subscription`): `=businessKey` or `=processInstanceId`
-// (the ID of the instance, set by the InitWorker) — the gateway gives it the
+// message (`zeebe:subscription`): `=businessKey` or `=string(camunda.processInstance.key)`
+// (the own instance, in FEEL from Camunda 8.10) — the gateway gives it the
 // `processInstanceId`, otherwise the `businessKey` (as in Camunda 7: the ID wins).
 // Camunda 7 correlates directly via one of the two; there the choice is only in
 // the specification (docs and the migration to Camunda 8).
@@ -16,8 +16,14 @@ export type CorrelationChoice = 'businessKey' | 'processInstanceId';
 /** The correlation key per choice — that is how it appears in the BPMN in Camunda 8 */
 export const CORRELATION_KEY: Record<CorrelationChoice, string> = {
   businessKey: '=businessKey',
-  processInstanceId: '=processInstanceId',
+  processInstanceId: '=string(camunda.processInstance.key)',
 };
+
+/** The own process instance in FEEL (Camunda 8.10) — with or without `string(…)` */
+const OWN_KEY = /^(string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)$/;
+
+/** The old variables of the InitWorker — in Camunda 8 no worker sets them any more */
+const OLD_ID = new Set(['processInstanceId', 'processInstanceKey']);
 
 export interface MessageCorrelation {
   /** one of the two ways — `null`: none chosen or another expression */
@@ -35,8 +41,9 @@ export interface MessageCorrelation {
   /** a fixed value instead of `= …` — all instances share it */
   fixed?: boolean;
   /**
-   * `= processInstanceKey` — the old name of the variable; today the InitWorker
-   * sets `processInstanceId` (engine-agnostic, like the gateway)
+   * Camunda 8 `= processInstanceId` (or the older `= processInstanceKey`) — the
+   * InitWorker no longer sets it: the key stays empty, the event an incident.
+   * The own instance is `camunda.processInstance.key`.
    */
   misnamed?: boolean;
 }
@@ -61,12 +68,18 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   if (!expression.trim().startsWith('=')) return { choice: null, param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
   if (body === 'businessKey') return of('businessKey');
-  if (body === 'processInstanceId') return of('processInstanceId');
-  if (body === 'processInstanceKey') return { ...of('processInstanceId'), choice: null, misnamed: true };
+  if (OWN_KEY.test(body)) return of('processInstanceId');
+  // Camunda 7 has no correlation key in the BPMN — an older choice stays a choice
+  if (body === 'processInstanceId' && (engine ?? 'c7') !== 'c8') return of('processInstanceId');
+  if (OLD_ID.has(body)) return { ...of('processInstanceId'), choice: null, misnamed: true };
   // another variable: its value is the key; otherwise an expression the sender computes
   const value = /^[A-Za-z_][\w.]*$/.test(body) ? `{{${body.split('.').pop()}}}` : `<${body}>`;
   return { choice: null, param: 'businessKey', value, expression };
 }
+
+/** A key as Camunda 8 needs it — an older choice `=processInstanceId` becomes the own key */
+const forC8 = (key: string): string =>
+  OLD_ID.has(key.trim().replace(/^=\s*/, '')) ? CORRELATION_KEY.processInstanceId : key.trim();
 
 /**
  * The chosen keys per step — for the migration to Camunda 8, which
@@ -76,10 +89,10 @@ export function correlationKeysOf(spec: Pick<ProcessSpec, 'steps'>): Record<stri
   const out: Record<string, string> = {};
   const walk = (steps: Step[]) => {
     for (const s of steps) {
-      if (waitsForMessage(s) && s.correlationKey?.trim()) out[s.id] = s.correlationKey.trim();
+      if (waitsForMessage(s) && s.correlationKey?.trim()) out[s.id] = forC8(s.correlationKey);
       // a message on the boundary waits too — its element is the boundary event
       for (const e of s.errors ?? []) {
-        if (e.eventKind === 'message' && e.boundaryId && e.correlationKey?.trim()) out[e.boundaryId] = e.correlationKey.trim();
+        if (e.eventKind === 'message' && e.boundaryId && e.correlationKey?.trim()) out[e.boundaryId] = forC8(e.correlationKey);
       }
       walk([...(s.children ?? []), ...(s.branches ?? []).flatMap(b => b.steps), ...(s.errors ?? []).flatMap(e => e.steps ?? [])]);
     }

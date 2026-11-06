@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, keepPositions, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -705,7 +705,7 @@ for (const engine of ['c7', 'c8'] as const) {
       assert.deepEqual(call.inputs, [
         ['eventKey', '="started"'],
         ['processDefinitionKey', '="acme-demoV1"'],
-        ['processInstanceId', '=processInstanceId'],
+        ['processInstanceId', '=string(camunda.processInstance.key)'],
       ]);
     }
     const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'send-process-event');
@@ -910,4 +910,114 @@ test('«Prozess-Event senden»: after the process ID changed it is still recogni
   assert.equal(new Map(eventCallOf(c7.xml, 'c7').inputs as Array<[string, string]>).get('processDefinitionKey'), '${execution.getProcessDefinition().getKey()}');
   const again = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
   assert.equal(new Map(eventCallOf(again.xml, 'c8').inputs as Array<[string, string]>).get('processDefinitionKey'), '="acme-otherV1"');
+});
+
+const cancel = STANDARD_PATTERNS.find(p => p.id === 'cancel-by-signal')!;
+// the quotes as text - the serializer may write them as &#34; or &quot;
+const signalNameOf = (xml: string) => /<bpmn:signal [^>]*name="([^"]*)"/.exec(xml)?.[1]?.replace(/&#34;|&quot;/g, '"');
+
+test('«Abbruch per Signal»: the signal is bound to the instance - C7 by its id, C8 by camunda.processInstance.key', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null);
+  const c8 = applyPattern(diagram('c8', 'task'), cancel, 'c8', null);
+  assert.equal(signalNameOf(c7.xml), 'cancel-${execution.processInstanceId}');
+  assert.equal(signalNameOf(c8.xml), '="cancel-" + string(camunda.processInstance.key)');
+  // another prefix - read back as the parameter
+  const own = applyPattern(diagram('c8', 'task'), cancel, 'c8', null, { signalPrefix: 'acme-cancel-' });
+  assert.equal(signalNameOf(own.xml), '="acme-cancel-" + string(camunda.processInstance.key)');
+  assert.deepEqual(detectPatterns(own.xml, STANDARD_PATTERNS, 'c8').hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'acme-cancel-']]);
+});
+
+test('«Abbruch per Signal» on C8 needs 8.10 - said when it is inserted there, not on C7', () => {
+  const c8 = applyPattern(diagram('c8', 'task'), cancel, 'c8', null);
+  assert.ok(c8.issues.some(i => i.startsWith(`«${cancel.name}»:`) && i.includes('8.10')), c8.issues.join('; '));
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null);
+  assert.ok(!c7.issues.some(i => i.startsWith(`«${cancel.name}»:`)), c7.issues.join('; '));
+});
+
+test('«Abbruch per Signal» with «Prozess-Status am Ende» on the normal end: the end «canceled» of the event sub process is not «Prozess-Status am Ende»', () => {
+  const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
+  for (const engine of ['c7', 'c8'] as const) {
+    const withEnd = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'succeeded' }).xml;
+    const xml = applyPattern(withEnd, cancel, engine, null).xml;
+    assert.deepEqual(detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]).sort(), [['cancel-by-signal', null], ['process-status', 'End']], engine);
+  }
+});
+
+test('«Abbruch per Signal» next to an ordinary embedded sub process: its end with «Prozess-Status am Ende» is still found', () => {
+  const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
+  const sub = `<bpmn:subProcess id="Sub"><bpmn:startEvent id="SubStart"><bpmn:outgoing>s1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:endEvent id="SubEnd"><bpmn:incoming>s1</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="s1" sourceRef="SubStart" targetRef="SubEnd" /></bpmn:subProcess>`;
+  for (const engine of ['c7', 'c8'] as const) {
+    const base = diagram(engine, 'task').replace('</bpmn:process>', `${sub}</bpmn:process>`);
+    const withStatus = applyPattern(base, status, engine, 'SubEnd', { processStatus: 'done' }).xml;
+    const xml = applyPattern(withStatus, cancel, engine, null).xml;
+    assert.deepEqual(detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]).sort(), [['cancel-by-signal', null], ['process-status', 'SubEnd']], engine);
+  }
+});
+
+test('«Abbruch per Signal»: a prefix that would break the signal name (JUEL / FEEL) is refused', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    for (const bad of ['a${b}', 'a"b', 'a\\b', 'a b']) {
+      const r = applyPattern(diagram(engine, 'task'), cancel, engine, null, { signalPrefix: bad });
+      assert.equal(r.xml, diagram(engine, 'task'), `${engine}: ${bad}`);
+      // (a quote or backslash in the C8 FEEL string is refused before - by its name)
+      assert.ok(r.issues.some(i => i.includes('Signal-Präfix') || i.includes('signalPrefix')), `${engine}: ${bad} - ${r.issues.join('; ')}`);
+    }
+    assert.equal(signalNameOf(applyPattern(diagram(engine, 'task'), cancel, engine, null, { signalPrefix: 'acme.stop:' }).xml)?.includes('acme.stop:'), true, engine);
+  }
+});
+
+test('«Abbruch per Signal»: C7 -> C8 -> C7 - the signal in the form of each engine, one event sub process', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null, { signalPrefix: 'acme-cancel-' }).xml;
+  const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
+  assert.equal(signalNameOf(c8.xml), '="acme-cancel-" + string(camunda.processInstance.key)');
+  // inserted in its C8 form - with the note that C8 needs 8.10
+  assert.ok(c8.issues.some(i => i.text.includes('8.10')), c8.issues.map(i => i.text).join('; '));
+  assert.deepEqual(detectPatterns(c8.xml, STANDARD_PATTERNS, 'c8').hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'acme-cancel-']]);
+  const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS);
+  assert.equal(signalNameOf(back.xml), 'acme-cancel-${execution.processInstanceId}');
+  for (const xml of [c8.xml, back.xml]) {
+    assert.equal((xml.match(/triggeredByEvent="true"/g) ?? []).length, 1);
+    assert.equal((xml.match(/<bpmn:signal /g) ?? []).length, 1);
+  }
+  assert.deepEqual(detectPatterns(back.xml, STANDARD_PATTERNS, 'c7').hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'acme-cancel-']]);
+});
+
+test('«Abbruch per Signal» twice: the second one does not add a second event sub process', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const once = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml;
+    const twice = applyPattern(once, cancel, engine, null);
+    assert.equal((twice.xml.match(/triggeredByEvent="true"/g) ?? []).length, 1, engine);
+    assert.equal((twice.xml.match(/<bpmn:signal /g) ?? []).length, 1, engine);
+  }
+});
+
+test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {
+  const xml = (x: number) => `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="d">
+  <bpmn:process id="p"><bpmn:subProcess id="CancelSubProcess" triggeredByEvent="true" /></bpmn:process>
+  <bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="P" bpmnElement="p">
+    <bpmndi:BPMNShape id="CancelSubProcess_di" bpmnElement="CancelSubProcess"><dc:Bounds x="${x}" y="40" width="300" height="140" /></bpmndi:BPMNShape>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+  assert.match(keepPositions(xml(700), xml(160)), /x="700"/);
+  // nothing to move: unchanged
+  assert.equal(keepPositions(xml(160), xml(160)).includes('x="160"'), true);
+});
+
+test('a broken valuePattern of a pattern file is reported on insertion - not thrown', () => {
+  const broken = { ...cancel, id: 'acme-cancel', params: cancel.params!.map(p => (p.name === 'signalPrefix' ? { ...p, valuePattern: '([' } : p)) } as PatternDef;
+  const r = applyPattern(diagram('c7', 'task'), broken, 'c7', null);
+  assert.equal(r.changed, false);
+  assert.ok(r.issues.some(i => i.includes('valuePattern')), r.issues.join('; '));
+});
+
+test('converting a pattern on the process keeps a signal another element still refers to', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null).xml;
+  // a throw event of the process sends the same signal (cancel from inside)
+  const shared = c7.replace('<bpmn:endEvent id="End">', '<bpmn:endEvent id="End"><bpmn:signalEventDefinition id="EndSignal" signalRef="CancelSignal" />');
+  const c8 = convertWithPatterns(shared, 'c8', STANDARD_PATTERNS).xml;
+  assert.equal((c8.match(/<bpmn:signal /g) ?? []).length, 1, 'one signal - kept for the end, used by the event sub process again');
+  const ref = /<bpmn:signalEventDefinition id="EndSignal" signalRef="([^"]+)"/.exec(c8)?.[1];
+  assert.ok(ref && new RegExp(`<bpmn:signal id="${ref}"`).test(c8), 'the end still refers to an existing signal');
 });

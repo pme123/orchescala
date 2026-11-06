@@ -5,7 +5,7 @@ import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn, isEventBoundary, mergeSpec, syncBoundaryEvents } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
 import { collectFindings } from '../src/findings';
-import { correlationKeysOf } from '../src/messageCall';
+import { CORRELATION_KEY, correlationKeysOf } from '../src/messageCall';
 import type { ErrorHandling, ProcessSpec, Step } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -64,10 +64,10 @@ test('findings: no «handled error» checks for them - only the correlation of t
 
 test('export: the name of the signal and the key of the message go into the diagram', () => {
   let s = edited(spec(), 'StopEvent', { messageName: '="acme-halt-" + mainProcessInstanceId' });
-  s = edited(s, 'ResetEvent', { correlationKey: '=processInstanceId' });
+  s = edited(s, 'ResetEvent', { correlationKey: CORRELATION_KEY.processInstanceId });
   const back = importBpmn(writeBpmn(xml, s).xml, 'escalation').spec;
   assert.equal(entry(back, 'StopEvent').messageName, '="acme-halt-" + mainProcessInstanceId');
-  assert.equal(entry(back, 'ResetEvent').correlationKey, '=processInstanceId');
+  assert.equal(entry(back, 'ResetEvent').correlationKey, CORRELATION_KEY.processInstanceId);
 });
 
 test('merge: an edit in the app stays while the diagram has not changed it', () => {
@@ -86,5 +86,7 @@ test('load: an older spec - the events as errors - gets kind and name from the d
 });
 
 test('C7 -> C8: the chosen key of a message at the border goes with its boundary event', () => {
-  assert.deepEqual(correlationKeysOf(edited(spec(), 'ResetEvent', { correlationKey: '=processInstanceId' })), { ResetEvent: '=processInstanceId' });
+  assert.deepEqual(correlationKeysOf(edited(spec(), 'ResetEvent', { correlationKey: CORRELATION_KEY.processInstanceId })), { ResetEvent: '=string(camunda.processInstance.key)' });
+  // an older choice (=processInstanceId) becomes the own key - no worker sets the variable in C8
+  assert.deepEqual(correlationKeysOf(edited(spec(), 'ResetEvent', { correlationKey: '=processInstanceId' })), { ResetEvent: '=string(camunda.processInstance.key)' });
 });
