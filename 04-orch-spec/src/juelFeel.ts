@@ -188,7 +188,8 @@ export function healExecution(expression: string): string {
  * feelJuel.ts); everything else has no counterpart and stays JUEL.
  */
 const EXECUTION: Record<string, string> = {
-  processInstanceId: 'processInstanceId',
+  // the own instance: in FEEL from Camunda 8.10 — a number, as text like in Camunda 7
+  processInstanceId: 'string(camunda.processInstance.key)',
   processBusinessKey: 'businessKey',
   businessKey: 'businessKey',
 };
@@ -230,7 +231,7 @@ function method(target: string, name: string, args: string[]): string {
     // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
     case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => { throw new Unsupported('getVariable nur mit festem Namen'); })()));
     // Camunda 7 runtime → the variables Camunda 8 has for it
-    case 'getProcessInstanceId': return one(() => 'processInstanceId');
+    case 'getProcessInstanceId': return one(() => 'string(camunda.processInstance.key)');
     case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
     case 'getProcessDefinition': return one(() => '__processDefinition');
     case 'getKey': case 'getId': return one(a => (a === '__processDefinition' ? 'processDefinitionKey' : (() => { throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`); })()));

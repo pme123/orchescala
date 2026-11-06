@@ -323,14 +323,6 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // the init worker is not measured against the process's catalog entry (as in the panel)
   const initWorker = isInitWorker(step, processId);
   const service = initWorker ? null : catalogEntry(step, model);
-  // Camunda 8: the InitWorker sets its own processInstanceId only when it is done —
-  // on its own task it is empty (in Camunda 7 `execution.processInstanceId` was already there)
-  if (initWorker && spec.engine === 'c8') {
-    const reads = (step.inputs ?? []).filter(m => !m.disabled && referencedVariables(m.expression).includes('processInstanceId'));
-    for (const m of reads) {
-      warnings.push(`Eingabe «${m.name}» liest processInstanceId — in ${C8_LABEL} setzt sie der InitWorker erst, wenn er fertig ist; hier ist sie leer. Die eigene ID nimmt der InitWorker aus EngineRunContext.processInstance (customInitZIO).`);
-    }
-  }
 
   // ── Interaction: what the DSL requires ───────────────────────────────────
   if (ia) {
@@ -505,7 +497,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (isEventBoundary(e) && e.eventKind === 'message' && !e.pattern) {
       const corr = correlationOf(e.correlationKey, spec.engine);
       if (corr.missing) warnings.push(`Nachricht «${e.code}»: kein Korrelationsschlüssel — in ${C8_LABEL} findet sie keine wartende Instanz.`);
-      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: processInstanceKey ist der alte Name — «processInstanceId» wählen.`);
+      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: ${corr.expression?.replace(/^=\s*/, '')} setzt der InitWorker nicht mehr — «processInstanceId» wählen (string(camunda.processInstance.key), ${C8_LABEL} ab 8.10).`);
     }
   });
 

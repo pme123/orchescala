@@ -107,9 +107,18 @@ const SPIN_VALUE: Partial<Record<FeelType, string>> = {
 /** What a value is used for: as a result, in a comparison or a calculation, as a list, in a test for empty */
 type Use = 'value' | 'scalar' | 'list' | 'empty';
 
+/**
+ * The own instance of Camunda 8 (`camunda.processInstance.key`, 8.10) is in Camunda 7
+ * `execution.processInstanceId` — outside text literals it becomes `processInstanceId`,
+ * which EXECUTION_JUEL translates.
+ */
+const ownInstance = (body: string): string =>
+  body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
+    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, 'processInstanceId'))).join('');
+
 /** Translate a FEEL body to JUEL (without `${}`). */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
-  const src = body.trim();
+  const src = ownInstance(body.trim());
   if (!src) return { ok: false, reason: 'leerer Ausdruck' };
   let top: SyntaxNode;
   try {
