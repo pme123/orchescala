@@ -1034,7 +1034,16 @@ function blockItems(fn: Element, tn: Element, b: Binding): Set<Element> {
  * a block owns, it owns completely.
  */
 const blockPairs = (block: Fragment['blocks'][number], elements: Element[]): Array<[Element, Element]> =>
-  block.nodes.flatMap(fn => elements.filter(e => local(e) === local(fn)).map(e => [fn, e] as [Element, Element]));
+  block.nodes.flatMap(fn => {
+    const same = elements.filter(e => local(e) === local(fn));
+    // the nodes inside a sub process of the block belong to it too - the end «canceled» of the
+    // event sub process of «Abbruch per Signal» is not also «Prozess-Status am Ende»
+    const inner = (sub: Element) => (local(sub) === 'subProcess' ? descendants(sub).filter(d => FLOW_NODES.has(local(d))) : []);
+    return [
+      ...same.map(e => [fn, e] as [Element, Element]),
+      ...inner(fn).flatMap(fi => same.flatMap(e => inner(e).filter(ti => local(ti) === local(fi)).map(ti => [fi, ti] as [Element, Element])))
+    ];
+  });
 
 const builtins = (t: Element | null, proc: Element | null): Map<string, string> => {
   const m = new Map<string, string>();
