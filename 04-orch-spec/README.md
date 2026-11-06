@@ -1597,7 +1597,7 @@ Die Mappings leben in der Spezifikation; ins Diagramm kommen sie beim
 | Mock am Schritt (gewählt) | zusätzlich `_outputMock` bzw. `_outputServiceMock` = `=createContractMock`, Feld im `InConfig` | dasselbe als `#{execution.getVariable('createContractMock')}` (am Teilprozess `source="createContractMock"`) |
 | Service-Task | keine Mock-Steuerung — der Worker liest `_servicesMocked` selbst aus den Prozessvariablen; eine blosse Weitergabe im Diagramm fällt weg, ein fester Wert (`= true`) bleibt | ebenso |
 | Steuerparameter (`_…`) | immer am Schluss der Eingaben bzw. Ausgaben | ebenso |
-| Business Key am Teilprozess | Eingabe `businessKey` = `=businessKey` (immer) | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
+| Business Key am Teilprozess | nichts — der Teilprozess erbt die Business-ID der Instanz (ab 8.10); eine Eingabe `businessKey` mit anderem Wert wird zu `zeebe:calledElement businessId="=…"`, eine alte `=businessKey` fällt weg | `<camunda:in businessKey="#{execution.processBusinessKey}"/>` (immer) |
 | Zweigbedingung | `=amount > 3` | `${amount > 3}` |
 | Liste bzw. Kontext nur aus festen Werten, z. B. `[6026, 102]` | `=[6026, 102]` | `${JSON('[6026, 102]')}` (Spin) — auch in `camunda:in`; der Import liest `JSON('…')` / `S('…')` mit JSON-Text wieder als Liste bzw. Kontext, nicht als Text |
 | Liste bzw. Kontext mit Variablen (JSON), z. B. `[{accountKey: accountKey, validUntil: "2299-12-31"}]` | `=[…]` | ein **Groovy-Skript** mit Spin: `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson([['accountKey': v('accountKey'), …]]))` — `v(…)` liest Variablen und Pfade (fehlt etwas, `null`). Die erste Zeile `// FEEL: …` trägt den Ausdruck; der Abgleich liest ihn daraus zurück. Nur Werte, Variablen und Pfade; nicht in `camunda:in` |
@@ -1733,7 +1733,7 @@ Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
 Spezifikation). **Gemeldet** wird, was Handarbeit braucht: andere Listener,
 Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
 Entscheidung und der Korrelationsschlüssel wartender Nachrichten
-(vorgeschlagen: `=businessKey`).
+(vorgeschlagen: `=camunda.processInstance.businessId`, die Business-ID der Instanz).
 
 Name der Nachricht (bzw. des Signals) steht am Schritt und lässt sich dort
 ändern — wie Topic oder Timer gehört er der Spezifikation, der BPMN-Export
@@ -1745,12 +1745,12 @@ am Rand» — mit Name und, bei einer Nachricht, der Korrelation.
 
 Bei einer wartenden Nachricht wählt man unter «Korrelation» einen der beiden
 Wege des Gateways: `businessKey` oder `processInstanceId`. In Camunda 8 wird
-daraus der Korrelationsschlüssel `=businessKey` bzw.
-`=string(camunda.processInstance.key)` (die eigene Instanz, ab Camunda 8.10; ein altes
-`=processInstanceId` oder `=processInstanceKey` wird gemeldet — ein Klick auf
-«processInstanceId» stellt es um). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
+daraus der Korrelationsschlüssel `=camunda.processInstance.businessId` (die Business-ID
+der Instanz) bzw. `=string(camunda.processInstance.key)` (die eigene Instanz) — beides ab
+Camunda 8.10. Ein altes `=businessKey`, `=processInstanceId` oder `=processInstanceKey` wird
+gemeldet — ein Klick auf «businessKey» bzw. «processInstanceId» stellt es um. In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
 Doku und für die Umstellung auf Camunda 8, die sie statt des Vorschlags
-`=businessKey` übernimmt. Den Aufruf am Gateway
+`=camunda.processInstance.businessId` übernimmt. Den Aufruf am Gateway
 (`POST {{baseUrl}}/message/<name>?…`, wie in Postman) zeigt der
 Orchescala-Export.
 

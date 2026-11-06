@@ -116,7 +116,11 @@ test('overview: every variable with its source - engine variables included', () 
   const byName = new Map(variableOverview(s, model).variables.map(v => [v.name, v]));
   assert.equal(byName.get('clientKey')?.sources[0].source, 'In');
   assert.equal(byName.get('contentForPrinting')?.sources[0].source, 'Ausgabe von Get Print Content');
-  assert.equal(byName.get('businessKey')?.sources[0].source, 'Engine');
+  // C8 (8.10) has no variable businessKey - the business id is on the instance
+  assert.equal(byName.get('businessKey'), undefined);
+  assert.equal(byName.get('camunda')?.sources[0].source, 'Engine');
+  const c7 = new Map(variableOverview({ ...s, engine: 'c7' }, model).variables.map(v => [v.name, v]));
+  assert.equal(c7.get('businessKey')?.sources[0].source, 'Engine');
 });
 
 test('findings: conflict and orphan are warnings on the process - naming both sources and types', () => {

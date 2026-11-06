@@ -524,13 +524,14 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     add(ofEngine('camunda', 'context', 'Camunda', 'Was die Engine über die Instanz weiss (C8 ab 8.10)', [
       ofEngine('processInstance', 'context', 'Prozess-Instanz', 'die eigene Prozess-Instanz', [
         ofEngine('key', 'number', 'Long', `Kennung der eigenen Prozess-Instanz — als Text string(camunda.processInstance.key); ${C7_LABEL}: execution.processInstanceId`),
-        { ...ofEngine('businessId', 'string', 'String', 'Business-ID der Instanz, falls beim Start gesetzt'), optional: true },
+        { ...ofEngine('businessId', 'string', 'String', `Business Key der Instanz, falls beim Start gesetzt — eine Call Activity erbt ihn; ${C7_LABEL}: execution.processBusinessKey`), optional: true },
       ]),
     ]));
   } else {
     add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz — ${C7_LABEL}: execution.processInstanceId` });
+    // Camunda 8 has no variable `businessKey` (from 8.10) — there it is camunda.processInstance.businessId
+    add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
   }
-  add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
   add({ name: 'processDefinitionKey', type: 'any', label: 'Prozess', source: 'Engine', description: `der Prozess — ${C7_LABEL}: execution.getProcessDefinition().getKey()` });
   // What the gateway of Orchescala sets: the signed identity of the start - and the identity of
   // whoever completed a user task (or sent a message with processInstanceId), only after that
@@ -1231,6 +1232,9 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         } else if (name === 'processInstanceKey' || name === 'processInstanceId') {
           // Camunda 8: the InitWorker set it once — today FEEL has the own instance
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (C8 ab 8.10; der InitWorker setzt «${name}» nicht mehr). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
+        } else if (name === 'businessKey') {
+          // Camunda 8: the variable is gone (8.10) — the business id is on the instance
+          issues.push({ level: 'error', text: `Variable «businessKey» ist nicht bekannt — der Business Key der Instanz ist «camunda.processInstance.businessId» (C8 ab 8.10; die Variable «businessKey» gibt es dort nicht mehr).` });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }
