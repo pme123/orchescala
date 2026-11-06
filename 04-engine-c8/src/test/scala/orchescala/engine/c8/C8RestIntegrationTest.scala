@@ -189,11 +189,47 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         val signed = variables.head.value.flatMap(_.as[orchescala.domain.IdentityCorrelation].toOption)
         assertTrue(
           instance.processDefinitionId == msgStartProcessId, // a real process instance key
+          instance.businessKey.isEmpty,                      // a message sets no business id (8.9)
           signed.flatMap(_.processInstanceId).contains(pid),
           signed.exists(c =>
             orchescala.domain.IdentityCorrelationSigner.verify(c, pid, c.signature.get, "it-signing-key")
           )
         )
+      end for
+    },
+    test("start with the same businessKey twice: two instances - the business id is not unique by default") {
+      val restAddress = sys.env("C8_REST_IT")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig()
+      val engine         = C8ProcessEngine()
+      val shortId        = "orchescala-it-business-id"
+      val shortBpmn      =
+        s"""<?xml version="1.0" encoding="UTF-8"?>
+           |<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="defs"
+           |  targetNamespace="http://bpmn.io/schema/bpmn">
+           |  <bpmn:process id="$shortId" isExecutable="true">
+           |    <bpmn:startEvent id="start"/>
+           |    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="end"/>
+           |    <bpmn:endEvent id="end"/>
+           |  </bpmn:process>
+           |</bpmn:definitions>""".stripMargin
+      val businessKey    = s"bk-${java.util.UUID.randomUUID()}"
+      def start          = engine.processInstanceService.startProcessAsync(shortId, JsonObject.empty, Some(businessKey), None, None)
+      for
+        _      <- engine.deploymentService.deploy(
+                    "it-business-id",
+                    Seq(DeploymentResource(s"$shortId.bpmn", shortBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                    Some(EngineType.C8)
+                  )
+        first  <- start
+        second <- start
+        both   <- ZIO.foreach(Seq(first, second))(info =>
+                    eventually(engine.historicProcessInstanceService.getProcessInstance(info.processInstanceId))(_ => true)
+                  )
+      yield assertTrue(
+        first.processInstanceId != second.processInstanceId,
+        both.forall(_.businessKey.contains(businessKey))
+      )
       end for
     },
     test("start by message with a businessKey: with the pattern a second start is a 409 - also at the same time; without, a new instance") {

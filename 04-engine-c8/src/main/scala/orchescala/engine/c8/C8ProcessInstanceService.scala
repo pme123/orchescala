@@ -146,6 +146,10 @@ class C8ProcessInstanceService(
     * there and goes on to the instances of its call activities. It stays a variable too - the BPMNs
     * correlate their messages with `=businessKey` and the workers read it, a job carries no
     * business id (8.9).
+    *
+    * A blank key is no business id. The engine checks the rest: at most 256 characters (400), and
+    * unique among the running instances of the process if the cluster enforces it (409 - final, the
+    * gateway tries no other engine). Uniqueness is off by default.
     */
   private def callStartProcessAsync(
       processDefId: String,
@@ -153,17 +157,20 @@ class C8ProcessInstanceService(
       tenantId: Option[String],
       processVariables: Json
   ): IO[EngineError, C8RestModel.CreateProcessInstanceResult] =
-    val variables = processVariables.deepMerge(businessKey.map(bk =>
+    val variables  = processVariables.deepMerge(businessKey.map(bk =>
       Json.obj("businessKey" -> bk.asJson)
     ).getOrElse(Json.obj()))
+    val businessId = businessKey.filterNot(_.isBlank).map(id => "businessId" -> id.asJson)
     rest
       .post[C8RestModel.CreateProcessInstanceResult](
         Seq("process-instances"),
-        Json.obj(
-          "processDefinitionId" -> processDefId.asJson, // latest version
-          "variables"           -> variables,
-          "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
-        ).deepMerge(businessKey.fold(Json.obj())(bk => Json.obj("businessId" -> bk.asJson)))
+        Json.fromFields(
+          Seq(
+            "processDefinitionId" -> processDefId.asJson, // latest version
+            "variables"           -> variables,
+            "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
+          ) ++ businessId
+        )
       )
       .mapError(withContext(s"Problem starting Process '$processDefId'"))
   end callStartProcessAsync
