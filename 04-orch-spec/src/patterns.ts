@@ -1313,9 +1313,9 @@ export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs:
   const doc = parseXml(xml);
   const proc = doc ? mainProcess(doc) : null;
   const nameOf = (id: string) => defs.find(d => d.id === id)?.name ?? id;
-  const lost = (ex: EventSubExtras) =>
-    `«${nameOf(ex.patternId)}»: die eigenen Schritte im Ereignis-Subprozess (${ex.ids.join(', ')}) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.`;
-  if (!doc || !proc) return { xml, issues: extras.map(lost) };
+  const lost = (ex: EventSubExtras, ids = ex.ids) =>
+    `«${nameOf(ex.patternId)}»: die eigenen Schritte im Ereignis-Subprozess (${ids.join(', ')}) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.`;
+  if (!doc || !proc) return { xml, issues: extras.map(ex => lost(ex)) };
   const hits = detectIn(doc, defs, engine).hits;
   const w = new Writer(doc);
   const issues: string[] = [];
@@ -1337,7 +1337,6 @@ export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs:
   let changed = false;
   for (const ex of extras) {
     // the block of this pattern with the same sub process in the pattern BPMN
-    let found: { hit: InternalHit; bi: number; x: { b: Binding; entry: Element } } | null = null;
     // (its former ID first - then any other of the pattern not yet used)
     const cands: Array<{ hit: InternalHit; bi: number; x: { b: Binding; entry: Element } }> = [];
     for (const hit of hits.filter(h => h.patternId === ex.patternId && (h.targetId ?? null) === ex.targetId)) {
@@ -1346,8 +1345,15 @@ export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs:
       const x = bi >= 0 ? matchBlocks(hit.fr, graphOf(scope), new Set(), hit.match.b)[bi] : null;
       if (x && !used.has(x.entry)) cands.push({ hit, bi, x });
     }
-    found = cands.find(c => c.x.entry.getAttribute('id') === ex.esp) ?? cands[0] ?? null;
-    if (!found) { issues.push(lost(ex)); continue; }
+    const found = cands.find(c => c.x.entry.getAttribute('id') === ex.esp) ?? cands[0] ?? null;
+    if (!found) {
+      // the own steps stay on the process (reported) - without flows to the pattern's nodes that are gone
+      for (const f of kids(proc).filter(c => local(c) === 'sequenceFlow' && ex.ids.includes(c.getAttribute('id') ?? ''))) {
+        if (['sourceRef', 'targetRef'].some(a => !byIdIn(doc.documentElement, f.getAttribute(a) ?? ''))) { drop(w, f); changed = true; }
+      }
+      issues.push(lost(ex, ex.ids.filter(id => byIdIn(doc.documentElement, id))));
+      continue;
+    }
     const { hit, bi, x } = found;
     const esp = x.entry;
     used.add(esp);

@@ -1091,9 +1091,10 @@ test('«Abbruch per Signal»: converting keeps the drawing - shapes with a label
 test('graftEventSubExtras: what cannot go back is reported - no block of the pattern, a former ID taken', () => {
   for (const engine of ['c7', 'c8'] as const) {
     // no «Abbruch per Signal» in the diagram: the own steps stay where they are - with a note
-    const plain = diagram(engine, 'task');
-    const none = graftEventSubExtras(plain, [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Target'] }], STANDARD_PATTERNS, engine);
-    assert.equal(none.xml, plain, engine);
+    // (a flow of it to a node of the pattern that is gone goes - no dangling reference)
+    const plain = diagram(engine, 'task').replace('</bpmn:process>', '<bpmn:sequenceFlow id="Gone" sourceRef="CancelStartEvent" targetRef="Target" /></bpmn:process>');
+    const none = graftEventSubExtras(plain, [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Target', 'Gone'] }], STANDARD_PATTERNS, engine);
+    assert.ok(none.xml.includes('id="Target"') && !none.xml.includes('id="Gone"'), engine);
     assert.deepEqual(none.issues, ['«Abbruch per Signal»: die eigenen Schritte im Ereignis-Subprozess (Target) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.'], engine);
     // the former ID of the start is taken by another element: it keeps its new one - with a note
     // (a flow of its own to the former ID waits on the process level - it follows the new one)

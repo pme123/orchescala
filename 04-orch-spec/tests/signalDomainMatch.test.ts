@@ -57,6 +57,8 @@ end CancelSE
 test('fixedStart: the name up to its first dynamic part - JUEL, placeholder, FEEL literal', () => {
   assert.equal(fixedStart('cancel-${execution.processInstanceId}'), 'cancel-');
   assert.equal(fixedStart('cancel-{processInstanceId}'), 'cancel-');
+  assert.equal(fixedStart('orderCreated-#{x}'), 'orderCreated-');
+  assert.equal(fixedStart('#{x}'), '');
   assert.equal(fixedStart('="cancel-" + string(camunda.processInstance.key)'), 'cancel-');
   assert.equal(fixedStart('= "orderCreated"'), 'orderCreated');
   assert.equal(fixedStart('="a\\"b" + x'), 'a"b');
@@ -99,6 +101,7 @@ test('isFixed: only fixed text - a FEEL name as one string literal', () => {
   assert.equal(isFixed('="orderCreated"'), true);
   assert.equal(isFixed('cancel-${execution.processInstanceId}'), false);
   assert.equal(isFixed('cancel-{processInstanceId}'), false);
+  assert.equal(isFixed('orderCreated-#{x}'), false);
   assert.equal(isFixed('="cancel-" + string(camunda.processInstance.key)'), false);
 });
 
