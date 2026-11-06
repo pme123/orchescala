@@ -8,3 +8,4 @@ dist/
 /dist-pages/
 node_modules
 *.tsbuildinfo
+/src/core/orchSpecCore.js

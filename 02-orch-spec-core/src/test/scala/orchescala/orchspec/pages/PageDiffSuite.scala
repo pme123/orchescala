@@ -1,0 +1,62 @@
+package orchescala.orchspec.pages
+
+import io.circe.parser.parse
+import orchescala.orchspec.OrchSpecCore
+
+/** The cases of `pageDiff` in orch-spec (tests/aiPages.test.ts) - the pages are what its tools made,
+  * the expected JSON is what the TypeScript `pageDiff` answered before it moved here. Runs on the JVM
+  * and on Scala.js.
+  */
+class PageDiffSuite extends munit.FunSuite:
+
+  private val book =
+    """{"path":"shop/book","title":"Termin buchen","access":"public","state":{"contact":{}},"body":[{"type":"heading","text":"Termin buchen"},{"type":"section","label":"Kontakt","body":[{"type":"fields","fields":[{"bind":"contact.name","label":"Name","required":true}]}]},{"type":"button","label":"Buchen","actions":[]}]}"""
+
+  private def diff(after: String) = OrchSpecCore.pageDiff(book, after)
+
+  test("the same page - no differences"):
+    assertEquals(diff(book), Right("[]"))
+
+  test("new field, changed block, moved, added, page title"):
+    val edited =
+      """{"path":"shop/book","title":"Beratung buchen","access":"public","state":{"contact":{}},"body":[{"type":"button","label":"Buchen","actions":[]},{"type":"heading","text":"Termin buchen"},{"type":"text","text":"Hinweis","id":"b-d812b1f182"},{"type":"section","label":"Kontakt","body":[{"type":"fields","fields":[{"bind":"contact.name","label":"Name","required":true},{"bind":"contact.branch","label":"Filiale"}]}]}]}"""
+    assertEquals(
+      diff(edited),
+      Right(
+        """[{"kind":"page","label":"Titel","detail":"«Termin buchen» → «Beratung buchen»"},{"kind":"moved","key":"0","label":"Button «Buchen»","detail":"von 2"},{"kind":"added","key":"2","label":"Text «Hinweis»"},{"kind":"changed","key":"3.0","label":"Eingabefelder","detail":"«Filiale» neu"}]"""
+      )
+    )
+
+  test("removed block"):
+    val removed =
+      """{"path":"shop/book","title":"Termin buchen","access":"public","state":{"contact":{}},"body":[{"type":"heading","text":"Termin buchen"},{"type":"section","label":"Kontakt","body":[{"type":"fields","fields":[{"bind":"contact.name","label":"Name","required":true}]}]}]}"""
+    assertEquals(diff(removed), Right("""[{"kind":"removed","key":"2","label":"Button «Buchen»"}]"""))
+
+  test("a new label after an insert before it: the only button changed - not one new and one removed"):
+    val relabeled =
+      """{"path":"shop/book","title":"Termin buchen","access":"public","state":{"contact":{}},"body":[{"type":"heading","text":"Termin buchen"},{"type":"section","label":"Kontakt","body":[{"type":"fields","fields":[{"bind":"contact.name","label":"Name","required":true}]}]},{"type":"text","text":"Datenschutz","id":"b-80b60e8f1d"},{"type":"button","label":"Verbindlich anfragen","actions":[]}]}"""
+    assertEquals(
+      diff(relabeled),
+      Right("""[{"kind":"added","key":"2","label":"Text «Datenschutz»"},{"kind":"changed","key":"3","label":"Button «Verbindlich anfragen»"}]""")
+    )
+
+  test("changed keys - new, changed and moved blocks of the draft"):
+    val changes = Seq(
+      PageChange(PageChange.Kind.page, None, "Titel", None),
+      PageChange(PageChange.Kind.moved, Some("0"), "Button «Buchen»", Some("von 2")),
+      PageChange(PageChange.Kind.changed, Some("3.0"), "Eingabefelder", None),
+      PageChange(PageChange.Kind.removed, Some("2"), "Text", None)
+    )
+    assertEquals(PageDiff.changedKeys(changes), Set("0", "3.0"))
+
+  test("a hand-edited page: no body, a body that is no list, a block that is no object"):
+    val odd = parse("""{"title":"x","body":[42,{"type":"text","text":"Hallo"}]}""").toOption.get
+    assertEquals(
+      PageDiff(parse("""{"title":"x","body":"kaputt"}""").toOption.get, odd).map(c => (c.kind, c.key, c.label)),
+      Vector((PageChange.Kind.added, Some("1"), "Text «Hallo»"))
+    )
+
+  test("JSON that cannot be read - the reason"):
+    assert(OrchSpecCore.pageDiff("{", book).left.exists(_.startsWith("before is no JSON")))
+
+end PageDiffSuite
