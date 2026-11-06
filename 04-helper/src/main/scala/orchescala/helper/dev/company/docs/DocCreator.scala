@@ -422,14 +422,15 @@ trait DocCreator extends DependencyCreator, Helpers:
                 (s"${c.projectName}", s"${c.projectVersion}", s"${c.versionPrevious}")
 
           // the dependency's version in this release (VERSIONS.conf) if the package declares its
-          // minor - else the minor it declares (`2.30.*`), which the page marks as not in the release
+          // minor - else the minor it declares (`2.30.*`), which the page marks as not in the release.
+          // A worker takes the newest version of its dependencies - always the release's.
           s"|| **$name** | $version | $versionPrevious " +
             filteredConfigs
               .map(c2 =>
                 c.dependencies
                   .find(_.projectName == c2.projectName)
                   .map: d =>
-                    if d.minorVersion == c2.minorVersion then c2.version
+                    if c.isWorker || d.minorVersion == c2.minorVersion then c2.version
                     else s"${d.minorVersion}.*"
                   .getOrElse("")
               )

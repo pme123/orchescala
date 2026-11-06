@@ -10,6 +10,7 @@ case class DependencyValidator()(using
   // only a warning: the release page shows these dependencies in red (`2.30.*`)
   lazy val validateDependencies: Unit = {
     configs
+      .filterNot(_.isWorker) // a worker takes the newest version of its dependencies
       .map { packageConf =>
         packageConf.fullName -> packageConf.dependencies
           .map { dConf =>
