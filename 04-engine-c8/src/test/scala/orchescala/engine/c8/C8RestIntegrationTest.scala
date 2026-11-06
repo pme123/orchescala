@@ -197,7 +197,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         )
       end for
     },
-    test("start with the same businessKey twice: two instances - the business id is not unique by default") {
+    test("start with the same businessKey twice: two instances - a cluster without uniqueness control (the default, c8run)") {
       val restAddress = sys.env("C8_REST_IT")
       given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
       given EngineConfig = DefaultEngineConfig()
