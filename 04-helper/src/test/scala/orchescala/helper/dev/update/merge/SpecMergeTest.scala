@@ -575,6 +575,31 @@ class SpecMergeTest extends FunSuite:
       val api = os.read(project / apiCreatorRel)
       assert(api.contains("group(\"ClientV1\")(\n      GetClient.example,\n      UpdateClient.example,"), api)
 
+  /** The collection of client.v1 as version 2 - the same service names in another package. */
+  private val collectionV2: ServicesExport =
+    val v1 = collection()
+    v1.copy(
+      slug = "client-v2",
+      scala = v1.scala.replace("client/v1", "client/v2").replace("client.v1", "client.v2").replace("ClientV1", "ClientV2")
+    )
+
+  test("services: two versions of one API - each version registered in its own block"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(collection(), collectionV2))
+      assertEquals(plan.withAction(Action.conflict), Seq.empty)
+      val app = os.read(project / workerAppRel)
+      for v <- Seq("v1", "v2") do
+        val name  = s"clientV${v.drop(1)}Workers"
+        val block = app.substring(app.indexOf(s"private lazy val $name"), app.indexOf(s"end $name"))
+        assert(block.contains(s"import acme.demo.worker.client.$v.*"), app)
+        assert(block.contains("      GetClientWorker(),"), app)
+        assert(app.contains(s"    $name,\n"), app)
+      val api = os.read(project / apiCreatorRel)
+      for g <- Seq("ClientV1", "ClientV2") do assert(api.contains(s"group(\"$g\")(\n      GetClient.example,"), api)
+      // a re-run adds nothing
+      val again = SpecMerge.plan(project, Seq(collection(), collectionV2), Seq(collection(), collectionV2))
+      assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
+
   test("services: twice the same export - all unchanged"):
     inProject: project =>
       run(project, Seq.empty, Seq(collection(), orchestration))

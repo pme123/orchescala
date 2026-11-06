@@ -131,18 +131,76 @@ case class OrchSpecRegistration(
     )
     if start >= 0 then addEntries(lines, start)
     else
-      // a worker (`MyProcessWorker()`) registered elsewhere already - a block of another name
-      // (`lilaSetV2Workers` for `lilaSet` v2): a second registration would subscribe the same
-      // topic twice
+      // a worker (`MyProcessWorker()`) registered elsewhere already from the same package - a block
+      // of another name (`lilaSetV2Workers` for `lilaSet` v2): a second registration would
+      // subscribe the same topic twice. A worker of the same name from another package (another
+      // API or version: `persons.v1` for `persons.v2`) has a topic of its own - it is added.
+      val own  = imports(block(entries).linesIterator.toSeq).map(_._1).toSet
       val left = entries.filterNot: e =>
-        val key = e.stripSuffix("()")
-        e.endsWith("()") && lines.indices.exists(i =>
-          !hidden(i) && !lines(i).trim.startsWith("//") && s"""\\b$key\\(""".r.findFirstIn(lines(i)).isDefined
-        )
+        e.endsWith("()") && registeredFrom(lines, hidden, e.stripSuffix("()"), own)
       if left.isEmpty then RegistrationResult.Unchanged
       else copy(entries = left).addBlock(lines)
     end if
   end register
+
+  /** Is the worker `key` registered in `lines` from one of the packages `own`? A qualified
+    * `a.b.Key()` names its package; an unqualified one comes from the imports in scope - those
+    * of its block (`lazy val … end …`) and those outside any block - or from the file's package.
+    * Without `own` (a block without an import) any registration of `key` counts.
+    */
+  private def registeredFrom(lines: Seq[String], hidden: Set[Int], key: String, own: Set[String]): Boolean =
+    val visible = lines.indices.filter(i => !hidden(i) && !lines(i).trim.startsWith("//"))
+    val usage   = s"""(?<![\\w.])((?:\\w+\\.)*)$key\\(""".r
+    val found   = visible.flatMap(i => usage.findAllMatchIn(lines(i)).map(m => i -> m.group(1).stripSuffix(".")))
+    if own.isEmpty then found.nonEmpty
+    else
+      lazy val blockOf  = blocksOf(lines, hidden)
+      lazy val packages = visible.flatMap(i => packageClause.findFirstMatchIn(lines(i)).map(_.group(1))).mkString(".")
+      found.exists:
+        case (i, "")        =>
+          val inScope = visible.filter(j => j < i && blockOf(j).forall(b => blockOf(i).contains(b)))
+          val from    = imports(inScope.map(lines)).collect:
+            case (pkg, selectors) if selectors.contains("*") || selectors.contains(key) => pkg
+          (from :+ packages).exists(own.contains)
+        case (_, qualifier) =>
+          own.exists(p => p == qualifier || p.endsWith(s".$qualifier"))
+    end if
+  end registeredFrom
+
+  private val packageClause = """^\s*package\s+([\w.]+)\s*$""".r
+
+  /** The imports in `lines`: the package and the names it brings - `*` for all of it.
+    * `import a.b.*`, `import a.b._`, `import a.b.X`, `import a.b.{X, Y as Z}`, `import a.*, c.*`.
+    */
+  private def imports(lines: Seq[String]): Seq[(String, Set[String])] =
+    val clause = """^\s*import\s+(.+)$""".r
+    lines.flatMap:
+      case clause(rest) =>
+        // the parts of `import a.*, c.d.{X, Y}` - commas in braces belong to their part
+        val parts = rest.foldLeft((Vector(""), 0)) { case ((done, depth), c) =>
+          if c == ',' && depth == 0 then (done :+ "", depth)
+          else (done.init :+ (done.last + c), depth + (if c == '{' then 1 else if c == '}' then -1 else 0))
+        }._1
+        parts.map(_.trim).filter(_.contains(".")).map: part =>
+          val (pkg, last) = part.splitAt(part.lastIndexOf('.'))
+          val names       = last.drop(1).stripPrefix("{").stripSuffix("}").split(",").toSeq
+            .map(_.trim.takeWhile(c => !c.isWhitespace))
+            .map(n => if n == "_" then "*" else n)
+          pkg -> names.toSet
+      case _            => Seq.empty
+  end imports
+
+  /** For each line the start of the `lazy val … end …` block it is in - if it is in one. */
+  private def blocksOf(lines: Seq[String], hidden: Set[Int]): Int => Option[Int] =
+    val start  = s"""$leadingComments(?:private\\s+)?lazy val (\\w+)\\s*=.*""".r
+    val ranges = lines.indices.filterNot(hidden).flatMap: i =>
+      lines(i) match
+        case start(n) =>
+          val end = lines.indexWhere(_.trim == s"end $n", i)
+          if end < 0 then Seq.empty else Seq(i -> end)
+        case _        => Seq.empty
+    i => ranges.filter((s, e) => s <= i && i <= e).maxByOption(_._1).map(_._1)
+  end blocksOf
 
   /** Removes what Orch Spec no longer has: the `removed` entries from the block - or, with
     * `wholeBlock` (the process is gone), the block itself and its name in the list. Comments and

@@ -1187,6 +1187,54 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         assert(content.contains("      CalcAgeWorker(),"), content)
       case other                                     => fail(other.toString)
 
+  test("registration - a worker of the same name from another package is added in its own block"):
+    val workerApp =
+      """package a.b.worker
+        |
+        |object WorkerApp extends CompanyWorkerApp:
+        |  workers(
+        |    personsV1Workers,
+        |  )
+        |
+        |  private lazy val personsV1Workers =
+        |    import a.b.worker.persons.v1.*
+        |    Seq(
+        |      GetPersonsWorker(),
+        |    )
+        |  end personsV1Workers
+        |end WorkerApp
+        |""".stripMargin
+    def personsOf(v: String) = OrchSpecRegistration(
+      "WorkerApp",
+      "workers(",
+      s"persons${v.toUpperCase}Workers",
+      Seq("GetPersonsWorker()"),
+      entries =>
+        s"  private lazy val persons${v.toUpperCase}Workers =\n    import a.b.worker.persons.$v.*\n    Seq(\n${entries
+            .map(e => s"      $e,").mkString("\n")}\n    )\n  end persons${v.toUpperCase}Workers"
+    )
+    // the same package in a block of another name - not again
+    assertEquals(personsOf("v1").copy(name = "personsWorkers").register(workerApp), RegistrationResult.Unchanged)
+    // another version - its own block
+    personsOf("v2").register(workerApp) match
+      case RegistrationResult.Registered(content, added) =>
+        assertEquals(added, Seq("personsV2Workers"))
+        assert(content.contains("    import a.b.worker.persons.v2.*\n    Seq(\n      GetPersonsWorker(),"), content)
+        assertEquals(content.linesIterator.count(_.contains("GetPersonsWorker()")), 2, content)
+      case other                                         => fail(other.toString)
+    // the same package by an explicit import, a qualified name or an import outside the block
+    for app <- Seq(
+        workerApp.replace("persons.v1.*", "persons.v2.{GetPersonsWorker, Other}"),
+        workerApp.replace("      GetPersonsWorker(),", "      persons.v2.GetPersonsWorker(),"),
+        workerApp
+          .replace("    import a.b.worker.persons.v1.*\n", "")
+          .replace("object WorkerApp", "import a.b.worker.persons.v2.*\n\nobject WorkerApp")
+      )
+    do assertEquals(personsOf("v2").register(app), RegistrationResult.Unchanged, app)
+    // another package by a qualified name - added
+    val qualified = workerApp.replace("      GetPersonsWorker(),", "      persons.v1.GetPersonsWorker(),")
+    assert(personsOf("v2").register(qualified).isInstanceOf[RegistrationResult.Registered], qualified)
+
   test("new process object - a descr of several lines is a stripMargin text"):
     val block = mergeObject.block.replace(
       "// descr: Neue Karte\n",
