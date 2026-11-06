@@ -19,6 +19,7 @@ import { projectOpenApis } from './projectOpenApis';
 import type { Model } from '../types';
 import { cls } from '../ui';
 import { API_NAME, apiName, apiOf, sameApi, serviceTopic } from './collection';
+import { adoptHierarchyTypes, type Adopted } from './hierarchy';
 import { readOpenApiFile, type OpenApiFile } from './openApiFile';
 import { addOperations, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
 import type { ServiceCollectionSpec } from './types';
@@ -41,7 +42,8 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   /** a file already read — chosen when the collection was created */
   initial?: OpenApiFile;
   onClose: () => void;
-  onApply: (next: ServiceCollectionSpec, added: string[]) => void;
+  /** `adopted`: classes of the hierarchy the collection takes instead of its own (`Gender`) */
+  onApply: (next: ServiceCollectionSpec, added: string[], adopted: Adopted[]) => void;
 }) {
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -243,20 +245,22 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
 
         <div className={`flex items-center gap-2 px-4 py-2.5 border-t ${c.border}`}>
           <span className={`text-[10px] ${badApi ? 'text-rose-500' : c.muted}`}>
-            {badApi ? 'Eine API ist kein gültiger Paketname (klein, camelCase).'
+            {badApi ? 'Eine API ist kein gültiger Paketname (klein, camelCase, Ebenen mit «.»).'
               : api ? `${picked.size} gewählt — je Operation ein Service mit In, Out und den ersten Mappings; Typen aus den Schemas` : 'OpenAPI 3 als YAML oder JSON'}
           </span>
           <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
           <button disabled={!api || !picked.size || badApi}
             onClick={() => {
               const r = addOperations(spec, api!, [...picked], apiOfOp);
+              // a class the project has higher up in the hierarchy of an API is taken from there
+              const h = adoptHierarchyTypes(r.spec, model);
               const pathPrefix = prefix.trim().replace(/\/+$/, '');
               onApply({
-                ...r.spec,
-                source: { ...(r.spec.source ?? {}), file },
+                ...h.spec,
+                source: { ...(h.spec.source ?? {}), file },
                 ...(!spec.serviceLabel && api!.title ? { serviceLabel: api!.title } : {}),
                 ...(pathPrefix ? { pathPrefix } : {}),
-              }, r.added);
+              }, r.added, h.adopted);
             }}
             className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
             {picked.size || ''} übernehmen

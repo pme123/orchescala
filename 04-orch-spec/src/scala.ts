@@ -54,7 +54,8 @@ export interface TypeIndex {
   /** Catalog type behind a `dom:` reference */
   domainOf: (typeRef: string) => DomainType | null;
   /** Example value from the domain for the field (`clientKey` → `defaultClientKey`) — only with a matching type */
-  defaultOf: (f: Field) => DomainDefault | null;
+  /** `asText`: the default has another type, the field is a `String` — `defaultClientKey.toString` */
+  defaultOf: (f: Field) => (DomainDefault & { asText?: boolean }) | null;
   /** Classes of the data model that already exist in another domain — per TypeDef id (see `referencedClass`) */
   referenced: Map<string, DomainType>;
   /** Package of the own project (`acme.product`) */
@@ -184,11 +185,15 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     .filter(d => !roots || isAutoImported(d.pkg) || seesPackage(model, roots, d.pkg))
     .map((d, i) => ({ d, i })).sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i).map(x => x.d);
   const defaults = ranked.filter(d => d.type);
-  const defaultOf = (f: Field): DomainDefault | null => {
+  const defaultOf = (f: Field): (DomainDefault & { asText?: boolean }) | null => {
     if (!f.name?.trim() || f.enumCase) return null;
     const name = `default${f.name.charAt(0).toUpperCase()}${f.name.slice(1)}`;
     const wanted = typeKey(f.constraint?.trim() ? `${nameOf(f.type)} :| ${f.constraint.trim()}` : nameOf(f.type));
-    return defaults.find(d => d.name === name && typeKey(d.type!) === wanted) ?? null;
+    const exact = defaults.find(d => d.name === name && typeKey(d.type!) === wanted);
+    if (exact) return exact;
+    // a text field and a default of another simple type (`defaultClientKey: Long`): as its text
+    const asText = wanted === 'String' ? defaults.find(d => d.name === name && isScalar(d.type!)) : undefined;
+    return asText ? { ...asText, asText: true } : null;
   };
   return {
     byId,
@@ -539,7 +544,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   }
   // `clientKey = defaultClientKey` — as the projects do by hand
   const fromDomain = idx.defaultOf(f);
-  if (fromDomain) return fromDomain.name;
+  if (fromDomain) return fromDomain.asText ? `${fromDomain.name}.toString` : fromDomain.name;
   // a simple enum from the catalog does not always have an example — its first case
   const domEnum = idx.domainOf(f.type);
   if (domEnum && isSimpleEnum(f.type, idx) && domEnum.values?.length) return `${domEnum.name}.${caseIdent(domEnum.values[0])}`;
@@ -567,7 +572,7 @@ function descriptionLine(text: string): string {
   if (!clean.includes('\n')) return `@description(${scalaKey(clean)})`;
   // the first line stands after `"""`, the others with `|` below it — in
   // `"""…"""` nothing is escaped
-  const [first, ...rest] = clean.split('\n');
+  const [first, ...rest] = clean.split('\n').map(l => l.trimEnd());
   const lines = rest.map(l => `  |${tripleText(l, clean)}`).join('\n');
   return `@description(\n  ${tripleOpen(clean)}${tripleText(first, clean)}\n${lines ? `${lines}\n` : ''}  |""".stripMargin\n)`;
 }
@@ -660,13 +665,18 @@ function caseClass(t: TypeDef, idx: TypeIndex): string {
 }
 
 /**
- * `lazy val exampleMinimal` — the example without everything that may be missing (`mayBeMissing`);
+ * `lazy val exampleMinimal` — the example without everything that may be missing (`mayBeMissing`)
+ * and with a required list or map empty (`Seq.empty` — as a mapper makes it of a missing one);
  * `at` is the indent of the `lazy val` (the closing `)` goes there).
  */
 function exampleMinimal(fields: Field[], idx: TypeIndex, at: string): string {
-  const missing = fields.filter(f => idx.mayBeMissing(f));
-  return missing.length
-    ? `lazy val exampleMinimal = example.copy(\n${indent(missing.map(f => `${scalaName(f.name)} = None`).join(',\n'), `${at}  `)}\n${at})`
+  const minimal = fields.flatMap(f =>
+    idx.mayBeMissing(f) ? [`${scalaName(f.name)} = None`]
+      : f.collection ? [`${scalaName(f.name)} = Seq.empty`]
+        : f.map ? [`${scalaName(f.name)} = Map.empty`]
+          : []);
+  return minimal.length
+    ? `lazy val exampleMinimal = example.copy(\n${indent(minimal.join(',\n'), `${at}  `)}\n${at})`
     : 'lazy val exampleMinimal = example';
 }
 
@@ -721,6 +731,67 @@ export function inCodeOrder(common: Field[], own: Field[], order: string[] | und
 }
 
 /**
+ * The field that names the case: every case has it, fixed to its own case of the same
+ * simple enum (`useCase: PutUseCaseType.UpdatePrivateIndividual.type`). Null: there is none.
+ */
+function caseSwitch(cases: { name: string; fields: Field[] }[], idx: TypeIndex): { name: string; type: string; byCase: Map<string, string> } | null {
+  if (cases.length < 2 || cases.some(c => !c.fields.length)) return null;
+  for (const f of cases[0].fields) {
+    if (!f.enumCase || f.optional || f.collection || f.map || !isSimpleEnum(f.type, idx)) continue;
+    const byCase = new Map<string, string>();
+    for (const c of cases) {
+      const g = c.fields.find(x => x.name === f.name);
+      if (!g?.enumCase || g.type !== f.type || g.optional || g.collection || g.map) break;
+      byCase.set(c.name, caseName(g.enumCase));
+    }
+    if (byCase.size === cases.length && new Set(byCase.values()).size === cases.length) return { name: f.name, type: f.type, byCase };
+  }
+  return null;
+}
+
+/** The values of a simple enum — own or from the catalog; null: not known. */
+function enumValues(typeRef: string, idx: TypeIndex): string[] | null {
+  const own = idx.byId.get(typeRef);
+  if (own) return (own.values ?? []).map(v => caseName(v.name)).filter(Boolean);
+  const dom = idx.domainOf(typeRef) as { values?: unknown } | undefined;
+  return Array.isArray(dom?.values) ? dom.values.map(v => caseName(String(typeof v === 'string' ? v : (v as { name?: string }).name ?? ''))) : null;
+}
+
+/**
+ * The decoder of an ADT: the JSON names no case. If a field names it (see caseSwitch) the decoder
+ * reads it; otherwise it tries the cases — those that need more first, a case without fields last.
+ */
+function adtDecoder(t: TypeDef, cases: { name: string; fields: Field[] }[], idx: TypeIndex): string {
+  const read = (c: { name: string; fields: Field[] }) =>
+    c.fields.length ? `customDecodeAccumulating[${t.name}.${caseIdent(c.name)}](c)` : `Right(${t.name}.${caseIdent(c.name)})`;
+  const head = `  private lazy val decoder: InOutDecoder[${t.name}] = (c: HCursor) =>`;
+  if (!cases.length) return `${head}\n    ??? /* TODO ${t.name} hat noch keine Fälle */`;
+  const required = (c: { fields: Field[] }) => c.fields.filter(f => !f.optional && !f.default?.trim()).length;
+  const tryAll = (indentBy: string) => {
+    const order = [...cases].sort((a, b) => Number(!a.fields.length) - Number(!b.fields.length) || required(b) - required(a));
+    return [read(order[0]), ...order.slice(1).map(c => `  .orElse(${read(c)})`)].map(l => indentBy + l).join('\n');
+  };
+  const sw = caseSwitch(cases, idx);
+  if (!sw) {
+    return [
+      head,
+      '    // TODO the JSON names no case: the first case that reads it wins — choose it by a field if one decides',
+      tryAll('    '),
+    ].join('\n');
+  }
+  const swType = idx.nameOf(sw.type);
+  const values = enumValues(sw.type, idx);
+  const complete = !!values && values.every(v => [...sw.byCase.values()].includes(v));
+  return [
+    head,
+    `    c.downField(${scalaKey(sw.name)}).as[${swType}].flatMap:`,
+    ...cases.map(c => `      case ${swType}.${caseIdent(sw.byCase.get(c.name)!)} => ${read(c)}`),
+    // a value of the switch no case has — or values not known: the cases are tried
+    ...(complete ? [] : ['      case _ =>', tryAll('        ')]),
+  ].join('\n');
+}
+
+/**
  * Choice with fields per case — like `enum In` of the depot domain: each case
  * a class, the companion with an `example` per case and one for the type.
  */
@@ -764,7 +835,11 @@ function adtDef(t: TypeDef, idx: TypeIndex): string {
     '',
     `object ${t.name}:`,
     `  given ApiSchema[${t.name}]  = deriveApiSchema`,
-    `  given InOutCodec[${t.name}] = deriveInOutCodec`,
+    // the JSON names no case (no discriminator): an own decoder chooses it, with the decoders of the cases
+    `  given InOutCodec[${t.name}] = CirceCodec.from(decoder, deriveInOutEncoder)`,
+    ...cases.filter(v => fieldsOf(v).length).map(v => `  given InOutDecoder[${t.name}.${caseIdent(v.name)}] = deriveInOutDecoder`),
+    '',
+    adtDecoder(t, cases.map(v => ({ name: v.name, fields: fieldsOf(v) })), idx),
     ...(companions.length ? ['', companions.join('\n\n')] : []),
     '',
     // typed with the enum: the example of a case is typed with the case (for `.copy`) — as the
