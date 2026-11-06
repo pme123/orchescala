@@ -59,4 +59,32 @@ class PageDiffSuite extends munit.FunSuite:
   test("JSON that cannot be read - the reason"):
     assert(OrchSpecCore.pageDiff("{", book).left.exists(_.startsWith("before is no JSON")))
 
+  // edge cases - the expected JSON is what the TypeScript pageDiff of orch-spec (develop, before it
+  // moved here) answered for the same pages
+  private def page(body: String) = s"""{"path":"p","title":"T","access":"public","body":[$body]}"""
+  private val a  = """{"type":"text","text":"A"}"""
+  private val b  = """{"type":"text","text":"B"}"""
+  private val go = """{"type":"button","label":"Go","actions":[]}"""
+
+  private val edgeCases = Seq(
+    ("empty pages", page(""), page(""), "[]"),
+    ("all new", page(""), page(s"$a,$go"),
+      """[{"kind":"added","key":"0","label":"Text «A»"},{"kind":"added","key":"1","label":"Button «Go»"}]"""),
+    ("all removed", page(s"$a,$go"), page(""),
+      """[{"kind":"removed","key":"0","label":"Text «A»"},{"kind":"removed","key":"1","label":"Button «Go»"}]"""),
+    ("all moved - the order reversed", page(s"$a,$b,$go"), page(s"$go,$b,$a"),
+      """[{"kind":"moved","key":"1","label":"Text «B»","detail":"von 1"},{"kind":"moved","key":"2","label":"Text «A»","detail":"von 0"}]"""),
+    ("the same block twice", page(s"$a,$a,$go"), page(s"$go,$a,$a"),
+      """[{"kind":"moved","key":"0","label":"Button «Go»","detail":"von 2"}]"""),
+    ("one of two same blocks changed", page(s"$a,$a"), page(s"""$a,{"type":"text","text":"A","tone":"muted"}"""),
+      """[{"kind":"changed","key":"1","label":"Text «A»"}]"""),
+    ("a new block in a section - the section itself unchanged",
+      page(s"""{"type":"section","label":"S","body":[$a]}"""), page(s"""{"type":"section","label":"S","body":[$a,$b]}"""),
+      """[{"kind":"added","key":"0.1","label":"Text «B»"}]""")
+  )
+
+  edgeCases.foreach: (name, before, after, expected) =>
+    test(s"edge case: $name"):
+      assertEquals(OrchSpecCore.pageDiff(before, after), Right(expected))
+
 end PageDiffSuite

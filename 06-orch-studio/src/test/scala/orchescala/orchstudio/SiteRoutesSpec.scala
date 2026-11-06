@@ -152,6 +152,47 @@ object SiteRoutesSpec extends ZIOSpecDefault:
         !SiteSource.isCompanyData("spec/index.html"),
         !SiteSource.orchDocApps().exists(_.exists("spec/catalog.generated.json"))
       )
+    ,
+    test("a symbolic link out of the company's folder is not served"):
+      withData: dir =>
+        val outside = os.temp.dir(prefix = "outside")
+        os.write(outside / "secret.txt", "secret")
+        os.symlink(dir / "democompany" / "leak.txt", outside / "secret.txt")
+        os.symlink(dir / "democompany" / "out", outside)
+        os.symlink(dir / "democompany" / "inside.json", dir / "democompany" / "docs.json")
+        val folder = SiteSource.Folder(dir)
+        val leak   = folder.read("democompany/leak.txt")
+        val out    = folder.read("democompany/out/secret.txt")
+        // a link that stays inside is fine
+        val inside = folder.read("democompany/inside.json").map(b => new String(b, "UTF-8"))
+        ZIO.succeed(assertTrue(leak.isEmpty, out.isEmpty, inside.contains("{}")))
+    ,
+    test("the folder of orch-spec as JSON - also with a control character in its path"):
+      val folder = os.temp.dir(prefix = "spec\nnew \"line\"")
+      val hints  = SiteSource.folderHints(Seq("spec" -> folder))
+      val json   = hints.read("spec/folder.json").map(String(_, "UTF-8"))
+      assertTrue(
+        json.flatMap(j => io.circe.parser.parse(j).toOption)
+          .flatMap(_.hcursor.downField("path").as[String].toOption)
+          .contains(folder.toString)
+      )
+    ,
+    test("the company's site from a jar: files yes, directories no"):
+      val jar = os.temp(suffix = ".jar")
+      scala.util.Using.resource(java.util.jar.JarOutputStream(java.nio.file.Files.newOutputStream(jar.toNIO))): out =>
+        out.putNextEntry(java.util.jar.JarEntry("site/democompany/"))
+        out.closeEntry()
+        out.putNextEntry(java.util.jar.JarEntry("site/democompany/docs.json"))
+        out.write(bytes("{}"))
+        out.closeEntry()
+      val loader = java.net.URLClassLoader(Array(jar.toNIO.toUri.toURL), null)
+      val site   = SiteSource.Classpath("site/", loader = loader)
+      assertTrue(
+        site.read("democompany/docs.json").map(String(_, "UTF-8")).contains("{}"),
+        !site.exists("democompany"),
+        site.read("democompany").isEmpty,
+        !site.exists("missing.json")
+      )
   )
 
 end SiteRoutesSpec

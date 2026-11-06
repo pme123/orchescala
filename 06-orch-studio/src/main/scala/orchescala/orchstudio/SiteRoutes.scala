@@ -36,7 +36,7 @@ final case class SiteRoutes(site: Site):
         case Site.Resolved.File(rel, bytes) => SiteRoutes.file(rel, bytes)
         case Site.Resolved.Redirect(to)     => SiteRoutes.found(to)
         case Site.Resolved.NotFound         => Response.status(Status.NotFound)
-      .catchAll(e => ZIO.logWarning(s"/site$rest failed: ${e.getMessage}").as(Response.status(Status.InternalServerError)))
+      .catchAllCause(cause => ZIO.logWarningCause(s"/site$rest failed", cause).as(Response.status(Status.InternalServerError)))
 
 end SiteRoutes
 

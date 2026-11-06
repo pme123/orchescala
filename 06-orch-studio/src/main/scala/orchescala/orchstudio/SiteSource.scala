@@ -1,5 +1,7 @@
 package orchescala.orchstudio
 
+import io.circe.Json
+
 import java.net.JarURLConnection
 import java.nio.file.{Files, Paths}
 import scala.util.{Try, Using}
@@ -13,15 +15,21 @@ trait SiteSource:
 
 object SiteSource:
 
-  /** A folder, e.g. the company's assembled site `00-docs/site` while developing. */
+  /** A folder, e.g. the company's assembled site `00-docs/site` while developing. A symbolic link
+    * that leads out of the folder is not served - the real paths count, not the names.
+    */
   final case class Folder(root: os.Path) extends SiteSource:
+    private lazy val realRoot = Try(root.toNIO.toRealPath()).toOption
     private def file(rel: String): Option[os.Path] =
-      Try(root / os.RelPath(rel)).toOption.filter(f => f.startsWith(root) && os.isFile(f))
+      Try(root / os.RelPath(rel)).toOption
+        .filter(f => f.startsWith(root) && os.isFile(f))
+        .filter(f => realRoot.exists(r => Try(f.toNIO.toRealPath().startsWith(r)).getOrElse(false)))
     def read(rel: String): Option[Array[Byte]] = file(rel).map(os.read.bytes)
     override def exists(rel: String): Boolean  = file(rel).isDefined
 
   /** Files below `prefix` on the classpath - the company's site in its studio (`site/`). With
-    * `only`, just these files (a jar cannot be listed - the apps come with an index, `files.txt`).
+    * `only`, just these files (a jar cannot be listed - the apps come with an index, `files.txt`);
+    * the index lists files only, so they are not checked for being a directory.
     */
   final case class Classpath(
       prefix: String,
@@ -31,7 +39,7 @@ object SiteSource:
     private def resource(rel: String): Option[java.net.URL] =
       Option.when(only.forall(_.contains(rel)))(rel)
         .flatMap(r => Option(loader.getResource(prefix + r)))
-        .filter(isRegularFile)
+        .filter(url => only.isDefined || isRegularFile(url))
     def read(rel: String): Option[Array[Byte]] =
       resource(rel).flatMap(url => Try(Using.resource(url.openStream())(_.readAllBytes())).toOption)
     override def exists(rel: String): Boolean = resource(rel).isDefined
@@ -64,8 +72,7 @@ object SiteSource:
   def folderHints(folders: Seq[(String, os.Path)]): Memory =
     Memory(folders.collect:
       case (app, dir) if os.isDir(dir) =>
-        val path = dir.toString.replace("\\", "\\\\").replace("\"", "\\\"")
-        s"$app/folder.json" -> s"""{"path":"$path"}""".getBytes("UTF-8")
+        s"$app/folder.json" -> Json.obj("path" -> Json.fromString(dir.toString)).noSpaces.getBytes("UTF-8")
     .toMap)
 
   // a directory on the classpath is no file - in a folder it would be read as a listing
