@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, keepPositions, updatePattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, graftEventSubExtras, keepPositions, updatePattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -1086,6 +1086,30 @@ test('«Abbruch per Signal»: converting keeps the drawing - shapes with a label
   const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS).xml;
   assert.deepEqual(geo(c7), want);
   assert.deepEqual(geo(convertWithPatterns(c7, 'c8', STANDARD_PATTERNS).xml), want);
+});
+
+test('graftEventSubExtras: what cannot go back is reported - no block of the pattern, a former ID taken', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    // no «Abbruch per Signal» in the diagram: the own steps stay where they are - with a note
+    const plain = diagram(engine, 'task');
+    const none = graftEventSubExtras(plain, [{ patternId: 'cancel-by-signal', block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Target'] }], STANDARD_PATTERNS, engine);
+    assert.equal(none.xml, plain, engine);
+    assert.deepEqual(none.issues, ['«Abbruch per Signal»: die eigenen Schritte im Ereignis-Subprozess (Target) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.'], engine);
+    // the former ID of the start is taken by another element: it keeps its new one - with a note
+    const xml = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml.replace(/CancelStartEvent/g, 'NewStart');
+    const taken = graftEventSubExtras(xml, [{ patternId: 'cancel-by-signal', block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: { CancelStartEvent: 'Start' }, ids: [] }], STANDARD_PATTERNS, engine);
+    assert.ok(taken.xml.includes('id="NewStart"'), engine);
+    assert.deepEqual(taken.issues, ['«Abbruch per Signal»: «NewStart» bekommt seine frühere ID «Start» nicht zurück (vergeben) — den Schritt der Spezifikation dazu prüfen.'], engine);
+  }
+});
+
+test('«Abbruch per Signal»: removing it takes its event sub process with the own steps in it', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = withOwnTask(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml);
+    const r = removePattern(xml, cancel, engine, null, STANDARD_PATTERNS);
+    assert.ok(r.changed, engine);
+    for (const id of ['CancelSubProcess', 'Cleanup', 'CleanupFlow', 'CancelSignal']) assert.ok(!r.xml.includes(`id="${id}"`), `${engine}: ${id}`);
+  }
 });
 
 test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {

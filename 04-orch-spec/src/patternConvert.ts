@@ -107,7 +107,9 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
   }
 
   // the own steps of an event sub process back into it
-  out = graftEventSubExtras(out, strip.extras, defs, target);
+  const grafted = graftEventSubExtras(out, strip.extras, defs, target);
+  out = grafted.xml;
+  for (const text of grafted.issues) extra.push({ stepId: '', where: 'Pattern', text });
 
   // each pattern on its element again - with the same parameters; a hit is matched only once,
   // the one with the same parameters first. Another one of the pattern on the element counts only

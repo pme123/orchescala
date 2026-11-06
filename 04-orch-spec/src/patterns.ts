@@ -1306,33 +1306,45 @@ function keepEventSubExtras(block: Fragment['blocks'][number], tn: Element, b: B
  * (the specification knows its steps by them), the flows of the inserted block give way to the
  * former ones, and every node of the sub process gets its incoming / outgoing from them.
  */
-export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs: PatternDef[], engine: EngineId): string {
-  if (!extras.length) return xml;
+export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs: PatternDef[], engine: EngineId): { xml: string; issues: string[] } {
+  if (!extras.length) return { xml, issues: [] };
   const doc = parseXml(xml);
   const proc = doc ? mainProcess(doc) : null;
-  if (!doc || !proc) return xml;
+  const nameOf = (id: string) => defs.find(d => d.id === id)?.name ?? id;
+  const lost = (ex: EventSubExtras) =>
+    `«${nameOf(ex.patternId)}»: die eigenen Schritte im Ereignis-Subprozess (${ex.ids.join(', ')}) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.`;
+  if (!doc || !proc) return { xml, issues: extras.map(lost) };
   const hits = detectIn(doc, defs, engine).hits;
   const w = new Writer(doc);
-  const rename = (el: Element, id: string) => {
+  const issues: string[] = [];
+  const rename = (ex: EventSubExtras, el: Element, id: string) => {
     const was = el.getAttribute('id');
-    if (!was || was === id || byIdIn(doc.documentElement, id)) return;
+    if (!was || was === id) return;
+    if (byIdIn(doc.documentElement, id)) {
+      issues.push(`«${nameOf(ex.patternId)}»: «${was}» bekommt seine frühere ID «${id}» nicht zurück (vergeben) — den Schritt der Spezifikation dazu prüfen.`);
+      return;
+    }
     el.setAttribute('id', id);
     const di = w.di.get(was);
     if (di) { di.setAttribute('bpmnElement', id); w.di.delete(was); w.di.set(id, di); }
   };
   let changed = false;
   for (const ex of extras) {
-    const hit = hits.find(h => h.patternId === ex.patternId && !h.targetId);
-    if (!hit) continue;
-    const bi = hit.fr.blocks.findIndex(bl => bl.entry.getAttribute('id') === ex.block);
-    const x = bi >= 0 ? matchBlocks(hit.fr, graphOf(proc), new Set(), hit.match.b)[bi] : null;
-    if (!x) continue;
+    // the block of this pattern with the same sub process in the pattern BPMN
+    let found: { hit: InternalHit; bi: number; x: { b: Binding; entry: Element } } | null = null;
+    for (const hit of hits.filter(h => h.patternId === ex.patternId && !h.targetId)) {
+      const bi = hit.fr.blocks.findIndex(bl => bl.entry.getAttribute('id') === ex.block);
+      const x = bi >= 0 ? matchBlocks(hit.fr, graphOf(proc), new Set(), hit.match.b)[bi] : null;
+      if (x) { found = { hit, bi, x }; break; }
+    }
+    if (!found) { issues.push(lost(ex)); continue; }
+    const { hit, bi, x } = found;
     const esp = x.entry;
     for (const [f, t] of eventSubPairs(hit.fr.blocks[bi], esp, x.b)) {
       const id = ex.nodes[f.getAttribute('id') ?? ''];
-      if (id) rename(t, id);
+      if (id) rename(ex, t, id);
     }
-    rename(esp, ex.esp);
+    rename(ex, esp, ex.esp);
     for (const f of kids(esp).filter(c => local(c) === 'sequenceFlow')) drop(w, f);
     for (const id of ex.ids) {
       const el = kids(proc).find(c => c.getAttribute('id') === id);
@@ -1355,7 +1367,7 @@ export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs:
     }
     changed = true;
   }
-  return changed ? w.serialize(xml) : xml;
+  return { xml: changed ? w.serialize(xml) : xml, issues };
 }
 
 type OwnItems = Map<Element, Map<string, Set<Element>>>;
@@ -2164,7 +2176,8 @@ export function updatePattern(xml: string, def: PatternDef, engine: EngineId, ta
   if (!r2.changed || !before) return r2;
   // the own steps of its event sub process back into it
   const all = defs?.some(d => d.id === def.id) ? defs : [...(defs ?? []), def];
-  return { ...r2, xml: keepPositions(before, graftEventSubExtras(r2.xml, extras, all, engine)) };
+  const g = graftEventSubExtras(r2.xml, extras, all, engine);
+  return { ...r2, xml: keepPositions(before, g.xml), issues: [...r2.issues, ...g.issues] };
 }
 
 /** Keep the position of the shapes: same IDs get their coordinates in `before` back */
