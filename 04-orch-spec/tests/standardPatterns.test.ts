@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, keepPositions, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, graftEventSubExtras, keepPositions, updatePattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -990,6 +990,134 @@ test('«Abbruch per Signal» twice: the second one does not add a second event s
     const twice = applyPattern(once, cancel, engine, null);
     assert.equal((twice.xml.match(/triggeredByEvent="true"/g) ?? []).length, 1, engine);
     assert.equal((twice.xml.match(/<bpmn:signal /g) ?? []).length, 1, engine);
+  }
+});
+
+/** A task of its own between the start and the end «canceled» of the event sub process */
+const withOwnTask = (xml: string) => xml
+  .replace(/(<bpmn:sequenceFlow id="CancelFlow" sourceRef="CancelStartEvent" targetRef=")CanceledEndEvent"/, '$1Cleanup"')
+  .replace(/<bpmn:incoming>CancelFlow<\/bpmn:incoming>/, '<bpmn:incoming>CleanupFlow</bpmn:incoming>')
+  .replace(/(<bpmn:sequenceFlow id="CancelFlow")/, '<bpmn:task id="Cleanup" name="Aufräumen"><bpmn:incoming>CancelFlow</bpmn:incoming><bpmn:outgoing>CleanupFlow</bpmn:outgoing></bpmn:task><bpmn:sequenceFlow id="CleanupFlow" sourceRef="Cleanup" targetRef="CanceledEndEvent" />$1');
+
+test('«Abbruch per Signal»: the start and the end «canceled» of its event sub process belong to the pattern - a task of its own there does not', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = withOwnTask(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml);
+    assert.ok(xml.includes('id="Cleanup"'), engine);
+    const { owned, hits } = detectPatterns(xml, STANDARD_PATTERNS, engine);
+    assert.deepEqual(hits.map(h => h.patternId), ['cancel-by-signal'], engine);
+    assert.deepEqual(['CancelSubProcess', 'CancelStartEvent', 'CanceledEndEvent', 'Cleanup'].map(id => owned.get(id) ?? null),
+      ['cancel-by-signal', 'cancel-by-signal', 'cancel-by-signal', null], engine);
+    // the steps: locked by `pattern` - the own task stays editable
+    const steps = allSteps(importBpmn(xml, 'demo.bpmn', { patterns: patternDefs(null) }).spec.steps);
+    assert.deepEqual(['CancelStartEvent', 'CanceledEndEvent', 'Cleanup'].map(id => steps.find(s => s.id === id)?.pattern ?? null),
+      ['cancel-by-signal', 'cancel-by-signal', null], engine);
+  }
+});
+
+test('«Abbruch per Signal»: an end of its own in the event sub process (without the status) is not the pattern\'s', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml
+      .replace(/(<bpmn:sequenceFlow id="CancelFlow")/, '<bpmn:endEvent id="OtherEnd" name="canceled" />$1');
+    assert.equal(detectPatterns(xml, STANDARD_PATTERNS, engine).owned.get('OtherEnd'), undefined, engine);
+  }
+});
+
+test('«Abbruch per Signal»: converting keeps a step of its own in the event sub process - in it, wired as before', () => {
+  const c8 = withOwnTask(applyPattern(diagram('c8', 'task'), cancel, 'c8', null).xml);
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS);
+  const back = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
+  for (const [engine, xml] of [['c7', c7.xml], ['c8', back.xml]] as const) {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
+    const esps = Array.from(doc.getElementsByTagName('bpmn:subProcess')).filter(e => e.getAttribute('triggeredByEvent') === 'true');
+    assert.equal(esps.length, 1, engine);
+    const esp = esps[0];
+    assert.equal(esp.getAttribute('id'), 'CancelSubProcess', engine);
+    const inner = (tag: string) => Array.from(esp.getElementsByTagName(tag)).map(e => e.getAttribute('id'));
+    assert.deepEqual(inner('bpmn:task'), ['Cleanup'], engine);
+    const flows = Array.from(esp.getElementsByTagName('bpmn:sequenceFlow')).map(f => `${f.getAttribute('id')}:${f.getAttribute('sourceRef')}->${f.getAttribute('targetRef')}`).sort();
+    assert.deepEqual(flows, ['CancelFlow:CancelStartEvent->Cleanup', 'CleanupFlow:Cleanup->CanceledEndEvent'], engine);
+    const refs = (id: string, tag: string) => Array.from(esp.getElementsByTagName(tag)).filter(e => e.parentElement?.getAttribute('id') === id).map(e => e.textContent);
+    assert.deepEqual([refs('CancelStartEvent', 'bpmn:outgoing'), refs('Cleanup', 'bpmn:incoming'), refs('Cleanup', 'bpmn:outgoing'), refs('CanceledEndEvent', 'bpmn:incoming')],
+      [['CancelFlow'], ['CancelFlow'], ['CleanupFlow'], ['CleanupFlow']], engine);
+    // nothing of it stays on the process level, and the pattern is the same
+    assert.ok(!Array.from(doc.getElementsByTagName('bpmn:process')[0].children).some(c => ['Cleanup', 'CleanupFlow', 'CancelFlow'].includes(c.getAttribute('id') ?? '')), engine);
+    const det = detectPatterns(xml, STANDARD_PATTERNS, engine);
+    assert.deepEqual(det.hits.map(h => h.patternId), ['cancel-by-signal'], engine);
+    assert.equal(det.owned.get('Cleanup'), undefined, engine);
+  }
+  assert.equal(signalNameOf(c7.xml), 'cancel-${execution.processInstanceId}');
+  assert.equal(signalNameOf(back.xml), '="cancel-" + string(camunda.processInstance.key)');
+});
+
+test('«Abbruch per Signal»: changing the prefix keeps a step of its own in the event sub process', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = withOwnTask(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml);
+    const r = updatePattern(xml, cancel, engine, null, { signalPrefix: 'stop-' }, STANDARD_PATTERNS, { signalPrefix: 'cancel-' });
+    assert.ok(r.changed, engine);
+    assert.ok(signalNameOf(r.xml)?.includes('stop-'), engine);
+    assert.match(r.xml, /<bpmn:sequenceFlow id="CancelFlow" sourceRef="CancelStartEvent" targetRef="Cleanup" \/>/, engine);
+    assert.match(r.xml, /<bpmn:sequenceFlow id="CleanupFlow" sourceRef="Cleanup" targetRef="CanceledEndEvent" \/>/, engine);
+    assert.equal((r.xml.match(/triggeredByEvent="true"/g) ?? []).length, 1, engine);
+    assert.deepEqual(detectPatterns(r.xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'stop-']], engine);
+    // inside the sub process, not on the process level
+    assert.match(r.xml, /triggeredByEvent="true"[^]*id="Cleanup"[^]*<\/bpmn:subProcess>/, engine);
+  }
+});
+
+test('«Abbruch per Signal»: converting keeps the drawing - shapes with a label (the pattern has none) and the flow between them', () => {
+  const DI = 'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI"';
+  const drawn = diagram('c8', 'task').replace('id="d">', `${DI} id="d">`).replace('</bpmn:definitions>', `<bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="P" bpmnElement="acme-demoV1">
+    <bpmndi:BPMNShape id="Start_di" bpmnElement="Start"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="Target_di" bpmnElement="Target"><dc:Bounds x="200" y="78" width="100" height="80" /></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="End_di" bpmnElement="End"><dc:Bounds x="400" y="100" width="36" height="36" /></bpmndi:BPMNShape>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>`);
+  // as the modeler saves it: start and end with their label, moved within the sub process
+  const label = (id: string, x: number) => new RegExp(`(<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}">\\s*<dc:Bounds )x="\\d+" y="\\d+"( width="36" height="36" />)`);
+  const c8 = applyPattern(drawn, cancel, 'c8', null).xml
+    .replace(label('CancelStartEvent', 0), '$1x="130" y="300"$2<bpmndi:BPMNLabel><dc:Bounds x="110" y="343" width="76" height="14" /></bpmndi:BPMNLabel>')
+    .replace(label('CanceledEndEvent', 0), '$1x="400" y="300"$2<bpmndi:BPMNLabel><dc:Bounds x="395" y="343" width="46" height="14" /></bpmndi:BPMNLabel>')
+    .replace(/(<bpmndi:BPMNEdge id="CancelFlow_di" bpmnElement="CancelFlow">)[\s\S]*?(<\/bpmndi:BPMNEdge>)/, '$1<di:waypoint x="166" y="318" /><di:waypoint x="400" y="318" />$2');
+  assert.match(c8, /x="130" y="300"/);
+  const geo = (xml: string) => ['CancelStartEvent', 'CanceledEndEvent', 'CancelFlow'].map(id => {
+    const di = new RegExp(`bpmnElement="${id}"[^>]*>([\\s\\S]*?)</bpmndi:BPMN(Shape|Edge)>`).exec(xml)?.[1] ?? '';
+    return Array.from(di.matchAll(/<(?:dc:Bounds|di:waypoint) ([^>]*)\/>/g)).map(m => ['x', 'y', 'width', 'height'].map(a => new RegExp(`${a}="([^"]*)"`).exec(m[1])?.[1] ?? '').join(',')).join(' ');
+  });
+  const want = geo(c8);
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS).xml;
+  assert.deepEqual(geo(c7), want);
+  assert.deepEqual(geo(convertWithPatterns(c7, 'c8', STANDARD_PATTERNS).xml), want);
+});
+
+test('graftEventSubExtras: what cannot go back is reported - no block of the pattern, a former ID taken', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    // no «Abbruch per Signal» in the diagram: the own steps stay where they are - with a note
+    // (a flow of it to a node of the pattern that is gone goes - no dangling reference)
+    const plain = diagram(engine, 'task').replace('</bpmn:process>', '<bpmn:sequenceFlow id="Gone" sourceRef="CancelStartEvent" targetRef="Target" /></bpmn:process>');
+    const none = graftEventSubExtras(plain, [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Target', 'Gone'] }], STANDARD_PATTERNS, engine);
+    assert.ok(none.xml.includes('id="Target"') && !none.xml.includes('id="Gone"'), engine);
+    assert.deepEqual(none.issues, ['«Abbruch per Signal»: die eigenen Schritte im Ereignis-Subprozess (Target) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.'], engine);
+    // the former ID of the start is taken by another element: it keeps its new one - with a note
+    // (a flow of its own to the former ID waits on the process level - it follows the new one)
+    const xml = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml.replace(/CancelStartEvent/g, 'NewStart')
+      .replace('</bpmn:process>', '<bpmn:sequenceFlow id="Own" sourceRef="Start" targetRef="CanceledEndEvent" /></bpmn:process>');
+    const taken = graftEventSubExtras(xml, [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: { CancelStartEvent: 'Start' }, ids: ['Own'] }], STANDARD_PATTERNS, engine);
+    assert.ok(taken.xml.includes('id="NewStart"'), engine);
+    assert.match(taken.xml, /triggeredByEvent="true"[^]*<bpmn:sequenceFlow id="Own" sourceRef="NewStart" targetRef="CanceledEndEvent" \/>[^]*<\/bpmn:subProcess>/, engine);
+    assert.match(taken.xml, /id="NewStart"[^>]*>\s*<bpmn:outgoing>Own<\/bpmn:outgoing>/, engine);
+    // a step that is gone after the conversion is named - not skipped silently
+    const gone = graftEventSubExtras(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml,
+      [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Vanished'] }], STANDARD_PATTERNS, engine);
+    assert.deepEqual(gone.issues, ['«Abbruch per Signal»: Vanished aus dem Ereignis-Subprozess fehlt nach dem Einsetzen — von Hand prüfen.'], engine);
+    assert.deepEqual(taken.issues, ['«Abbruch per Signal»: «NewStart» bekommt seine frühere ID «Start» nicht zurück (vergeben) — den Schritt der Spezifikation dazu prüfen.'], engine);
+  }
+});
+
+test('«Abbruch per Signal»: removing it takes its event sub process with the own steps in it', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = withOwnTask(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml);
+    const r = removePattern(xml, cancel, engine, null, STANDARD_PATTERNS);
+    assert.ok(r.changed, engine);
+    for (const id of ['CancelSubProcess', 'Cleanup', 'CleanupFlow', 'CancelSignal']) assert.ok(!r.xml.includes(`id="${id}"`), `${engine}: ${id}`);
   }
 });
 

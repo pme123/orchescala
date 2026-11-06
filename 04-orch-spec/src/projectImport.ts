@@ -623,6 +623,27 @@ function objectKind(t: DomainType): InteractionKind | null {
 }
 
 /**
+ * The fixed start of a signal or message name - up to its first dynamic part: `${…}` (JUEL,
+ * Scala), `{…}` (Orchescala placeholder) or, in a FEEL expression (`="cancel-" + string(…)`),
+ * its leading string literal. So `cancel-${SignalEvent.Dynamic_ProcessInstance}` of the domain
+ * finds the signal on C7 and on C8.
+ */
+export function fixedStart(name: string): string {
+  const t = name.trim();
+  // (the literal as text - `\"` is `"`)
+  if (t.startsWith('=')) return (/^=\s*"((?:[^"\\]|\\.)*)"/.exec(t)?.[1] ?? '').replace(/\\(.)/g, '$1');
+  // (`${…}` JUEL / Scala, `#{…}` JUEL deferred, `{…}` Orchescala placeholder)
+  return t.split(/[$#]?\{/)[0];
+}
+
+/** Has the name no dynamic part - is it all fixed text (a FEEL name: a single string literal)? */
+export function isFixed(name: string): boolean {
+  const t = name.trim();
+  if (t.startsWith('=')) return /^=\s*"(?:[^"\\]|\\.)*"\s*$/.test(t);
+  return !t.includes('{');
+}
+
+/**
  * Complete a specification read from the BPMN with data model and interactions
  * from the domain. `null` if the domain does not know the process.
  */
@@ -720,8 +741,12 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       if (kind === 'userTask' && o.key) return o.key === step.id;
       if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase() && (!ownPkgOnly || inProcessPkg(o));
       // Signal / message: via the name in the BPMN (up to the dynamic part)
-      const key = (o.key ?? '').split('${')[0];
-      if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
+      // (a name without a dynamic part is compared whole - `orderCreated` is not `orderCreatedLater`)
+      const key = fixedStart(o.key ?? '');
+      const fixed = step.messageName ? fixedStart(step.messageName) : '';
+      const whole = (name: string) => isFixed(name) ? fixedStart(name) : null;
+      if (key && step.messageName && (step.messageName === o.key
+        || (isFixed(o.key ?? '') ? whole(step.messageName) === key : fixed.startsWith(key)))) return true;
       // otherwise the naming convention (`KartenbestellungPrufenBackofficeTask` → `KartenbestellungPrufenBackofficeUT`)
       return o.owner === suggestName(step, kind, processId, model);
     });
