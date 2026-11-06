@@ -1719,6 +1719,9 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   // an empty one goes in with a hint (chosen afterwards in the pattern)
   const badProcess = patternParams(def).filter(p => p.kind === 'process' && given[p.name]?.trim() && !PROCESS_ID.test(given[p.name].trim()));
   if (badProcess.length) return same(badProcess.map(p => `«${def.name}»: «${p.label ?? p.name}» ${processIssue(given[p.name], given.processId)}`));
+  // a value with characters the parameter does not allow (e.g. `${` or `"` in a signal name) would break the BPMN
+  const badValue = patternParams(def).filter(p => typeof p.valuePattern === 'string' && given[p.name] && !new RegExp(p.valuePattern, 'u').test(given[p.name]!));
+  if (badValue.length) return same(badValue.map(p => `«${def.name}»: «${p.label ?? p.name}» «${given[p.name]}» hat Zeichen, die hier nicht gehen (erlaubt: ${p.valuePattern}).`));
   const w = new Writer(doc);
   // `{{startMessage}}` needs a message start event — if it is missing,
   // the process start becomes one (message = process ID, the convention)

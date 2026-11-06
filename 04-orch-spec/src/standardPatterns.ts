@@ -161,8 +161,9 @@ export const STANDARD_PATTERN_DEFS: PatternDef[] = [
       {
         "name": "signalPrefix",
         "label": "Signal-Präfix",
-        "description": "Steht vor der Instanz im Signalnamen",
-        "default": "cancel-"
+        "description": "Steht vor der Instanz im Signalnamen - nur Buchstaben, Ziffern und _ . : -",
+        "default": "cancel-",
+        "valuePattern": "^[\\p{L}\\p{N}_.:-]*$"
       }
     ],
     "limitations": {
