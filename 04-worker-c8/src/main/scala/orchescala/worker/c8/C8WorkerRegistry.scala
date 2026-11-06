@@ -33,19 +33,21 @@ class C8WorkerRegistry(c8Client: C8Client)
         yield ()
     }.mapError(_.asInstanceOf[Any])
 
-  // BPMNs take the own instance from camunda.processInstance.key - a cluster before 8.10 does not
-  // know it, every such process stops at its start with an incident: say so where it is started
+  // BPMNs take the own instance from camunda.processInstance.key and the business key from
+  // camunda.processInstance.businessId - a cluster before 8.10 does not know them, every such
+  // process stops with an incident: say so where it is started
   private def checkClusterVersion(client: CamundaClient): UIO[Unit] =
     attemptBlockingInterrupt(client.newTopologyRequest().send().join(5, java.util.concurrent.TimeUnit.SECONDS).getGatewayVersion)
       .flatMap: version =>
         if C8WorkerRegistry.before810(version) then
           logWarning(
             s"Camunda 8 cluster $version: Orchescala needs 8.10 - the BPMNs take the own process instance " +
-              "from camunda.processInstance.key, before 8.10 a process using it stops at its start with an incident."
+              "from camunda.processInstance.key and the business key from camunda.processInstance.businessId, " +
+              "before 8.10 a process using them stops with an incident."
           )
         else logDebug(s"Camunda 8 cluster $version")
       .catchAll(err =>
-        logWarning(s"Camunda 8 cluster version could not be verified ($err) - Orchescala needs 8.10 (camunda.processInstance.key).")
+        logWarning(s"Camunda 8 cluster version could not be verified ($err) - Orchescala needs 8.10 (camunda.processInstance.key / businessId).")
       )
 
   private def registerWorker(worker: C8Worker[?, ?], client: CamundaClient) =

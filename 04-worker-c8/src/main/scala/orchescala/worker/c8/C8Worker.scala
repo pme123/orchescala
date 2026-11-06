@@ -70,7 +70,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       for
         startDate        <- succeed(new Date())
         json             <- extractJson(job)
-        businessKey      <- extractBusinessKey(json)
+        businessKey       = C8Worker.businessKeyOf(job)
         _                <- logInfo(
                               s"Worker: ${job.getType} (${job.getBpmnProcessId}) started > $businessKey"
                             )
@@ -227,7 +227,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
       )
       // engine values, not circe's Json - Zeebe would serialize a Json as a bean ({"number":false,...})
       val variables =
-        C8Worker.bpmnErrorVariables(filteredGeneralVariables ++ errorVars + ("businessKey" -> businessKey))
+        C8Worker.bpmnErrorVariables(filteredGeneralVariables ++ errorVars)
       // C8 sets the variables of a thrown error locally at the catching error event - in C7 they
       // reach the process (e.g. the output of a mock). So first set them like a job completion
       // does (propagated to the upper scopes), then throw the error.
@@ -282,8 +282,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 .retryBackoff(retryBackoff(error))
                                 .variables(Map(
                                   "errorCode"   -> error.errorCode.toString,
-                                  "errorMsg"    -> error.toString,
-                                  "businessKey" -> businessKey
+                                  "errorMsg"    -> error.toString
                                 ).asJava)
                                 .errorMessage(error.causeMsg)
                                 .send().join()
@@ -391,9 +390,16 @@ object C8Worker:
     * C8 has no `execution`: the own process instance is `camunda.processInstance.key` in FEEL
     * (Camunda 8.10) - no worker sets it as a variable. A worker takes
     * `EngineRunContext.processInstance` - the same in all engines.
+    *
+    * Nor is the business key a variable: it is the business id of the instance, the job carries it
+    * (Camunda 8.10) - see `businessKeyOf`.
     */
   def variablesToFetch(worker: Worker[?, ?, ?]): Seq[String] =
-    (worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey").distinct
+    (worker.variableNames ++ GeneralVariables.variableNames).distinct
+
+  /** The business key of the job's process instance - its business id (Camunda 8.10). */
+  def businessKeyOf(job: ActivatedJob): String =
+    Option(job.getBusinessId).filterNot(_.isBlank).getOrElse("no businessKey")
 
   // the process instance of a job -> its root; a root never changes - bounded, so a long-running
   // worker app does not grow without end
