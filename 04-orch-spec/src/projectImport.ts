@@ -626,6 +626,18 @@ function objectKind(t: DomainType): InteractionKind | null {
  * Complete a specification read from the BPMN with data model and interactions
  * from the domain. `null` if the domain does not know the process.
  */
+/**
+ * The fixed start of a signal or message name - up to its first dynamic part: `${…}` (JUEL,
+ * Scala), `{…}` (Orchescala placeholder) or, in a FEEL expression (`="cancel-" + string(…)`),
+ * its leading string literal. So `cancel-${SignalEvent.Dynamic_ProcessInstance}` of the domain
+ * finds the signal on C7 and on C8.
+ */
+export function fixedStart(name: string): string {
+  const t = name.trim();
+  if (t.startsWith('=')) return /^=\s*"((?:[^"\\]|\\.)*)"/.exec(t)?.[1] ?? '';
+  return t.split('${')[0].split('{')[0];
+}
+
 export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model | null): Enriched | null {
   const warnings: string[] = [];
   const procType = domain.find(t => t.processName === spec.processId && t.owner);
@@ -720,8 +732,8 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
       if (kind === 'userTask' && o.key) return o.key === step.id;
       if (kind === 'decision') return !!o.key && o.key.toLowerCase() === (step.topic ?? '').toLowerCase() && (!ownPkgOnly || inProcessPkg(o));
       // Signal / message: via the name in the BPMN (up to the dynamic part)
-      const key = (o.key ?? '').split('${')[0];
-      if (key && step.messageName && (step.messageName === o.key || step.messageName.startsWith(key))) return true;
+      const key = fixedStart(o.key ?? '');
+      if (key && step.messageName && (step.messageName === o.key || fixedStart(step.messageName).startsWith(key))) return true;
       // otherwise the naming convention (`KartenbestellungPrufenBackofficeTask` → `KartenbestellungPrufenBackofficeUT`)
       return o.owner === suggestName(step, kind, processId, model);
     });
