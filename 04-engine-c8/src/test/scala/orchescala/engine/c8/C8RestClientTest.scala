@@ -600,16 +600,29 @@ object C8RestClientTest extends ZIOSpecDefault:
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
         for info <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1"))
-        yield assertTrue(info.processInstanceId == otherPartition)
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assertTrue(info.processInstanceId == otherPartition, keys == Seq(Some("bk-1"), Some("bk-1"), None))
       },
       test("start by message with key, the instance on another partition: 409 - a key and its equal business id share it") {
         val otherPartition = ((2L << 51) + 5).toString
         val cluster        = StubCluster(_ => 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}""")
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
-        assertZIO(C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit)(
-          failsWith(409, s"($otherPartition)")
-        )
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield
+          // answered on the first try - with key, not on the last one without
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, s"($otherPartition)")) && assertTrue(keys == Seq(Some("bk-1")))
+      },
+      test("start by message without businessKey, landed in a running instance (its older key): 409 - no business id, the message's partition") {
+        val cluster = StubCluster(_ => 200 -> """{"messageKey":"999","processInstanceKey":"500"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg").exit
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(keys == Seq(None))
       },
       test("startedBy: an instance the message started is newer, on its partition") {
         val partition2 = 2L << 51
