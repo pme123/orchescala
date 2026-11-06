@@ -85,6 +85,11 @@ So the BPMN decides which of the two it takes:
 
 - `camunda.processInstance.key` is the own process instance - from _Camunda 8.10_, in every process.
 - `businessKey` is a process variable, set by the Gateway when the process is started with one.
+  Started by its id (not by message), the process instance also gets it as its
+  [business id](https://docs.camunda.io/docs/components/concepts/process-instance-creation/#business-id)
+  (from _Camunda 8.9_): shown and searchable in Operate, passed on to call activities.
+  At most 256 characters; a cluster that enforces unique business ids answers a second start with the
+  same `businessKey` with 409 while the first instance runs.
 - Any other variable works too: send its value as `businessKey`.
 
 ### Operaton

@@ -210,6 +210,7 @@ object C8RestClientTest extends ZIOSpecDefault:
             body.hcursor.downField("processDefinitionVersion").failed, // -1 = latest by default
             body.hcursor.downField("variables").get[Json]("count").contains(Json.fromInt(5)),
             body.hcursor.downField("variables").get[String]("businessKey").contains("bk-1"),
+            body.hcursor.get[String]("businessId").contains("bk-1"), // the instance's business id
             body.hcursor.get[String]("tenantId").contains("t1")
           )
       },
@@ -219,6 +220,48 @@ object C8RestClientTest extends ZIOSpecDefault:
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
         for exit <- C8HistoricProcessInstanceService().getProcessInstance("not-a-key").exit
         yield assertTrue(exit.isFailure, cluster.all.isEmpty)
+      },
+      test("historic process instance: its business id is the businessKey - none without (e.g. started by message) or blank") {
+        val instance = Json.obj(
+          "processInstanceKey"       -> Json.fromString("42"),
+          "processDefinitionId"      -> Json.fromString("p"),
+          "processDefinitionVersion" -> Json.fromInt(1),
+          "processDefinitionKey"     -> Json.fromString("7"),
+          "startDate"                -> Json.fromString("2026-11-06T10:00:00.000Z"),
+          "state"                    -> Json.fromString("ACTIVE"),
+          "tenantId"                 -> Json.fromString("<default>")
+        )
+        def withBusinessId(id: String) = instance.deepMerge(Json.obj("businessId" -> Json.fromString(id)))
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        def get(body: Json) =
+          given C8RestClient = StubCluster(_ => 200 -> body.noSpaces).client()
+          C8HistoricProcessInstanceService().getProcessInstance("42")
+        for
+          withId    <- get(withBusinessId("bk-1"))
+          withoutId <- get(instance)
+          blankId   <- get(withBusinessId(""))
+        yield assertTrue(
+          withId.businessKey.contains("bk-1"),
+          withId.tenantId.isEmpty,
+          withoutId.businessKey.isEmpty,
+          blankId.businessKey.isEmpty
+        )
+      },
+      test("start refused by the cluster (business id not unique: 409, too long: 400): its status, with context, not retried") {
+        def refusedWith(status: Int, title: String) =
+          val cluster = StubCluster(_ => status -> s"""{"status":$status,"title":"$title","detail":"refused"}""")
+          given C8RestClient = cluster.client()
+          given orchescala.engine.EngineConfig = DefaultEngineConfig()
+          C8ProcessInstanceService(fastTimings)
+            .startProcessAsync("p", io.circe.JsonObject.empty, Some("bk-1"), None, None)
+            .exit
+            .map(exit => (exit, cluster.all.size))
+        for
+          (conflict, conflictCalls) <- refusedWith(409, "ALREADY_EXISTS")
+          (tooLong, tooLongCalls)   <- refusedWith(400, "INVALID_ARGUMENT")
+        yield assert(conflict)(failsWith(409, "Problem starting Process 'p'")) &&
+          assert(tooLong)(failsWith(400, "Problem starting Process 'p'")) &&
+          assertTrue(conflictCalls == 1, tooLongCalls == 1)
       },
       test("deploy: multipart resources + tenant, result mapped") {
         val cluster = StubCluster(_ =>
@@ -405,6 +448,20 @@ object C8RestClientTest extends ZIOSpecDefault:
             variables.get[Int]("amount").contains(1),
             variables.downField("_identityCorrelation").failed
           )
+      },
+      test("start without or with a blank businessKey: no business id") {
+        val cluster = StubCluster(_ => 200 -> """{"processInstanceKey":"1"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        val service = C8ProcessInstanceService(fastTimings)
+        for
+          _ <- service.startProcessAsync("p", io.circe.JsonObject.empty, None, None, None)
+          _ <- service.startProcessAsync("p", io.circe.JsonObject.empty, Some(""), None, None)
+          _ <- service.startProcessAsync("p", io.circe.JsonObject.empty, Some("  "), None, None)
+        yield assertTrue(
+          cluster.jsonBodies.size == 3,
+          cluster.jsonBodies.forall(_.hcursor.downField("businessId").failed)
+        )
       },
       test("start by message: the businessKey is the correlation key - none without businessKey") {
         val cluster = StubCluster(_ => 200 -> """{"messageKey":"999","processInstanceKey":"1000"}""")
