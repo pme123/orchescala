@@ -25,7 +25,7 @@ import type { EngineId, MultiInstanceSpec } from './types.ts';
 import { readMiResult, removeC7MiResult, removeC8MiResult, resultLocals, writeMiResult } from './miResult.ts';
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 import { feelBody, feelToJuel, iterableJuel, type JuelOptions } from './feelJuel.ts';
-import { importExpression, isJuel, juelImportReason, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
+import { importExpression, isJuel, nullSafeCondition, stripNullSafe, untranslatableText } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import { errorListSource, parseErrorList } from './errorCodes.ts';
@@ -83,10 +83,7 @@ function toFeel(text: string, where: string, issue: Issue): string {
   if (!t || t.startsWith('=') || !isJuel(t)) return t;
   const f = importExpression(t);
   if (f.startsWith('= ')) return `=${f.slice(2)}`;
-  const reason = juelImportReason(t);
-  issue(where, reason
-    ? `«${t}» ist nicht nach FEEL übersetzbar: ${reason}. Von Hand anpassen.`
-    : `«${t}» ist nicht nach FEEL übersetzbar — von Hand anpassen.`);
+  issue(where, untranslatableText(t, `«${t}» ist`, 'von Hand anpassen.'));
   return t;
 }
 

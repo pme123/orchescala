@@ -198,6 +198,19 @@ function executionProperty(name: string): string {
   return feel;
 }
 
+/**
+ * `getVariable` with a computed name (`"fileLink".concat(loopCounter)`) has no counterpart:
+ * FEEL cannot read a variable whose name is only known at runtime. And
+ * `fileLink + string(loopCounter)` would append the number to the value, not read `fileLink3`.
+ * `b` is the name already translated to FEEL; only `"name" + string(index)` gets a tailored example.
+ */
+function computedNameError(b: string): Unsupported {
+  const m = /^"([A-Za-z_]\w*)" \+ string\(([A-Za-z_][\w.]*)\)$/.exec(b);
+  const example = m ? `${m[1]}s[${m[2]}]` : 'liste[index]';
+  return new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. `
+    + `Falls das eine Mehrfachausführung ist: in ${C8_LABEL} braucht es die Variable je Durchlauf nicht, «Ergebnisse sammeln» legt die Ergebnisse in eine Liste, dann z. B. «= ${example}»`);
+}
+
 /** Method calls with a FEEL counterpart: `a.concat(b)` → `a + b` etc. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
@@ -228,15 +241,10 @@ function method(target: string, name: string, args: string[]): string {
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
     // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
-    // with a computed name (`"fileLink".concat(loopCounter)`) there is no counterpart:
-    // FEEL cannot read a variable whose name is only known at runtime
-    case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => {
-      // `"fileLink" + string(loopCounter)` → the list it stands for: `fileLinks[loopCounter]`
-      const m = /^"([A-Za-z_]\w*)" \+ string\(([A-Za-z_][\w.]*)\)$/.exec(b);
-      const example = m ? `${m[1]}s[${m[2]}]` : 'liste[index]';
-      // `fileLink + string(loopCounter)` would append the number to the value, not read `fileLink3`
-      throw new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. In ${C8_LABEL} braucht es die Variable je Durchlauf nicht: «Ergebnisse sammeln» bei der Mehrfachausführung legt die Ergebnisse in eine Liste, dann z. B. «= ${example}»`);
-    })()));
+    case 'getVariable': return two((_a, b) => {
+      if (/^"[A-Za-z_]\w*"$/.test(b)) return b.slice(1, -1);
+      throw computedNameError(b);
+    });
     // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'processInstanceId');
     case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
@@ -463,6 +471,17 @@ export function juelImportReason(text: string): string | null {
   return r.ok ? null : r.reason;
 }
 
+/**
+ * Message for JUEL that cannot be translated: `«what» nicht nach FEEL übersetzbar`, the reason
+ * (if known) as its own sentence, then `todo` (lower case start, e.g. `von Hand anpassen.`).
+ */
+export function untranslatableText(value: string, what: string, todo: string): string {
+  const reason = juelImportReason(value)?.replace(/[.:;,\s]+$/, '');
+  return reason
+    ? `${what} nicht nach FEEL übersetzbar: ${reason}. ${todo[0].toUpperCase()}${todo.slice(1)}`
+    : `${what} nicht nach FEEL übersetzbar — ${todo}`;
+}
+
 function importJuel(t: string): FeelResult {
   // split into template parts: fixed text and ${…} expressions
   const parts: string[] = [];
@@ -483,7 +502,7 @@ function importJuel(t: string): FeelResult {
       else if (ch === '{') depth++;
       else if (ch === '}' && --depth === 0) break;
     }
-    if (j >= t.length) return { ok: false, reason: '«${» nicht geschlossen' }; // leave as is
+    if (j >= t.length) return { ok: false, reason: '«${» nicht geschlossen' };
     const r = juelToFeel(t.slice(start + 2, j));
     if (!r.ok) return r;
     // a compound part needs parentheses in a concatenation

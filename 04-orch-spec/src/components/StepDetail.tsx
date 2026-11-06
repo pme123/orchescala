@@ -18,7 +18,7 @@ import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockSt
 import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
-import { feelIfPossible, importExpression, isJuel, juelImportReason } from '../juelFeel';
+import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
 import FeelInput from './FeelInput';
 import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
@@ -92,12 +92,7 @@ const ASSIGNMENT_FIELDS = [
 ] as const;
 
 /** Warning for JUEL the import could not translate — with the reason, if known; `todo` is what to do */
-function untranslatable(value: string, todo: string): string {
-  const reason = juelImportReason(value);
-  return reason
-    ? `JUEL, nicht nach FEEL übersetzbar: ${reason}. ${todo[0].toUpperCase()}${todo.slice(1)}`
-    : `JUEL, nicht nach FEEL übersetzbar — ${todo}`;
-}
+const untranslatable = (value: string, todo: string): string => untranslatableText(value, 'JUEL,', todo);
 
 function juelIssues(expression: string, engine: EngineId | undefined, json = false): FeelIssue[] {
   if (engine === 'c8') return [];

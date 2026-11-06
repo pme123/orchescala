@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DOMParser } from 'linkedom';
 import { convertBpmn } from '../src/engineConvert.ts';
-import { importExpression, juelImportReason } from '../src/juelFeel.ts';
+import { importExpression, juelImportReason, untranslatableText } from '../src/juelFeel.ts';
 import { installXmlNamespaces } from './xmlNamespaces';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -19,13 +19,23 @@ test('getVariable with a fixed name is the variable', () => {
   assert.equal(importExpression('${execution.getVariable("fileLink")}'), '= fileLink');
 });
 
-test('getVariable with a computed name stays JUEL — with the reason', () => {
-  const juel = '${execution.getVariable("fileLink".concat(loopCounter))}';
-  assert.equal(importExpression(juel), juel);
-  const reason = juelImportReason(juel);
-  assert.ok(reason?.includes('berechnetem Namen'), reason ?? 'no reason');
-  assert.ok(reason?.includes('"fileLink" + string(loopCounter)'), reason ?? 'no reason');
-  assert.ok(reason?.includes('«= fileLinks[loopCounter]»'), reason ?? 'no reason');
+const COMPUTED = '${execution.getVariable("fileLink".concat(loopCounter))}';
+const COMPUTED_REASON = 'getVariable mit berechnetem Namen ("fileLink" + string(loopCounter)) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. '
+  + 'Falls das eine Mehrfachausführung ist: in Camunda 8 braucht es die Variable je Durchlauf nicht, «Ergebnisse sammeln» legt die Ergebnisse in eine Liste, dann z. B. «= fileLinks[loopCounter]»';
+
+test('getVariable with a computed name stays JUEL — with the reason and a list example', () => {
+  assert.equal(importExpression(COMPUTED), COMPUTED);
+  assert.equal(juelImportReason(COMPUTED), COMPUTED_REASON);
+});
+
+test('getVariable with another computed name: the general example', () => {
+  const reason = juelImportReason('${execution.getVariable("file".concat(i + 1))}');
+  assert.ok(reason?.endsWith('«= liste[index]»'), reason ?? 'no reason');
+});
+
+test('unclosed ${ and a later part that fails have a reason', () => {
+  assert.equal(juelImportReason('Hallo ${name'), '«${» nicht geschlossen');
+  assert.equal(juelImportReason('${a} und ${foo.bar()}'), 'Methode «bar()» hat kein FEEL-Gegenstück');
 });
 
 test('no reason for translatable JUEL, FEEL or fixed text', () => {
@@ -34,9 +44,14 @@ test('no reason for translatable JUEL, FEEL or fixed text', () => {
   assert.equal(juelImportReason('fest'), null);
 });
 
-test('reason points to «Ergebnisse sammeln» in Camunda 8', () => {
-  const reason = juelImportReason('${execution.getVariable("fileLink".concat(loopCounter))}');
-  assert.ok(reason?.includes('«Ergebnisse sammeln»'), reason ?? 'no reason');
+test('message: the reason as its own sentence, without double punctuation', () => {
+  assert.equal(untranslatableText(COMPUTED, 'JUEL,', 'als «= …» schreiben.'),
+    `JUEL, nicht nach FEEL übersetzbar: ${COMPUTED_REASON}. Als «= …» schreiben.`);
+  assert.equal(untranslatableText('${foo.bar()}', 'JUEL,', 'als «= …» schreiben.'),
+    'JUEL, nicht nach FEEL übersetzbar: Methode «bar()» hat kein FEEL-Gegenstück. Als «= …» schreiben.');
+  assert.ok(!untranslatableText(COMPUTED, 'JUEL,', 'x').includes('..'));
+  // no reason (fixed text): the short form
+  assert.equal(untranslatableText('fest', 'JUEL,', 'als «= …» schreiben.'), 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben.');
 });
 
 test('C7 -> C8: the conversion reports the reason', () => {
@@ -45,7 +60,7 @@ test('C7 -> C8: the conversion reports the reason', () => {
   <bpmn:process id="acme-demo-filesV1" isExecutable="true">
     <bpmn:serviceTask id="Load" name="Load" camunda:type="external" camunda:topic="load">
       <bpmn:extensionElements><camunda:inputOutput>
-        <camunda:inputParameter name="fileLink">\${execution.getVariable("fileLink".concat(loopCounter))}</camunda:inputParameter>
+        <camunda:inputParameter name="fileLink">${COMPUTED}</camunda:inputParameter>
       </camunda:inputOutput></bpmn:extensionElements>
       <bpmn:multiInstanceLoopCharacteristics camunda:collection="\${files}" camunda:elementVariable="file" />
     </bpmn:serviceTask>
@@ -54,6 +69,5 @@ test('C7 -> C8: the conversion reports the reason', () => {
   const conv = convertBpmn(xml, 'c8');
   const issue = conv.issues.find(i => i.text.includes('getVariable'));
   assert.ok(issue, JSON.stringify(conv.issues));
-  assert.ok(issue.text.includes('«Ergebnisse sammeln»'), issue.text);
-  assert.ok(issue.text.includes('Von Hand anpassen.'), issue.text);
+  assert.equal(issue.text, `«${COMPUTED}» ist nicht nach FEEL übersetzbar: ${COMPUTED_REASON}. Von Hand anpassen.`);
 });
