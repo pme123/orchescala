@@ -43,8 +43,6 @@ test('one of the two ways is chosen - in C8 as the key of the message', () => {
   assert.equal(messageCorrelation(step('= camunda.processInstance.key'), 'c8')?.choice, 'processInstanceId');
   assert.deepEqual(messageCorrelation(step('=camunda.processInstance.businessId'), 'c8'), { choice: 'businessKey', param: 'businessKey', value: '{{businessKey}}', expression: '=camunda.processInstance.businessId' });
   assert.equal(messageCorrelation(step(CORRELATION_KEY.businessKey), 'c8')?.choice, 'businessKey');
-  // the variable businessKey is gone in C8 (8.10) - reported, sent still with businessKey
-  assert.deepEqual(messageCorrelation(step('=businessKey'), 'c8'), { choice: null, param: 'businessKey', value: '{{businessKey}}', expression: '=businessKey', oldBusinessKey: true });
   assert.equal(messageCorrelation(step(CORRELATION_KEY.processInstanceId), 'c8')?.choice, 'processInstanceId');
   // another expression from the diagram: neither of the two
   assert.equal(messageCorrelation(step('=order.id'), 'c8')?.choice, null);
@@ -58,7 +56,6 @@ test('one of the two ways is chosen - in C8 as the key of the message', () => {
   // Camunda 7: without a choice the sender takes one of the two — with a choice, that applies
   assert.equal(messageCorrelation(step(), 'c7')?.either, true);
   assert.equal(messageCorrelation(step('=processInstanceId'), 'c7')?.choice, 'processInstanceId');
-  assert.equal(messageCorrelation(step('=businessKey'), 'c7')?.choice, 'businessKey');
   assert.equal(messageCorrelation(step('=camunda.processInstance.businessId'), 'c7')?.choice, 'businessKey');
   // a throwing event waits for nothing
   assert.equal(messageCorrelation({ ...step('=businessKey'), eventDirection: 'throw' }, 'c8'), null);
@@ -74,9 +71,6 @@ test('C7 -> C8: the chosen key goes into the message - instead of the proposal',
   // an older choice from before Camunda 8.10 becomes the own key too
   const older = { ...spec, steps: spec.steps.map(s => (s.id === 'ResetEvent' ? { ...s, correlationKey: '=processInstanceId' } : s)) };
   assert.equal(reset(importBpmn(convertBpmn(c7, 'c8', { correlationKeys: correlationKeysOf(older) }).xml, 'kube').spec).correlationKey, '=string(camunda.processInstance.key)');
-  // an older choice of the business key becomes the business id of the instance
-  const olderKey = { ...spec, steps: spec.steps.map(s => (s.id === 'ResetEvent' ? { ...s, correlationKey: '=businessKey' } : s)) };
-  assert.equal(reset(importBpmn(convertBpmn(c7, 'c8', { correlationKeys: correlationKeysOf(olderKey) }).xml, 'kube').spec).correlationKey, '=camunda.processInstance.businessId');
   // without a choice: the suggestion, reported
   const proposed = convertBpmn(c7, 'c8');
   assert.equal(reset(importBpmn(proposed.xml, 'kube').spec).correlationKey, '=camunda.processInstance.businessId');

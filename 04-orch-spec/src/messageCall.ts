@@ -50,11 +50,6 @@ export interface MessageCorrelation {
    * The own instance is `camunda.processInstance.key`.
    */
   misnamed?: boolean;
-  /**
-   * Camunda 8 `= businessKey` — from 8.10 there is no such variable: the key stays
-   * empty. The business key is `camunda.processInstance.businessId`.
-   */
-  oldBusinessKey?: boolean;
 }
 
 /** Does the step wait for a message (intermediate event, receive task)? */
@@ -77,8 +72,6 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   if (!expression.trim().startsWith('=')) return { choice: null, param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
   if (BUSINESS_ID.test(body)) return of('businessKey');
-  // the older `=businessKey`: still the choice in Camunda 7, in Camunda 8 the variable is gone
-  if (body === 'businessKey') return (engine ?? 'c7') !== 'c8' ? of('businessKey') : { ...of('businessKey'), choice: null, oldBusinessKey: true };
   if (OWN_KEY.test(body)) return of('processInstanceId');
   // Camunda 7 has no correlation key in the BPMN — an older choice stays a choice
   if (body === 'processInstanceId' && (engine ?? 'c7') !== 'c8') return of('processInstanceId');
@@ -88,14 +81,9 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   return { choice: null, param: 'businessKey', value, expression };
 }
 
-/**
- * A key as Camunda 8 needs it — an older choice `=processInstanceId` becomes the own key,
- * `=businessKey` the business id of the instance
- */
-const forC8 = (key: string): string => {
-  const body = key.trim().replace(/^=\s*/, '');
-  return OLD_ID.has(body) ? CORRELATION_KEY.processInstanceId : body === 'businessKey' ? CORRELATION_KEY.businessKey : key.trim();
-};
+/** A key as Camunda 8 needs it — an older choice `=processInstanceId` becomes the own key */
+const forC8 = (key: string): string =>
+  OLD_ID.has(key.trim().replace(/^=\s*/, '')) ? CORRELATION_KEY.processInstanceId : key.trim();
 
 /**
  * The chosen keys per step — for the migration to Camunda 8, which

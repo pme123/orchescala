@@ -351,10 +351,7 @@ function readIo(el: Element): IoResult {
       }
       if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; res.mockKind = target === '_outputMock' ? 'output' : 'service'; continue; }
       const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
-      // Before 8.10 the business key went to the subprocess as this input — technical, like
-      // `camunda:in businessKey`; the export drops the default and makes any other one the override
-      const oldBusinessKey = target === 'businessKey' && local(el) === 'callActivity';
-      (TECHNICAL.has(target) || oldBusinessKey ? res.technical : res.inputs).push(m);
+      (TECHNICAL.has(target) ? res.technical : res.inputs).push(m);
     }
     for (const p of childrenNamed(zio, 'output')) {
       const target = attr(p, 'target') ?? '';

@@ -1232,9 +1232,6 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
         } else if (name === 'processInstanceKey' || name === 'processInstanceId') {
           // Camunda 8: the InitWorker set it once — today FEEL has the own instance
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (C8 ab 8.10; der InitWorker setzt «${name}» nicht mehr). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
-        } else if (name === 'businessKey') {
-          // Camunda 8: the variable is gone (8.10) — the business id is on the instance
-          issues.push({ level: 'error', text: `Variable «businessKey» ist nicht bekannt — der Business Key der Instanz ist «camunda.processInstance.businessId» (C8 ab 8.10; die Variable «businessKey» gibt es dort nicht mehr).` });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }

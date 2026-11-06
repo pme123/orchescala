@@ -51,38 +51,15 @@ test('export C8: a call activity gets no input businessKey - the child inherits 
   assert.equal(businessIdOf(out), undefined);
 });
 
-test('export C8: the stale input =businessKey of an earlier export goes - the other inputs stay', () => {
-  const xml = c8Call('<zeebe:ioMapping><zeebe:input source="=businessKey" target="businessKey" /><zeebe:input source="=clientKey" target="clientKey" /></zeebe:ioMapping>');
-  const spec = importBpmn(xml, 'parent').spec;
-  // the import does not show it as a mapping row
-  assert.deepEqual(call(spec).inputs?.map(m => m.name), ['clientKey']);
-  const out = writeBpmn(xml, spec).xml;
-  assert.ok(!businessKeyInput(out), out);
-  assert.equal(inputSource(out, 'clientKey'), '=clientKey');
-  assert.equal(businessIdOf(out), undefined);
-  // alone: no mapping rows at all - it goes as well
-  const alone = c8Call('<zeebe:ioMapping><zeebe:input source="=businessKey" target="businessKey" /></zeebe:ioMapping>');
-  const outAlone = writeBpmn(alone, importBpmn(alone, 'parent').spec).xml;
-  assert.ok(!businessKeyInput(outAlone), outAlone);
-  assert.equal(businessIdOf(outAlone), undefined);
-  // a row of that name in an older saved specification goes too
-  const saved = withInputs(spec, [{ name: 'businessKey', expression: '= businessKey' }, { name: 'clientKey', expression: '= clientKey' }]);
-  const outSaved = writeBpmn(xml, saved).xml;
-  assert.ok(!businessKeyInput(outSaved), outSaved);
-  assert.equal(businessIdOf(outSaved), undefined);
-});
-
-test('export C8: another business key for the subprocess becomes the override zeebe:calledElement businessId', () => {
-  // an old input with another source (before 8.10)
-  const old = c8Call('<zeebe:ioMapping><zeebe:input source="=order.id" target="businessKey" /><zeebe:input source="=clientKey" target="clientKey" /></zeebe:ioMapping>');
-  const out = writeBpmn(old, importBpmn(old, 'parent').spec).xml;
-  assert.equal(businessIdOf(out), '=order.id');
-  assert.ok(!businessKeyInput(out), out);
-  // a row in the specification
+test('export C8: a row businessKey on the call becomes the override zeebe:calledElement businessId - the other rows stay inputs', () => {
   const xml = c8Call('');
-  const row = writeBpmn(xml, withInputs(importBpmn(xml, 'parent').spec, [{ name: 'businessKey', expression: '= "order-" + orderId' }])).xml;
+  const row = writeBpmn(xml, withInputs(importBpmn(xml, 'parent').spec, [
+    { name: 'businessKey', expression: '= "order-" + orderId' },
+    { name: 'clientKey', expression: '= clientKey' },
+  ])).xml;
   assert.equal(businessIdOf(row)?.replace(/&quot;|&#34;/g, '"'), '="order-" + orderId');
   assert.ok(!businessKeyInput(row), row);
+  assert.equal(inputSource(row, 'clientKey'), '=clientKey');
 });
 
 test('import C8: zeebe:calledElement businessId belongs to the call - no mapping row, and it stays on export', () => {
@@ -139,14 +116,9 @@ test('C8 -> C7: zeebe:calledElement businessId becomes camunda:in businessKey - 
   const own = convertBpmn(c8Call('', '<zeebe:calledElement processId="acme-demo-childV1" businessId="=orderId" propagateAllChildVariables="false" propagateAllParentVariables="false" />'), 'c7');
   assert.ok(own.xml.includes('businessKey="${orderId}"'), own.xml);
   assert.ok(!own.xml.includes('execution.processBusinessKey'), own.xml);
-  // an old input with another source (before 8.10) too
-  const old = convertBpmn(c8Call('<zeebe:ioMapping><zeebe:input source="=orderId" target="businessKey" /></zeebe:ioMapping>'), 'c7').xml;
-  assert.ok(old.includes('businessKey="${orderId}"'), old);
-  assert.ok(!/target="businessKey"/.test(old), old);
   // the business id of the instance itself, or nothing: the default
   for (const xml of [
     c8Call(''),
-    c8Call('<zeebe:ioMapping><zeebe:input source="=businessKey" target="businessKey" /></zeebe:ioMapping>'),
     c8Call('', '<zeebe:calledElement processId="acme-demo-childV1" businessId="=camunda.processInstance.businessId" propagateAllChildVariables="false" propagateAllParentVariables="false" />'),
   ]) {
     const out = convertBpmn(xml, 'c7').xml;
@@ -178,8 +150,8 @@ test('variables: C8 offers camunda.processInstance.businessId instead of busines
   const instance = c8.find(v => v.name === 'camunda')?.children?.find(v => v.name === 'processInstance');
   assert.ok(instance?.children?.some(v => v.name === 'businessId'), JSON.stringify(instance));
   assert.deepEqual(checkFeel('= camunda.processInstance.businessId', c8).issues, []);
-  const old = checkFeel('= businessKey', c8).issues;
-  assert.ok(old.some(i => i.level === 'error' && i.text.includes('camunda.processInstance.businessId')), JSON.stringify(old));
+  // no variable businessKey in C8 (8.10)
+  assert.ok(checkFeel('= businessKey', c8).issues.some(i => i.level === 'error'));
   const c7 = processVariables(spec('c7'), null);
   assert.ok(c7.some(v => v.name === 'businessKey' && v.source === 'Engine'));
   assert.deepEqual(checkFeel('= businessKey', c7).issues, []);

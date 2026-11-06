@@ -498,7 +498,6 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       const corr = correlationOf(e.correlationKey, spec.engine);
       if (corr.missing) warnings.push(`Nachricht «${e.code}»: kein Korrelationsschlüssel — in ${C8_LABEL} findet sie keine wartende Instanz.`);
       if (corr.misnamed) errors.push(`Nachricht «${e.code}»: ${corr.expression?.replace(/^=\s*/, '')} setzt der InitWorker nicht mehr — «processInstanceId» wählen (string(camunda.processInstance.key), ${C8_LABEL} ab 8.10).`);
-      if (corr.oldBusinessKey) errors.push(`Nachricht «${e.code}»: die Variable businessKey gibt es nicht mehr — «businessKey» wählen (camunda.processInstance.businessId, ${C8_LABEL} ab 8.10).`);
     }
   });
 

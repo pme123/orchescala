@@ -610,9 +610,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         if (called.getAttribute('propagateAllChildVariables') !== 'false') add.push(camunda('out', { variables: 'all' }));
       }
       // The business key always goes to the subprocess — Camunda 7 has `camunda:in businessKey` for that.
-      // Camunda 8 inherits it, or takes the override `businessId` (before 8.10: an input `businessKey`)
-      const oldInput = io.find(p => local(p) === 'input' && p.getAttribute('target') === 'businessKey')?.getAttribute('source')?.trim();
-      const own = called?.getAttribute('businessId')?.trim() || (oldInput && !/^=\s*businessKey$/.test(oldInput) ? oldInput : '');
+      // Camunda 8 inherits it, or takes the override `businessId`
+      const own = called?.getAttribute('businessId')?.trim();
       add.push(camunda('in', { businessKey: own ? toJuel(own, 'Business Key', issue, ctx.juel) : '#{execution.processBusinessKey}' }));
       for (const p of io) {
         const tag = local(p) === 'input' ? 'in' : 'out';
