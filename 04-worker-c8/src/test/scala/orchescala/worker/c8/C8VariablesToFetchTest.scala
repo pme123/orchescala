@@ -25,3 +25,19 @@ class C8VariablesToFetchTest extends FunSuite:
     assert(!C8Worker.variablesToFetch(customWorker).contains("processInstanceId"))
 
 end C8VariablesToFetchTest
+
+class C8ClusterVersionTest extends FunSuite:
+
+  test("a cluster before 8.10 is reported - camunda.processInstance.key is unknown there"):
+    assert(C8WorkerRegistry.before810("8.9.21"))
+    assert(C8WorkerRegistry.before810("8.8.0"))
+    assert(C8WorkerRegistry.before810("7.24.0"))
+    assert(!C8WorkerRegistry.before810("8.10.0"))
+    assert(!C8WorkerRegistry.before810("8.10.8"))
+    assert(!C8WorkerRegistry.before810("8.11.0-SNAPSHOT"))
+    assert(!C8WorkerRegistry.before810("9.0.0"))
+    // unknown: no warning
+    assert(!C8WorkerRegistry.before810(""))
+    assert(!C8WorkerRegistry.before810(null))
+
+end C8ClusterVersionTest
