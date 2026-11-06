@@ -357,15 +357,15 @@ class C8ProcessInstanceService(
       case _                                       => false
     def onMessagePartition(response: C8RestModel.MessageCorrelationResult) =
       StartCorrelation(response, StartPartition.Message)
+    // the last try: a business id but no correlation key - a blank key is no business id
+    val lastTryPartition =
+      if C8ProcessInstanceService.businessIdField(businessKey).isDefined then StartPartition.BusinessId
+      else StartPartition.Message
     businessKey match
       case None      => correlate(None).map(onMessagePartition)
       case Some(key) =>
         val withKey    = correlate(Some(key)).map(onMessagePartition)
-        val withoutKey =
-          val startPartition =
-            if C8ProcessInstanceService.businessIdField(businessKey).isDefined then StartPartition.BusinessId
-            else StartPartition.Message // a blank key is no business id
-          correlate(None).map(StartCorrelation(_, startPartition))
+        val withoutKey = correlate(None).map(StartCorrelation(_, lastTryPartition))
         withKey
           .catchSome { case err if notFound(err) => withKey.delay(timings.subscriptionWait) }
           .catchSome:
@@ -389,6 +389,14 @@ class C8ProcessInstanceService(
       pendingMarker: PendingMarker
   ): IO[EngineError, Unit] =
     C8ProcessInstanceService.startedBy(messageKey, processInstanceKey, startPartition) match
+      case Some(true)
+          if startPartition == StartPartition.BusinessId &&
+            !C8ProcessInstanceService.onSamePartition(messageKey, processInstanceKey) =>
+        // the known limit of `StartPartition.BusinessId`: traceable when a 409 is missed
+        logInfo(
+          s"Message '$messageName': instance $processInstanceKey is on another partition than the message ($messageKey) - " +
+            "taken as started on the partition of its business id, not checked for a running instance."
+        )
       case Some(true)  => ZIO.unit
       case None        =>
         ZIO.logError(
@@ -526,7 +534,7 @@ object C8ProcessInstanceService:
   def startedBy(
       messageKey: String,
       processInstanceKey: String,
-      startPartition: StartPartition = StartPartition.Message
+      startPartition: StartPartition
   ): Option[Boolean] =
     for
       message  <- messageKey.toLongOption
@@ -534,6 +542,12 @@ object C8ProcessInstanceService:
     yield
       if partitionOf(instance) == partitionOf(message) then instance > message
       else startPartition == StartPartition.BusinessId
+
+  /** Are both keys on the same partition? False if they are no Zeebe keys. */
+  def onSamePartition(messageKey: String, processInstanceKey: String): Boolean =
+    (messageKey.toLongOption, processInstanceKey.toLongOption) match
+      case (Some(message), Some(instance)) => partitionOf(message) == partitionOf(instance)
+      case _                               => false
 
   private def partitionOf(key: Long): Long = key >> 51
 

@@ -652,21 +652,23 @@ object C8RestClientTest extends ZIOSpecDefault:
       test("startedBy: an instance the message started is newer, on its partition") {
         val partition2 = 2L << 51
         assertTrue(
-          C8ProcessInstanceService.startedBy("999", "1000").contains(true),
-          C8ProcessInstanceService.startedBy("999", "500").contains(false),
+          C8ProcessInstanceService.startedBy("999", "1000", C8ProcessInstanceService.StartPartition.Message).contains(true),
+          C8ProcessInstanceService.startedBy("999", "500", C8ProcessInstanceService.StartPartition.Message).contains(false),
           // a running instance on a higher partition has a larger key - but the message did not start it
-          C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString).contains(false),
-          C8ProcessInstanceService.startedBy((partition2 + 7).toString, (partition2 + 8).toString).contains(true),
+          C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString, C8ProcessInstanceService.StartPartition.Message).contains(false),
+          C8ProcessInstanceService.startedBy((partition2 + 7).toString, (partition2 + 8).toString, C8ProcessInstanceService.StartPartition.Message).contains(true),
           // the message on a higher partition than the running instance: also not started by it
-          C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000").contains(false),
-          C8ProcessInstanceService.startedBy("1000", "1000").contains(false), // not newer
-          C8ProcessInstanceService.startedBy("not-a-key", "1000").isEmpty
+          C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000", C8ProcessInstanceService.StartPartition.Message).contains(false),
+          C8ProcessInstanceService.startedBy("1000", "1000", C8ProcessInstanceService.StartPartition.Message).contains(false), // not newer
+          C8ProcessInstanceService.startedBy("not-a-key", "1000", C8ProcessInstanceService.StartPartition.Message).isEmpty
         )
       },
-      test("startedBy on the partition of the business id: another partition is a start, the message's is checked") {
+      test("startedBy on the partition of the business id: the message's partition is checked - another one is taken as a start (known limit)") {
         import C8ProcessInstanceService.StartPartition.BusinessId
         val partition2 = 2L << 51
         assertTrue(
+          // known limit: a start there - or a running instance with an empty correlation key and the
+          // same business id: the keys cannot tell them apart, taken as a start (see StartPartition)
           C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString, BusinessId).contains(true),
           C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000", BusinessId).contains(true),
           C8ProcessInstanceService.startedBy("999", "1000", BusinessId).contains(true),

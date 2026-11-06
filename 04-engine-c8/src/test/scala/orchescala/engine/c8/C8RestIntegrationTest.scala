@@ -304,7 +304,11 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
       // without key, carrying the business id: Zeebe starts it on the partition of the business id
       // (8.10) - the same as the first instance's. With several partitions most of these starts are
       // on another partition than the keyless message: no 409. Only meaningful on a cluster with
-      // several partitions - it fails on one (C8_REST_IT_PARTITIONED, see the spec's doc).
+      // several partitions - it fails at once on one (C8_REST_IT_PARTITIONED, see the spec's doc).
+      //
+      // Assumption (Zeebe 8.10 routing): a message is placed by the hash of its correlation key, an
+      // instance with a business id by the hash of that id. The first start's key equals its business
+      // id, so both starts of a businessKey end up on the same partition.
       val restAddress = sys.env("C8_REST_IT")
       given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
       given EngineConfig = DefaultEngineConfig()
@@ -315,6 +319,10 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
       for
         topology <- summon[C8RestClient].get[Json](Seq("topology"))
         partitions = topology.hcursor.get[Int]("partitionsCount").getOrElse(0)
+        _      <- ZIO.when(partitions < 2):
+                    ZIO.fail(EngineError.ProcessError(
+                      s"needs a cluster with several partitions, $restAddress has $partitions - unset C8_REST_IT_PARTITIONED"
+                    ))
         _      <- engine.deploymentService.deploy(
                     "it-msgstart",
                     Seq(DeploymentResource(s"$msgStartProcessId.bpmn", msgStartBpmn.getBytes, DeploymentResourceType.Bpmn)),
@@ -329,7 +337,6 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
                      eventually(engine.historicProcessInstanceService.getProcessInstance(second))(_.businessKey.contains(bk))
         _      <- ZIO.logInfo(s"Partitions of the second starts: ${pairs.map(p => partition(p._3)).mkString(", ")}")
       yield assertTrue(
-        partitions > 1, // on one partition every start is on the message's - nothing shown
         pairs.forall((_, first, second) => first != second),
         pairs.forall((_, first, second) => partition(first) == partition(second)),
         // spread by their business ids - a single partition would mean they ignore it
