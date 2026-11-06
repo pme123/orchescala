@@ -1222,7 +1222,17 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
       }
     }
   }
-  return { xml: new Writer(doc).serialize(xml), all, taken };
+  // a pattern on the process: its blocks are the pattern (the event sub process of «Abbruch per
+  // Signal») - they go too, so that inserting it again does not add a second one next to the
+  // converted copy (a block on an element is shared - it stays, as in removePattern)
+  const w = new Writer(doc);
+  const proc = mainProcess(doc);
+  for (const i of taken) {
+    const h = found[i];
+    if (h.targetId || !h.fr.blocks.length || !proc) continue;
+    for (const x of matchBlocks(h.fr, graphOf(proc), new Set(), h.match.b)) if (x) for (const el of x.elements) if (el.parentElement) dropWithRefs(w, el);
+  }
+  return { xml: w.serialize(xml), all, taken };
 }
 
 type OwnItems = Map<Element, Map<string, Set<Element>>>;
@@ -1854,7 +1864,7 @@ export function applyPattern(xml: string, def: PatternDef, engine: EngineId, tar
   // an unnamed element is named like the anchor («Init Process») — otherwise it would have no label
   const anchorName = fr.anchor?.getAttribute('name')?.trim();
   if (targetId && anchorName && anchorName !== STARTER_NAME && !t.getAttribute('name')?.trim()) t.setAttribute('name', anchorName);
-  if (!plane && (fr.attached.length || missing.length)) w.issues.push('Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.');
+  if (!plane && (fr.attached.length || missing.length)) w.issues.push(NO_DI);
   if (newDi.length && local(scope) === 'process') growPool(w, proc, newDi, id => (attachedIds.includes(id) ? laneOfTarget : null), newIds);
   const limitation = def.limitations?.[engine];
   if (limitation) w.issues.push(`«${def.name}»: ${limitation}`);
@@ -1929,6 +1939,20 @@ function drop(w: Writer, el: Element) {
   removeEl(el);
 }
 
+/** The note that a diagram has no shapes (DI) - a conversion of such a diagram does not repeat it */
+export const NO_DI = 'Das Diagramm hat keine Zeichnung (DI) — die neuen Elemente stehen ohne Position darin.';
+
+/** Like `drop` - and the signal, message, error or escalation it alone referred to (on the root) */
+function dropWithRefs(w: Writer, el: Element) {
+  const refs = [el, ...descendants(el)].flatMap(e => [...REF_ATTRS].map(a => e.getAttribute(a)).filter((v): v is string => !!v));
+  drop(w, el);
+  for (const id of new Set(refs)) {
+    const used = descendants(w.defs).some(e => [...REF_ATTRS].some(a => e.getAttribute(a) === id));
+    const root = used ? null : Array.from(w.defs.children).find(c => c.getAttribute('id') === id);
+    if (root) removeEl(root);
+  }
+}
+
 /**
  * Remove a pattern from an element (or the process): what hangs on the element,
  * and the shared blocks if nobody else needs them any more.
@@ -1984,7 +2008,7 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
     if (!others.length) {
       const g2 = graphOf(scope);
       for (const x of matchBlocks(fr, g2, new Set(), builtins(targetId ? t : null, proc))) {
-        if (x) for (const el of x.elements) if (el.parentElement) drop(w, el);
+        if (x) for (const el of x.elements) if (el.parentElement) dropWithRefs(w, el);
       }
     }
   }
@@ -1998,13 +2022,18 @@ export function updatePattern(xml: string, def: PatternDef, engine: EngineId, ta
   if (!r1.changed) return r1;
   const r2 = applyPattern(r1.xml, def, engine, targetId, params);
   if (!r2.changed || !before) return r2;
-  // keep the position of the shapes: same IDs get their old coordinates back
-  const after = parseXml(r2.xml);
-  if (!after) return r2;
-  const old = diIndex(before), now = diIndex(after);
+  return { ...r2, xml: keepPositions(before, r2.xml) };
+}
+
+/** Keep the position of the shapes: same IDs get their coordinates in `before` back */
+export function keepPositions(before: Document | string, xml: string): string {
+  const old = typeof before === 'string' ? parseXml(before) : before;
+  const after = parseXml(xml);
+  if (!old || !after) return xml;
+  const was = diIndex(old), now = diIndex(after);
   let moved = false;
   for (const [id, di] of now) {
-    const o = old.get(id);
+    const o = was.get(id);
     if (!o || local(o) !== local(di)) continue;
     const ob = [o, ...descendants(o)].filter(e => local(e) === 'Bounds' || local(e) === 'waypoint');
     const nb = [di, ...descendants(di)].filter(e => local(e) === 'Bounds' || local(e) === 'waypoint');
@@ -2012,9 +2041,7 @@ export function updatePattern(xml: string, def: PatternDef, engine: EngineId, ta
     ob.forEach((e, i) => { for (const a of ['x', 'y', 'width', 'height']) { const v = e.getAttribute(a); if (v != null) nb[i].setAttribute(a, v); } });
     moved = true;
   }
-  if (!moved) return r2;
-  const w = new Writer(after);
-  return { ...r2, xml: w.serialize(xml) };
+  return moved ? new Writer(after).serialize(xml) : xml;
 }
 
 // ── For the UI ───────────────────────────────────────────────────────────────

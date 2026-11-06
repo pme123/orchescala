@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, keepPositions, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -968,14 +968,20 @@ test('«Abbruch per Signal»: a prefix that would break the signal name (JUEL / 
   }
 });
 
-test('«Abbruch per Signal»: C7 -> C8 - the signal is bound by camunda.processInstance.key, and back by the instance id', () => {
+test('«Abbruch per Signal»: C7 -> C8 -> C7 - the signal in the form of each engine, one event sub process', () => {
   const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null, { signalPrefix: 'acme-cancel-' }).xml;
   const c8 = convertWithPatterns(c7, 'c8', STANDARD_PATTERNS);
   assert.equal(signalNameOf(c8.xml), '="acme-cancel-" + string(camunda.processInstance.key)');
-  assert.ok(c8.issues.some(i => i.includes('8.10')), c8.issues.join('; '));
+  // inserted in its C8 form - with the note that C8 needs 8.10
+  assert.ok(c8.issues.some(i => i.text.includes('8.10')), c8.issues.map(i => i.text).join('; '));
   assert.deepEqual(detectPatterns(c8.xml, STANDARD_PATTERNS, 'c8').hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'acme-cancel-']]);
   const back = convertWithPatterns(c8.xml, 'c7', STANDARD_PATTERNS);
   assert.equal(signalNameOf(back.xml), 'acme-cancel-${execution.processInstanceId}');
+  for (const xml of [c8.xml, back.xml]) {
+    assert.equal((xml.match(/triggeredByEvent="true"/g) ?? []).length, 1);
+    assert.equal((xml.match(/<bpmn:signal /g) ?? []).length, 1);
+  }
+  assert.deepEqual(detectPatterns(back.xml, STANDARD_PATTERNS, 'c7').hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'acme-cancel-']]);
 });
 
 test('«Abbruch per Signal» twice: the second one does not add a second event sub process', () => {
@@ -985,4 +991,16 @@ test('«Abbruch per Signal» twice: the second one does not add a second event s
     assert.equal((twice.xml.match(/triggeredByEvent="true"/g) ?? []).length, 1, engine);
     assert.equal((twice.xml.match(/<bpmn:signal /g) ?? []).length, 1, engine);
   }
+});
+
+test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {
+  const xml = (x: number) => `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="d">
+  <bpmn:process id="p"><bpmn:subProcess id="CancelSubProcess" triggeredByEvent="true" /></bpmn:process>
+  <bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="P" bpmnElement="p">
+    <bpmndi:BPMNShape id="CancelSubProcess_di" bpmnElement="CancelSubProcess"><dc:Bounds x="${x}" y="40" width="300" height="140" /></bpmndi:BPMNShape>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+  assert.match(keepPositions(xml(700), xml(160)), /x="700"/);
+  // nothing to move: unchanged
+  assert.equal(keepPositions(xml(160), xml(160)).includes('x="160"'), true);
 });
