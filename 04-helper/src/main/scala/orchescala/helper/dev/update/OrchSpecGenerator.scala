@@ -138,57 +138,59 @@ case class OrchSpecRegistration(
       // of another name (`lilaSetV2Workers` for `lilaSet` v2): a second registration would
       // subscribe the same topic twice. A worker of the same name from another package (another
       // API or version: `persons.v1` for `persons.v2`) has a topic of its own - it is added.
-      val own  = entriesPackage.toSet
-      val left = entries.filterNot: e =>
-        e.endsWith("()") && registeredFrom(lines, hidden, e.stripSuffix("()"), own)
+      val registered = registeredFrom(lines, hidden, entriesPackage)
+      val left       = entries.filterNot(e => e.endsWith("()") && registered(e.stripSuffix("()")))
       if left.isEmpty then RegistrationResult.Unchanged
       else copy(entries = left).addBlock(lines)
     end if
   end register
 
-  /** Is the worker `key` registered in `lines` from one of the packages `own`? A name is resolved
-    * roughly as Scala does: by the imports in scope - those of its block (`lazy val … end …`) and
-    * those outside any block, also under another name (`{Key as Other}`) - and by the packages
-    * of the file. A qualified `x.y.Key()` resolves its first part `x` the same way, or is a full
-    * package itself. Without `own` (no `entriesPackage`) any registration of `key` counts.
+  /** Is a worker (`key`) registered in `lines` from the package `own`? A name is resolved roughly
+    * as Scala does: an explicit import in scope (also under another name, `{Key as Other}`) shadows
+    * the rest; else it may come from any wildcard import in scope or from the packages of the file.
+    * A qualified `x.y.Key()` resolves its first part `x` the same way, or is a full package itself.
+    * In scope are the imports before the usage - outside any `lazy val … end …` block or in its
+    * own one. Other scopes (a nested `object`, a `def`) are not told apart: their imports count as
+    * well. Where it is unsure, it rather skips - a duplicate registration subscribes a topic
+    * twice, a missing block the developer sees in the WorkerApp. Without `own` (no
+    * `entriesPackage`) any registration of the name counts.
     */
-  private def registeredFrom(lines: Seq[String], hidden: Set[Int], key: String, own: Set[String]): Boolean =
-    val visible  = lines.indices.filter(i => !hidden(i) && !lines(i).trim.startsWith("//"))
-    val imported = imports(visible.map(lines)).map((at, pkg, names) => (visible(at), pkg, names))
-    // the names the worker goes by: its own and those it is imported as
-    val names    = (key +: imported.flatMap(_._3.collect { case (as, `key`) => as })).distinct
-    val usage    = s"""(?<![\\w.])((?:\\w+\\.)*)(${names.mkString("|")})\\(""".r
-    val found    = visible.flatMap: i =>
-      usage.findAllMatchIn(lines(i)).map(m => (i, m.group(1).stripSuffix("."), m.group(2)))
-    if own.isEmpty then found.exists(_._3 == key)
-    else
-      val blockOf   = blocksOf(lines, hidden)
-      // `package a.b` + `package worker`: the members of a.b.worker and of a.b are in scope
-      val clauses   = visible.flatMap(i => packageClause.findFirstMatchIn(lines(i)).map(_.group(1)))
-      val enclosing = clauses.inits.filter(_.nonEmpty).map(_.mkString(".")).toSeq
-      // the full names `name` can stand for at line `i`
-      def resolve(i: Int, name: String): Seq[String] =
-        val inScope = imported.filter((j, _, _) => j < i && blockOf(j).forall(b => blockOf(i).contains(b)))
-        val fromImports = inScope.flatMap: (_, pkg, names) =>
-          names.get(name).filter(_ != "*").map(n => s"$pkg.$n").toSeq ++
-            (if names.contains("*") then Seq(s"$pkg.$name") else Seq.empty)
-        fromImports ++ enclosing.map(p => s"$p.$name")
-      end resolve
-      val ownNames  = own.map(p => s"$p.$key")
-      found.exists:
-        case (i, "", name)        => resolve(i, name).exists(ownNames.contains)
-        case (i, qualifier, name) =>
-          val (head, rest) = qualifier.span(_ != '.')
-          name == key && (qualifier +: resolve(i, head).map(_ + rest)).exists(own.contains)
-    end if
+  private def registeredFrom(lines: Seq[String], hidden: Set[Int], own: Option[String]): String => Boolean =
+    val visible   = lines.indices.filter(i => !hidden(i) && !lines(i).trim.startsWith("//"))
+    val imported  = imports(visible.map(lines)).map((at, pkg, names) => (visible(at), pkg, names))
+    lazy val blockOf   = blocksOf(lines, hidden)
+    // `package a.b` + `package worker`: the members of a.b.worker and of a.b are in scope
+    lazy val enclosing =
+      val clauses = visible.flatMap(i => OrchSpecRegistration.packageClause.findFirstMatchIn(lines(i)).map(_.group(1)))
+      clauses.inits.filter(_.nonEmpty).map(_.mkString(".")).toSeq
+    // the full names `name` can stand for at line `i`
+    def resolve(i: Int, name: String): Seq[String] =
+      val inScope  = imported.filter((j, _, _) => j < i && blockOf(j).forall(b => blockOf(i).contains(b)))
+      val explicit = inScope.flatMap((_, pkg, names) => names.get(name).filter(_ != "*").map(n => s"$pkg.$n"))
+      if explicit.nonEmpty then explicit
+      else inScope.collect { case (_, pkg, names) if names.contains("*") => s"$pkg.$name" } ++ enclosing.map(p => s"$p.$name")
+    end resolve
+    key =>
+      // the names the worker goes by: its own and those it is imported as
+      val names = (key +: imported.flatMap(_._3.collect { case (as, `key`) => as })).distinct
+      val usage = s"""(?<![\\w.])((?:\\w+\\.)*)(${names.mkString("|")})\\(""".r
+      val found = visible.flatMap: i =>
+        usage.findAllMatchIn(lines(i)).map(m => (i, m.group(1).stripSuffix("."), m.group(2)))
+      own match
+        case None      => found.exists(_._3 == key)
+        case Some(pkg) =>
+          found.exists:
+            case (i, "", name)        => resolve(i, name).contains(s"$pkg.$key")
+            case (i, qualifier, name) =>
+              val (head, rest) = qualifier.span(_ != '.')
+              name == key && (qualifier +: resolve(i, head).map(_ + rest)).contains(pkg)
+      end match
   end registeredFrom
-
-  private val packageClause = """^\s*package\s+([\w.]+)\s*$""".r
 
   /** The imports in `lines`: the index of the line it starts on, the package and the names it
     * brings - the name in scope to the imported one, `*` for all of it. `import a.b.*`,
     * `import a.b.X`, `import a.b.{X, Y as Z, W => V, given, _}`, `import a.*, c.*` - also over
-    * several lines and with a comment after it.
+    * several lines and with a comment or `; …` after it.
     */
   private def imports(lines: Seq[String]): Seq[(Int, String, Map[String, String])] =
     importClauses(lines).flatMap: (at, clause) =>
@@ -198,27 +200,23 @@ case class OrchSpecRegistration(
         (at, part.take(dot).trim, topLevelParts(sel).flatMap(selector).toMap)
   end imports
 
-  // the text of each `import` with the index of its line - braces over several lines joined
+  /** The text of each `import` with the index of its line - braces over several lines joined. A
+    * brace that is not closed ends at the next `import` or at the end - the imports after it stay.
+    */
   private def importClauses(lines: Seq[String]): Seq[(Int, String)] =
-    val clause  = """^\s*import\s+(.+)$""".r
-    val clauses = Seq.newBuilder[(Int, String)]
-    var open    = Option.empty[(Int, String)]
     def braces(s: String) = s.count(_ == '{') - s.count(_ == '}')
-    for (raw, i) <- lines.zipWithIndex do
-      val line = raw.replaceAll("""/\*.*?\*/""", "").replaceAll("""//.*$""", "").trim
-      open match
-        case Some((at, text)) =>
+    // without a comment and what follows a `;`
+    val texts                   = lines.map(_.replaceAll("""/\*.*?\*/""", "").replaceAll("""//.*$""", "").takeWhile(_ != ';').trim)
+    val (clauses, unterminated) =
+      texts.zipWithIndex.foldLeft((Vector.empty[(Int, String)], Option.empty[(Int, String)])):
+        case ((done, open), (OrchSpecRegistration.importClause(text), i)) =>
+          val closed = done ++ open
+          if braces(text) > 0 then (closed, Some(i -> text)) else (closed :+ (i -> text), None)
+        case ((done, Some((at, text))), (line, _))                       =>
           val joined = s"$text $line"
-          if braces(joined) > 0 then open = Some(at -> joined)
-          else
-            clauses += at -> joined
-            open = None
-        case None             =>
-          line match
-            case clause(text) => if braces(text) > 0 then open = Some(i -> text) else clauses += i -> text
-            case _            =>
-    end for
-    clauses.result()
+          if braces(joined) > 0 then (done, Some(at -> joined)) else (done :+ (at -> joined), None)
+        case (acc, _)                                                    => acc
+    clauses ++ unterminated
   end importClauses
 
   // `X` / `X as Y` / `X => Y` / `*` / `_` - the name in scope to the imported one; `given` and
@@ -232,17 +230,11 @@ case class OrchSpecRegistration(
 
   // the parts of `a.*, c.d.{X, Y}` - commas in braces belong to their part
   private def topLevelParts(s: String): Seq[String] =
-    val parts = Seq.newBuilder[String]
-    var depth = 0
-    var from  = 0
-    for (c, i) <- s.zipWithIndex do
-      if c == '{' then depth += 1
-      else if c == '}' then depth -= 1
-      else if c == ',' && depth == 0 then
-        parts += s.substring(from, i)
-        from = i + 1
-    parts += s.substring(from)
-    parts.result()
+    val (parts, last, _) = s.foldLeft((Vector.empty[String], "", 0)):
+      case ((parts, part, 0), ',') => (parts :+ part, "", 0)
+      case ((parts, part, depth), c) =>
+        (parts, part + c, depth + (if c == '{' then 1 else if c == '}' then -1 else 0))
+    parts :+ last
   end topLevelParts
 
   /** For each line the start of the innermost `lazy val … end …` block it is in - if it is in one. */
@@ -469,6 +461,11 @@ case class OrchSpecRegistration(
 
   private def indentOf(line: String) = line.indexWhere(_ != ' ')
 
+end OrchSpecRegistration
+
+object OrchSpecRegistration:
+  private val packageClause = """^\s*package\s+([\w.]+)\s*$""".r
+  private val importClause  = """^import\s+(.+)$""".r
 end OrchSpecRegistration
 
 enum RegistrationResult:

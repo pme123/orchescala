@@ -598,12 +598,14 @@ class SpecMergeTest extends FunSuite:
         val block = app.substring(app.indexOf(s"private lazy val $name"), app.indexOf(s"end $name"))
         assert(block.contains(s"import acme.demo.worker.client.$v.*"), app)
         assert(block.contains("      GetClientWorker(),"), app)
-        assert(app.contains(s"    $name,\n"), app)
+        // once in `workers(` - also after the re-run below
+        assertEquals(app.linesIterator.count(_.trim == s"$name,"), 1, app)
       val api = os.read(project / apiCreatorRel)
       for g <- Seq("ClientV1", "ClientV2") do assert(api.contains(s"group(\"$g\")(\n      GetClient.example,"), api)
       // a re-run adds nothing
-      val again = SpecMerge.plan(project, Seq(collection(), collectionV2), Seq(collection(), collectionV2))
+      val (again, _) = run(project, Seq(collection(), collectionV2), Seq(collection(), collectionV2))
       assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
+      assertEquals(os.read(project / workerAppRel), app)
 
   test("services: twice the same export - all unchanged"):
     inProject: project =>

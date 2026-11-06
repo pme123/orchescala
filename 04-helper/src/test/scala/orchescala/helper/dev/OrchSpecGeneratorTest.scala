@@ -1282,6 +1282,11 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     registered(app(pkg = "a.other", header = "\nimport a.other.v2\n", entry = "v2.GetPersonsWorker()"))
     // renamed away - `GetPersonsWorker` is not the imported one
     registered(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker as V2Persons}\n    import a.b.worker.persons.v1.*\n"))
+    // an explicit import shadows the package of the file
+    registered(app(pkg = "a.b.worker.persons.v2", imports = "    import a.b.worker.persons.v1.{GetPersonsWorker}\n"))
+    // `; …` after an import, an import whose brace is not closed - the imports after it stay
+    skipped(app(imports = "    import a.b.worker.persons.v2.*; val x = 1\n"))
+    skipped(app(header = "\nimport a.b.worker.broken.{X,\nimport a.b.worker.persons.v2.*\n"))
     // the import of another block is not in scope
     val otherBlock = app().replace(
       "  private lazy val otherWorkers",
