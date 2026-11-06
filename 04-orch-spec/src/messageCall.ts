@@ -5,8 +5,9 @@ import type { EngineId, ProcessSpec, Step } from './types';
 // The gateway takes `POST /message/{messageName}` with `businessKey` or
 // `processInstanceId` as query parameter — the two ways to correlate; at the
 // step one of them is chosen. For this Camunda 8 has the correlation key of the
-// message (`zeebe:subscription`): `=businessKey` or `=string(camunda.processInstance.key)`
-// (the own instance, in FEEL from Camunda 8.10) — the gateway gives it the
+// message (`zeebe:subscription`): `=camunda.processInstance.businessId` or
+// `=string(camunda.processInstance.key)` (business id and own instance, in FEEL from
+// Camunda 8.10) — the gateway gives it the
 // `processInstanceId`, otherwise the `businessKey` (as in Camunda 7: the ID wins).
 // Camunda 7 correlates directly via one of the two; there the choice is only in
 // the specification (docs and the migration to Camunda 8).
@@ -15,12 +16,15 @@ export type CorrelationChoice = 'businessKey' | 'processInstanceId';
 
 /** The correlation key per choice — that is how it appears in the BPMN in Camunda 8 */
 export const CORRELATION_KEY: Record<CorrelationChoice, string> = {
-  businessKey: '=businessKey',
+  businessKey: '=camunda.processInstance.businessId',
   processInstanceId: '=string(camunda.processInstance.key)',
 };
 
 /** The own process instance in FEEL (Camunda 8.10) — with or without `string(…)` */
 const OWN_KEY = /^(string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)$/;
+
+/** The business id of the instance in FEEL (Camunda 8.10) */
+const BUSINESS_ID = /^camunda\.processInstance\.businessId$/;
 
 /** The old variables of the InitWorker — in Camunda 8 no worker sets them any more */
 const OLD_ID = new Set(['processInstanceId', 'processInstanceKey']);
@@ -46,6 +50,11 @@ export interface MessageCorrelation {
    * The own instance is `camunda.processInstance.key`.
    */
   misnamed?: boolean;
+  /**
+   * Camunda 8 `= businessKey` — from 8.10 there is no such variable: the key stays
+   * empty. The business key is `camunda.processInstance.businessId`.
+   */
+  oldBusinessKey?: boolean;
 }
 
 /** Does the step wait for a message (intermediate event, receive task)? */
@@ -67,7 +76,9 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   }
   if (!expression.trim().startsWith('=')) return { choice: null, param: 'businessKey', value: expression.trim(), expression, fixed: true };
   const body = expression.replace(/^=\s*/, '').trim();
-  if (body === 'businessKey') return of('businessKey');
+  if (BUSINESS_ID.test(body)) return of('businessKey');
+  // the older `=businessKey`: still the choice in Camunda 7, in Camunda 8 the variable is gone
+  if (body === 'businessKey') return (engine ?? 'c7') !== 'c8' ? of('businessKey') : { ...of('businessKey'), choice: null, oldBusinessKey: true };
   if (OWN_KEY.test(body)) return of('processInstanceId');
   // Camunda 7 has no correlation key in the BPMN — an older choice stays a choice
   if (body === 'processInstanceId' && (engine ?? 'c7') !== 'c8') return of('processInstanceId');
@@ -77,13 +88,18 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   return { choice: null, param: 'businessKey', value, expression };
 }
 
-/** A key as Camunda 8 needs it — an older choice `=processInstanceId` becomes the own key */
-const forC8 = (key: string): string =>
-  OLD_ID.has(key.trim().replace(/^=\s*/, '')) ? CORRELATION_KEY.processInstanceId : key.trim();
+/**
+ * A key as Camunda 8 needs it — an older choice `=processInstanceId` becomes the own key,
+ * `=businessKey` the business id of the instance
+ */
+const forC8 = (key: string): string => {
+  const body = key.trim().replace(/^=\s*/, '');
+  return OLD_ID.has(body) ? CORRELATION_KEY.processInstanceId : body === 'businessKey' ? CORRELATION_KEY.businessKey : key.trim();
+};
 
 /**
  * The chosen keys per step — for the migration to Camunda 8, which
- * otherwise suggests `=businessKey`.
+ * otherwise suggests `=camunda.processInstance.businessId`.
  */
 export function correlationKeysOf(spec: Pick<ProcessSpec, 'steps'>): Record<string, string> {
   const out: Record<string, string> = {};

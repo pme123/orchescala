@@ -2152,6 +2152,12 @@ function CorrelationChoice({ corr, engine, isDark, disabled, onChoose }: {
           <span><span className="font-mono">{corr.expression?.replace(/^=\s*/, '')}</span> setzt der InitWorker nicht mehr — die eigene Instanz ist <span className="font-mono">camunda.processInstance.key</span> ({C8_LABEL} ab 8.10). So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
         </p>
       )}
+      {corr.oldBusinessKey && (
+        <p className={`text-[10px] flex items-start gap-1 ${err}`}>
+          <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
+          <span>Die Variable <span className="font-mono">businessKey</span> gibt es in {C8_LABEL} (ab 8.10) nicht mehr — der Business Key ist <span className="font-mono">camunda.processInstance.businessId</span>. So bleibt der Schlüssel leer und die Nachricht findet keine Instanz: «businessKey» wählen.</span>
+        </p>
+      )}
       {corr.fixed && (
         <p className={`text-[10px] flex items-start gap-1 ${warn}`}>
           <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />

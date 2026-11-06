@@ -147,7 +147,7 @@ test('a pattern on the process («Einmalige Ausführung») comes over too - with
   assert.ok(c7.changed, c7.issues.join('; '));
   const res = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
   assert.deepEqual(detectPatterns(res.xml, STANDARD_PATTERNS, 'c8').hits.filter(h => h.targetId == null).map(h => h.patternId), ['unique-execution']);
-  assert.ok(res.xml.includes('correlationKey="=businessKey"'), 'the start message correlates with the business key');
+  assert.ok(res.xml.includes('correlationKey="=camunda.processInstance.businessId"'), 'the start message correlates with the business id of the instance');
   assert.ok(!res.issues.some(i => i.where === 'Pattern'), res.issues.map(i => i.text).join('; '));
   const back = convertWithPatterns(res.xml, 'c7', STANDARD_PATTERNS, { timeToLive: '5' });
   assert.deepEqual(detectPatterns(back.xml, STANDARD_PATTERNS, 'c7').hits.filter(h => h.targetId == null).map(h => h.patternId), ['unique-execution']);

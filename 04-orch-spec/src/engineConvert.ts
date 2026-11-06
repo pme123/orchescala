@@ -29,6 +29,7 @@ import { importExpression, isJuel, nullSafeCondition, stripNullSafe, untranslata
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
 import { errorListSource, parseErrorList } from './errorCodes.ts';
+import { CORRELATION_KEY } from './messageCall.ts';
 
 /** `_handledErrors` / `_regexHandledErrors`: list in Camunda 8, text with commas in Camunda 7 */
 const ERROR_LISTS = new Set(['_handledErrors', '_regexHandledErrors']);
@@ -77,12 +78,23 @@ export const detectEngine = (xml: string): EngineId =>
 // ── Expressions ──────────────────────────────────────────────────────────────
 type Issue = (where: string, text: string) => void;
 
+/**
+ * The business key of the instance: the import reads `execution.processBusinessKey` as the
+ * variable `businessKey` (what Camunda 7 knows it as) — Camunda 8 (from 8.10) has no such
+ * variable, there it is the business id of the instance. Only outside text literals, and not
+ * as a path segment (`order.businessKey`) or a context key (`{businessKey: …}`).
+ */
+const BUSINESS_ID = 'camunda.processInstance.businessId';
+const withBusinessId = (feel: string): string =>
+  feel.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
+    : part.replace(/(?<![\w.])businessKey(?![\w]|\s*:)/g, BUSINESS_ID))).join('');
+
 /** JUEL/text → FEEL with `=`; fixed text stays fixed text (timer, condition) */
 function toFeel(text: string, where: string, issue: Issue): string {
   const t = text.trim();
   if (!t || t.startsWith('=') || !isJuel(t)) return t;
   const f = importExpression(t);
-  if (f.startsWith('= ')) return `=${f.slice(2)}`;
+  if (f.startsWith('= ')) return `=${withBusinessId(f.slice(2))}`;
   issue(where, untranslatableText(t, `«${t}» ist`, 'von Hand anpassen.'));
   return t;
 }
@@ -133,7 +145,7 @@ export interface ConvertOptions {
   timeToLive?: string;
   /**
    * the correlation key chosen at the step per element ID — a waiting message without one gets
-   * the suggestion `=businessKey` in Camunda 8
+   * the suggestion `=camunda.processInstance.businessId` in Camunda 8
    */
   correlationKeys?: Record<string, string>;
   /** the variables of the specification (juelOptions) for FEEL → JUEL — without them a Spin path ends without `stringValue()` & co. */
@@ -324,17 +336,24 @@ function toC8(defs: Element, ctx: Ctx) {
       const outs = ext0 ? kids(ext0).filter(k => inNs(k, CAMUNDA_NS) && local(k) === 'out') : [];
       const all = (xs: Element[]) => xs.some(x => x.getAttribute('variables') === 'all');
       // Orchescala maps explicitly — never all variables, in either direction
+      // The business key: Camunda 8 (from 8.10) passes the business id to the child itself —
+      // only another one than the caller's own becomes the override `businessId`
+      const business = ins.map(x => x.getAttribute('businessKey')).find(Boolean)?.trim();
+      const businessId = business ? toFeel(business, 'Business Key', issue) : undefined;
+      const inherited = !businessId || businessId === `=${BUSINESS_ID}`;
       add.push(zeebe('calledElement', {
         processId: called ? toFeel(called, 'Aufgerufener Prozess', issue) : undefined,
         propagateAllChildVariables: 'false',
         propagateAllParentVariables: 'false',
+        // untranslatable JUEL (reported by toFeel) would be a fixed text in Camunda 8 — then none
+        businessId: inherited || (isJuel(businessId) && !businessId.startsWith('=')) ? undefined : businessId,
       }));
       if (all(ins)) issue('Teilprozess', 'camunda:in variables="all" — Orchescala gibt nur explizit gemappte Eingaben weiter; die gebrauchten als Eingaben mappen.');
       if (all(outs)) issue('Teilprozess', 'camunda:out variables="all" — Orchescala übernimmt nur explizit gemappte Ausgaben; die gebrauchten als Ausgaben mappen.');
       if (called) el.removeAttribute('calledElement');
       for (const [xs, tag] of [[ins, 'input'], [outs, 'output']] as const) {
         for (const x of xs) {
-          if (x.getAttribute('businessKey')) continue; // is passed below as variable «businessKey»
+          if (x.getAttribute('businessKey')) continue; // inherited, or above as `businessId`
           if (x.getAttribute('variables') === 'all') continue;
           const target = x.getAttribute('target') ?? '';
           const src = x.getAttribute('source');
@@ -343,10 +362,6 @@ function toC8(defs: Element, ctx: Ctx) {
           const source = src ? `=${src}` : toFeelSource(expr ?? '', where, issue);
           io.push(zeebe(tag, { source, target }));
         }
-      }
-      // The business key always goes to the subprocess — in Camunda 8 as a variable
-      if (!io.some(p => local(p) === 'input' && p.getAttribute('target') === 'businessKey')) {
-        io.unshift(zeebe('input', { source: '=businessKey', target: 'businessKey' }));
       }
     }
 
@@ -479,8 +494,8 @@ function toC8(defs: Element, ctx: Ctx) {
         const mext = extOf(ctx, msg);
         if (!firstNamed(mext, 'subscription', ZEEBE_NS)) {
           const chosen = ctx.correlationKeys[holder.getAttribute('id') ?? ''];
-          appendEl(mext, zeebe('subscription', { correlationKey: chosen ?? '=businessKey' }));
-          if (!chosen) issueAt(ctx, holder)('Nachricht', `«${msg.getAttribute('name') ?? ref}» — Korrelationsschlüssel «=businessKey» vorgeschlagen, prüfen.`);
+          appendEl(mext, zeebe('subscription', { correlationKey: chosen ?? CORRELATION_KEY.businessKey }));
+          if (!chosen) issueAt(ctx, holder)('Nachricht', `«${msg.getAttribute('name') ?? ref}» — Korrelationsschlüssel «${CORRELATION_KEY.businessKey}» (Business-ID der Instanz) vorgeschlagen, prüfen.`);
         }
       }
     }
@@ -594,8 +609,11 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         if (called.getAttribute('propagateAllParentVariables') !== 'false') add.push(camunda('in', { variables: 'all' }));
         if (called.getAttribute('propagateAllChildVariables') !== 'false') add.push(camunda('out', { variables: 'all' }));
       }
-      // The business key always goes to the subprocess — Camunda 7 has `camunda:in businessKey` for that
-      add.push(camunda('in', { businessKey: '#{execution.processBusinessKey}' }));
+      // The business key always goes to the subprocess — Camunda 7 has `camunda:in businessKey` for that.
+      // Camunda 8 inherits it, or takes the override `businessId` (before 8.10: an input `businessKey`)
+      const oldInput = io.find(p => local(p) === 'input' && p.getAttribute('target') === 'businessKey')?.getAttribute('source')?.trim();
+      const own = called?.getAttribute('businessId')?.trim() || (oldInput && !/^=\s*businessKey$/.test(oldInput) ? oldInput : '');
+      add.push(camunda('in', { businessKey: own ? toJuel(own, 'Business Key', issue, ctx.juel) : '#{execution.processBusinessKey}' }));
       for (const p of io) {
         const tag = local(p) === 'input' ? 'in' : 'out';
         const target = p.getAttribute('target') ?? '';
