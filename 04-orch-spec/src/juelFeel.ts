@@ -22,7 +22,7 @@
 //   postfix  := primary ( '.' name ( '(' args ')' )? | '[' expr ']' )*
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
-import { C7_LABEL } from './engineLabels.ts';
+import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 
@@ -199,6 +199,21 @@ function executionProperty(name: string): string {
   return feel;
 }
 
+/**
+ * `getVariable` with a computed name (`"fileLink".concat(loopCounter)`) has no counterpart:
+ * FEEL cannot read a variable whose name is only known at runtime. And
+ * `fileLink + string(loopCounter)` would append the number to the value, not read `fileLink3`.
+ * `b` is the name already translated to FEEL; only `"name" + string(loopCounter)` gets a tailored example.
+ */
+function computedNameError(b: string): Unsupported {
+  // only for `loopCounter`: in Camunda 8 it counts from 1, like a FEEL list — the
+  // collected list (in the order of the collection) is then read with it as is
+  const m = /^"([A-Za-z_]\w*)" \+ string\(loopCounter\)$/.exec(b);
+  const example = m ? `${m[1]}s[loopCounter]` : 'liste[index]';
+  return new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. `
+    + `Falls das eine Mehrfachausführung ist: in ${C8_LABEL} braucht es die Variable je Durchlauf nicht, «Ergebnisse sammeln» legt die Ergebnisse in eine Liste, dann z. B. «= ${example}»`);
+}
+
 /** Method calls with a FEEL counterpart: `a.concat(b)` → `a + b` etc. */
 function method(target: string, name: string, args: string[]): string {
   const one = (fn: (a: string) => string) => { if (args.length !== 0) throw new Unsupported(`«${name}()» erwartet kein Argument`); return fn(target); };
@@ -229,7 +244,10 @@ function method(target: string, name: string, args: string[]): string {
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
     // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
-    case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => { throw new Unsupported('getVariable nur mit festem Namen'); })()));
+    case 'getVariable': return two((_a, b) => {
+      if (/^"[A-Za-z_]\w*"$/.test(b)) return b.slice(1, -1);
+      throw computedNameError(b);
+    });
     // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'string(camunda.processInstance.key)');
     case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
@@ -444,6 +462,30 @@ export function importExpression(text: string): string {
   if (!t) return t;
   if (t.startsWith('=')) return `= ${t.slice(1).trim()}`;
   if (!isJuel(t)) return t;
+  const r = importJuel(t);
+  return r.ok ? r.feel : t;
+}
+
+/** Why a JUEL value cannot be translated to FEEL — null if it can (or is no JUEL). */
+export function juelImportReason(text: string): string | null {
+  const t = text.trim();
+  if (!t || t.startsWith('=') || !isJuel(t)) return null;
+  const r = importJuel(t);
+  return r.ok ? null : r.reason;
+}
+
+/**
+ * Message for JUEL that cannot be translated: `«what» nicht nach FEEL übersetzbar`, the reason
+ * (if known) as its own sentence, then `todo` (lower case start, e.g. `von Hand anpassen.`).
+ */
+export function untranslatableText(value: string, what: string, todo: string): string {
+  const reason = juelImportReason(value)?.replace(/[.:;,\s]+$/, '');
+  return reason
+    ? `${what} nicht nach FEEL übersetzbar: ${reason}. ${todo.charAt(0).toUpperCase()}${todo.slice(1)}`
+    : `${what} nicht nach FEEL übersetzbar — ${todo}`;
+}
+
+function importJuel(t: string): FeelResult {
   // split into template parts: fixed text and ${…} expressions
   const parts: string[] = [];
   /** Positions of the `${…}` parts — in a concatenation they become text */
@@ -463,18 +505,18 @@ export function importExpression(text: string): string {
       else if (ch === '{') depth++;
       else if (ch === '}' && --depth === 0) break;
     }
-    if (j >= t.length) return t; // not closed — leave as is
+    if (j >= t.length) return { ok: false, reason: '«${» nicht geschlossen' };
     const r = juelToFeel(t.slice(start + 2, j));
-    if (!r.ok) return t;
+    if (!r.ok) return r;
     // a compound part needs parentheses in a concatenation
     parts.push(/\s/.test(r.feel) ? `(${r.feel})` : r.feel);
     tmpl.push(parts.length - 1);
     i = j + 1;
   }
-  if (parts.length === 1 && parts[0].startsWith('(') && parts[0].endsWith(')')) return `= ${parts[0].slice(1, -1)}`;
-  if (parts.length === 1) return `= ${parts[0]}`;
+  if (parts.length === 1 && parts[0].startsWith('(') && parts[0].endsWith(')')) return { ok: true, feel: `= ${parts[0].slice(1, -1)}` };
+  if (parts.length === 1) return { ok: true, feel: `= ${parts[0]}` };
   // template with fixed text: the expressions in it become text
-  return `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}`;
+  return { ok: true, feel: `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}` };
 }
 
 /** Translatable JUEL to FEEL — what cannot be translated stays JUEL. */

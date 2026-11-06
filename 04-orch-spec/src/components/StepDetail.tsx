@@ -18,7 +18,7 @@ import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockSt
 import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
-import { feelIfPossible, importExpression, isJuel } from '../juelFeel';
+import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
 import FeelInput from './FeelInput';
 import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
@@ -90,6 +90,9 @@ const ASSIGNMENT_FIELDS = [
   { key: 'candidateGroups', label: 'Candidate groups', placeholder: 'Gruppen, die die Aufgabe sehen, z. B. = kokRole', title: 'Gruppen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
   { key: 'candidateUsers', label: 'Candidate users', placeholder: 'Personen, die die Aufgabe sehen', title: 'Personen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
 ] as const;
+
+/** Warning for JUEL the import could not translate — with the reason, if known; `todo` is what to do */
+const untranslatable = (value: string, todo: string): string => untranslatableText(value, 'JUEL,', todo);
 
 function juelIssues(expression: string, engine: EngineId | undefined, json = false): FeelIssue[] {
   if (engine === 'c8') return [];
@@ -589,7 +592,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                   : isJuel(value)
                     ? [{ level: 'warn', text: importExpression(value) !== value
                         ? 'JUEL aus einem älteren Stand — als FEEL schreiben (z. B. «= kokRole»).'
-                        : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }]
+                        : untranslatable(value, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.') }]
                     : [];
                 const hasErr = issues.some(i => i.level === 'error');
                 return (
@@ -882,7 +885,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 : !b.isDefault && b.condition && isJuel(b.condition)
                   ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
                       ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'
-                      : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben.' }]
+                      : untranslatable(b.condition, 'als «= …» schreiben.') }]
                   : [];
               const condErr = cond.some(i => i.level === 'error');
               const condConvertible = !b.isDefault && !!b.condition && isJuel(b.condition) && importExpression(b.condition) !== b.condition;
@@ -1673,7 +1676,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             ...(!off && !feel && !isScriptValue(m.expression) && isJuel(m.expression)
               ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
                   ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
-                  : 'JUEL, nicht nach FEEL übersetzbar — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.' }]
+                  : untranslatable(m.expression, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.') }]
               : []),
           ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
