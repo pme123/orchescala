@@ -114,7 +114,7 @@ type Use = 'value' | 'scalar' | 'list' | 'empty';
  */
 const ownInstance = (body: string): string =>
   body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
-    : part.replace(/\bstring\(\s*camunda\.processInstance\.key\s*\)|\bcamunda\.processInstance\.key\b/g, 'processInstanceId'))).join('');
+    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, 'processInstanceId'))).join('');
 
 /** Translate a FEEL body to JUEL (without `${}`). */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {

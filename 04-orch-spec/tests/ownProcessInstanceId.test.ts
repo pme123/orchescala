@@ -63,4 +63,9 @@ test('JUEL <-> FEEL: the own instance - execution.processInstanceId and camunda.
     const r = feelToJuel(body);
     assert.ok(r.ok && r.juel.includes(juel), `${body}: ${JSON.stringify(r)}`);
   }
+  // a path that only ends like it, or a longer name, is another variable - not the own instance
+  for (const body of ['order.camunda.processInstance.key', 'camunda.processInstance.keys']) {
+    const r = feelToJuel(body);
+    assert.ok(r.ok && !r.juel.includes('execution.processInstanceId'), `${body}: ${JSON.stringify(r)}`);
+  }
 });
