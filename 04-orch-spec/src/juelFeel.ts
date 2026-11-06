@@ -228,7 +228,11 @@ function method(target: string, name: string, args: string[]): string {
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
     // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
-    case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => { throw new Unsupported('getVariable nur mit festem Namen'); })()));
+    // with a computed name (`"fileLink".concat(loopCounter)`) there is no counterpart:
+    // FEEL cannot read a variable whose name is only known at runtime
+    case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => {
+      throw new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL liest keine Variable über einen zur Laufzeit gebildeten Namen; eine Liste verwenden (z. B. «= fileLinks[loopCounter]»)`);
+    })()));
     // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'processInstanceId');
     case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
@@ -443,6 +447,19 @@ export function importExpression(text: string): string {
   if (!t) return t;
   if (t.startsWith('=')) return `= ${t.slice(1).trim()}`;
   if (!isJuel(t)) return t;
+  const r = importJuel(t);
+  return r.ok ? r.feel : t;
+}
+
+/** Why a JUEL value cannot be translated to FEEL — null if it can (or is no JUEL). */
+export function juelImportReason(text: string): string | null {
+  const t = text.trim();
+  if (!t || t.startsWith('=') || !isJuel(t)) return null;
+  const r = importJuel(t);
+  return r.ok ? null : r.reason;
+}
+
+function importJuel(t: string): FeelResult {
   // split into template parts: fixed text and ${…} expressions
   const parts: string[] = [];
   /** Positions of the `${…}` parts — in a concatenation they become text */
@@ -462,18 +479,18 @@ export function importExpression(text: string): string {
       else if (ch === '{') depth++;
       else if (ch === '}' && --depth === 0) break;
     }
-    if (j >= t.length) return t; // not closed — leave as is
+    if (j >= t.length) return { ok: false, reason: '«${» nicht geschlossen' }; // leave as is
     const r = juelToFeel(t.slice(start + 2, j));
-    if (!r.ok) return t;
+    if (!r.ok) return r;
     // a compound part needs parentheses in a concatenation
     parts.push(/\s/.test(r.feel) ? `(${r.feel})` : r.feel);
     tmpl.push(parts.length - 1);
     i = j + 1;
   }
-  if (parts.length === 1 && parts[0].startsWith('(') && parts[0].endsWith(')')) return `= ${parts[0].slice(1, -1)}`;
-  if (parts.length === 1) return `= ${parts[0]}`;
+  if (parts.length === 1 && parts[0].startsWith('(') && parts[0].endsWith(')')) return { ok: true, feel: `= ${parts[0].slice(1, -1)}` };
+  if (parts.length === 1) return { ok: true, feel: `= ${parts[0]}` };
   // template with fixed text: the expressions in it become text
-  return `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}`;
+  return { ok: true, feel: `= ${parts.map((p, k) => (tmpl.includes(k) ? asText(p.startsWith('(') && p.endsWith(')') ? p.slice(1, -1) : p) : p)).join(' + ')}` };
 }
 
 /** Translatable JUEL to FEEL — what cannot be translated stays JUEL. */
