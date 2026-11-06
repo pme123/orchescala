@@ -3,6 +3,20 @@ package orchescala.helper.dev.company.docs
 import munit.FunSuite
 
 class DocCreatorTest extends FunSuite:
+  import DependencyValidatorTest.*
+
+  test("dependencyCell - the release version for the release's minor, else the declared minor"):
+    assertEquals(DocCreator.dependencyCell(onRelease, base), "2.31.3")
+    assertEquals(DocCreator.dependencyCell(onOlder, base), "2.30.*")
+    assertEquals(DocCreator.dependencyCell(standalone, base), "")
+    // a newer minor than the release is not in the release either
+    val onNewer = conf("acme-shop", "1.1.0", Seq("acme-base" -> "2.32.0"))
+    assertEquals(DocCreator.dependencyCell(onNewer, base), "2.32.*")
+
+  test("dependencyCell - a worker takes the newest version: always the release's"):
+    assertEquals(DocCreator.dependencyCell(worker, base), "2.31.3")
+    val workerOnNewer = conf("acme-cards", "3.0.2", Seq("acme-base" -> "2.32.0"), isWorker = true)
+    assertEquals(DocCreator.dependencyCell(workerOnNewer, base), "2.31.3")
 
   test("byProject - the BPMN and the worker version of a project in one group, in that order"):
     val groups = DocCreator.byProject(Map(

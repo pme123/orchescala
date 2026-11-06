@@ -423,16 +423,7 @@ trait DocCreator extends DependencyCreator, Helpers:
 
           s"|| **$name** | $version | $versionPrevious " +
             filteredConfigs
-              .map(c2 =>
-                c.dependencies
-                  .find: c3 =>
-                    val version2 = c2.projectVersion.minorVersion + "."
-                    c3.projectName == c2.projectName && c3.projectVersion.toString.startsWith(
-                      version2
-                    )
-                  .map(_ => c2.projectVersion)
-                  .getOrElse("")
-              )
+              .map(DocCreator.dependencyCell(c, _))
               .mkString("| ", " | ", " |")
         }
         .mkString("\n")
@@ -656,6 +647,19 @@ object DocCreator:
         if cause.isInstanceOf[ReleaseNotFound] then ReleaseNotFound(msg, cause) else new Exception(msg, cause)
       errors.filterNot(_ eq cause).foreach(e.addSuppressed) // the others kept, with their traces
       e
+
+  /** The cell of a release table: what `pkg` uses of `dep` - empty if it does not depend on it. The
+    * dependency's version in this release (VERSIONS.conf) if `pkg` declares its minor, else the minor
+    * it declares (`2.30.*`), which the page marks as not in the release. A worker takes the newest
+    * version of its dependencies - always the release's.
+    */
+  def dependencyCell(pkg: DocProjectConfig, dep: DocProjectConfig): String =
+    pkg.dependencies
+      .find(_.projectName == dep.projectName)
+      .map: d =>
+        if pkg.isWorker || d.minorVersion == dep.minorVersion then dep.version
+        else s"${d.minorVersion}.*"
+      .getOrElse("")
 
   /** The versions per project - its BPMN and its worker version share the project's folder: one after
     * the other (setupConfigs runs the projects in parallel, the versions of one in this order).
