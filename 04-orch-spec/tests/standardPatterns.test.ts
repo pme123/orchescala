@@ -911,3 +911,34 @@ test('«Prozess-Event senden»: after the process ID changed it is still recogni
   const again = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
   assert.equal(new Map(eventCallOf(again.xml, 'c8').inputs as Array<[string, string]>).get('processDefinitionKey'), '="acme-otherV1"');
 });
+
+const cancel = STANDARD_PATTERNS.find(p => p.id === 'cancel-by-signal')!;
+// the quotes as text - the serializer may write them as &#34; or &quot;
+const signalNameOf = (xml: string) => /<bpmn:signal [^>]*name="([^"]*)"/.exec(xml)?.[1]?.replace(/&#34;|&quot;/g, '"');
+
+test('«Abbruch per Signal»: the signal is bound to the instance - C7 by its id, C8 by camunda.processInstance.key', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null);
+  const c8 = applyPattern(diagram('c8', 'task'), cancel, 'c8', null);
+  assert.equal(signalNameOf(c7.xml), 'cancel-${execution.processInstanceId}');
+  assert.equal(signalNameOf(c8.xml), '="cancel-" + string(camunda.processInstance.key)');
+  // another prefix - read back as the parameter
+  const own = applyPattern(diagram('c8', 'task'), cancel, 'c8', null, { signalPrefix: 'acme-cancel-' });
+  assert.equal(signalNameOf(own.xml), '="acme-cancel-" + string(camunda.processInstance.key)');
+  assert.deepEqual(detectPatterns(own.xml, STANDARD_PATTERNS, 'c8').hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'acme-cancel-']]);
+});
+
+test('«Abbruch per Signal» on C8 needs 8.10 - said when it is inserted there, not on C7', () => {
+  const c8 = applyPattern(diagram('c8', 'task'), cancel, 'c8', null);
+  assert.ok(c8.issues.some(i => i.startsWith(`«${cancel.name}»:`) && i.includes('8.10')), c8.issues.join('; '));
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null);
+  assert.ok(!c7.issues.some(i => i.startsWith(`«${cancel.name}»:`)), c7.issues.join('; '));
+});
+
+test('«Abbruch per Signal» with «Prozess-Status am Ende» on the normal end: the end «canceled» of the event sub process is not «Prozess-Status am Ende»', () => {
+  const status = STANDARD_PATTERNS.find(p => p.id === 'process-status')!;
+  for (const engine of ['c7', 'c8'] as const) {
+    const withEnd = applyPattern(diagram(engine, 'task'), status, engine, 'End', { processStatus: 'succeeded' }).xml;
+    const xml = applyPattern(withEnd, cancel, engine, null).xml;
+    assert.deepEqual(detectPatterns(xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]).sort(), [['cancel-by-signal', null], ['process-status', 'End']], engine);
+  }
+});
