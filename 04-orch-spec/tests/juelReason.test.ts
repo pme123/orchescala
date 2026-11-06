@@ -17,6 +17,7 @@ test('getVariable with a computed name stays JUEL — with the reason', () => {
   const reason = juelImportReason(juel);
   assert.ok(reason?.includes('berechnetem Namen'), reason ?? 'no reason');
   assert.ok(reason?.includes('"fileLink" + string(loopCounter)'), reason ?? 'no reason');
+  assert.ok(reason?.includes('«= fileLinks[loopCounter]»'), reason ?? 'no reason');
 });
 
 test('no reason for translatable JUEL, FEEL or fixed text', () => {

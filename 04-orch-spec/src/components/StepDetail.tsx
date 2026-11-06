@@ -91,10 +91,12 @@ const ASSIGNMENT_FIELDS = [
   { key: 'candidateUsers', label: 'Candidate users', placeholder: 'Personen, die die Aufgabe sehen', title: 'Personen, die die Aufgabe sehen und übernehmen können — fest als «a, b».' },
 ] as const;
 
-/** Start of the warning for JUEL the import could not translate — with the reason, if known */
-function untranslatable(value: string): string {
+/** Warning for JUEL the import could not translate — with the reason, if known; `todo` is what to do */
+function untranslatable(value: string, todo: string): string {
   const reason = juelImportReason(value);
-  return reason ? `JUEL, nicht nach FEEL übersetzbar: ${reason}` : 'JUEL, nicht nach FEEL übersetzbar';
+  return reason
+    ? `JUEL, nicht nach FEEL übersetzbar: ${reason}. ${todo[0].toUpperCase()}${todo.slice(1)}`
+    : `JUEL, nicht nach FEEL übersetzbar — ${todo}`;
 }
 
 function juelIssues(expression: string, engine: EngineId | undefined, json = false): FeelIssue[] {
@@ -595,7 +597,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                   : isJuel(value)
                     ? [{ level: 'warn', text: importExpression(value) !== value
                         ? 'JUEL aus einem älteren Stand — als FEEL schreiben (z. B. «= kokRole»).'
-                        : `${untranslatable(value)} — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.` }]
+                        : untranslatable(value, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.') }]
                     : [];
                 const hasErr = issues.some(i => i.level === 'error');
                 return (
@@ -888,7 +890,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 : !b.isDefault && b.condition && isJuel(b.condition)
                   ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
                       ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'
-                      : `${untranslatable(b.condition)} — als «= …» schreiben.` }]
+                      : untranslatable(b.condition, 'als «= …» schreiben.') }]
                   : [];
               const condErr = cond.some(i => i.level === 'error');
               const condConvertible = !b.isDefault && !!b.condition && isJuel(b.condition) && importExpression(b.condition) !== b.condition;
@@ -1679,7 +1681,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             ...(!off && !feel && !isScriptValue(m.expression) && isJuel(m.expression)
               ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
                   ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
-                  : `${untranslatable(m.expression)} — als «= …» schreiben; bis dahin geht es unverändert ins BPMN.` }]
+                  : untranslatable(m.expression, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.') }]
               : []),
           ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');

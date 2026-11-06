@@ -231,7 +231,10 @@ function method(target: string, name: string, args: string[]): string {
     // with a computed name (`"fileLink".concat(loopCounter)`) there is no counterpart:
     // FEEL cannot read a variable whose name is only known at runtime
     case 'getVariable': return two((_a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? b.slice(1, -1) : (() => {
-      throw new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL liest keine Variable über einen zur Laufzeit gebildeten Namen; eine Liste verwenden (z. B. «= fileLinks[loopCounter]»)`);
+      // `"fileLink" + string(loopCounter)` → the list it stands for: `fileLinks[loopCounter]`
+      const m = /^"([A-Za-z_]\w*)" \+ string\(([A-Za-z_][\w.]*)\)$/.exec(b);
+      const example = m ? `${m[1]}s[${m[2]}]` : 'liste[index]';
+      throw new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. Stattdessen eine Liste, z. B. «= ${example}»`);
     })()));
     // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'processInstanceId');
