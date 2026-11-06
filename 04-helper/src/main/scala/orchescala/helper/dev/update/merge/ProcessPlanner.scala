@@ -193,7 +193,8 @@ case class ProcessPlanner(project: os.Path)(using config: DevConfig):
                |    Seq(
                |${entries.map(e => s"      $e,").mkString("\n")}
                |    )
-               |  end ${processName}Workers""".stripMargin
+               |  end ${processName}Workers""".stripMargin,
+          Some(s"${config.projectPackage}.worker.$processName$versionPackage")
         )
       ),
       Registration(

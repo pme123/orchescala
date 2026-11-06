@@ -1187,6 +1187,150 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
         assert(content.contains("      CalcAgeWorker(),"), content)
       case other                                     => fail(other.toString)
 
+  test("registration - a worker of the same name from another package is added in its own block"):
+    val workerApp =
+      """package a.b.worker
+        |
+        |object WorkerApp extends CompanyWorkerApp:
+        |  workers(
+        |    personsV1Workers,
+        |  )
+        |
+        |  private lazy val personsV1Workers =
+        |    import a.b.worker.persons.v1.*
+        |    Seq(
+        |      GetPersonsWorker(),
+        |    )
+        |  end personsV1Workers
+        |end WorkerApp
+        |""".stripMargin
+    def personsOf(v: String) = OrchSpecRegistration(
+      "WorkerApp",
+      "workers(",
+      s"persons${v.toUpperCase}Workers",
+      Seq("GetPersonsWorker()"),
+      entries =>
+        s"  private lazy val persons${v.toUpperCase}Workers =\n    import a.b.worker.persons.$v.*\n    Seq(\n${entries
+            .map(e => s"      $e,").mkString("\n")}\n    )\n  end persons${v.toUpperCase}Workers",
+      Some(s"a.b.worker.persons.$v")
+    )
+    // the same package in a block of another name - not again
+    assertEquals(personsOf("v1").copy(name = "personsWorkers").register(workerApp), RegistrationResult.Unchanged)
+    // another version - its own block
+    personsOf("v2").register(workerApp) match
+      case RegistrationResult.Registered(content, added) =>
+        assertEquals(added, Seq("personsV2Workers"))
+        assert(content.contains("    import a.b.worker.persons.v2.*\n    Seq(\n      GetPersonsWorker(),"), content)
+        assertEquals(content.linesIterator.count(_.contains("GetPersonsWorker()")), 2, content)
+      case other                                         => fail(other.toString)
+    // the same package by an explicit import, a qualified name or an import outside the block
+    for app <- Seq(
+        workerApp.replace("persons.v1.*", "persons.v2.{GetPersonsWorker, Other}"),
+        workerApp.replace("      GetPersonsWorker(),", "      persons.v2.GetPersonsWorker(),"),
+        workerApp
+          .replace("    import a.b.worker.persons.v1.*\n", "")
+          .replace("object WorkerApp", "import a.b.worker.persons.v2.*\n\nobject WorkerApp")
+      )
+    do assertEquals(personsOf("v2").register(app), RegistrationResult.Unchanged, app)
+    // another package by a qualified name - added
+    val qualified = workerApp.replace("      GetPersonsWorker(),", "      persons.v1.GetPersonsWorker(),")
+    assert(personsOf("v2").register(qualified).isInstanceOf[RegistrationResult.Registered], qualified)
+
+  test("registration - the package of a worker registered elsewhere: imports, renames, file package, other blocks"):
+    def personsOf(v: String) = OrchSpecRegistration(
+      "WorkerApp",
+      "workers(",
+      s"persons${v.toUpperCase}Workers",
+      Seq("GetPersonsWorker()"),
+      entries =>
+        s"  private lazy val persons${v.toUpperCase}Workers =\n    import a.b.domain.shared.*\n    import a.b.worker.persons.$v.*\n    Seq(\n${entries
+            .map(e => s"      $e,").mkString("\n")}\n    )\n  end persons${v.toUpperCase}Workers",
+      Some(s"a.b.worker.persons.$v")
+    )
+    def app(pkg: String = "a.b.worker", header: String = "", imports: String = "", entry: String = "GetPersonsWorker()") =
+      s"""package $pkg
+         |$header
+         |object WorkerApp extends CompanyWorkerApp:
+         |  workers(
+         |    otherWorkers,
+         |  )
+         |
+         |  private lazy val otherWorkers =
+         |$imports    Seq(
+         |      $entry,
+         |    )
+         |  end otherWorkers
+         |end WorkerApp
+         |""".stripMargin
+    def skipped(content: String)    = assertEquals(personsOf("v2").register(content), RegistrationResult.Unchanged, content)
+    def registered(content: String) =
+      assert(personsOf("v2").register(content).isInstanceOf[RegistrationResult.Registered], content)
+    // the same package
+    skipped(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker, Other} // the v2 ones\n"))
+    skipped(app(imports = "    import a.b.worker.persons.v2.{\n      Other,\n      GetPersonsWorker\n    }\n"))
+    skipped(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker as V2Persons}\n", entry = "V2Persons()"))
+    skipped(app(imports = "    import a.b.worker.{persons => p}\n", entry = "p.v2.GetPersonsWorker()"))
+    skipped(app(pkg = "a.b.worker.persons.v2"))
+    skipped(app(pkg = "a.b.worker\npackage persons", entry = "v2.GetPersonsWorker()"))
+    skipped(app(header = "\nimport a.b.worker.persons\n", entry = "persons.v2.GetPersonsWorker()"))
+    // another package
+    registered(app(imports = "    import a.b.worker.persons.v1.*\n"))
+    // only the worker package of the new block counts - not its other imports
+    registered(app(imports = "    import a.b.domain.shared.*\n"))
+    // a relative name resolves against the scope - `v2` is no package here
+    registered(app(entry = "v2.GetPersonsWorker()"))
+    registered(app(pkg = "a.other", header = "\nimport a.other.v2\n", entry = "v2.GetPersonsWorker()"))
+    // renamed away - `GetPersonsWorker` is not the imported one
+    registered(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker as V2Persons}\n    import a.b.worker.persons.v1.*\n"))
+    // an explicit import shadows the package of the file
+    registered(app(pkg = "a.b.worker.persons.v2", imports = "    import a.b.worker.persons.v1.{GetPersonsWorker}\n"))
+    // `; …` after an import, an import whose brace is not closed - the imports after it stay
+    skipped(app(imports = "    import a.b.worker.persons.v2.*; val x = 1\n"))
+    skipped(app(header = "\nimport a.b.worker.broken.{X,\nimport a.b.worker.persons.v2.*\n"))
+    // the nearest scope wins: the wildcard import of the block, not the one of the file
+    registered(app(header = "\nimport a.b.worker.persons.v2.*\n", imports = "    import a.b.worker.persons.v1.*\n"))
+    // two wildcard imports in one scope: perhaps the same package - skipped, but unsure
+    val twoWildcards = app(imports = "    import a.b.worker.persons.v1.*\n    import a.b.worker.persons.v2.*\n")
+    skipped(twoWildcards)
+    assertEquals(personsOf("v2").unsure(twoWildcards), Seq("GetPersonsWorker()"))
+    assertEquals(personsOf("v2").unsure(app(imports = "    import a.b.worker.persons.v2.*\n")), Seq.empty)
+    // a relative qualified name through the wildcard import of a parent package
+    skipped(app(pkg = "x.y", header = "\nimport a.b.worker.*\n", entry = "persons.v2.GetPersonsWorker()"))
+    // the import of another block is not in scope
+    val otherBlock = app().replace(
+      "  private lazy val otherWorkers",
+      "  private lazy val moreWorkers =\n    import a.b.worker.persons.v2.*\n    Seq()\n  end moreWorkers\n\n  private lazy val otherWorkers"
+    )
+    registered(otherBlock)
+    // without the package of the entries: any registration of the name counts - as before
+    assertEquals(personsOf("v2").copy(entriesPackage = None).register(app(imports = "    import a.b.worker.persons.v1.*\n")), RegistrationResult.Unchanged)
+
+  test("registration - the imports read: forms, given, several parts, renames, an unclosed brace"):
+    val read = OrchSpecRegistration.imports(
+      Seq(
+        "import a.b.*",
+        "import a.b.{given, *}",
+        "import a.*, c.d.{X, Y as Z}",
+        "val x = 1 // import no.import.*",
+        "import e.f.{W => V, H as _} // a comment",
+        "import broken.{X,",
+        "import g.h.X; val y = 1"
+      )
+    )
+    assertEquals(
+      read,
+      Seq(
+        (0, "a.b", Map("*" -> "*")),
+        (1, "a.b", Map("*" -> "*")),
+        (2, "a", Map("*" -> "*")),
+        (2, "c.d", Map("X" -> "X", "Z" -> "Y")),
+        (4, "e.f", Map("V" -> "W")),
+        // the unclosed brace ends at the next import - only what it names
+        (5, "broken", Map("X" -> "X")),
+        (6, "g.h", Map("X" -> "X"))
+      )
+    )
+
   test("new process object - a descr of several lines is a stripMargin text"):
     val block = mergeObject.block.replace(
       "// descr: Neue Karte\n",

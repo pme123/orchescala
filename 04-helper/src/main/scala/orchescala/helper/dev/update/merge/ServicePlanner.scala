@@ -152,7 +152,8 @@ object ServicePlanner:
                |    Seq(
                |${entries.map(e => s"      $e,").mkString("\n")}
                |    )
-               |  end ${block}Workers""".stripMargin
+               |  end ${block}Workers""".stripMargin,
+          Some(s"${config.projectPackage}.worker.$apiName$versionPackage")
         )
       ),
       Registration(

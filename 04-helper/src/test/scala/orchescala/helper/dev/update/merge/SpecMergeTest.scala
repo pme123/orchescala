@@ -580,6 +580,48 @@ class SpecMergeTest extends FunSuite:
       val api = os.read(project / apiCreatorRel)
       assert(api.contains("group(\"ClientV1\")(\n      GetClient.example,\n      UpdateClient.example,"), api)
 
+  /** The collection of client.v1 as version 2 - the same service names in another package. */
+  private val collectionV2: ServicesExport =
+    val v1 = collection()
+    v1.copy(
+      slug = "client-v2",
+      scala = v1.scala.replace("client/v1", "client/v2").replace("client.v1", "client.v2").replace("ClientV1", "ClientV2")
+    )
+
+  test("services: two versions of one API - each version registered in its own block"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(collection(), collectionV2))
+      assertEquals(plan.withAction(Action.conflict), Seq.empty)
+      val app = os.read(project / workerAppRel)
+      for v <- Seq("v1", "v2") do
+        val name  = s"clientV${v.drop(1)}Workers"
+        val block = app.substring(app.indexOf(s"private lazy val $name"), app.indexOf(s"end $name"))
+        assert(block.contains(s"import acme.demo.worker.client.$v.*"), app)
+        assert(block.contains("      GetClientWorker(),"), app)
+        // once in `workers(` - also after the re-run below
+        assertEquals(app.linesIterator.count(_.trim == s"$name,"), 1, app)
+      val api = os.read(project / apiCreatorRel)
+      for g <- Seq("ClientV1", "ClientV2") do assert(api.contains(s"group(\"$g\")(\n      GetClient.example,"), api)
+      // a re-run adds nothing
+      val (again, _) = run(project, Seq(collection(), collectionV2), Seq(collection(), collectionV2))
+      assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
+      assertEquals(os.read(project / workerAppRel), app)
+
+  test("services: a worker of the same name perhaps registered from its package - not added, with a note"):
+    inProject: project =>
+      editFile(project, "WorkerApp.scala"): app =>
+        app
+          .replace("    //TODO add workers here\n", "    clientWorkers,\n")
+          .replace(
+            "end WorkerApp",
+            "\n  private lazy val clientWorkers =\n    import acme.demo.worker.client.v1.*\n    import acme.demo.worker.client.v2.*\n    Seq(\n      GetClientWorker(),\n    )\n  end clientWorkers\nend WorkerApp"
+          )
+      val (plan, _) = run(project, Seq.empty, Seq(collectionV2))
+      val app       = plan.files.find(_.path == path(project, "WorkerApp.scala")).getOrElse(fail("no WorkerApp"))
+      assertEquals(app.action, Action.unchanged)
+      assert(app.note.exists(_.contains("GetClientWorker() not added to `clientV2Workers`")), app.note)
+      assert(!os.read(project / workerAppRel).contains("clientV2Workers"))
+
   test("services: twice the same export - all unchanged"):
     inProject: project =>
       run(project, Seq.empty, Seq(collection(), orchestration))
@@ -671,9 +713,15 @@ class SpecMergeTest extends FunSuite:
         "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala",
         "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v2/GetPersonsWorkerTest.scala"
       ))
-      // the WorkerApp: a worker of the same name is registered once only (see OrchSpecRegistration.register)
+      // the WorkerApp: each version in its own block - the same worker name, another package
       val app = os.read(project / workerAppRel)
-      assert(app.contains("private lazy val naturalPersonsV1Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v1.*"), app)
+      for v <- Seq(1, 2) do
+        assert(
+          app.contains(
+            s"private lazy val naturalPersonsV${v}Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v$v.*\n    Seq(\n      GetPersonsWorker(),"
+          ),
+          app
+        )
 
   test("services: a worker test without its worker - the test in the test sources, nothing registered for it"):
     inProject: project =>
