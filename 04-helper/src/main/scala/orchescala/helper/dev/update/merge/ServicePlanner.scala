@@ -11,6 +11,9 @@ import orchescala.helper.dev.update.*
   * per service - a skeleton for the developer: created once, then 3-way. The workers of an API
   * go into the `WorkerApp` (`clientV1Workers`), its services as a group into the API
   * documentation (`clientV1Api`).
+  *
+  * A nested API (`clientMaster.naturalPersons`) gets its levels as directories; the classes the
+  * APIs of a level share come in `clientMaster/schema/` - merged like the domain classes.
   */
 case class ServicePlanner(project: os.Path)(using config: DevConfig):
 
@@ -21,46 +24,84 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
     val (workerFiles, domainFiles) = files.partition(_.path.segments.headOption.exists(_.endsWith("worker")))
     if domainFiles.isEmpty then
       throw IllegalArgumentException("No service classes in the export - nothing to create.")
-    val workersByApi               = workerFiles.groupBy(f => ServicePlanner.apiOfDir(f.path / os.up))
+    // the base paths of the project and of the levels of nested APIs (`worker/clientMaster/exports.scala`)
+    // - not in an API: next to the workers, created once
+    val (baseFiles, apiWorkerFiles) = workerFiles.partition(f => !ServicePlanner.Version.matches((f.path / os.up).last))
+    val workersByApi               = apiWorkerFiles.groupBy(f => apiAndVersion(packageOf(f.path / os.up), "worker"))
+    // the classes the APIs of a level share (`clientMaster/schema/`) - no API of their own
+    val (sharedFiles, apiFiles)    = domainFiles.partition(f => ServicePlanner.isSharedSchema(f.path / os.up))
 
-    val perApi = domainFiles.groupBy(ServicePlanner.apiDir).toSeq.sortBy(_._1.toString).map:
+    val perApi = apiFiles.groupBy(ServicePlanner.apiDir).toSeq.sortBy(_._1.toString).map:
       (exportDomainDir, apiFiles) =>
-        val (apiName, versionNr) = apiAndVersion(packageOf(exportDomainDir))
+        val (apiName, versionNr) = apiAndVersion(packageOf(exportDomainDir), "domain")
         val version              = Some(versionNr)
-        val domainDir            = BpmnGenerator().domainRel(apiName, version)
+        val domainDir            =
+          if apiName.contains('.') then domainRoot / ServicePlanner.levels(apiName) / version.versionPath
+          else BpmnGenerator().domainRel(apiName, version)
         val domain               = apiFiles.map: file =>
           GeneratedFile(domainDir / file.path.relativeTo(exportDomainDir), FileKind.Export, file.content)
-        val apiWorkerFiles       = workersByApi.getOrElse(apiName -> s"v$versionNr", Seq.empty)
-        val workerDir            = ModuleConfig.workerModule.packagePath(config.projectPath) / apiName / version.versionPath
-        val workers              = apiWorkerFiles.map: file =>
-          GeneratedFile(workerDir / file.path.last, FileKind.Scaffold, file.content)
-        val workerNames          = apiWorkerFiles.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
+        val ofApi                = workersByApi.getOrElse(apiName -> versionNr, Seq.empty)
+        // the worker in the main sources, its test (`03-worker/src/test/…`) in the test sources
+        def workerDir(file: OrchSpecFile) =
+          ModuleConfig.workerModule.packagePath(config.projectPath, mainOrTest = ServicePlanner.sourceSet(file)) /
+            ServicePlanner.levels(apiName) / version.versionPath
+        val workers              = ofApi.map: file =>
+          GeneratedFile(workerDir(file) / file.path.last, FileKind.Scaffold, file.content)
+        val workerNames          = ofApi.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
         (domain ++ workers, ServicePlanner.registrations(apiName, versionNr, workerNames))
 
-    // workers of an API without domain classes in the export - nothing to put them next to
-    val apis = domainFiles.map(f => ServicePlanner.apiOfDir(ServicePlanner.apiDir(f))).toSet
-    for (api, version) <- workersByApi.keySet.toSeq.sorted if !apis.contains(api -> version) do
-      notes += s"WARNING: workers of $api.$version without its domain in the export - not created."
+    val shared = sharedFiles.map: file =>
+      val level = levelOf(packageOf(file.path / os.up / os.up))
+      GeneratedFile(domainRoot / ServicePlanner.levels(level) / "schema" / file.path.last, FileKind.Export, file.content)
 
-    ProcessFiles(perApi.flatMap(_._1), perApi.flatMap(_._2), notes.result())
+    // workers of an API without domain classes in the export - nothing to put them next to
+    val apis = apiFiles.map(f => apiAndVersion(packageOf(ServicePlanner.apiDir(f)), "domain")).toSet
+    for (api, version) <- workersByApi.keySet.toSeq.sorted if !apis.contains(api -> version) do
+      notes += s"WARNING: workers of $api.v$version without its domain in the export - not created."
+
+    val bases = baseFiles.map: file =>
+      val levels = workerLevelOf(packageOf(file.path / os.up))
+      GeneratedFile(ModuleConfig.workerModule.packagePath(config.projectPath) / levels / file.path.last, FileKind.Scaffold, file.content)
+
+    ProcessFiles(perApi.flatMap(_._1) ++ shared ++ bases, perApi.flatMap(_._2), notes.result())
   end plan
+
+  private def domainRoot: os.RelPath = ModuleConfig.domainModule.packagePath(config.projectPath)
 
   private def packageOf(dir: os.RelPath): String =
     dir.segments.dropWhile(_ != "scala").drop(1).mkString(".")
 
-  // `<projectPackage>.domain.<api>.v<version>` - the package Orch Spec derives from the API
-  private def apiAndVersion(pkg: String): (String, Int) =
-    val Expected = s"""${java.util.regex.Pattern.quote(config.projectPackage)}\\.domain\\.(\\w+)\\.v(\\d+)""".r
+  private def notOfProject(pkg: String, expected: String) =
+    IllegalArgumentException(
+      s"""The package of the export '$pkg' does not belong to this project.
+         |Expected: ${config.projectPackage}.$expected
+         |Check company and project of the services in Orch Spec.""".stripMargin
+    )
+
+  // `<projectPackage>.<module>.<api>.v<version>` - the package Orch Spec derives from the API;
+  // a nested API has its levels: `<projectPackage>.domain.clientMaster.naturalPersons.v1`
+  private def apiAndVersion(pkg: String, module: String): (String, Int) =
+    val Expected = s"""${java.util.regex.Pattern.quote(config.projectPackage)}\\.$module\\.(\\w+(?:\\.\\w+)*)\\.v(\\d+)""".r
     pkg match
       case Expected(api, version) => api -> version.toInt
-      case other                  =>
-        throw IllegalArgumentException(
-          s"""The package of the export '$other' does not belong to this project.
-             |Expected: ${config.projectPackage}.domain.<api>.v<version>
-             |Check company and project of the services in Orch Spec.""".stripMargin
-        )
-    end match
+      case other                  => throw notOfProject(other, s"$module.<api>.v<version>")
   end apiAndVersion
+
+  // `<projectPackage>.worker` or `<projectPackage>.worker.clientMaster` - the project or a level: its directories
+  private def workerLevelOf(pkg: String): os.RelPath =
+    val root = s"${config.projectPackage}.worker"
+    if pkg == root then os.rel
+    else if pkg.startsWith(s"$root.") then ServicePlanner.levels(pkg.stripPrefix(s"$root."))
+    else throw notOfProject(pkg, "worker.<level>")
+  end workerLevelOf
+
+  // `<projectPackage>.domain.clientMaster` - a level of nested APIs
+  private def levelOf(pkg: String): String =
+    val Expected = s"""${java.util.regex.Pattern.quote(config.projectPackage)}\\.domain\\.(\\w+(?:\\.\\w+)*)""".r
+    pkg match
+      case Expected(level) => level
+      case other           => throw notOfProject(other, "domain.<level>.schema")
+  end levelOf
 
 end ServicePlanner
 
@@ -71,8 +112,19 @@ object ServicePlanner:
     val dir = file.path / os.up
     if dir.last == "schema" then dir / os.up else dir
 
-  /** `.../client/v1` - the last two directories name the API and its version. */
-  private[merge] def apiOfDir(dir: os.RelPath): (String, String) = (dir / os.up).last -> dir.last
+  private[merge] val Version = "v\\d+".r
+
+  /** `main` or `test` - `03-worker/src/test/scala/…/GetClientWorkerTest.scala` is a test: the segment after `src`. */
+  private[merge] def sourceSet(file: OrchSpecFile): String =
+    val segments = file.path.segments
+    if segments.lift(segments.indexOf("src") + 1).contains("test") && segments.contains("src") then "test" else "main"
+
+  /** `clientMaster/schema` - the shared classes of a level: a `schema/` not inside a version. */
+  private[merge] def isSharedSchema(dir: os.RelPath): Boolean =
+    dir.last == "schema" && !Version.matches((dir / os.up).last)
+
+  /** `clientMaster.naturalPersons` → `clientMaster/naturalPersons` */
+  private[merge] def levels(api: String): os.RelPath = os.RelPath(api.split('.').mkString("/"))
 
   /** The block of an API in the `WorkerApp` and its group in the API documentation - the super
     * trait names them (`clientV1`, `ClientV1`). A collection and an orchestration of the same API
@@ -81,8 +133,10 @@ object ServicePlanner:
   def registrations(apiName: String, versionNr: Int, workers: Seq[String])(using config: DevConfig): Seq[Registration] =
     val versionPackage = Some(versionNr).versionPackage
     val versionTag     = s"V$versionNr"
-    val block          = s"$apiName$versionTag"
-    val group          = s"${apiName.head.toUpper}${apiName.tail}$versionTag"
+    // a nested API is named by its last part, as its super trait (`naturalPersonsV1`)
+    val name           = apiName.split('.').last
+    val block          = s"$name$versionTag"
+    val group          = s"${name.head.toUpper}${name.tail}$versionTag"
     val services       = workers.map(_.stripSuffix("Worker"))
     Seq(
       Registration(
