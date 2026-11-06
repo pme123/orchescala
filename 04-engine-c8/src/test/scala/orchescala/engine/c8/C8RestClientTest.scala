@@ -590,11 +590,21 @@ object C8RestClientTest extends ZIOSpecDefault:
             failsWith(403, "Only one active") && failsWith(403, "no access to process p")
         ) && assertTrue(cluster.paths == Seq.fill(3)("v2/messages/correlation"))
       },
-      test("start by message sent again without key, landed on another partition: 409") {
+      test("start by message sent again without key: a start - also on the partition of its business id (8.10)") {
+        // without correlation key Zeebe starts the instance on the partition of the business id,
+        // not on the message's - an older key there is no running instance
         val otherPartition = ((2L << 51) + 5).toString
         val cluster        = StubCluster: request =>
           if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
           else 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for info <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1"))
+        yield assertTrue(info.processInstanceId == otherPartition)
+      },
+      test("start by message with key, the instance on another partition: 409 - a key and its equal business id share it") {
+        val otherPartition = ((2L << 51) + 5).toString
+        val cluster        = StubCluster(_ => 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}""")
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
         assertZIO(C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit)(

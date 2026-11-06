@@ -315,14 +315,18 @@ class C8ProcessInstanceService(
       )
     for
       _                  <- logInfo(s"Send Message $messageName: ${variables.asObject.fold("-")(_.keys.mkString(", "))}")
-      response           <- correlateWithBusinessKey(messageName, businessKey, correlate)
+      correlated         <- correlateWithBusinessKey(messageName, businessKey, correlate)
                               .mapError(withContext(s"Problem sending message '$messageName' to start process"))
+      (response, keyed)   = correlated
       processInstanceKey <- ZIO
                               .fromOption(response.processInstanceKey)
                               .orElseFail(EngineError.ProcessError(
                                 s"Message '$messageName' was correlated, but no process instance key returned."
                               ))
-      _                  <- ensureStarted(messageName, response.messageKey, processInstanceKey, pendingMarker)
+      // Without correlation key the message can only start an instance - Zeebe correlates a
+      // waiting event only by its key. And with a business id it may start it on the partition of
+      // that id, not on the message's: `startedBy` would take that start for a running instance.
+      _                  <- ZIO.when(keyed)(ensureStarted(messageName, response.messageKey, processInstanceKey, pendingMarker))
     yield MessageCorrelationResult.ProcessInstance(processInstanceKey, processInstanceKey, C8)
     end for
   end sendMessageToStartProcess
@@ -342,19 +346,21 @@ class C8ProcessInstanceService(
     * open that subscription (a cluster under load), a start at the same time is refused twice and
     * starts a second instance with the same `businessKey`. Starts one after the other are not
     * affected. Other 404s (no such message, another tenant) cost the wait and two requests more.
+    *
+    * Returns the response and whether the message that got it had a correlation key.
     */
   private def correlateWithBusinessKey(
       messageName: String,
       businessKey: Option[String],
       correlate: Option[String] => IO[EngineError, C8RestModel.MessageCorrelationResult]
-  ): IO[EngineError, C8RestModel.MessageCorrelationResult] =
+  ): IO[EngineError, (C8RestModel.MessageCorrelationResult, Boolean)] =
     def notFound(err: EngineError) = err match
       case EngineError.ServiceRequestError(404, _) => true
       case _                                       => false
     businessKey match
-      case None      => correlate(None)
+      case None      => correlate(None).map(_ -> false)
       case Some(key) =>
-        val withKey = correlate(Some(key))
+        val withKey = correlate(Some(key)).map(_ -> true)
         withKey
           .catchSome { case err if notFound(err) => withKey.delay(timings.subscriptionWait) }
           .catchSome:
@@ -362,7 +368,7 @@ class C8ProcessInstanceService(
               logWarning(
                 s"Message '$messageName' with correlation key '$key' refused - an instance with it runs and waits for " +
                   "no such message (or none starts with it): sent again without key."
-              ) *> correlate(None).mapError(withContext(
+              ) *> correlate(None).map(_ -> false).mapError(withContext(
                 s"Refused with correlation key '$key' (${err.errorMsg}), then sent again without key"
               ))
   end correlateWithBusinessKey
@@ -479,6 +485,11 @@ object C8ProcessInstanceService:
     * Two messages with the same key at the same time: a partition processes them one after the
     * other, and the first creates its instance while it is processed. So the second message's key
     * is newer than that instance - landed in it, it is no start (c8run test: two at the same time).
+    *
+    * Only for a message with correlation key - it equals its business id, so both hash to the same
+    * partition and Zeebe starts the instance there. A message with a business id but no correlation
+    * key starts it on the partition of the business id (8.10), which this check cannot tell from a
+    * running instance.
     */
   def startedBy(messageKey: String, processInstanceKey: String): Option[Boolean] =
     for
