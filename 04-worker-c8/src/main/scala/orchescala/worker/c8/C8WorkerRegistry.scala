@@ -23,7 +23,8 @@ class C8WorkerRegistry(c8Client: C8Client)
       acquireReleaseWith(ZIO.succeed(client))(_.closeClient()): client =>
         for
           _        <- logInfo(s"Starting C8 Worker Client - ${workers.size} workers.")
-          _        <- checkClusterVersion(client).forkDaemon
+          // a child of this scope: it ends with the client, at the latest after its timeout
+          _        <- checkClusterVersion(client).fork
           c8Workers = workers.collect { case w: C8Worker[?, ?] => w }
           _        <- foreachParDiscard(c8Workers)(w => registerWorker(w, client))
                        .withParallelism(config.engineConfig.parallelism)
@@ -35,7 +36,8 @@ class C8WorkerRegistry(c8Client: C8Client)
   // BPMNs take the own instance from camunda.processInstance.key - a cluster before 8.10 does not
   // know it, every such process stops at its start with an incident: say so where it is started
   private def checkClusterVersion(client: CamundaClient): UIO[Unit] =
-    attemptBlocking(client.newTopologyRequest().send().join().getGatewayVersion)
+    attemptBlockingInterrupt(client.newTopologyRequest().send().join(5, java.util.concurrent.TimeUnit.SECONDS).getGatewayVersion)
+      .timeoutFail(new RuntimeException("no answer within 5 s"))(6.seconds)
       .flatMap: version =>
         if C8WorkerRegistry.before810(version) then
           logWarning(
