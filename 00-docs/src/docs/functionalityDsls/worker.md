@@ -89,6 +89,7 @@ It automatically does:
 The own process instance in _Camunda 8_ (there is no `execution` like in _Camunda 7_): in FEEL it is
 `camunda.processInstance.key` (from _Camunda 8.10_), e.g. `_idempotentId = string(camunda.processInstance.key)` -
 always the own one, also in a called process and before any worker ran. No worker sets a variable for it.
+A C8 worker app warns at its start if the cluster is older than 8.10 (only there - the gateway does not check it).
 A worker that needs the own id takes `EngineRunContext.processInstance` (the same in all engines) -
 in an _Init Process Worker_ override `customInitZIO`: `summon[EngineRunContext].processInstance.map(_.id)`.
 
