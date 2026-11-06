@@ -22,7 +22,7 @@
 //   postfix  := primary ( '.' name ( '(' args ')' )? | '[' expr ']' )*
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
-import { C7_LABEL } from './engineLabels.ts';
+import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
 
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 
@@ -234,7 +234,8 @@ function method(target: string, name: string, args: string[]): string {
       // `"fileLink" + string(loopCounter)` → the list it stands for: `fileLinks[loopCounter]`
       const m = /^"([A-Za-z_]\w*)" \+ string\(([A-Za-z_][\w.]*)\)$/.exec(b);
       const example = m ? `${m[1]}s[${m[2]}]` : 'liste[index]';
-      throw new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. Stattdessen eine Liste, z. B. «= ${example}»`);
+      // `fileLink + string(loopCounter)` would append the number to the value, not read `fileLink3`
+      throw new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. In ${C8_LABEL} braucht es die Variable je Durchlauf nicht: «Ergebnisse sammeln» bei der Mehrfachausführung legt die Ergebnisse in eine Liste, dann z. B. «= ${example}»`);
     })()));
     // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'processInstanceId');
