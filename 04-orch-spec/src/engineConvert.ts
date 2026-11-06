@@ -128,8 +128,11 @@ const plainVar = (source: string): string | null => {
 };
 
 // ── Conversion ───────────────────────────────────────────────────────────────
+/** history time to live (days) of a process converted to Camunda 7 without one */
+export const DEFAULT_TIME_TO_LIVE = '60';
+
 export interface ConvertOptions {
-  /** history time to live of the process (Camunda 7 requires one) */
+  /** history time to live of the process (Camunda 7 requires one - otherwise DEFAULT_TIME_TO_LIVE) */
   timeToLive?: string;
   /**
    * the correlation key chosen at the step per element ID — a waiting message without one gets
@@ -687,10 +690,9 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     if (name === 'process') {
       const tag = z('versionTag');
       if (tag) setC(el, 'versionTag', tag.getAttribute('value') ?? '');
-      if (!el.getAttributeNS(CAMUNDA_NS, 'historyTimeToLive')) {
-        if (opts.timeToLive) setC(el, 'historyTimeToLive', opts.timeToLive);
-        else issue('Prozess', `${C7_LABEL} verlangt historyTimeToLive — in der Spezifikation setzen.`);
-      }
+      // Camunda 7 requires one - without one in the specification the default; the import
+      // takes it into the specification, where it can be changed
+      if (!el.getAttributeNS(CAMUNDA_NS, 'historyTimeToLive')) setC(el, 'historyTimeToLive', opts.timeToLive || DEFAULT_TIME_TO_LIVE);
     }
 
     // ── Properties

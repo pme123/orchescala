@@ -1730,7 +1730,7 @@ bleibt es ohne Diagramm-Eintrag (gemeldet).
 
 Ohne Gegenstück fallen still weg: `async…`, `exclusive`, Job-Prioritäten,
 Retry-Zyklen, `historyTimeToLive` (zurück nach Camunda 7 kommt sie aus der
-Spezifikation). **Gemeldet** wird, was Handarbeit braucht: andere Listener,
+Spezifikation, ohne Angabe dort mit der Vorgabe 60 Tage). **Gemeldet** wird, was Handarbeit braucht: andere Listener,
 Skripte (Groovy), nicht übersetzbare Ausdrücke, die Ergebnisform einer
 Entscheidung und der Korrelationsschlüssel wartender Nachrichten
 (vorgeschlagen: `=businessKey`).

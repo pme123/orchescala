@@ -10,7 +10,8 @@ import { C7_LABEL, C8_LABEL, conversionNote, engineLabel } from '../src/engineLa
 import { ENGINES } from '../src/template';
 import { regexIssue, scriptWarning } from '../src/findings';
 import { juelToFeel } from '../src/juelFeel';
-import { convertBpmn } from '../src/engineConvert';
+import { DEFAULT_TIME_TO_LIVE, convertBpmn } from '../src/engineConvert';
+import { importBpmn } from '../src/bpmn';
 import { exportSpec } from '../src/exporters';
 import { applyPattern } from '../src/patterns';
 import type { EngineId, PatternDef, ProcessSpec } from '../src/types';
@@ -40,13 +41,18 @@ test('the findings and the JUEL import for c7 name the label', () => {
   assert.ok(!r.ok && r.reason.includes(`gibt es nur in ${C7_LABEL}`), JSON.stringify(r));
 });
 
-test('converting to c7 names the label in its notes', () => {
+test('converting to c7 without a time to live: the default of 60 days - no note; one of the spec wins', () => {
   const c8 = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="d" targetNamespace="x">
   <bpmn:process id="p" isExecutable="true"><bpmn:startEvent id="s" /></bpmn:process>
 </bpmn:definitions>`;
   const r = convertBpmn(c8, 'c7');
-  assert.ok(r.issues.some((i) => i.text === `${C7_LABEL} verlangt historyTimeToLive — in der Spezifikation setzen.`), JSON.stringify(r.issues));
+  assert.equal(DEFAULT_TIME_TO_LIVE, '60');
+  assert.match(r.xml, /camunda:historyTimeToLive="60"/);
+  assert.ok(!r.issues.some((i) => i.text.includes('historyTimeToLive')), JSON.stringify(r.issues));
+  assert.match(convertBpmn(c8, 'c7', { timeToLive: '180' }).xml, /camunda:historyTimeToLive="180"/);
+  // the import takes it into the specification
+  assert.equal(importBpmn(r.xml, 'p.bpmn').spec.timeToLive, '60');
 });
 
 test('the Orchescala export names the engine of the spec', () => {
