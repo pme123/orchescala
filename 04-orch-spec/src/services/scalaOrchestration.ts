@@ -76,12 +76,21 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       const pre: string[] = [];
       const input = serviceIn(ref, task, vars, ctx, pre);
       lines.push(...pre);
-      const target = ref.service.noOut ? '_' : resultName(task, ref);
+      const outputs = (task?.outputs ?? []).filter(m => !m.disabled && m.name.trim());
+      const target = ref.service.noOut || (task?.outputs && !outputs.length) ? '_' : resultName(task, ref);
       lines.push(
         `${target} <- ${ref.service.name}Worker()`,
         `  .runWorkFromWorkerUnsafe(${input.includes('\n') ? `\n${indent(input, '    ')}\n  ` : input})`,
         `  .mapError(e => CustomError(s"${ref.service.name}: \${e.errorMsg}"))`,
       );
+      // as a process describes it: the variables from the fields of the Out — the result itself is not kept
+      if (task?.outputs && target !== '_') {
+        const outFields = new Map<string, ScalaVar>((serviceMembers(ref).out?.fields ?? []).filter(f => f.name).map(f =>
+          [f.name, { scala: `${target}.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection }]));
+        const scope = new Map([...vars, ...outFields]);
+        for (const m of outputs) lines.push(`${scalaIdent(m.name.trim())} = ${feelToScala(m.expression, scope, ctx.types).scala}`);
+      }
+      if (s.errors?.length) lines.push(`// TODO Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
     } else if (s.kind === 'script') {
       for (const a of task?.assignments ?? []) {
         if (!a.name.trim()) continue;

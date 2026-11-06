@@ -24,7 +24,8 @@ import { cls } from './ui';
 import { displayUrl } from './util';
 import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
-type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string } | { kind: 'admin' }
+// `back`: a process in service mode opened from the services goes back there
+type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string; back?: 'services' } | { kind: 'admin' }
   | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string }
   | { kind: 'services' } | { kind: 'service'; slug: string };
 
@@ -239,11 +240,11 @@ export default function App() {
               {navOn && (
                 <>
                   <HeaderButton isDark={isDark} icon={<Workflow size={12} />} label="Prozesse"
-                    active={view.kind === 'list' || view.kind === 'spec'}
+                    active={view.kind === 'list' || (view.kind === 'spec' && view.back !== 'services')}
                     title="Prozesse — alle Prozess-Spezifikationen"
                     onClick={() => setView({ kind: 'list' })} />
                   <HeaderButton isDark={isDark} icon={<Boxes size={12} />} label="Services"
-                    active={view.kind === 'services' || view.kind === 'service'}
+                    active={view.kind === 'services' || view.kind === 'service' || (view.kind === 'spec' && view.back === 'services')}
                     title="Services — Collections von REST-Services aus einer OpenAPI (services/*.json)"
                     onClick={() => setView({ kind: 'services' })} />
                   <HeaderButton isDark={isDark} icon={<AppWindow size={12} />} label="Seiten" active={view.kind === 'pages' || view.kind === 'page'}
@@ -447,11 +448,12 @@ export default function App() {
           <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : view.kind === 'services' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <ServicesView onOpen={slug => setView({ kind: 'service', slug })} />
+            <ServicesView onOpen={slug => setView({ kind: 'service', slug })} onOpenProcess={slug => setView({ kind: 'spec', slug, back: 'services' })} />
           </Suspense>
         ) : view.kind === 'service' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <ServiceView key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'services' })} />
+            <ServiceView key={view.slug} slug={view.slug} onBack={() => setView({ kind: 'services' })}
+              onOpenProcess={slug => setView({ kind: 'spec', slug, back: 'services' })} />
           </Suspense>
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
@@ -472,7 +474,8 @@ export default function App() {
             )
             : <ProcessesView onOpen={slug => setView({ kind: 'spec', slug })} />
         ) : (
-          <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} focusStepId={view.stepId} onBack={() => setView({ kind: 'list' })}
+          <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} focusStepId={view.stepId}
+            onBack={() => setView(view.back === 'services' ? { kind: 'services' } : { kind: 'list' })}
             onOpenPage={pageSlug => setView({ kind: 'page', slug: pageSlug })} />
         )}
       </div>

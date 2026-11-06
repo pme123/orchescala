@@ -66,7 +66,9 @@ function relativeTime(iso: string | undefined): string {
 }
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, specs, specsLoading, createSpec, saveBpmn, saveDmn, deleteSpec, model } = useStore();
+  const { isDark, specs: allSpecs, specsLoading, createSpec, saveBpmn, saveDmn, deleteSpec, model } = useStore();
+  // a process in service mode is a service orchestration — listed under Services
+  const specs = useMemo(() => allSpecs.filter(s => !s.data.service), [allSpecs]);
   const { canEdit, canDelete } = usePermissions();
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -187,7 +189,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
       // fails after all, the table stays behind unreferenced and a later spec of that name links it
       const problems: string[] = [];
       let saved: FoundDmn[] = [];
-      if (!specs.some(s => s.slug === rows.slug)) {
+      if (!allSpecs.some(s => s.slug === rows.slug)) {
         setBusy('DMN-Tabellen werden gesucht …');
         const r = await findProjectDmns(rows, model, setBusy);
         const w = await saveProjectDmns(rows.slug, r.found, saveDmn, { createOnly: true });
@@ -219,7 +221,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   // a new process starts where everyone in-house starts.
   const createFromTemplate = async () => {
     if (!name.trim()) { setError('Bitte einen Prozessnamen angeben.'); return; }
-    if (specs.some(s => s.data.processId === processId || s.slug === slugify(processId))) {
+    if (allSpecs.some(s => s.data.processId === processId || s.slug === slugify(processId))) {
       setError(`«${processId}» gibt es schon.`);
       return;
     }

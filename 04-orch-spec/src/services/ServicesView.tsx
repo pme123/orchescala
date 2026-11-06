@@ -19,21 +19,38 @@ import { API_NAME, PROJECT_NAME, PROJECT_NAME_RULE, apiList, apiName, apisOf, co
 import { useServices, type ServiceListItem } from './store';
 import CollectionImport from './CollectionImport';
 import { collectionSuggestion, handOverOpenApi, readOpenApiFile, type OpenApiFile } from './openApiFile';
-import { newOrchestration, orchestrationTopic } from './orchestration';
+import { orchestrationTopic } from './orchestration';
+import { isServiceProcess, newServiceProcess, serviceProcessId, serviceProcessTopic, type ServiceProcess } from './serviceProcess';
+import { overallStatus } from '../status';
+import type { SpecListItem } from '../store';
 import { isCollection } from './types';
 import { knownProjects } from './catalogCollections';
 import { slugify } from '../util';
 
-const serviceEntry = ({ slug, data }: ServiceListItem): ListEntry => ({
-  title: data.title,
-  terms: isCollection(data)
-    ? [slug, data.pathPrefix ?? '', ...apisOf(data).map(a => `${a.api} ${topicPrefix(a)}`), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)]
-    : [slug, data.name, orchestrationTopic(data), 'Orchestrierung'],
-  project: data.project, epics: data.epics, updatedAt: data.updatedAt,
-});
+/** An entry of the list: a collection or an orchestration of `services/`, or a process in service mode. */
+type Entry = { kind: 'service'; item: ServiceListItem } | { kind: 'process'; item: SpecListItem & { data: ServiceProcess } };
 
-export default function ServicesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, model, specs } = useStore();
+const serviceEntry = (e: Entry): ListEntry => {
+  if (e.kind === 'process') {
+    const { slug, data } = e.item;
+    return { title: data.title, terms: [slug, data.service.name, serviceProcessTopic(data), 'Orchestrierung'], project: data.project, epics: data.epics, updatedAt: data.updatedAt };
+  }
+  const { slug, data } = e.item;
+  return {
+    title: data.title,
+    terms: isCollection(data)
+      ? [slug, data.pathPrefix ?? '', ...apisOf(data).map(a => `${a.api} ${topicPrefix(a)}`), ...data.services.map(s => `${s.name} ${s.method} ${s.path}`)]
+      : [slug, data.name, orchestrationTopic(data), 'Orchestrierung'],
+    project: data.project, epics: data.epics, updatedAt: data.updatedAt,
+  };
+};
+
+export default function ServicesView({ onOpen, onOpenProcess }: {
+  onOpen: (slug: string) => void;
+  /** an orchestration is a process in service mode — it opens in the process view */
+  onOpenProcess: (slug: string) => void;
+}) {
+  const { isDark, model, specs, createSpec, saveBpmn, deleteSpec } = useStore();
   const { services, servicesLoading, servicesUnreadable, createService, deleteService } = useServices();
   // the projects with services first, then those of the catalog and the processes
   const projects = useMemo(() => knownProjects(model, services.map(s => s.data.project), specs.map(s => s.data.project)), [model, specs, services]);
@@ -44,7 +61,11 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
   const [orchestrating, setOrchestrating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const list = useSpecList(services, serviceEntry, model);
+  const entries = useMemo<Entry[]>(() => [
+    ...services.map(item => ({ kind: 'service' as const, item })),
+    ...specs.filter((x): x is SpecListItem & { data: ServiceProcess } => isServiceProcess(x.data)).map(item => ({ kind: 'process' as const, item })),
+  ], [services, specs]);
+  const list = useSpecList(entries, serviceEntry, model);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-6">
@@ -84,12 +105,15 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
           }} />
       )}
       {orchestrating && (
-        <NewOrchestration existing={services.map(s => s.slug)} onClose={() => setOrchestrating(false)}
+        <NewOrchestration existing={specs.map(s => s.slug)} onClose={() => setOrchestrating(false)}
           projects={projects}
           onCreate={async input => {
-            const spec = newOrchestration(input);
-            const r = await createService(spec);
-            if (r.ok) { setOrchestrating(false); onOpen(spec.slug); }
+            const { spec, xml } = newServiceProcess(input);
+            const r = await createSpec(spec);
+            if (!r.ok) return r;
+            const w = await saveBpmn(spec.slug, xml);
+            if (!w.ok) return w;
+            setOrchestrating(false); onOpenProcess(spec.slug);
             return r;
           }} />
       )}
@@ -107,7 +131,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
           }} />
       )}
 
-      {services.length > 0 && <SpecListHead isDark={isDark} list={list} placeholder="Titel, Projekt, Service, Pfad …" noun="Services" />}
+      {entries.length > 0 && <SpecListHead isDark={isDark} list={list} placeholder="Titel, Projekt, Service, Pfad …" noun="Services" />}
       {deleteError && <p className="mb-2 text-[11px] text-rose-500">{deleteError}</p>}
       {servicesUnreadable.length > 0 && (
         <div className={`mb-3 rounded border p-2.5 space-y-1 ${isDark ? 'border-rose-500/30 bg-rose-500/10' : 'border-rose-300 bg-rose-50'}`}>
@@ -122,7 +146,7 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
 
       {servicesLoading ? (
         <div className={`text-xs ${c.muted} py-10 text-center flex items-center justify-center gap-2`}><Loader2 size={12} className="animate-spin" /> Lade Services …</div>
-      ) : services.length === 0 ? (
+      ) : entries.length === 0 ? (
         <div className={`rounded border p-6 text-center ${c.border2}`}>
           <Boxes size={20} className={`mx-auto mb-2 ${c.muted}`} />
           <p className={`text-xs ${c.muted2}`}>Noch keine Services – «Neue Collection» oder «Bestehende importieren» legt die erste an (<span className="font-mono">services/</span>).</p>
@@ -133,7 +157,43 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
           <button onClick={list.reset} className="ml-1.5 hover:underline">Filter aus</button>
         </div>
       ) : (
-        <ProjectGroups isDark={isDark} groups={list.groups} noun={['Eintrag', 'Einträge']} render={({ slug, data, version }) => {
+        <ProjectGroups isDark={isDark} groups={list.groups} noun={['Eintrag', 'Einträge']} render={entry => {
+          if (entry.kind === 'process') {
+            const { slug, data } = entry.item;
+            const open = (data.comments ?? []).filter(t => !t.resolved).length;
+            return (
+              <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
+                <button onClick={() => onOpenProcess(slug)} className="min-w-0 flex-1 text-left px-3 py-2.5 flex items-center gap-3">
+                  <Workflow size={14} className={isDark ? 'text-violet-300' : 'text-violet-700'} />
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-xs font-semibold truncate ${c.text}`}>{data.title || slug}</div>
+                    <div className={`text-[10px] font-mono truncate ${c.muted}`}>{serviceProcessTopic(data)}</div>
+                  </div>
+                  {epicsOf({ epics: data.epics }, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
+                  <span className={`hidden sm:inline text-[9px] ${c.muted}`}>Orchestrierung</span>
+                  {open > 0 && (
+                    <span title={`${open} offene${open === 1 ? 'r Kommentar' : ' Kommentare'}`}
+                      className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded border ${isDark ? 'border-blue-500/30 text-blue-300' : 'border-blue-300 text-blue-700'}`}>
+                      <MessageSquare size={9} />{open}
+                    </span>
+                  )}
+                  <StatusChip status={overallStatus(data)} isDark={isDark} />
+                </button>
+                {canDelete && (
+                  <button title="Orchestrierung löschen"
+                    onClick={async () => {
+                      if (!(await confirm({ title: `Orchestrierung «${data.title || slug}» löschen?` }))) return;
+                      const r = await deleteSpec(slug);
+                      setDeleteError(r.ok ? null : r.message);
+                    }}
+                    className={`p-2 mr-1 rounded ${c.muted} hover:text-rose-500`}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            );
+          }
+          const { slug, data, version } = entry.item;
           const open = (data.comments ?? []).filter(t => !t.resolved).length;
           if (!isCollection(data)) return (
             <div key={slug} className={`rounded border ${c.border2} ${c.hover} flex items-center`}>
@@ -144,7 +204,8 @@ export default function ServicesView({ onOpen }: { onOpen: (slug: string) => voi
                   <div className={`text-[10px] font-mono truncate ${c.muted}`}>{orchestrationTopic(data)}</div>
                 </div>
                 {epicsOf({ epics: data.epics }, model).map(e => <EpicChip key={e.id} name={e.name} closed={e.closed} isDark={isDark} />)}
-                <span className={`hidden sm:inline text-[9px] ${c.muted}`}>Orchestrierung</span>
+                <span className={`hidden sm:inline text-[9px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}
+                  title="Eine Orchestrierung von vorher — beim Öffnen in den Prozess-Editor übernehmen">Orchestrierung · übernehmen</span>
                 <StatusChip status={data.status} isDark={isDark} />
               </button>
               {canDelete && (
@@ -314,12 +375,12 @@ function NewOrchestration({ existing, projects, onCreate, onClose }: {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const input = { title: title.trim(), project: project.trim(), api: api.trim(), apiVersion, name: name.trim() };
-  const slug = slugify(`${input.project}-${input.name}`);
+  const slug = slugify(serviceProcessId(input));
   const problem = !input.title ? 'Titel fehlt'
     : !PROJECT_NAME.test(input.project) ? PROJECT_NAME_RULE
       : !API_NAME.test(input.api) ? 'API: ein Name in camelCase, z. B. client — geschachtelt mit «.», z. B. clientMaster.naturalPersons'
         : !/^[A-Z][A-Za-z0-9]*$/.test(input.name) ? 'Name: ein Scala-Objekt, z. B. UpdateClient'
-          : existing.includes(slug) ? `services/${slug}.json gibt es schon` : '';
+          : existing.includes(slug) ? `«${serviceProcessId(input)}» gibt es schon` : '';
   const field = `w-full px-2 py-1 rounded border bg-transparent text-[11px] outline-none ${c.border2} ${c.text}`;
   return (
     <div className={`mb-4 p-3 rounded border space-y-2 ${c.border2} ${c.panel}`}>
@@ -349,7 +410,7 @@ function NewOrchestration({ existing, projects, onCreate, onClose }: {
       <div className="flex items-center gap-2">
         <span className={`text-[10px] font-mono ${problem && input.title ? 'text-rose-500' : c.muted}`}>
           {problem && (input.title || input.project || input.api || input.name) ? problem
-            : input.project && input.api && input.name ? `services/${slug}.json · Topic ${orchestrationTopic(input)}` : 'Ein CustomTask mit seinem Worker, im Paket der API'}
+            : input.project && input.api && input.name ? `Topic ${orchestrationTopic(input)} · bearbeitet wie ein Prozess` : 'Ein CustomTask mit seinem Worker, im Paket der API — bearbeitet wie ein Prozess'}
         </span>
         {error && <span className="text-[10px] text-rose-500">{error}</span>}
         <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>

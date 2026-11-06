@@ -177,7 +177,8 @@ export function domainTypeOf(ref: string, model: Model | null): DomainType | nul
   if (!/^[A-Z][\w.]*$/.test(ref)) return null;
   // exactly one catalog type with this name — the built-in ones only count if the
   // project does not name one that way (`IdentityCorrelation` from orchescala.domain)
-  const all = catalogIndex(model?.domainTypes).byName.get(ref) ?? [];
+  // a class of a collection of the folder (not implemented yet) does not resolve a bare name
+  const all = (catalogIndex(model?.domainTypes).byName.get(ref) ?? []).filter(t => !t.collection);
   const own = all.filter(t => !ORCHESCALA_TYPES.includes(t));
   if (own.length) return own.length === 1 ? own[0] : null;
   const builtIn = all.filter(t => ORCHESCALA_TYPES.includes(t));

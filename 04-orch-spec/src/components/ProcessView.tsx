@@ -46,11 +46,16 @@ import SyncPanel from './SyncPanel';
 import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
 import { collectDiagram, overlayPasted } from '../copyPaste';
+import { useServices } from '../services/store';
+import { isCollection } from '../services/types';
+import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, withCollectionTypes, withCollections, type ServiceProcess } from '../services/serviceProcess';
 
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
 // the chat of the AI mode with the Anthropic SDK - only loaded with a key
 const ProcessAiPanel = lazy(() => import('../ai/ProcessAiPanel').then(m => ({ default: m.ProcessAiPanel })));
+// the Scala export of a process in service mode — its CustomTask and CustomWorker
+const ServiceProcessExport = lazy(() => import('../services/ServiceProcessExport'));
 
 /** The same process apart from the time of the last change (a draft against the state now). Usually the
   * same object; after a reload the JSON - a false «changed» only refuses an accept, it never overwrites. */
@@ -150,7 +155,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 };
 
 export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage }: Props) {
-  const { isDark, model, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
+  const { isDark, model: storeModel, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
   // ── AI mode (E19, E20, stage B): only with a key. While Claude's draft is open, the view shows it
@@ -173,6 +178,14 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   const [spec, setSpec] = useState<ProcessSpec | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+  // Service mode (a service orchestration): the services of the collections are in the catalog
+  // too — chosen, mapped and checked like those of the catalog (see services/serviceProcess.ts)
+  const { services } = useServices();
+  const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
+  const serviceMode = !!spec?.service;
+  // otherwise their classes — a type can refer to them (a copied class to its original)
+  const model = useMemo(() => (serviceMode ? withCollections(storeModel, collections) : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections]);
+  const [serviceExportOpen, setServiceExportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
@@ -994,6 +1007,26 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
     update({ ...cur, processId: id, ...(m ? { project: m[1] } : {}) });
   };
 
+  // the process IDs of the other specifications — an orchestration renamed must not take one of them
+  const otherProcessIds = useMemo(() => specs.filter(s => s.slug !== slug).flatMap(s => [s.slug, s.data.processId]).filter((x): x is string => !!x), [specs, slug]);
+
+  // Service mode: API, version and name make the process ID (`acme-crm-clientV1-UpdateClient`) —
+  // a change renames the process in the diagram too, as a change of the process ID does
+  const commitServiceRef = (next: { api: string; apiVersion: number; name: string }) => {
+    const cur = specRef.current, x = xmlRef.current;
+    if (!isServiceProcess(cur) || !canEdit) return;
+    const was = cur.service;
+    if (next.api === was.api && next.apiVersion === was.apiVersion && next.name === was.name) return;
+    const id = serviceProcessId({ project: cur.project, ...next });
+    const withRef = (sp: ProcessSpec): ProcessSpec => ({ ...sp, name: next.name, processId: id, service: { ...(sp.service ?? was), ...next } });
+    const origin: AuditOrigin = { source: 'manual', note: `Orchestrierung umbenannt: ${serviceProcessTopic(cur)} → ${serviceProcessTopic(withRef(cur) as typeof cur)}` };
+    if (x && cur.processId && cur.processId !== id) {
+      const nx = renameProcess(x, cur.processId, id);
+      if (nx !== x) { void applyXml(nx, 'Prozess-ID', 'silent', origin, undefined, withRef); return; }
+    }
+    update(withRef(cur), origin);
+  };
+
   // A selected file does not go in directly: first the preview with
   // domain, data model and status — as when creating
   const onFile = async (file: File) => {
@@ -1041,7 +1074,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       {/* ── Toolbar: navigation, view, tools, status ─────────────────────────── */}
       <div className={`flex-shrink-0 flex items-center gap-2 px-3 py-2 border-b ${c.border} ${c.top}`}>
         <button onClick={onBack} className={`flex items-center gap-1 text-[11px] flex-shrink-0 ${c.muted} hover:underline`}>
-          <ChevronLeft size={12} /> Prozesse
+          <ChevronLeft size={12} /> {serviceMode ? 'Services' : 'Prozesse'}
         </button>
         <Divider isDark={isDark} />
 
@@ -1076,12 +1109,16 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
               className={`p-1.5 rounded border flex-shrink-0 ${c.btn}`}><Minimize2 size={12} /></button>
             {canEdit && (
               <>
-                <input ref={fileRef} type="file" accept=".bpmn,.xml" className="hidden"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ''; }} />
-                <button onClick={() => fileRef.current?.click()}
-                  title="Mit BPMN abgleichen — BPMN wählen: der Ablauf aus der Implementation, fachliche Texte bleiben"
-                  className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
-                {xml && (
+                {!serviceMode && (
+                  <>
+                    <input ref={fileRef} type="file" accept=".bpmn,.xml" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ''; }} />
+                    <button onClick={() => fileRef.current?.click()}
+                      title="Mit BPMN abgleichen — BPMN wählen: der Ablauf aus der Implementation, fachliche Texte bleiben"
+                      className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
+                  </>
+                )}
+                {xml && !serviceMode && (
                   <button onClick={() => setSync({ raw: xml, from: 'Domain', mode: 'domain' })}
                     title="Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt"
                     className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncDataIcon size={14} /></button>
@@ -1148,7 +1185,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
               <Sparkles size={12} /> Claude
             </button>
           )}
-          <button onClick={() => setExportOpen(true)}
+          <button onClick={() => (serviceMode ? setServiceExportOpen(true) : setExportOpen(true))}
+            title={serviceMode ? 'Scala-Code des CustomTasks und seines Workers, und der Befehl für den Helper' : undefined}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
             <Download size={12} /> Export
           </button>
@@ -1282,6 +1320,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                     className={`flex-1 min-w-0 bg-transparent outline-none text-base font-semibold ${c.text} disabled:opacity-100`} />
                   <CommentBubble target={processTarget} title="Kommentare zum Prozess" />
                 </div>
+                {isServiceProcess(spec) ? (
+                  <ServiceRefFields spec={spec} canEdit={canEdit} isDark={isDark} onCommit={commitServiceRef}
+                    others={otherProcessIds} />
+                ) : (
+                <>
                 <input value={idDraft} disabled={!canEdit}
                   onChange={e => setIdDraft(e.target.value.trim())}
                   onBlur={commitProcessId}
@@ -1322,6 +1365,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                   <span className="flex-shrink-0">· {spec.updatedAt.slice(0, 10)}</span>
 
                 </div>
+                </>
+                )}
 
                 <div className={`flex items-center gap-1 mt-2 px-2 py-1 rounded border ${c.border2}`}>
                   <Search size={11} className={c.muted} />
@@ -1432,11 +1477,60 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       {engineOpen && <EngineDialog spec={spec} model={model} bpmn={xml ?? ''} patterns={modelPatterns} isDark={isDark} onClose={() => setEngineOpen(false)}
         onConvert={(next, target) => { setEngineOpen(false); void convertEngine(next, target); }} />}
       {exportOpen && <ExportDialog spec={spec} model={model} bpmn={xml ?? ''} isDark={isDark} onClose={() => setExportOpen(false)} />}
+      {serviceExportOpen && isServiceProcess(spec) && (
+        <Suspense fallback={null}>
+          <ServiceProcessExport spec={spec} model={model} collections={collections} isDark={isDark} onClose={() => setServiceExportOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
 
 // Vertical separator in the toolbar
+/**
+ * Service mode: where the CustomTask lives — API, version and name, applied on leaving a field;
+ * below them the topic of the worker and the project.
+ */
+function ServiceRefFields({ spec, canEdit, isDark, onCommit, others }: {
+  spec: ServiceProcess; canEdit: boolean; isDark: boolean; onCommit: (ref: { api: string; apiVersion: number; name: string }) => void;
+  /** the process IDs of the other specifications */
+  others: string[];
+}) {
+  const c = cls(isDark);
+  const [api, setApi] = useState(spec.service.api);
+  const [version, setVersion] = useState(String(spec.service.apiVersion));
+  const [name, setName] = useState(spec.service.name);
+  useEffect(() => { setApi(spec.service.api); setVersion(String(spec.service.apiVersion)); setName(spec.service.name); },
+    [spec.service.api, spec.service.apiVersion, spec.service.name]);
+  const problem = serviceRefProblem({ project: spec.project, api: api.trim(), apiVersion: version.trim(), name: name.trim() }, others);
+  const commit = () => { if (!problem) onCommit({ api: api.trim(), apiVersion: Number(version.trim()), name: name.trim() }); };
+  const input = `font-mono text-[11px] px-1.5 py-0.5 rounded border outline-none bg-transparent disabled:opacity-100 ${c.border2} ${c.text}`;
+  const keys = (reset: () => void) => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+    if (e.key === 'Escape') reset();
+  };
+  return (
+    <>
+      <div className="mt-1 flex items-center gap-1">
+        <input value={api} disabled={!canEdit} onChange={e => setApi(e.target.value.trim())} onBlur={commit}
+          onKeyDown={keys(() => setApi(spec.service.api))} title="API — Paket …domain.<api>.v<n>" placeholder="api" className={`w-24 ${input}`} />
+        <span className={`text-[11px] ${c.muted}`}>V</span>
+        <input value={version} disabled={!canEdit} onChange={e => setVersion(e.target.value.trim())} onBlur={commit}
+          onKeyDown={keys(() => setVersion(String(spec.service.apiVersion)))} title="Version der API" className={`w-10 ${input}`} />
+        <input value={name} disabled={!canEdit} onChange={e => setName(e.target.value.trim())} onBlur={commit}
+          onKeyDown={keys(() => setName(spec.service.name))} title="Name — das Objekt des CustomTasks, letzter Teil des Topics" placeholder="Name"
+          className={`flex-1 min-w-0 ${input}`} />
+      </div>
+      {problem && <div className={`mt-0.5 text-[10px] ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>{problem} Nicht übernommen.</div>}
+      <div className={`flex items-center gap-2 mt-1 text-[10px] ${c.muted}`}>
+        <span className={`flex-shrink-0 px-1 rounded border ${isDark ? 'border-violet-500/40 text-violet-300' : 'border-violet-300 text-violet-700'}`}>Service-Orchestrierung</span>
+        <span className="font-mono opacity-70 truncate" title="Topic des CustomWorkers">{serviceProcessTopic(spec)}</span>
+        <span className="flex-shrink-0">· {spec.updatedAt.slice(0, 10)}</span>
+      </div>
+    </>
+  );
+}
+
 function Divider({ isDark }: { isDark: boolean }) {
   return <div className={`w-px h-4 flex-shrink-0 ${isDark ? 'bg-white/15' : 'bg-black/15'}`} />;
 }

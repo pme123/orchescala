@@ -224,6 +224,8 @@ export function processFrame(c: FrameSource, ownPackage?: string, types?: TypeDe
     types: types ?? c.types, interactions: [], steps: [],
     // the package the types live in — that of their API, as a process has its own
     ownPackage: ownPackage ?? typeHome(c as ServiceCollectionSpec),
+    // a type of the collection lives in the schema of one of its APIs — where a copy finds its original
+    ...('services' in c ? { framePackages: apisOf(c as ServiceCollectionSpec).map(collectionPackage) } : {}),
   };
 }
 

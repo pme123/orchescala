@@ -93,7 +93,7 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
   // an older catalog that still lists it in an object changes nothing about that
   if (t.domainId && (t.domainId === `${ownPkg}.${t.name}` || t.domainId === `${ownPkg}.schema.${t.name}`)) return {};
   const inOwn = (d: DomainType) => d.pkg === ownPkg || d.pkg.startsWith(`${ownPkg}.`);
-  const hits = (model?.domainTypes ?? []).filter(d =>
+  const hits = (model?.domainTypes ?? []).filter(d => !d.collection &&
     (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias') &&
     (d.owner ? d.name === `${d.owner}.${t.name}` : d.name === t.name));
   if (hits.some(d => inOwn(d) && !d.owner)) return {};
@@ -107,6 +107,26 @@ export function referencedClass(t: TypeDef, model: Model | null, ownPkg: string)
   const pick = sameProject.length === 1 ? sameProject[0] : foreign.length === 1 ? foreign[0] : undefined;
   if (pick) return { type: pick };
   return foreign.length ? { ambiguous: foreign.map(d => d.pkg).sort() } : {};
+}
+
+/**
+ * Where the originals of copied classes live in the domain — per class the domain IDs it
+ * may have: the one the import took it from, the class of another domain it refers to
+ * (see `referencedClass`), and its name in each package of the source (`pkgs`, also in
+ * their `schema`). A paste refers to the first one the target has instead of copying it.
+ */
+export function classOrigins(types: TypeDef[], model: Model | null, pkgs: string[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const t of types) {
+    if (t.interactionId || !t.name?.trim()) continue;
+    const ids = [
+      t.domainId,
+      ...pkgs.map(p => referencedClass(t, model, p).type?.id),
+      ...pkgs.flatMap(p => [`${p}.schema.${t.name}`, `${p}.${t.name}`]),
+    ].filter((x): x is string => !!x);
+    if (ids.length) out[t.id] = [...new Set(ids)];
+  }
+  return out;
 }
 
 /**
