@@ -124,7 +124,9 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         variables <- eventually(
                        engine.historicVariableService.getVariables(None, Some(pid), Some(Seq("count", "big", "businessKey")))
                      )(_.size == 3)
-        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(_ => true)
+        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(
+                       _.businessKey.contains(businessKey) // the search index may lag
+                     )
         task      <- eventually(engine.userTaskService.getUserTask(pid, "task1"))(_.isDefined)
         _         <- engine.userTaskService.complete(task.get.id, JsonObject("approved" -> Json.True), None)
         _         <- eventually(
@@ -224,7 +226,9 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         first  <- start
         second <- start
         both   <- ZIO.foreach(Seq(first, second))(info =>
-                    eventually(engine.historicProcessInstanceService.getProcessInstance(info.processInstanceId))(_ => true)
+                    eventually(engine.historicProcessInstanceService.getProcessInstance(info.processInstanceId))(
+                      _.businessKey.contains(businessKey) // the search index may lag
+                    )
                   )
       yield assertTrue(
         first.processInstanceId != second.processInstanceId,

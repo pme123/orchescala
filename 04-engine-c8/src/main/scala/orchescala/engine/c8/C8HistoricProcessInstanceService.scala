@@ -34,7 +34,8 @@ class C8HistoricProcessInstanceService(using
       processDefinitionKey = instanceDto.processDefinitionKey,
       processDefinitionVersion = instanceDto.processDefinitionVersion,
       processDefinitionId = instanceDto.processDefinitionId,
-      businessKey = instanceDto.businessId.filterNot(_.isBlank), // its business id (8.9) - none if started by message
+      // its business id (8.9) - none if started by message
+      businessKey = instanceDto.businessId.filterNot(_.isBlank),
       startTime = instanceDto.startDate,
       endTime = instanceDto.endDate,
       removalTime = None,
