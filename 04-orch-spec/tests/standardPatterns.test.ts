@@ -1004,3 +1004,20 @@ test('keepPositions: a shape inserted again gets the coordinates it had - by its
   // nothing to move: unchanged
   assert.equal(keepPositions(xml(160), xml(160)).includes('x="160"'), true);
 });
+
+test('a broken valuePattern of a pattern file is reported on insertion - not thrown', () => {
+  const broken = { ...cancel, id: 'acme-cancel', params: cancel.params!.map(p => (p.name === 'signalPrefix' ? { ...p, valuePattern: '([' } : p)) } as PatternDef;
+  const r = applyPattern(diagram('c7', 'task'), broken, 'c7', null);
+  assert.equal(r.changed, false);
+  assert.ok(r.issues.some(i => i.includes('valuePattern')), r.issues.join('; '));
+});
+
+test('converting a pattern on the process keeps a signal another element still refers to', () => {
+  const c7 = applyPattern(diagram('c7', 'task'), cancel, 'c7', null).xml;
+  // a throw event of the process sends the same signal (cancel from inside)
+  const shared = c7.replace('<bpmn:endEvent id="End">', '<bpmn:endEvent id="End"><bpmn:signalEventDefinition id="EndSignal" signalRef="CancelSignal" />');
+  const c8 = convertWithPatterns(shared, 'c8', STANDARD_PATTERNS).xml;
+  assert.equal((c8.match(/<bpmn:signal /g) ?? []).length, 1, 'one signal - kept for the end, used by the event sub process again');
+  const ref = /<bpmn:signalEventDefinition id="EndSignal" signalRef="([^"]+)"/.exec(c8)?.[1];
+  assert.ok(ref && new RegExp(`<bpmn:signal id="${ref}"`).test(c8), 'the end still refers to an existing signal');
+});
