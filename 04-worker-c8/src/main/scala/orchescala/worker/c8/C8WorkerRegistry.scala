@@ -23,7 +23,7 @@ class C8WorkerRegistry(c8Client: C8Client)
       acquireReleaseWith(ZIO.succeed(client))(_.closeClient()): client =>
         for
           _        <- logInfo(s"Starting C8 Worker Client - ${workers.size} workers.")
-          // a child of this scope: it ends with the client, at the latest after its timeout
+          // a child of this fiber, which holds the client until it ends - and bounded to 5 s
           _        <- checkClusterVersion(client).fork
           c8Workers = workers.collect { case w: C8Worker[?, ?] => w }
           _        <- foreachParDiscard(c8Workers)(w => registerWorker(w, client))
@@ -37,7 +37,6 @@ class C8WorkerRegistry(c8Client: C8Client)
   // know it, every such process stops at its start with an incident: say so where it is started
   private def checkClusterVersion(client: CamundaClient): UIO[Unit] =
     attemptBlockingInterrupt(client.newTopologyRequest().send().join(5, java.util.concurrent.TimeUnit.SECONDS).getGatewayVersion)
-      .timeoutFail(new RuntimeException("no answer within 5 s"))(6.seconds)
       .flatMap: version =>
         if C8WorkerRegistry.before810(version) then
           logWarning(
@@ -45,7 +44,9 @@ class C8WorkerRegistry(c8Client: C8Client)
               "from camunda.processInstance.key, before 8.10 a process using it stops at its start with an incident."
           )
         else logDebug(s"Camunda 8 cluster $version")
-      .catchAll(err => logDebug(s"Camunda 8 cluster version not read: $err"))
+      .catchAll(err =>
+        logWarning(s"Camunda 8 cluster version not read ($err) - Orchescala needs 8.10 (camunda.processInstance.key).")
+      )
 
   private def registerWorker(worker: C8Worker[?, ?], client: CamundaClient) =
     logDebug(s"Registering C8 Worker: ${worker.topic}") *>
@@ -69,9 +70,11 @@ class C8WorkerRegistry(c8Client: C8Client)
 end C8WorkerRegistry
 
 object C8WorkerRegistry:
+  private val MajorMinor = """^(\d+)\.(\d+)""".r
+
   /** A version like `8.9.21` or `8.10.0-SNAPSHOT` before 8.10 - unknown (unparsable) is not. */
   def before810(version: String): Boolean =
-    """^(\d+)\.(\d+)""".r.findFirstMatchIn(Option(version).getOrElse("").trim) match
+    MajorMinor.findFirstMatchIn(Option(version).getOrElse("").trim) match
       case Some(m) =>
         val (major, minor) = (m.group(1).toInt, m.group(2).toInt)
         major < 8 || (major == 8 && minor < 10)
