@@ -29,6 +29,10 @@ end PageChange
   * properties of the page. Building blocks have no ids (their key is the index path), so they are
   * matched by content: the longest common sequence stays, the same block elsewhere has moved, a block
   * of the same type at the same key has changed.
+  *
+  * Content is compared as JSON text, the keys in their order - as orch-spec did with `JSON.stringify`.
+  * The same block with its keys in another order counts as changed, the same state as a change of
+  * the page. orch-spec and the platform write pages in one order, so this is no difference in practice.
   */
 object PageDiff:
   import PageChange.Kind
@@ -70,7 +74,7 @@ object PageDiff:
       case ((changes, left), x) =>
         left.find(_.sig == x.sig) match
           case Some(same) =>
-            (changes :+ PageChange(Kind.moved, Some(x.key), name(x.block), Some(s"von ${same.key}")), left.filterNot(_ == same))
+            (changes :+ PageChange(Kind.moved, Some(x.key), name(x.block), Some(s"von ${same.key}")), left.filterNot(_.key == same.key))
           case None =>
             // the same type with the same title (keys shift when something is inserted before), else at the same key
             val was = left.find(y => sameType(x)(y) && title(y.block) == title(x.block))
@@ -79,7 +83,7 @@ object PageDiff:
               .orElse(Option.when(left.count(sameType(x)) == 1 && restB.count(sameType(x)) == 1)(left.find(sameType(x))).flatten)
             was match
               case Some(old) =>
-                (changes :+ PageChange(Kind.changed, Some(x.key), name(x.block), detailOf(old.block, x.block)), left.filterNot(_ == old))
+                (changes :+ PageChange(Kind.changed, Some(x.key), name(x.block), detailOf(old.block, x.block)), left.filterNot(_.key == old.key))
               case None =>
                 (changes :+ PageChange(Kind.added, Some(x.key), name(x.block), None), left)
 

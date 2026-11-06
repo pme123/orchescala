@@ -87,4 +87,22 @@ class PageDiffSuite extends munit.FunSuite:
     test(s"edge case: $name"):
       assertEquals(OrchSpecCore.pageDiff(before, after), Right(expected))
 
+  test("keys in another order: the block changed, the state a change of the page - as the TypeScript pageDiff"):
+    assertEquals(
+      OrchSpecCore.pageDiff(
+        """{"path":"p","title":"T","access":"public","state":{"a":1,"b":2},"body":[{"type":"text","text":"A"},{"type":"button","label":"Go","actions":[]}]}""",
+        """{"path":"p","title":"T","access":"public","state":{"b":2,"a":1},"body":[{"text":"A","type":"text"},{"type":"button","label":"Go","actions":[]}]}"""
+      ),
+      Right("""[{"kind":"page","label":"Anfangszustand"},{"kind":"changed","key":"0","label":"Text «A»"}]""")
+    )
+
+  test("sections nested 5000 deep - no stack overflow"):
+    import io.circe.Json
+    val deep = (1 to 5000).foldLeft(Json.arr()): (body, _) =>
+      Json.arr(Json.obj("type" -> Json.fromString("section"), "body" -> body))
+    val blocks = Blocks.flatten(Some(deep))
+    assertEquals(blocks.size, 5000)
+    assertEquals(blocks.last.depth, 4999)
+    assertEquals(blocks.take(3).map(_.key), Vector("0", "0.0", "0.0.0"))
+
 end PageDiffSuite

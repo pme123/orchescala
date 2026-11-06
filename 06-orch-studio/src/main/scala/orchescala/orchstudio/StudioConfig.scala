@@ -25,7 +25,8 @@ final case class StudioConfig(
     def get(name: String)  = env.get(name).map(_.trim).filter(_.nonEmpty)
     def path(name: String) = get(name).map(p => os.Path(p, os.pwd))
     copy(
-      port = get("STUDIO_PORT").map(_.toInt).getOrElse(port),
+      port = get("STUDIO_PORT").map(p => p.toIntOption.filter(n => n > 0 && n < 65536)
+               .getOrElse(throw IllegalArgumentException(s"STUDIO_PORT is no port: «$p»"))).getOrElse(port),
       host = get("STUDIO_HOST").getOrElse(host),
       siteDir = path("STUDIO_SITE_DIR").orElse(siteDir),
       specDir = path("STUDIO_SPEC_DIR").orElse(specDir),

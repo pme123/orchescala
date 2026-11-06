@@ -2,6 +2,8 @@ package orchescala.orchspec.pages
 
 import io.circe.{Json, JsonObject}
 
+import scala.annotation.tailrec
+
 /** The key of a building block: its index path in `body` - `"2"`, `"2.1"` (in a section). */
 type BlockKey = String
 
@@ -24,14 +26,28 @@ object Blocks:
     block("type").flatMap(_.asString).getOrElse("")
 
   /** Every building block with its key - depth first. A value that is no object is skipped (its index
-    * stays taken, so the keys of the others do not move).
+    * stays taken, so the keys of the others do not move). Without recursion: sections nested however
+    * deep do not overflow the stack (on the JVM a StackOverflowError would end the server).
     */
   def flatten(body: Option[Json], prefix: String = ""): Vector[FlatBlock] =
-    listOf(body).zipWithIndex.flatMap: (json, i) =>
-      json.asObject.toVector.flatMap: block =>
-        val key  = if prefix.isEmpty then i.toString else s"$prefix.$i"
-        val self = FlatBlock(key, block, if prefix.isEmpty then 0 else prefix.split('.').length)
-        if typeOf(block) == "section" then self +: flatten(block("body"), key) else Vector(self)
+    def entries(list: Option[Json], parent: String): List[(Json, BlockKey)] =
+      listOf(list).zipWithIndex.map((json, i) => json -> (if parent.isEmpty then i.toString else s"$parent.$i")).toList
+
+    @tailrec
+    def walk(todo: List[(Json, BlockKey)], blocks: Vector[FlatBlock]): Vector[FlatBlock] =
+      todo match
+        case Nil                 => blocks
+        case (json, key) :: rest =>
+          json.asObject match
+            case None        => walk(rest, blocks)
+            case Some(block) =>
+              // the depth is the number of parents in the key: "2" 0, "2.1" 1
+              val self = FlatBlock(key, block, key.count(_ == '.'))
+              val next = if typeOf(block) == "section" then entries(block("body"), key) ++ rest else rest
+              walk(next, blocks :+ self)
+
+    walk(entries(body, prefix), Vector.empty)
+  end flatten
 
   /** The text that names a building block - heading, text, label or caption; `""` if it has none. */
   def title(block: JsonObject): String =

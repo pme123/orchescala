@@ -34,9 +34,17 @@ abstract class StudioServer extends ZIOAppDefault:
         _ <- ZIO.logInfo(s"  orch-ops  $url/site/ops/")
         _ <- Server.serve(routes)
       yield ()
-    start.provide(Server.defaultWith(_.binding(config.host, config.port)))
+    start.provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding(config.host, config.port))))
 
 end StudioServer
+
+object StudioServer:
+
+  /** The settings of the HTTP server: a request body is read up to [[SpecRoutes.maxBody]] - also a
+    * chunked one; a bigger body is refused before it is in memory.
+    */
+  def serverConfig(config: Server.Config): Server.Config =
+    config.disableRequestStreaming(SpecRoutes.maxBody)
 
 /** Without a company: `sbt orchStudio/run`, the documentation from `STUDIO_SITE_DIR`. */
 object LocalStudioServerApp extends StudioServer:

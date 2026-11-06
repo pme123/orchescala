@@ -51,4 +51,44 @@ object SpecRoutesSpec extends ZIOSpecDefault:
     test("a body larger than maxBody - 413"):
       for r <- post(" " * (SpecRoutes.maxBody + 1))
       yield assertTrue(r.status == Status.RequestEntityTooLarge)
+    ,
+    test("deeply nested JSON - 400, no stack overflow"):
+      def nested(depth: Int) = """{"type":"section","body":[""" * depth + "]}" * depth
+      def after(depth: Int)  = s"""{"before":$book,"after":{"title":"x","body":[${nested(depth)}]}}"""
+      for
+        // 35000 levels in under 1 MB: the parser of circe refuses it already
+        veryDeep <- post(after(35000))
+        v        <- veryDeep.body.asString
+        // deeper than maxDepth, but not for the parser: refused before anything walks it
+        deep     <- post(after(SpecRoutes.maxDepth))
+        d        <- deep.body.asString
+      yield assertTrue(
+        veryDeep.status == Status.BadRequest,
+        v.contains("max depth exceeded"),
+        deep.status == Status.BadRequest,
+        d.contains(s"deeper than ${SpecRoutes.maxDepth}")
+      )
+    ,
+    test("the server reads no body above maxBody - also a chunked one; it answers afterwards"):
+      import java.net.URI
+      import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+      val client = HttpClient.newHttpClient()
+      def request(port: Int, body: HttpRequest.BodyPublisher) =
+        HttpRequest.newBuilder(URI.create(s"http://localhost:$port/spec/pages/diff")).POST(body).build()
+      // without a known length the client sends it chunked
+      val chunked = HttpRequest.BodyPublishers.ofInputStream(() =>
+        java.io.ByteArrayInputStream(Array.fill(SpecRoutes.maxBody + 1024)(' '.toByte)))
+      (for
+        port   <- Server.install(SpecRoutes.routes)
+        big    <- ZIO.attemptBlocking(client.send(request(port, chunked), HttpResponse.BodyHandlers.ofString()))
+                    .map(r => Some(r.statusCode())).catchAll(_ => ZIO.none) // refused: 413 or the connection closed
+        normal <- ZIO.attemptBlocking(client.send(
+                    request(port, HttpRequest.BodyPublishers.ofString(s"""{"before":$book,"after":$edited}""")),
+                    HttpResponse.BodyHandlers.ofString()))
+      yield assertTrue(big.forall(_ == 413), normal.statusCode() == 200))
+        .provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding("localhost", 0))))
+    ,
+    test("a STUDIO_PORT that is no port - an error that names it"):
+      val error = scala.util.Try(StudioConfig().withEnv(Map("STUDIO_PORT" -> "88a0"))).failed.toOption.map(_.getMessage)
+      assertTrue(error.exists(_.contains("STUDIO_PORT")), StudioConfig().withEnv(Map("STUDIO_PORT" -> "9001")).port == 9001)
   )
