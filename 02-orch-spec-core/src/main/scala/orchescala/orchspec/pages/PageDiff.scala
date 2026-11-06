@@ -91,7 +91,7 @@ object PageDiff:
             val was = left.find(y => sameType(x)(y) && title(y.block) == title(x.block))
               .orElse(left.find(y => y.key == x.key && sameType(x)(y)))
               // the only one of its type that is left - a button with a new label after an insert before it
-              .orElse(Option.when(left.count(sameType(x)) == 1 && restB.count(sameType(x)) == 1)(left.find(sameType(x))).flatten)
+              .orElse(if left.count(sameType(x)) == 1 && restB.count(sameType(x)) == 1 then left.find(sameType(x)) else None)
             was match
               case Some(old) =>
                 (changes :+ PageChange(Kind.changed, Some(x.key), name(x.block), detailOf(old.block, x.block)), left.filterNot(_.key == old.key))

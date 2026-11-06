@@ -81,11 +81,11 @@ object SpecRoutesSpec extends ZIOSpecDefault:
       (for
         port   <- Server.install(SpecRoutes.routes)
         big    <- ZIO.attemptBlocking(client.send(request(port, chunked), HttpResponse.BodyHandlers.ofString()))
-                    .map(r => Some(r.statusCode())).catchAll(_ => ZIO.none) // refused: 413 or the connection closed
+                    .map(_.statusCode()) // refused by the server before the handler: 413
         normal <- ZIO.attemptBlocking(client.send(
                     request(port, HttpRequest.BodyPublishers.ofString(s"""{"before":$book,"after":$edited}""")),
                     HttpResponse.BodyHandlers.ofString()))
-      yield assertTrue(big.forall(_ == 413), normal.statusCode() == 200))
+      yield assertTrue(big == 413, normal.statusCode() == 200))
         .provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding("localhost", 0))))
     ,
     test("bytes that are no UTF-8 - 400"):
