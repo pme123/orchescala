@@ -142,14 +142,10 @@ class C8ProcessInstanceService(
           )(err))
   end setCorrelationVariable
 
-  /** The `businessKey` is the instance's business id (C8 8.9): it shows in Operate, can be searched
-    * there and goes on to the instances of its call activities. It stays a variable too - the BPMNs
-    * correlate their messages with `=businessKey` and the workers read it, a job carries no
-    * business id (8.9).
-    *
-    * A blank key is no business id. The engine checks the rest: at most 256 characters (400), and
-    * unique among the running instances of the process if the cluster enforces it (409 - final, the
-    * gateway tries no other engine). Uniqueness is off by default.
+  /** The `businessKey` is the instance's business id (C8 8.10) - no variable: it shows in Operate,
+    * goes on to the instances of its call activities, the BPMNs read it as
+    * `camunda.processInstance.businessId` (e.g. as correlation key) and the workers get it with
+    * their job. See `C8ProcessInstanceService.businessIdField`.
     */
   private def callStartProcessAsync(
       processDefId: String,
@@ -157,19 +153,15 @@ class C8ProcessInstanceService(
       tenantId: Option[String],
       processVariables: Json
   ): IO[EngineError, C8RestModel.CreateProcessInstanceResult] =
-    val variables  = processVariables.deepMerge(businessKey.map(bk =>
-      Json.obj("businessKey" -> bk.asJson)
-    ).getOrElse(Json.obj()))
-    val businessId = businessKey.filterNot(_.isBlank).map(id => "businessId" -> id.asJson)
     rest
       .post[C8RestModel.CreateProcessInstanceResult](
         Seq("process-instances"),
         Json.fromFields(
           Seq(
             "processDefinitionId" -> processDefId.asJson, // latest version
-            "variables"           -> variables,
+            "variables"           -> processVariables,
             "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
-          ) ++ businessId
+          ) ++ C8ProcessInstanceService.businessIdField(businessKey)
         )
       )
       .mapError(withContext(s"Problem starting Process '$processDefId'"))
@@ -293,8 +285,9 @@ class C8ProcessInstanceService(
     * that is no start, answered with 409 (see `ensureStarted`). A process without such a waiting
     * event starts a new instance - as before, and as in C7 (see `correlateWithBusinessKey`).
     *
-    * A message cannot set the business id of the instance it starts (8.9) - the `businessKey` is
-    * only its variable and correlation key.
+    * The `businessKey` also goes as the message's business id (8.10): the instance it starts gets
+    * it - no variable. A running instance gets it only with the same business id (Zeebe filters on
+    * it); the BPMN correlates with `=camunda.processInstance.businessId`.
     *
     * Landed in a running instance, the message's variables are merged into it - as in C7 with the
     * variables of a correlated message. A process with the pattern can restrict that with output
@@ -307,18 +300,18 @@ class C8ProcessInstanceService(
       processVariables: Option[JsonObject],
       pendingMarker: PendingMarker
   ): IO[EngineError, MessageCorrelationResult] =
-    // the businessKey also as variable - also without other variables: the instance correlates its
-    // waiting messages with it (`=businessKey`)
     val variables = processVariables.getOrElse(JsonObject.empty).asJson
-      .deepMerge(businessKey.fold(Json.obj())(bk => Json.obj("businessKey" -> bk.asJson)))
     def correlate(correlationKey: Option[String]) =
       rest.post[C8RestModel.MessageCorrelationResult](
         Seq("messages", "correlation"),
-        Json.obj(
-          "name"      -> messageName.asJson,
-          "variables" -> variables,
-          "tenantId"  -> tenantId.orElse(engineConfig.tenantId).asJson
-        ).deepMerge(correlationKey.fold(Json.obj())(key => Json.obj("correlationKey" -> key.asJson)))
+        Json.fromFields(
+          Seq(
+            "name"      -> messageName.asJson,
+            "variables" -> variables,
+            "tenantId"  -> tenantId.orElse(engineConfig.tenantId).asJson
+          ) ++ correlationKey.map(key => "correlationKey" -> key.asJson)
+            ++ C8ProcessInstanceService.businessIdField(businessKey)
+        )
       )
     for
       _                  <- logInfo(s"Send Message $messageName: ${variables.asObject.fold("-")(_.keys.mkString(", "))}")
@@ -451,6 +444,14 @@ object C8ProcessInstanceService:
     */
   enum PendingMarker:
     case Sent, NotSent
+
+  /** The `businessKey` as business id of the instance (C8 8.10) - for a start by id and by
+    * message. A blank key is none. The engine checks the rest: at most 256 characters (400), and
+    * unique among the running instances of the process if the cluster enforces it (409 - final, the
+    * gateway tries no other engine). Uniqueness is off by default.
+    */
+  private[c8] def businessIdField(businessKey: Option[String]): Option[(String, Json)] =
+    businessKey.filterNot(_.isBlank).map(id => "businessId" -> id.asJson)
 
   /** The waits of a start by message - the defaults are used in production (`C8ProcessEngine`),
     * the tests shorten them.

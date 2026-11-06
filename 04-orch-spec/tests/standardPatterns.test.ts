@@ -220,7 +220,7 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.equal(message.getAttribute('name'), 'acme-demoV1');
     assert.equal(messages.length, 1);
     assertEventSubprocess(doc, message, engine);
-    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=camunda.processInstance.businessId'] : []);
   });
 
   test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: an existing start message is taken - no second message`, () => {
@@ -234,7 +234,7 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.equal(messages.length, 1);
     assertEventSubprocess(doc, message, engine);
     // C8: the correlation key comes onto the existing message (addRootExtensions)
-    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=camunda.processInstance.businessId'] : []);
   });
 
   test(`«Einmalige Ausführung» on ${engine.toUpperCase()}: removed from the process again - the message start stays`, () => {
@@ -248,7 +248,7 @@ for (const engine of ['c7', 'c8'] as const) {
     const { message, messages } = startOf(res.xml);
     assert.equal(messages.length, 1);
     assert.equal(message.getAttribute('name'), 'acme-demoV1');
-    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=camunda.processInstance.businessId'] : []);
     // and it can be inserted again
     const again = applyPattern(res.xml, unique, engine, null);
     assert.deepEqual(detectPatterns(again.xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.targetId]), [['unique-execution', null]]);
@@ -261,7 +261,7 @@ for (const engine of ['c7', 'c8'] as const) {
     const { doc, message, messages } = startOf(twice.xml);
     assert.equal(messages.length, 1);
     assertEventSubprocess(doc, message, engine);
-    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=businessKey'] : []);
+    assert.deepEqual(subscriptionOf(message), engine === 'c8' ? ['=camunda.processInstance.businessId'] : []);
     assert.deepEqual(detectPatterns(twice.xml, STANDARD_PATTERNS, engine).hits.map(h => h.patternId), ['unique-execution']);
   });
 
@@ -300,7 +300,7 @@ test('«Einmalige Ausführung» on C8: a start message with another correlation 
   assertEventSubprocess(doc, message, 'c8');
   // not overwritten, not added a second time
   assert.deepEqual(subscriptionOf(message), ['=clientKey']);
-  assert.ok(res.issues.some(i => i.includes('=clientKey') && i.includes('=businessKey')), res.issues.join('; '));
+  assert.ok(res.issues.some(i => i.includes('=clientKey') && i.includes('=camunda.processInstance.businessId')), res.issues.join('; '));
 });
 
 // «Prozess-Status am Ende» - an end event sets processStatus; the end `output-mocked` of

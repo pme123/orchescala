@@ -110,11 +110,13 @@ type Use = 'value' | 'scalar' | 'list' | 'empty';
 /**
  * The own instance of Camunda 8 (`camunda.processInstance.key`, 8.10) is in Camunda 7
  * `execution.processInstanceId` — outside text literals it becomes `processInstanceId`,
- * which EXECUTION_JUEL translates.
+ * which EXECUTION_JUEL translates. Likewise its business id (`camunda.processInstance.businessId`)
+ * becomes `businessKey`, in Camunda 7 `execution.processBusinessKey`.
  */
 const ownInstance = (body: string): string =>
   body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
-    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, 'processInstanceId'))).join('');
+    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, 'processInstanceId')
+      .replace(/(?<![\w.])camunda\.processInstance\.businessId(?![\w])/g, 'businessKey'))).join('');
 
 /** Translate a FEEL body to JUEL (without `${}`). */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {

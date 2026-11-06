@@ -36,7 +36,7 @@ object MessageEndpoints:
           |
           |In C8 the BPMN decides with the correlation key of the message (`zeebe:subscription`):
           |`correlationKey="=string(camunda.processInstance.key)"` for the `processInstanceId` (C8 8.10),
-          |`correlationKey="=businessKey"` for the `businessKey` - or any variable whose value you send as `businessKey`.
+          |`correlationKey="=camunda.processInstance.businessId"` for the `businessKey` (C8 8.10) - or any variable whose value you send as `businessKey`.
           |""".stripMargin
       )
       .tag("Message")

@@ -275,7 +275,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec, model: Model | null): Wri
       const ext = ensureExt(el);
       const ins = active(step.inputs);
       const outs = writtenOutputs(step, before);
-      if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues);
+      if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues, local(el) === 'callActivity');
       else if (local(el) === 'callActivity') writeCamundaInOut(doc, ext, ins, outs, step.id, issues);
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
     }
@@ -983,19 +983,11 @@ function controlsLast(ext: Element) {
 }
 
 // ── Business key to the subprocess ──────────────────────────────────────────
-// Camunda 7 has `camunda:in businessKey` for this; in Camunda 8 the business
-// key is a variable and is passed as the input `businessKey`.
+// Camunda 7 has `camunda:in businessKey` for this. Camunda 8 (from 8.10) needs
+// nothing: a call activity child inherits the business id of the instance, and
+// `zeebe:calledElement businessId` overrides it (an input row `businessKey`, see writeZeebe).
 function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
-  if (engine === 'c8') {
-    let io = firstNamed(ext, 'ioMapping');
-    if (io && kids(io).some(p => local(p) === 'input' && attr(p, 'target') === 'businessKey')) return;
-    const p = doc.createElementNS(ZEEBE_NS, 'zeebe:input');
-    p.setAttribute('source', '=businessKey');
-    p.setAttribute('target', 'businessKey');
-    if (io) { const rest = kids(io); for (const k of rest) removeEl(k); for (const k of [p, ...rest]) appendEl(io, k); }
-    else { io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping'); appendEl(ext, io); appendEl(io, p); }
-    return;
-  }
+  if (engine === 'c8') return;
   if (kids(ext).some(p => local(p) === 'in' && attr(p, 'businessKey'))) return;
   const p = doc.createElementNS(CAMUNDA_NS, 'camunda:in');
   p.setAttribute('businessKey', '#{execution.processBusinessKey}');
@@ -1003,14 +995,12 @@ function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
 }
 
 // ── Camunda 8 ────────────────────────────────────────────────────────────────
-function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
+function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[], call = false) {
   const old = firstNamed(ext, 'ioMapping');
   const oldKids = old ? kids(old) : [];
   // keep control parameters from the old mapping
   const keep = oldKids.filter(p => TECHNICAL.has(attr(p, 'target') ?? ''));
   if (old) removeEl(old);
-  if (!ins.length && !outs.length && !keep.length) return;
-  const io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping');
   const source = (m: Mapping, where: string): string => {
     const e = engineExpression(m.expression, 'c8');
     if (feelBody(m.expression) == null && /^[$#]\{/.test(m.expression.trim())) {
@@ -1018,6 +1008,17 @@ function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[]
     }
     return e.text;
   };
+  // on a call activity the row `businessKey` is the business id of the child — the override of the
+  // inherited one (`zeebe:calledElement businessId`), no variable
+  const businessRow = call ? ins.find(m => m.name.trim() === 'businessKey') : undefined;
+  if (businessRow) {
+    let ce = firstNamed(ext, 'calledElement');
+    if (!ce) { ce = doc.createElementNS(ZEEBE_NS, 'zeebe:calledElement'); prependEl(ext, ce); }
+    ce.setAttribute('businessId', source(businessRow, 'Eingabe «businessKey»'));
+    ins = ins.filter(m => m !== businessRow);
+  }
+  if (!ins.length && !outs.length && !keep.length) return;
+  const io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping');
   const same = (tag: 'input' | 'output', m: Mapping): Element | undefined =>
     oldKids.find(p => local(p) === tag && attr(p, 'target') === m.name.trim() && unchanged(p, m));
   for (const m of ins) {

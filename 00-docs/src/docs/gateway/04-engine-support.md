@@ -69,7 +69,7 @@ object MyC8Client extends C8BearerTokenClient:
 the same for all engines: the `processInstanceId` wins, a `businessKey` is then ignored.
 Without both only a message start event can be triggered.
 
-Camunda 8 has no business key and correlates only by the correlation key of the message.
+Camunda 8 correlates by the correlation key of the message.
 So the BPMN decides which of the two it takes:
 
 ```xml
@@ -78,19 +78,20 @@ So the BPMN decides which of the two it takes:
     <!-- sent with processInstanceId -->
     <zeebe:subscription correlationKey="=string(camunda.processInstance.key)" />
     <!-- or sent with businessKey -->
-    <!-- <zeebe:subscription correlationKey="=businessKey" /> -->
+    <!-- <zeebe:subscription correlationKey="=camunda.processInstance.businessId" /> -->
   </bpmn:extensionElements>
 </bpmn:message>
 ```
 
 - `camunda.processInstance.key` is the own process instance - from _Camunda 8.10_, in every process.
-- `businessKey` is a process variable, set by the Gateway when the process is started with one.
-  Started by its id (not by message), the process instance also gets it as its
-  [business id](https://docs.camunda.io/docs/components/concepts/process-instance-creation/#business-id)
-  (from _Camunda 8.9_): shown and searchable in Operate, passed on to call activities.
+- `camunda.processInstance.businessId` is the `businessKey` - from _Camunda 8.10_. The Gateway starts
+  the process (by its id or by message) with it as the instance's
+  [business id](https://docs.camunda.io/docs/components/concepts/process-instance-creation/#business-id),
+  not as a variable: shown and searchable in Operate, passed on to call activities (no input mapping
+  needed; `zeebe:calledElement businessId="=…"` overrides it), and the workers get it with their job.
   At most 256 characters; a cluster that enforces unique business ids answers a second start with the
   same `businessKey` with 409 while the first instance runs.
-- Any other variable works too: send its value as `businessKey`.
+- Any variable works too: send its value as `businessKey`.
 
 ### Operaton
 

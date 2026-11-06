@@ -36,7 +36,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
        |    <bpmn:endEvent id="end"/>
        |  </bpmn:process>
        |  <bpmn:message id="msg" name="$messageName">
-       |    <bpmn:extensionElements><zeebe:subscription correlationKey="=businessKey"/></bpmn:extensionElements>
+       |    <bpmn:extensionElements><zeebe:subscription correlationKey="=camunda.processInstance.businessId"/></bpmn:extensionElements>
        |  </bpmn:message>
        |</bpmn:definitions>""".stripMargin
 
@@ -88,7 +88,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
        |    </bpmn:subProcess>
        |  </bpmn:process>
        |  <bpmn:message id="startMsg" name="$uniqueMessageName">
-       |    <bpmn:extensionElements><zeebe:subscription correlationKey="=businessKey"/></bpmn:extensionElements>
+       |    <bpmn:extensionElements><zeebe:subscription correlationKey="=camunda.processInstance.businessId"/></bpmn:extensionElements>
        |  </bpmn:message>
        |</bpmn:definitions>""".stripMargin
 
@@ -123,7 +123,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         pid        = started.processInstanceId
         variables <- eventually(
                        engine.historicVariableService.getVariables(None, Some(pid), Some(Seq("count", "big", "businessKey")))
-                     )(_.size == 3)
+                     )(_.size == 2)
         instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(
                        _.businessKey.contains(businessKey) // the search index may lag
                      )
@@ -150,7 +150,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
           deployed.deployedProcesses.exists(_.key == processId),
           byName("count").contains(Json.fromInt(5)),
           byName("big").contains(Json.fromString(bigValue)), // not truncated
-          byName("businessKey").contains(Json.fromString(businessKey)),
+          !byName.contains("businessKey"), // no variable - the business id (8.10)
           instance.processDefinitionId == processId,
           instance.businessKey.contains(businessKey), // the business id of the instance
           task.get.taskDefinitionKey.contains("task1"), // the user task's BPMN id, like C7
@@ -169,6 +169,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
       given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
       given EngineConfig = DefaultEngineConfig(identitySigningKey = Some("it-signing-key"))
       val engine         = C8ProcessEngine()
+      val businessKey    = s"bk-${java.util.UUID.randomUUID()}"
       for
         _         <- engine.deploymentService.deploy(
                        "it-msgstart",
@@ -178,12 +179,14 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         started   <- eventually( // the message subscription of a fresh deployment may need a moment
                        engine.processInstanceService.startProcessByMessage(
                          startMessageName,
-                         businessKey = Some(s"bk-${java.util.UUID.randomUUID()}"),
+                         businessKey = Some(businessKey),
                          identityCorrelation = Some(orchescala.domain.IdentityCorrelation("alice", Some("alice@example.com")))
                        )
                      )(_ => true)
         pid        = started.processInstanceId
-        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(_ => true)
+        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(
+                       _.businessKey.contains(businessKey) // the search index may lag
+                     )
         variables <- eventually(
                        engine.historicVariableService.getVariables(None, Some(pid), Some(Seq("_identityCorrelation")))
                      )(_.nonEmpty)
@@ -191,7 +194,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         val signed = variables.head.value.flatMap(_.as[orchescala.domain.IdentityCorrelation].toOption)
         assertTrue(
           instance.processDefinitionId == msgStartProcessId, // a real process instance key
-          instance.businessKey.isEmpty,                      // a message sets no business id (8.9)
+          instance.businessKey.contains(businessKey),        // the start message's business id (8.10)
           signed.flatMap(_.processInstanceId).contains(pid),
           signed.exists(c =>
             orchescala.domain.IdentityCorrelationSigner.verify(c, pid, c.signature.get, "it-signing-key")
