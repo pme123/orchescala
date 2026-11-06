@@ -93,32 +93,6 @@ So the BPMN decides which of the two it takes:
   same `businessKey` with 409 while the first instance runs.
 - Any variable works too: send its value as `businessKey`.
 
-A BPMN from before (`correlationKey="=businessKey"`, a call activity input `=businessKey`) needs
-these expressions - the variable `businessKey` is no longer set.
-
-**Breaking changes - business key as business id (Camunda 8.10):**
-
-| What | Before | Now | What to do |
-|---|---|---|---|
-| Camunda 8 version | 8.9 | 8.10 or later (client 8.10.9) | Upgrade the cluster - the C8 worker app warns at its start on an older one. |
-| Variable `businessKey` | set at every start with a `businessKey` (by id and by message) | not set - the business id of the instance | Replace `businessKey` in C8 BPMNs (correlation keys, input/output mappings, conditions, scripts) with `camunda.processInstance.businessId`. |
-| Call activity | input `=businessKey -> businessKey` (written by the Orch Spec export) | none - the child inherits the business id; `zeebe:calledElement businessId="=…"` overrides it | Export again with Orch Spec (it drops the old input) or remove it by hand. |
-| Correlation key «Einmalige Ausführung» and waiting messages | `=businessKey` | `=camunda.processInstance.businessId` | Change it in the BPMN - Orch Spec reports an old `=businessKey`, a click on «businessKey» changes it. |
-| Worker | fetched `businessKey`, set it on a BPMN error and a failed job | takes the business id of its job, sets no `businessKey` | A boundary/error mapping that reads `businessKey` takes `camunda.processInstance.businessId`. |
-| Start by message | correlation key and variable | correlation key and business id of the message | - |
-| Historic process instance | `businessKey` always empty | the business id of the instance | - |
-| Business key | any length | at most 256 characters (400); 409 on a second start while the first runs, if the cluster enforces unique business ids (off by default) | Keep keys short. |
-
-Running instances started before the change have the variable but no business id. A message sent by
-`businessKey` still reaches them (correlation key only). A **start** message, however, carries the
-business id now, and Zeebe correlates a message with a business id only to subscriptions with the
-same one: while such an old instance of «Einmalige Ausführung» runs, a new start with its
-`businessKey` starts a second instance instead of answering 409. Let the old instances end (or
-cancel them) before relying on the unique execution.
-Their jobs carry no business id either: the worker logs them with `no businessKey` (as before for an
-instance without one). Their variable `businessKey` stays, so the BPMN version they run - which reads
-`=businessKey` - still works.
-
 ### Operaton
 
 [Operaton](https://operaton.org/) is the open-source fork of Camunda 7, maintained by the community.
