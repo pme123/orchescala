@@ -1230,7 +1230,7 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
         } else if (name === 'processInstanceKey' || name === 'processInstanceId') {
           // Camunda 8: the InitWorker set it once — today FEEL has the own instance
-          issues.push({ level: 'error', text: `«${name}» setzt der InitWorker nicht mehr — die eigene Instanz ist «string(camunda.processInstance.key)» (C8 ab 8.10).` });
+          issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (C8 ab 8.10; der InitWorker setzt «${name}» nicht mehr). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }
