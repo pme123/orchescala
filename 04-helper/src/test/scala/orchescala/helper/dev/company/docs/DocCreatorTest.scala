@@ -9,6 +9,9 @@ class DocCreatorTest extends FunSuite:
     assertEquals(DocCreator.dependencyCell(onRelease, base), "2.31.3")
     assertEquals(DocCreator.dependencyCell(onOlder, base), "2.30.*")
     assertEquals(DocCreator.dependencyCell(standalone, base), "")
+    // a newer minor than the release is not in the release either
+    val onNewer = conf("acme-shop", "1.1.0", Seq("acme-base" -> "2.32.0"))
+    assertEquals(DocCreator.dependencyCell(onNewer, base), "2.32.*")
 
   test("dependencyCell - a worker takes the newest version: always the release's"):
     assertEquals(DocCreator.dependencyCell(worker, base), "2.31.3")

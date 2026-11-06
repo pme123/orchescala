@@ -46,12 +46,15 @@ function DepTable({ t, docs, isDark }: { t: ReleaseTable; docs: CompanyDocs; isD
                 <td className={`px-2 py-1.5 whitespace-nowrap ${c.muted}`}>{r.previousVersion}</td>
                 {t.columns.map(col => {
                   const v = r.uses[col.project];
-                  // the version of the release, or the other minor the package declares (`2.30.*`)
-                  const other = v?.endsWith('.*');
+                  // the version of the release, or the other minor the package declares (`2.30.*`, red);
+                  // another full version (from older docs data) is shown as it is, in amber
+                  const other = !!v && v !== col.version;
+                  const otherMinor = !!v && v.endsWith('.*');
+                  const color = otherMinor ? (isDark ? 'text-red-400 font-bold' : 'text-red-600 font-bold')
+                    : other ? (isDark ? 'text-amber-300' : 'text-amber-700') : c.muted2;
                   return (
-                    <td key={col.project} className={`px-2 py-1.5 text-center whitespace-nowrap ${
-                      other ? (isDark ? 'text-red-400 font-bold' : 'text-red-600 font-bold') : c.muted2}`}
-                      title={other ? `declares ${v}, the release has ${col.version}` : undefined}>
+                    <td key={col.project} className={`px-2 py-1.5 text-center whitespace-nowrap ${color}`}
+                      title={other ? `${otherMinor ? 'declares' : 'uses'} ${v}, the release has ${col.version}` : undefined}>
                       {v ? (other ? v : '●') : ''}
                     </td>
                   );
