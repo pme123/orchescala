@@ -209,8 +209,8 @@ object C8RestClientTest extends ZIOSpecDefault:
             body.hcursor.get[String]("processDefinitionId").contains("my-process"),
             body.hcursor.downField("processDefinitionVersion").failed, // -1 = latest by default
             body.hcursor.downField("variables").get[Json]("count").contains(Json.fromInt(5)),
-            body.hcursor.downField("variables").get[String]("businessKey").contains("bk-1"),
-            body.hcursor.get[String]("businessId").contains("bk-1"), // the instance's business id
+            body.hcursor.downField("variables").downField("businessKey").failed, // no variable (8.10)
+            body.hcursor.get[String]("businessId").contains("bk-1"),             // the instance's business id
             body.hcursor.get[String]("tenantId").contains("t1")
           )
       },
@@ -463,7 +463,7 @@ object C8RestClientTest extends ZIOSpecDefault:
           cluster.jsonBodies.forall(_.hcursor.downField("businessId").failed)
         )
       },
-      test("start by message: the businessKey is the correlation key - none without businessKey") {
+      test("start by message: the businessKey is the correlation key and business id - none without businessKey") {
         val cluster = StubCluster(_ => 200 -> """{"messageKey":"999","processInstanceKey":"1000"}""")
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
@@ -475,7 +475,8 @@ object C8RestClientTest extends ZIOSpecDefault:
           assertTrue(
             withKey.processInstanceId == "1000",
             withoutKey.processInstanceId == "1000",
-            keys == Seq(Some("bk-1"), None)
+            keys == Seq(Some("bk-1"), None),
+            cluster.jsonBodies.map(_.hcursor.get[String]("businessId").toOption) == Seq(Some("bk-1"), None)
           )
       },
       test("start by message landed in a running instance (its older key): 409 - its pending marker cleared, nothing signed") {
@@ -541,8 +542,9 @@ object C8RestClientTest extends ZIOSpecDefault:
           assertTrue(
             info.processInstanceId == "1000",
             keys == Seq(Some("bk-1"), Some("bk-1"), None),
-            // the businessKey stays a variable of the new instance
-            cluster.jsonBodies.last.hcursor.downField("variables").get[String]("businessKey").contains("bk-1")
+            // the business id of the new instance - on every try, no variable
+            cluster.jsonBodies.forall(_.hcursor.get[String]("businessId").contains("bk-1")),
+            cluster.jsonBodies.forall(_.hcursor.downField("variables").downField("businessKey").failed)
           )
       },
       test("start by message refused while the running instance starts up: again with key - it lands there, 409") {

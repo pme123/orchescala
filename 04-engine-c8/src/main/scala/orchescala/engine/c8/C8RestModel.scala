@@ -25,7 +25,7 @@ private[c8] object C8RestModel:
       endDate: Option[OffsetDateTime],
       state: String,
       tenantId: Option[String],
-      businessId: Option[String] = None // since 8.9 - set at the start (see C8ProcessInstanceService)
+      businessId: Option[String] = None // set at the start (see C8ProcessInstanceService.businessIdField)
   )
 
   final case class VariableResult(

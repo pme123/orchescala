@@ -81,7 +81,7 @@ class C8MessageService(using
         failed match
           case e: EngineError.ServiceRequestError if e.errorCode == 404 && e.errorMsg.contains("subscription") =>
             e.copy(errorMsg = s"${e.errorMsg} - the correlationKey of the message in the BPMN " +
-              "(zeebe:subscription) must give this value: =string(camunda.processInstance.key) resp. =businessKey")
+              "(zeebe:subscription) must give this value: =string(camunda.processInstance.key) resp. =camunda.processInstance.businessId")
           case e => e
       .map: resp =>
         val processInstanceId = resp.processInstanceKey.getOrElse(resp.messageKey)
