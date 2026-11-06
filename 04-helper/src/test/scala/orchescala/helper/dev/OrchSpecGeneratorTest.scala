@@ -1211,7 +1211,8 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
       Seq("GetPersonsWorker()"),
       entries =>
         s"  private lazy val persons${v.toUpperCase}Workers =\n    import a.b.worker.persons.$v.*\n    Seq(\n${entries
-            .map(e => s"      $e,").mkString("\n")}\n    )\n  end persons${v.toUpperCase}Workers"
+            .map(e => s"      $e,").mkString("\n")}\n    )\n  end persons${v.toUpperCase}Workers",
+      Some(s"a.b.worker.persons.$v")
     )
     // the same package in a block of another name - not again
     assertEquals(personsOf("v1").copy(name = "personsWorkers").register(workerApp), RegistrationResult.Unchanged)
@@ -1234,6 +1235,61 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     // another package by a qualified name - added
     val qualified = workerApp.replace("      GetPersonsWorker(),", "      persons.v1.GetPersonsWorker(),")
     assert(personsOf("v2").register(qualified).isInstanceOf[RegistrationResult.Registered], qualified)
+
+  test("registration - the package of a worker registered elsewhere: imports, renames, file package, other blocks"):
+    def personsOf(v: String) = OrchSpecRegistration(
+      "WorkerApp",
+      "workers(",
+      s"persons${v.toUpperCase}Workers",
+      Seq("GetPersonsWorker()"),
+      entries =>
+        s"  private lazy val persons${v.toUpperCase}Workers =\n    import a.b.domain.shared.*\n    import a.b.worker.persons.$v.*\n    Seq(\n${entries
+            .map(e => s"      $e,").mkString("\n")}\n    )\n  end persons${v.toUpperCase}Workers",
+      Some(s"a.b.worker.persons.$v")
+    )
+    def app(pkg: String = "a.b.worker", header: String = "", imports: String = "", entry: String = "GetPersonsWorker()") =
+      s"""package $pkg
+         |$header
+         |object WorkerApp extends CompanyWorkerApp:
+         |  workers(
+         |    otherWorkers,
+         |  )
+         |
+         |  private lazy val otherWorkers =
+         |$imports    Seq(
+         |      $entry,
+         |    )
+         |  end otherWorkers
+         |end WorkerApp
+         |""".stripMargin
+    def skipped(content: String)    = assertEquals(personsOf("v2").register(content), RegistrationResult.Unchanged, content)
+    def registered(content: String) =
+      assert(personsOf("v2").register(content).isInstanceOf[RegistrationResult.Registered], content)
+    // the same package
+    skipped(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker, Other} // the v2 ones\n"))
+    skipped(app(imports = "    import a.b.worker.persons.v2.{\n      Other,\n      GetPersonsWorker\n    }\n"))
+    skipped(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker as V2Persons}\n", entry = "V2Persons()"))
+    skipped(app(imports = "    import a.b.worker.{persons => p}\n", entry = "p.v2.GetPersonsWorker()"))
+    skipped(app(pkg = "a.b.worker.persons.v2"))
+    skipped(app(pkg = "a.b.worker\npackage persons", entry = "v2.GetPersonsWorker()"))
+    skipped(app(header = "\nimport a.b.worker.persons\n", entry = "persons.v2.GetPersonsWorker()"))
+    // another package
+    registered(app(imports = "    import a.b.worker.persons.v1.*\n"))
+    // only the worker package of the new block counts - not its other imports
+    registered(app(imports = "    import a.b.domain.shared.*\n"))
+    // a relative name resolves against the scope - `v2` is no package here
+    registered(app(entry = "v2.GetPersonsWorker()"))
+    registered(app(pkg = "a.other", header = "\nimport a.other.v2\n", entry = "v2.GetPersonsWorker()"))
+    // renamed away - `GetPersonsWorker` is not the imported one
+    registered(app(imports = "    import a.b.worker.persons.v2.{GetPersonsWorker as V2Persons}\n    import a.b.worker.persons.v1.*\n"))
+    // the import of another block is not in scope
+    val otherBlock = app().replace(
+      "  private lazy val otherWorkers",
+      "  private lazy val moreWorkers =\n    import a.b.worker.persons.v2.*\n    Seq()\n  end moreWorkers\n\n  private lazy val otherWorkers"
+    )
+    registered(otherBlock)
+    // without the package of the entries: any registration of the name counts - as before
+    assertEquals(personsOf("v2").copy(entriesPackage = None).register(app(imports = "    import a.b.worker.persons.v1.*\n")), RegistrationResult.Unchanged)
 
   test("new process object - a descr of several lines is a stripMargin text"):
     val block = mergeObject.block.replace(
