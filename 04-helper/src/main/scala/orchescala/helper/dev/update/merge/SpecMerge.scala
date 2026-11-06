@@ -269,7 +269,11 @@ object SpecMerge:
           )
       case Some(existing) =>
         val manual  = Seq.newBuilder[(String, String)]
+        val unsure  = Seq.newBuilder[String]
         val added   = neu.foldLeft(existing): (content, r) =>
+          val left = r.unsure(content)
+          if left.nonEmpty then
+            unsure += s"${left.mkString(", ")} not added to `${r.name}`: registered already, perhaps from another package (several wildcard imports bring the name) - check the imports."
           r.register(content) match
             case RegistrationResult.Registered(next, _)     => next
             case RegistrationResult.Unchanged               => content
@@ -283,15 +287,18 @@ object SpecMerge:
               val gone = b.entries.filterNot(n.entries.contains)
               if gone.isEmpty then content else n.unregister(content, gone, wholeBlock = false)
         val todo    = manual.result()
+        val notes   = unsure.result()
         if todo.nonEmpty then
           planned(
             Action.conflict,
             Option.when(removed != existing)(removed),
             todo.map((_, snippet) => Conflict(0, snippet, "")),
-            Some(todo.map(_._1).mkString(" "))
+            Some((todo.map(_._1) ++ notes).mkString(" "))
           )
-        else if removed == existing then planned(Action.unchanged)
-        else planned(Action.merged, Some(removed))
+        else
+          val note = Option.when(notes.nonEmpty)(notes.mkString(" "))
+          if removed == existing then planned(Action.unchanged, note = note)
+          else planned(Action.merged, Some(removed), note = note)
         end if
     end match
   end register

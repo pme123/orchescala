@@ -1287,6 +1287,15 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     // `; …` after an import, an import whose brace is not closed - the imports after it stay
     skipped(app(imports = "    import a.b.worker.persons.v2.*; val x = 1\n"))
     skipped(app(header = "\nimport a.b.worker.broken.{X,\nimport a.b.worker.persons.v2.*\n"))
+    // the nearest scope wins: the wildcard import of the block, not the one of the file
+    registered(app(header = "\nimport a.b.worker.persons.v2.*\n", imports = "    import a.b.worker.persons.v1.*\n"))
+    // two wildcard imports in one scope: perhaps the same package - skipped, but unsure
+    val twoWildcards = app(imports = "    import a.b.worker.persons.v1.*\n    import a.b.worker.persons.v2.*\n")
+    skipped(twoWildcards)
+    assertEquals(personsOf("v2").unsure(twoWildcards), Seq("GetPersonsWorker()"))
+    assertEquals(personsOf("v2").unsure(app(imports = "    import a.b.worker.persons.v2.*\n")), Seq.empty)
+    // a relative qualified name through the wildcard import of a parent package
+    skipped(app(pkg = "x.y", header = "\nimport a.b.worker.*\n", entry = "persons.v2.GetPersonsWorker()"))
     // the import of another block is not in scope
     val otherBlock = app().replace(
       "  private lazy val otherWorkers",
@@ -1295,6 +1304,32 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     registered(otherBlock)
     // without the package of the entries: any registration of the name counts - as before
     assertEquals(personsOf("v2").copy(entriesPackage = None).register(app(imports = "    import a.b.worker.persons.v1.*\n")), RegistrationResult.Unchanged)
+
+  test("registration - the imports read: forms, given, several parts, renames, an unclosed brace"):
+    val read = OrchSpecRegistration.imports(
+      Seq(
+        "import a.b.*",
+        "import a.b.{given, *}",
+        "import a.*, c.d.{X, Y as Z}",
+        "val x = 1 // import no.import.*",
+        "import e.f.{W => V, H as _} // a comment",
+        "import broken.{X,",
+        "import g.h.X; val y = 1"
+      )
+    )
+    assertEquals(
+      read,
+      Seq(
+        (0, "a.b", Map("*" -> "*")),
+        (1, "a.b", Map("*" -> "*")),
+        (2, "a", Map("*" -> "*")),
+        (2, "c.d", Map("X" -> "X", "Z" -> "Y")),
+        (4, "e.f", Map("V" -> "W")),
+        // the unclosed brace ends at the next import - only what it names
+        (5, "broken", Map("X" -> "X")),
+        (6, "g.h", Map("X" -> "X"))
+      )
+    )
 
   test("new process object - a descr of several lines is a stripMargin text"):
     val block = mergeObject.block.replace(

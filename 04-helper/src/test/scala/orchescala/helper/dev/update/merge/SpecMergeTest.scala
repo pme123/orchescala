@@ -607,6 +607,21 @@ class SpecMergeTest extends FunSuite:
       assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
       assertEquals(os.read(project / workerAppRel), app)
 
+  test("services: a worker of the same name perhaps registered from its package - not added, with a note"):
+    inProject: project =>
+      editFile(project, "WorkerApp.scala"): app =>
+        app
+          .replace("    //TODO add workers here\n", "    clientWorkers,\n")
+          .replace(
+            "end WorkerApp",
+            "\n  private lazy val clientWorkers =\n    import acme.demo.worker.client.v1.*\n    import acme.demo.worker.client.v2.*\n    Seq(\n      GetClientWorker(),\n    )\n  end clientWorkers\nend WorkerApp"
+          )
+      val (plan, _) = run(project, Seq.empty, Seq(collectionV2))
+      val app       = plan.files.find(_.path == path(project, "WorkerApp.scala")).getOrElse(fail("no WorkerApp"))
+      assertEquals(app.action, Action.unchanged)
+      assert(app.note.exists(_.contains("GetClientWorker() not added to `clientV2Workers`")), app.note)
+      assert(!os.read(project / workerAppRel).contains("clientV2Workers"))
+
   test("services: twice the same export - all unchanged"):
     inProject: project =>
       run(project, Seq.empty, Seq(collection(), orchestration))
