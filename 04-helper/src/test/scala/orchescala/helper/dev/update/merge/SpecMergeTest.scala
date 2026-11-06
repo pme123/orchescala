@@ -545,7 +545,9 @@ class SpecMergeTest extends FunSuite:
       scalaFiles(
         s"$domainPkg/ClientV1.scala"           -> "package acme.demo.domain.client.v1\n\ntrait ClientV1",
         s"$domainPkg/GetClient.scala"          -> s"package acme.demo.domain.client.v1\n\nobject GetClient:\n  case class Out($out)\nend GetClient",
-        s"$workerPkg/GetClientWorker.scala"    -> "package acme.demo.worker.client.v1\n\nclass GetClientWorker:\n  def run = ???\nend GetClientWorker"
+        s"$workerPkg/GetClientWorker.scala"    -> "package acme.demo.worker.client.v1\n\nclass GetClientWorker:\n  def run = ???\nend GetClientWorker",
+        s"${workerPkg.replace("/src/main/", "/src/test/")}/GetClientWorkerTest.scala" ->
+          "package acme.demo.worker.client.v1\n\nclass GetClientWorkerTest extends munit.FunSuite:\n  lazy val worker = GetClientWorker()\nend GetClientWorkerTest"
       )
     )
 
@@ -569,11 +571,56 @@ class SpecMergeTest extends FunSuite:
       do assertEquals(actionOf(plan, project, name), Action.create, name)
       assert(path(project, "GetClient.scala").startsWith("01-domain/src/main/scala/acme/demo/domain/client/v1/"))
       assert(path(project, "GetClientWorker.scala").startsWith("03-worker/src/main/scala/acme/demo/worker/client/v1/"))
+      // the test of the worker in the test sources - and not registered as a worker
+      assertEquals(actionOf(plan, project, "GetClientWorkerTest.scala"), Action.create)
+      assertEquals(path(project, "GetClientWorkerTest.scala"), "03-worker/src/test/scala/acme/demo/worker/client/v1/GetClientWorkerTest.scala")
       val app = os.read(project / workerAppRel)
       assertEquals(app.linesIterator.count(_.contains("private lazy val clientV1Workers")), 1, app)
       assert(app.contains("      GetClientWorker(),\n      UpdateClientWorker(),"), app)
       val api = os.read(project / apiCreatorRel)
       assert(api.contains("group(\"ClientV1\")(\n      GetClient.example,\n      UpdateClient.example,"), api)
+
+  /** The collection of client.v1 as version 2 - the same service names in another package. */
+  private val collectionV2: ServicesExport =
+    val v1 = collection()
+    v1.copy(
+      slug = "client-v2",
+      scala = v1.scala.replace("client/v1", "client/v2").replace("client.v1", "client.v2").replace("ClientV1", "ClientV2")
+    )
+
+  test("services: two versions of one API - each version registered in its own block"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(collection(), collectionV2))
+      assertEquals(plan.withAction(Action.conflict), Seq.empty)
+      val app = os.read(project / workerAppRel)
+      for v <- Seq("v1", "v2") do
+        val name  = s"clientV${v.drop(1)}Workers"
+        val block = app.substring(app.indexOf(s"private lazy val $name"), app.indexOf(s"end $name"))
+        assert(block.contains(s"import acme.demo.worker.client.$v.*"), app)
+        assert(block.contains("      GetClientWorker(),"), app)
+        // once in `workers(` - also after the re-run below
+        assertEquals(app.linesIterator.count(_.trim == s"$name,"), 1, app)
+      val api = os.read(project / apiCreatorRel)
+      for g <- Seq("ClientV1", "ClientV2") do assert(api.contains(s"group(\"$g\")(\n      GetClient.example,"), api)
+      // a re-run adds nothing
+      val (again, _) = run(project, Seq(collection(), collectionV2), Seq(collection(), collectionV2))
+      assertEquals(again.files.filterNot(_.action == Action.unchanged), Seq.empty)
+      assertEquals(os.read(project / workerAppRel), app)
+
+  test("services: a worker of the same name perhaps registered from its package - not added, with a note"):
+    inProject: project =>
+      editFile(project, "WorkerApp.scala"): app =>
+        app
+          .replace("    //TODO add workers here\n", "    clientWorkers,\n")
+          .replace(
+            "end WorkerApp",
+            "\n  private lazy val clientWorkers =\n    import acme.demo.worker.client.v1.*\n    import acme.demo.worker.client.v2.*\n    Seq(\n      GetClientWorker(),\n    )\n  end clientWorkers\nend WorkerApp"
+          )
+      val (plan, _) = run(project, Seq.empty, Seq(collectionV2))
+      val app       = plan.files.find(_.path == path(project, "WorkerApp.scala")).getOrElse(fail("no WorkerApp"))
+      assertEquals(app.action, Action.unchanged)
+      assert(app.note.exists(_.contains("GetClientWorker() not added to `clientV2Workers`")), app.note)
+      assert(!os.read(project / workerAppRel).contains("clientV2Workers"))
 
   test("services: twice the same export - all unchanged"):
     inProject: project =>
@@ -602,6 +649,92 @@ class SpecMergeTest extends FunSuite:
       assert(app.contains("GetClientWorker()") && !app.contains("UpdateClientWorker()"), app)
       val api = os.read(project / apiCreatorRel)
       assert(api.contains("GetClient.example") && !api.contains("UpdateClient.example"), api)
+
+  test("services: a nested API - its levels as directories, the shared schema of the level, named by its last part"):
+    inProject: project =>
+      val nestedDomain = "01-domain/src/main/scala/acme/demo/domain/clientMaster/naturalPersons/v1"
+      val nested       = ServicesExport(
+        "client-master",
+        scalaFiles(
+          s"$nestedDomain/NaturalPersonsV1.scala"                          -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1\n\ntrait NaturalPersonsV1",
+          s"$nestedDomain/GetPersons.scala"                                -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1\n\nobject GetPersons\nend GetPersons",
+          s"$nestedDomain/schema/Person.scala"                             -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1.schema\n\ncase class Person(name: String)",
+          "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala" -> "package acme.demo.domain\npackage clientMaster.schema\n\ncase class Address(city: String)",
+          "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala" ->
+            "package acme.demo.worker.clientMaster.naturalPersons.v1\n\nclass GetPersonsWorker:\n  def run = ???\nend GetPersonsWorker",
+          // the base paths of the project and of the level
+          "03-worker/src/main/scala/acme/demo/worker/exports.scala" -> "package acme.demo.worker\n\nlazy val demoBasePath: String = ???",
+          "03-worker/src/main/scala/acme/demo/worker/clientMaster/exports.scala" ->
+            "package acme.demo.worker\npackage clientMaster\n\ndef clientMasterBasePath: String = s\"$demoBasePath/ClientMaster/v1\""
+        )
+      )
+      val (plan, _) = run(project, Seq.empty, Seq(nested))
+      assertEquals(plan.notes, Seq.empty)
+      for name <- Seq("NaturalPersonsV1.scala", "GetPersons.scala", "Person.scala", "Address.scala", "GetPersonsWorker.scala")
+      do assertEquals(actionOf(plan, project, name), Action.create, name)
+      assertEquals(path(project, "GetPersons.scala"), s"$nestedDomain/GetPersons.scala")
+      assertEquals(path(project, "Person.scala"), s"$nestedDomain/schema/Person.scala")
+      assertEquals(path(project, "Address.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala")
+      assertEquals(path(project, "GetPersonsWorker.scala"), "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala")
+      val bases = plan.files.map(_.path).filter(_.endsWith("exports.scala")).sorted
+      assertEquals(bases, Seq(
+        "03-worker/src/main/scala/acme/demo/worker/clientMaster/exports.scala",
+        "03-worker/src/main/scala/acme/demo/worker/exports.scala"
+      ))
+      val app = os.read(project / workerAppRel)
+      assert(app.contains("private lazy val naturalPersonsV1Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v1.*"), app)
+      assert(app.contains("      GetPersonsWorker(),"), app)
+      val api = os.read(project / apiCreatorRel)
+      assert(api.contains("import acme.demo.domain.clientMaster.naturalPersons.v1.*\n    group(\"NaturalPersonsV1\")("), api)
+
+  private def nestedApi(version: Int, withWorker: Boolean = true): Seq[(String, String)] =
+    val domain = s"01-domain/src/main/scala/acme/demo/domain/clientMaster/naturalPersons/v$version"
+    val worker = s"03-worker/src/%s/scala/acme/demo/worker/clientMaster/naturalPersons/v$version"
+    val pkg    = s"package acme.demo.worker.clientMaster.naturalPersons.v$version"
+    Seq(
+      s"$domain/NaturalPersonsV$version.scala" -> s"package acme.demo.domain\npackage clientMaster.naturalPersons.v$version\n\ntrait NaturalPersonsV$version",
+      s"$domain/GetPersons.scala"              -> s"package acme.demo.domain\npackage clientMaster.naturalPersons.v$version\n\nobject GetPersons\nend GetPersons",
+      s"${worker.format("test")}/GetPersonsWorkerTest.scala" ->
+        s"$pkg\n\nclass GetPersonsWorkerTest extends munit.FunSuite\nend GetPersonsWorkerTest"
+    ) ++ (if withWorker then Seq(s"${worker.format("main")}/GetPersonsWorker.scala" -> s"$pkg\n\nclass GetPersonsWorker\nend GetPersonsWorker") else Seq.empty)
+  end nestedApi
+
+  test("services: two versions of a nested API - each in its directory"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(nestedApi(1) ++ nestedApi(2)*))))
+      assertEquals(plan.notes, Seq.empty)
+      val workers = plan.files.map(_.path).filter(_.endsWith("GetPersonsWorker.scala")).sorted
+      assertEquals(workers, Seq(
+        "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala",
+        "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v2/GetPersonsWorker.scala"
+      ))
+      val tests = plan.files.map(_.path).filter(_.endsWith("GetPersonsWorkerTest.scala")).sorted
+      assertEquals(tests, Seq(
+        "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala",
+        "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v2/GetPersonsWorkerTest.scala"
+      ))
+      // the WorkerApp: each version in its own block - the same worker name, another package
+      val app = os.read(project / workerAppRel)
+      for v <- Seq(1, 2) do
+        assert(
+          app.contains(
+            s"private lazy val naturalPersonsV${v}Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v$v.*\n    Seq(\n      GetPersonsWorker(),"
+          ),
+          app
+        )
+
+  test("services: a worker test without its worker - the test in the test sources, nothing registered for it"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(nestedApi(1, withWorker = false)*))))
+      assertEquals(path(project, "GetPersonsWorkerTest.scala"), "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala")
+      assertEquals(actionOf(plan, project, "GetPersonsWorkerTest.scala"), Action.create)
+      assert(!os.read(project / workerAppRel).contains("GetPersonsWorkerTest"))
+
+  test("services: the base path of a level of another project is refused"):
+    inProject: project =>
+      val foreign = nestedApi(1) :+
+        ("03-worker/src/main/scala/other/worker/clientMaster/exports.scala" -> "package other.worker\npackage clientMaster\n\ndef clientMasterBasePath = ???")
+      intercept[IllegalArgumentException](SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(foreign*))), strict = true))
 
   test("services: an export of another project is refused"):
     inProject: project =>

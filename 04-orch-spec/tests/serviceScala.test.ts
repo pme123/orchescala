@@ -76,7 +76,21 @@ test('the files of a collection: trait, ServiceTask, schema, exports, worker', (
     '01-domain/src/main/scala/acme/crm/domain/client/v1/schema/Address.scala',
     '03-worker/src/main/scala/acme/crm/worker/client/v1/exports.scala',
     '03-worker/src/main/scala/acme/crm/worker/client/v1/GetClientWorker.scala',
+    '03-worker/src/test/scala/acme/crm/worker/client/v1/GetClientWorkerTest.scala',
   ]);
+});
+
+test('the test of the worker: as the helper writes it, with the method, the URI of the example and the output mapper', () => {
+  const t = collectionFiles(collection()).find(f => f.path.endsWith('GetClientWorkerTest.scala'))!.content;
+  assert.match(t, /^package acme\.crm\.worker\npackage client\.v1\n/);
+  assert.match(t, /import acme\.crm\.domain\.client\.v1\.GetClient\.\*/);
+  assert.match(t, /\/\/sbt worker\/testOnly \*GetClientWorkerTest\nclass GetClientWorkerTest extends munit\.FunSuite:\n\n  lazy val worker = GetClientWorker\(\)\n/);
+  assert.match(t, /test\("method"\):\n    assertEquals\(worker\.method, Method\.GET\)/);
+  assert.match(t, /worker\.apiUri\(In\.example\)\.toString,\n      s"\$serviceBasePath\/clients\/\$\{In\.example\.clientKey\}"/);
+  assert.match(t, /ServiceOut\.mockMinimal\.toServiceResponse,\n        In\.exampleMinimal\n      \),\n      Right\(Out\.exampleMinimal\)/);
+  // no body to send: no test of the input mapper
+  assert.doesNotMatch(t, /inputMapper|\?\?\?/);
+  assert.match(t, /end GetClientWorkerTest\n$/);
 });
 
 test('the ServiceTask: topic, path, types and mock', () => {
@@ -122,17 +136,19 @@ test('several APIs: one package each, a shared type lives with the first API tha
     }],
   };
   const files = collectionFiles(two);
-  assert.deepEqual(files.map(f => f.path.replace(/^0\d-(domain|worker)\/src\/main\/scala\/acme\/crm\//, '')), [
+  assert.deepEqual(files.map(f => f.path.replace(/^0\d-(domain|worker)\/src\/(main|test)\/scala\/acme\/crm\//, '$2:')).map(p => p.replace(/^main:/, '')), [
     'domain/client/v1/ClientV1.scala',
     'domain/client/v1/GetClient.scala',
     'domain/client/v1/schema/Client.scala',
     'domain/client/v1/schema/Address.scala',
     'worker/client/v1/exports.scala',
     'worker/client/v1/GetClientWorker.scala',
+    'test:worker/client/v1/GetClientWorkerTest.scala',
     'domain/crm/v2/CrmV2.scala',
     'domain/crm/v2/GetProductGroups.scala',
     'worker/crm/v2/exports.scala',
     'worker/crm/v2/GetProductGroupsWorker.scala',
+    'test:worker/crm/v2/GetProductGroupsWorkerTest.scala',
   ]);
   const crm = files.find(f => f.path.endsWith('/GetProductGroups.scala'))!.content;
   assert.match(crm, /^package acme\.crm\.domain\npackage crm\.v2\n/);

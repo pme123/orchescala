@@ -801,6 +801,16 @@ und Doku stehen in `democompany-patterns`:
   `{{processId}}`, nur C8). Nach dem Umbenennen des Prozesses erkennt Orch Spec
   das Pattern weiter und zeigt die alte ID dort zum Anpassen; der Wechsel nach
   C7 sagt es, und zurück auf C8 gilt die neue.
+- **Abbruch per Signal** (`cancel-by-signal`, am Prozess): ein unterbrechender
+  Ereignis-Subprozess bricht die Instanz beim Signal `cancel-<Instanz>` ab —
+  egal, wo sie wartet — und setzt `processStatus = canceled`. Das Präfix ist der
+  Parameter `signalPrefix` (Vorgabe `cancel-`). C7 bindet das Signal mit
+  `${execution.processInstanceId}`, C8 mit `camunda.processInstance.key` — das
+  gibt es erst ab Version 8.10; auf 8.9 bliebe jede Instanz beim Start mit
+  einem Incident stehen, das Einfügen auf C8 sagt es. Orchescala sendet das
+  Signal mit dem Platzhalter `{processInstanceId}` im Namen. Das Ende
+  `canceled` setzt `processStatus`, ist aber nicht «Prozess-Status am Ende»:
+  auch was ein Subprozess im Block eines Patterns trägt, gehört zu ihm.
 
 Ein **Parameter mit `"kind": "process"`** ist die ID eines Prozesses: immer
 nur Text, auch wenn er im BPMN ausserhalb einer Zeichenkette steht (für FEEL
