@@ -115,6 +115,9 @@ business id now, and Zeebe correlates a message with a business id only to subsc
 same one: while such an old instance of «Einmalige Ausführung» runs, a new start with its
 `businessKey` starts a second instance instead of answering 409. Let the old instances end (or
 cancel them) before relying on the unique execution.
+Their jobs carry no business id either: the worker logs them with `no businessKey` (as before for an
+instance without one). Their variable `businessKey` stays, so the BPMN version they run - which reads
+`=businessKey` - still works.
 
 ### Operaton
 
