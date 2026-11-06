@@ -81,7 +81,7 @@ Starts a new process instance asynchronously.
 - `processDefId` (string): Process definition ID or key
 
 **Query Parameters:**
-- `businessKey` (optional string): Business Key (not supported in Camunda 8)
+- `businessKey` (optional string): Business Key (Camunda 8: the business id of the instance)
 - `tenantId` (optional string): Tenant ID for multi-tenant setups
 
 **Request Body:**
