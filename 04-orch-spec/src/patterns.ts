@@ -2096,7 +2096,14 @@ const sameParams = (a: Record<string, string> | undefined, b: Record<string, str
  * `params` selects the instance if the same pattern hangs on the element several times.
  */
 export function removePattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, defs?: PatternDef[], params?: Record<string, string>): PatternResult {
-  const same = (issues: string[]): PatternResult => ({ xml, changed: false, issues });
+  const { extras: _, ...r } = removeIn(xml, def, engine, targetId, defs, params, false);
+  return r;
+}
+
+/** removePattern - with `keep`, the own steps of its event sub process stay (see keepEventSubExtras) */
+function removeIn(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, defs: PatternDef[] | undefined, params: Record<string, string> | undefined, keep: boolean): PatternResult & { extras: EventSubExtras[] } {
+  const extras: EventSubExtras[] = [];
+  const same = (issues: string[]) => ({ xml, changed: false, issues, extras });
   const src = fragmentFor(def, engine);
   if (!src) return same([`«${def.name}» hat kein BPMN für diese Engine.`]);
   const doc = parseXml(xml);
@@ -2137,22 +2144,27 @@ export function removePattern(xml: string, def: PatternDef, engine: EngineId, ta
       .filter(h => h.patternId === def.id && h.targetId && byIdIn(doc.documentElement, h.targetId)?.parentElement === scope) : [];
     if (!others.length) {
       const g2 = graphOf(scope);
-      for (const x of matchBlocks(fr, g2, new Set(), builtins(targetId ? t : null, proc))) {
-        if (x) for (const el of x.elements) if (el.parentElement) dropWithRefs(w, el);
-      }
+      matchBlocks(fr, g2, new Set(), builtins(targetId ? t : null, proc)).forEach((x, bi) => {
+        if (!x) return;
+        const kept = keep ? keepEventSubExtras(fr.blocks[bi], x.entry, x.b, scope) : null;
+        if (kept) extras.push({ patternId: def.id, ...kept });
+        for (const el of x.elements) if (el.parentElement) dropWithRefs(w, el);
+      });
     }
   }
-  return { xml: w.serialize(xml), changed: true, issues: [] };
+  return { xml: w.serialize(xml), changed: true, issues: [], extras };
 }
 
 /** Change parameters: take out and insert again with the new values — at the same place */
 export function updatePattern(xml: string, def: PatternDef, engine: EngineId, targetId: string | null, params: Record<string, string>, defs?: PatternDef[], previous?: Record<string, string>): PatternResult {
   const before = parseXml(xml);
-  const r1 = removePattern(xml, def, engine, targetId, defs, previous);
+  const { extras, ...r1 } = removeIn(xml, def, engine, targetId, defs, previous, true);
   if (!r1.changed) return r1;
   const r2 = applyPattern(r1.xml, def, engine, targetId, params);
   if (!r2.changed || !before) return r2;
-  return { ...r2, xml: keepPositions(before, r2.xml) };
+  // the own steps of its event sub process back into it
+  const all = defs?.some(d => d.id === def.id) ? defs : [...(defs ?? []), def];
+  return { ...r2, xml: keepPositions(before, graftEventSubExtras(r2.xml, extras, all, engine)) };
 }
 
 /** Keep the position of the shapes: same IDs get their coordinates in `before` back */

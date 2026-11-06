@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { STANDARD_PATTERNS, allPatterns, applyPattern, keepPositions, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
+import { STANDARD_PATTERNS, allPatterns, applyPattern, keepPositions, updatePattern, detectPatterns, isStandardPattern, parseFragment, patternDefs, patternMappings, patternParamsFor, processChoices, processIssue, removePattern, staleProcessId, setVariableOnly, unknownParamKinds } from '../src/patterns';
 import { allSteps, importBpmn, syncPatterns } from '../src/bpmn';
 import { convertWithPatterns } from '../src/patternConvert';
 import { installXmlNamespaces } from './xmlNamespaces';
@@ -1047,6 +1047,21 @@ test('«Abbruch per Signal»: converting keeps a step of its own in the event su
   }
   assert.equal(signalNameOf(c7.xml), 'cancel-${execution.processInstanceId}');
   assert.equal(signalNameOf(back.xml), '="cancel-" + string(camunda.processInstance.key)');
+});
+
+test('«Abbruch per Signal»: changing the prefix keeps a step of its own in the event sub process', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = withOwnTask(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml);
+    const r = updatePattern(xml, cancel, engine, null, { signalPrefix: 'stop-' }, STANDARD_PATTERNS, { signalPrefix: 'cancel-' });
+    assert.ok(r.changed, engine);
+    assert.ok(signalNameOf(r.xml)?.includes('stop-'), engine);
+    assert.match(r.xml, /<bpmn:sequenceFlow id="CancelFlow" sourceRef="CancelStartEvent" targetRef="Cleanup" \/>/, engine);
+    assert.match(r.xml, /<bpmn:sequenceFlow id="CleanupFlow" sourceRef="Cleanup" targetRef="CanceledEndEvent" \/>/, engine);
+    assert.equal((r.xml.match(/triggeredByEvent="true"/g) ?? []).length, 1, engine);
+    assert.deepEqual(detectPatterns(r.xml, STANDARD_PATTERNS, engine).hits.map(h => [h.patternId, h.params.signalPrefix]), [['cancel-by-signal', 'stop-']], engine);
+    // inside the sub process, not on the process level
+    assert.match(r.xml, /triggeredByEvent="true"[^]*id="Cleanup"[^]*<\/bpmn:subProcess>/, engine);
+  }
 });
 
 test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {
