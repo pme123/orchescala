@@ -615,6 +615,20 @@ object C8RestClientTest extends ZIOSpecDefault:
           val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
           assert(exit)(failsWith(409, s"($otherPartition)")) && assertTrue(keys == Seq(Some("bk-1")))
       },
+      test("start by message with a blank businessKey: its correlation key, no business id - a running instance (its older key) is a 409 on every try") {
+        val cluster = StubCluster: request =>
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
+          else 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some(" ")).exit
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(
+            keys == Seq(Some(" "), Some(" "), None),
+            cluster.jsonBodies.forall(_.hcursor.downField("businessId").failed)
+          )
+      },
       test("start by message without businessKey, landed in a running instance (its older key): 409 - no business id, the message's partition") {
         val cluster = StubCluster(_ => 200 -> """{"messageKey":"999","processInstanceKey":"500"}""")
         given C8RestClient = cluster.client()

@@ -470,8 +470,11 @@ object C8ProcessInstanceService:
     * Known limit: a message without correlation key lands in a running instance only through an
     * event whose correlation key is empty (`""`) - and, with a business id, only in an instance
     * with the same one. The BPMNs correlate with `=camunda.processInstance.businessId`, which is
-    * that business id. A BPMN with an empty correlation key would get no 409 there. Not checked
-    * against a cluster with several partitions (c8run has one).
+    * that business id. A BPMN with an empty correlation key would get no 409 there.
+    *
+    * Checked against c8run 8.10.8 with three partitions (`C8RestIntegrationTest`, «sent again
+    * without key»): the started instance is on the partition of its business id; without this
+    * the start was taken for a running instance - a 409.
     */
   private[c8] final case class StartCorrelation(
       response: C8RestModel.MessageCorrelationResult,
