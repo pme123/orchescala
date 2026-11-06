@@ -45,7 +45,7 @@ class C8WorkerRegistry(c8Client: C8Client)
           )
         else logDebug(s"Camunda 8 cluster $version")
       .catchAll(err =>
-        logWarning(s"Camunda 8 cluster version not read ($err) - Orchescala needs 8.10 (camunda.processInstance.key).")
+        logWarning(s"Camunda 8 cluster version could not be verified ($err) - Orchescala needs 8.10 (camunda.processInstance.key).")
       )
 
   private def registerWorker(worker: C8Worker[?, ?], client: CamundaClient) =
@@ -76,7 +76,8 @@ object C8WorkerRegistry:
   def before810(version: String): Boolean =
     MajorMinor.findFirstMatchIn(Option(version).getOrElse("").trim) match
       case Some(m) =>
-        val (major, minor) = (m.group(1).toInt, m.group(2).toInt)
-        major < 8 || (major == 8 && minor < 10)
+        (m.group(1).toIntOption, m.group(2).toIntOption) match
+          case (Some(major), Some(minor)) => major < 8 || (major == 8 && minor < 10)
+          case _                          => false
       case None    => false
 end C8WorkerRegistry

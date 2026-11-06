@@ -15,5 +15,7 @@ class C8ClusterVersionTest extends FunSuite:
     // unknown: no warning
     assert(!C8WorkerRegistry.before810(""))
     assert(!C8WorkerRegistry.before810(null))
+    assert(!C8WorkerRegistry.before810("abc"))
+    assert(!C8WorkerRegistry.before810("99999999999.1"))
 
 end C8ClusterVersionTest
