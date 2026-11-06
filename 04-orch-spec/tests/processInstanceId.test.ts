@@ -1,5 +1,5 @@
-// `processInstanceId`: in Camunda 8 the InitWorker sets it — without an InitWorker it is missing,
-// that is why it is unknown there (and its use is reported).
+// The own process instance: Camunda 7 `processInstanceId` (execution.processInstanceId),
+// Camunda 8 `camunda.processInstance.key` in FEEL (8.10) — no worker sets a variable.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -30,22 +30,29 @@ const knowsKey = (topic: string, engine: ProcessSpec['engine']): boolean => {
   return processVariables(spec, null).some(v => v.name === 'processInstanceId');
 };
 
-test('Camunda 8: processInstanceId is known with an InitWorker - it sets it', () => {
-  assert.ok(knowsKey(PID, 'c8'));
+test('Camunda 8: processInstanceId is unknown - also with an InitWorker, it no longer sets it', () => {
+  assert.ok(!knowsKey(PID, 'c8'));
+  assert.ok(!knowsKey('acme-other-topic', 'c8'));
 });
 
-test('Camunda 8: without an InitWorker processInstanceId is unknown - nobody sets it', () => {
-  assert.ok(!knowsKey('acme-other-topic', 'c8'));
+test('Camunda 8: camunda.processInstance.key is known - with and without an InitWorker', () => {
+  for (const topic of [PID, 'acme-other-topic']) {
+    const spec = { ...importBpmn(bpmn(topic), 'key.bpmn').spec, engine: 'c8' as const };
+    for (const expr of ['= camunda.processInstance.key', '= string(camunda.processInstance.key)', '= "cancel-" + string(camunda.processInstance.key)', '= camunda.processInstance.businessId'])
+      assert.deepEqual(checkFeel(expr, processVariables(spec, null)).issues.filter(i => i.level === 'error'), [], `${topic}: ${expr}`);
+  }
 });
 
 test('Camunda 7: processInstanceId is always known - the export uses execution.processInstanceId', () => {
   assert.ok(knowsKey('acme-other-topic', 'c7'));
 });
 
-test('Camunda 8: the old name processInstanceKey is reported with the new one', () => {
+test('Camunda 8: the old variables processInstanceId and processInstanceKey are reported with the own key', () => {
   const spec = { ...importBpmn(bpmn(PID), 'key.bpmn').spec, engine: 'c8' as const };
-  const r = checkFeel('= processInstanceKey', processVariables(spec, null));
-  assert.ok(r.issues.some(i => i.level === 'error' && i.text.includes('processInstanceId')));
+  for (const old of ['processInstanceId', 'processInstanceKey']) {
+    const r = checkFeel(`= ${old}`, processVariables(spec, null));
+    assert.ok(r.issues.some(i => i.level === 'error' && i.text.includes('camunda.processInstance.key')), old);
+  }
 });
 
 // What the gateway sets: the identity of the start always, the one of the actor only after a task

@@ -794,8 +794,8 @@ und Doku stehen in `democompany-patterns`:
   gibt nichts zurück (C8: `propagateAllParentVariables` und
   `propagateAllChildVariables` aus). Was er damit macht, etwa einem Fremdsystem
   melden, ist seine Sache. Mit «Mocks und Identität weitergeben» an derselben
-  Call Activity gelten Mocks und Identität auch dort. Auf C8 setzt der
-  InitWorker `processInstanceId` — der Prozess braucht «Init Process».
+  Call Activity gelten Mocks und Identität auch dort. Die Instanz ist auf C8
+  `string(camunda.processInstance.key)` (ab 8.10) — «Init Process» braucht es dafür nicht.
   Die Prozess-ID liest C7 zur Laufzeit; C8 kennt sie dort nicht, sie kommt
   beim Einfügen als Text hinein (Parameter «Aufrufender Prozess», Vorgabe
   `{{processId}}`, nur C8). Nach dem Umbenennen des Prozesses erkennt Orch Spec
@@ -1642,12 +1642,11 @@ mit einem kleinen JUEL-Parser: Pfade, Literale, Rechnen (`%`/`mod` →
 Dazu die Camunda-7-Eigenheiten, die in FEEL schlicht Pfade oder Variablen
 sind: Spin (`S(x)`, `JSON(x)`, `.elements()`, `.prop("k")`, `.value()`,
 `.hasProp`, `.jsonPath("$.a")`), `execution.getVariable("x")` → `x`,
-`execution.getProcessInstanceId()` → `processInstanceId`,
+`execution.getProcessInstanceId()` → `string(camunda.processInstance.key)`
+(die eigene Instanz in FEEL, ab Camunda 8.10 — kein Worker setzt dafür eine Variable;
+`processInstanceId` und `processInstanceKey` meldet die Prüfung in C8 als Fehler),
 `getBusinessKey()` → `businessKey`, `getProcessDefinition().getKey()` →
-`processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen;
-`processInstanceId` setzt der InitWorker, als String, immer die eigene — erst wenn
-er fertig ist, an seinem eigenen Task ist sie noch leer (gemeldet); ohne InitWorker
-ist sie unbekannt),
+`processDefinitionKey` (so heissen sie in den Camunda-8-Prozessen),
 `result.get("k")` → `result.k` und Zeitketten wie
 `dateTime().toLocalDate().plusYears(1)` → `today() + duration("P1Y")`. Über
 alle globex-Prozesse bleiben von gut 4000 Ausdrücken ein Dutzend übrig —
@@ -1736,9 +1735,10 @@ am Rand» — mit Name und, bei einer Nachricht, der Korrelation.
 
 Bei einer wartenden Nachricht wählt man unter «Korrelation» einen der beiden
 Wege des Gateways: `businessKey` oder `processInstanceId`. In Camunda 8 wird
-daraus der Korrelationsschlüssel `=businessKey` bzw. `=processInstanceId` (die
-ID der Instanz, gesetzt vom InitWorker; der alte Name `processInstanceKey` wird
-gemeldet). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
+daraus der Korrelationsschlüssel `=businessKey` bzw.
+`=string(camunda.processInstance.key)` (die eigene Instanz, ab Camunda 8.10; ein altes
+`=processInstanceId` oder `=processInstanceKey` wird gemeldet — ein Klick auf
+«processInstanceId» stellt es um). In Camunda 7 korreliert das Gateway direkt; die Wahl steht dort für die
 Doku und für die Umstellung auf Camunda 8, die sie statt des Vorschlags
 `=businessKey` übernimmt. Den Aufruf am Gateway
 (`POST {{baseUrl}}/message/<name>?…`, wie in Postman) zeigt der
