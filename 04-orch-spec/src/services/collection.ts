@@ -301,6 +301,10 @@ export function serviceIssues(c: ServiceCollectionSpec, s: CollectionService): s
   if (!/^[A-Z][A-Za-z0-9]*$/.test(s.name)) out.push(`«${s.name}» ist kein Scala-Objektname (gross, ohne Sonderzeichen).`);
   if (!API_NAME.test(apiOf(c, s).api)) out.push(`API «${apiOf(c, s).api}» ist kein Paketname (klein, camelCase, Ebenen mit «.»).`);
   if (c.services.some(x => x.id !== s.id && x.name === s.name)) out.push(`«${s.name}» gibt es zweimal.`);
+  // the topic names only the last level — two APIs with the same one collide in the engine
+  const own = apiOf(c, s);
+  const twin = apisOf(c).find(a => !sameApi(a, own) && a.apiVersion === own.apiVersion && apiLeaf(a.api) === apiLeaf(own.api));
+  if (twin) out.push(`Topic «${topicPrefix(own)}» hat auch die API «${twin.api}» — das Topic nennt nur die letzte Ebene.`);
   if (!s.path) out.push('Pfad fehlt — der Katalog kennt ihn nicht (Katalog neu aufbauen: er liest jetzt `val path`), aus der OpenAPI ergänzen (gleicher Name) oder von Hand.');
   else if (!s.path.startsWith('/')) out.push('Der Pfad beginnt mit «/».');
   // the placeholders of the company's base are filled by `serviceBasePath`

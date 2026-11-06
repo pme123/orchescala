@@ -168,7 +168,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     const source = hit?.source ?? 'Katalog';
     const r = syncWithCatalog(cur, hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model);
     if (!r) { setSyncNote(hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt'); return; }
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length) { setSyncNote(`Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`}`); return; }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) { setSyncNote(`Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`}`); return; }
     setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}) });
   };
   const runSync = async () => {
@@ -540,6 +540,8 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & 
     ['Neue Typen der API', sync.addedTypes, isDark ? 'text-emerald-300' : 'text-emerald-700'],
     ['API-Paket aus dem Projekt', sync.renamedApis, isDark ? 'text-sky-300' : 'text-sky-700'],
     ['Aus der Hierarchie übernommen — statt eigener Typen', sync.adopted.map(a => a.from), isDark ? 'text-sky-300' : 'text-sky-700'],
+    ['Aus der Hierarchie, aber mit anderen Feldern — bitte prüfen', sync.adopted.filter(a => a.differs?.length).map(a => `${a.name} (${a.differs!.join(', ')})`), isDark ? 'text-amber-300' : 'text-amber-700'],
+    ['API nicht eindeutig — gleiche Topics im Projekt, nicht umbenannt', sync.ambiguousApis, isDark ? 'text-amber-300' : 'text-amber-700'],
     ['Entfernt — CustomWorker, kein REST-Service', sync.removed, 'text-rose-500'],
   ];
   return (

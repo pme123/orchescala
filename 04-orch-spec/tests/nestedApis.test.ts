@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
 import { catalogProjects, collectionFromCatalog, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
 import {
-  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
+  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceIssues, serviceTopic, workerPackage,
 } from '../src/services/collection';
 import { adoptHierarchyTypes, commonParents, schemaHomes } from '../src/services/hierarchy';
 import { addOperations, readApi } from '../src/services/openApiRest';
@@ -95,6 +95,10 @@ test('an OpenAPI import takes a class of the same name higher up in the hierarch
   const files = collectionFiles(spec, model);
   assert.ok(!files.some(f => f.path.endsWith('/Address.scala')));
   assert.match(files.find(f => f.path.endsWith('/NaturalPerson.scala'))!.content, /import acme\.crm\.domain\.clientMaster\.schema\.Address/);
+  // the same name, but other fields: taken all the same, the difference shown
+  const withZip = { ...twoApis(), types: twoApis().types.map(t => (t.name === 'Address' ? { ...t, fields: [...t.fields!, { id: 'z', name: 'zip', type: 'String' }] } : t)) };
+  assert.deepEqual(adoptHierarchyTypes(withZip, model).adopted.map(a => a.differs), [['-zip']]);
+  assert.equal(adopted[0].differs, undefined);
   // without a hierarchy nothing changes
   const flat = { ...twoApis(), services: twoApis().services.map(s => ({ ...s, api: 'client' })) };
   assert.deepEqual(adoptHierarchyTypes(flat, model).adopted, []);
@@ -162,4 +166,53 @@ test('the Abgleich corrects the API to its levels and takes the class of the hie
   assert.deepEqual(r.adopted.map(a => a.name), ['Address']);
   assert.ok(!r.spec.types.some(t => t.name === 'Address'));
   assert.equal(r.spec.services[0].serviceOut?.type, 'dom:acme.crm.domain.clientMaster.schema.Address');
+});
+
+const getOther = `package acme.crm.domain
+package other.multipleNaturalPersons.v1
+
+object GetOther extends MultipleNaturalPersonsV1:
+
+  final val topicName = "acme-crm-multipleNaturalPersonsV1.GetOther"
+  val path = "GET: /others"
+
+  type ServiceIn = NoInput
+  type ServiceOut = NoOutput
+
+  case class In(
+      key: Long
+  )
+end GetOther
+`;
+
+test('two APIs with the same last level: the catalog marks them, the Abgleich does not guess, the collection says it', () => {
+  const base = catalogModel() as { domainTypes: unknown[]; services: unknown[] };
+  const model = {
+    ...base,
+    domainTypes: [...base.domainTypes, ...scanScala(getOther, 'GetOther.scala')],
+    services: [...base.services, { id: 'acme-crm-multipleNaturalPersonsV1.GetOther', name: 'GetOther', kind: 'service', topic: 'acme-crm-multipleNaturalPersonsV1.GetOther' }],
+  } as never;
+  const [a] = catalogProjects(model)[0].apis;
+  assert.equal(a.api, 'clientMaster.multipleNaturalPersons');
+  assert.deepEqual(a.sameTopics, ['other.multipleNaturalPersons']);
+  const c0 = newCollection({ title: 'Persons', project: 'acme-crm', api: 'multipleNaturalPersons', apiVersion: 1 });
+  const inType = { id: 't-in', name: 'In', kind: 'case' as const, interactionId: 's1', fields: [] };
+  const c: ServiceCollectionSpec = {
+    ...c0, types: [inType],
+    services: [{ id: 's1', name: 'GetPersons', api: 'multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/persons', params: [], inTypeId: 't-in' }],
+  };
+  const r = syncWithCatalog(c, model)!;
+  // not renamed — which of the two is meant, the catalog does not know; the Abgleich says it
+  assert.deepEqual(r.renamedApis, []);
+  assert.deepEqual(r.ambiguousApis, ['multipleNaturalPersons v1: clientMaster.multipleNaturalPersons, other.multipleNaturalPersons']);
+  assert.equal(r.spec, c);
+  // in a collection: both APIs with the same topics
+  const both: ServiceCollectionSpec = {
+    ...c0,
+    services: [
+      { id: 's1', name: 'GetPersons', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/persons', params: [] },
+      { id: 's2', name: 'GetOther', api: 'other.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/others', params: [] },
+    ],
+  };
+  assert.ok(serviceIssues(both, both.services[0]).some(i => /Topic «acme-crm-multipleNaturalPersonsV1» hat auch die API «other\.multipleNaturalPersons»/.test(i)));
 });

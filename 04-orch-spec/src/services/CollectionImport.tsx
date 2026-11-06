@@ -167,6 +167,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                             <span className={`flex-1 truncate text-[10px] ${c.muted}`} title={a.services.map(s => s.name).join(', ')}>
                               {a.services.length}: {a.services.map(s => s.name).join(', ')}
                             </span>
+                            {a.sameTopics?.length ? <span className={`text-[10px] whitespace-nowrap ${isDark ? 'text-amber-300' : 'text-amber-700'}`} title={`Gleiche Topics wie ${a.sameTopics.join(', ')} — der Katalog kann sie nicht unterscheiden; die Services gehören zu ${a.api}`}>⚠ gleiche Topics</span> : null}
                             {where && <span className={`text-[10px] whitespace-nowrap ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`} title="Services dieser API sind schon in einer Collection beschrieben">✓ in «{where}»</span>}
                           </label>
                         );

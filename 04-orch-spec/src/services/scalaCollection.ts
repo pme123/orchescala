@@ -15,7 +15,7 @@ import {
   apiKey, apiOf, apiParents, apisOf, basePathParams, collectionPackage, collectionTrait, domainDir, membersOf, normalPathBase, pathParams, workerPath, sameApi, serviceTopic, workerDir, workerPackage, type ApiRef,
 } from './collection.ts';
 import { reach, schemaHomes, typesOf } from './hierarchy.ts';
-import { baseChain, chainBelowProject, chainFiles, chainPath, chainServiceBasePath, projectBaseVar } from './basePaths.ts';
+import { baseChain, chainBelowProject, chainFiles, chainIssue, chainPath, chainServiceBasePath, projectBaseVar } from './basePaths.ts';
 import { asText, feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types';
@@ -231,6 +231,21 @@ function apiPath(c: ServiceCollectionSpec, s: CollectionService, inType: TypeDef
  * with what Orch Spec knows: the method, the URI of the example, the mappers with the examples.
  * A skeleton for the developer: created once, then merged like the worker.
  */
+/** Each `${…}` of an interpolated string through `f` — braces inside it (a `match`) counted. */
+function interpolations(text: string, f: (expr: string) => string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '$' && text[i + 1] === '{') {
+      let depth = 1;
+      let j = i + 2;
+      for (; j < text.length && depth; j++) depth += text[j] === '{' ? 1 : text[j] === '}' ? -1 : 0;
+      out += `\${${f(text.slice(i + 2, j - 1))}}`;
+      i = j - 1;
+    } else out += text[i];
+  }
+  return out;
+}
+
 function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[], missing: MissingStep[] = []): string {
   const ref = apiOf(c, s);
   const pkg = collectionPackage(ref);
@@ -246,8 +261,11 @@ function workerTest(c: ServiceCollectionSpec, s: CollectionService, idx: TypeInd
     // a nested API: from the base of the project — the test checks the whole chain
     const chain = baseChain(c, ref);
     const full = chain ? `$${projectBaseVar(c.project)}${chainBelowProject(chain)}${uriPath}` : `$serviceBasePath${uriPath}`;
-    const expected = hasIn ? full.replace(/\bin\./g, 'In.example.') : full;
-    if (!/\bin\b/.test(expected)) {
+    // only in the interpolations: `${in.clientKey}` → `${In.example.clientKey}`
+    const expected = interpolations(full, e => (hasIn ? e.replace(/\bin\./g, 'In.example.') : e));
+    const unresolved = { found: false };
+    interpolations(expected, e => { if (/\bin\b/.test(e)) unresolved.found = true; return e; });
+    if (!unresolved.found) {
       tests.push([
         '  test("apiUri"):',
         '    assertEquals(',
@@ -359,7 +377,9 @@ interface MissingStep {
   fromBody: boolean;
 }
 
-function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[], missingOut: MissingStep[] = []): string {
+/** The worker — and the steps of its output mapper that fail when a value is missing (for its test). */
+function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, schemaImports: string[]): { content: string; missing: MissingStep[] } {
+  const missing: MissingStep[] = [];
   const ref = apiOf(c, s);
   const pkg = collectionPackage(ref);
   const members = membersOf(c, s);
@@ -447,7 +467,6 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     if (s.serviceOut) outVars.set('body', { scala: 'body', type: s.serviceOut.type, optional: !!s.serviceOut.optional, collection: !!s.serviceOut.collection });
     outVars.set('headers', { scala: 'headers', headers: s.responseHeaders ?? [] });
     // per field its value — a required one from an optional value is a step that fails with a message
-    const missing = missingOut;
     const mapFields = (fields: Field[], expressionOf: (f: Field) => string, outCase?: string) => {
       const steps: string[] = [];
       const args: string[] = [];
@@ -518,7 +537,7 @@ function worker(c: ServiceCollectionSpec, s: CollectionService, idx: TypeIndex, 
     ...bodyImports(s, idx),
     `import ${pkg}.${s.name}.*`,
   ];
-  return `${workerPackageClause(ref)}
+  const content = `${workerPackageClause(ref)}
 
 ${imports.join('\n')}
 
@@ -529,6 +548,7 @@ ${body.join('\n').replace(/\n+$/, '')}
 
 end ${s.name}Worker
 `;
+  return { content, missing };
 }
 
 /** The own types a type reaches through its fields — itself included. */
@@ -536,6 +556,12 @@ end ${s.name}Worker
  * `serviceBasePath` of an API: the URL of the API and the base of the company —
  * its placeholders are what the company knows (`$bankNumber`), to fill in by hand.
  */
+/** A nested API without its chain although some paths follow its levels — a TODO (none with an own expression). */
+function baseIssue(c: ServiceCollectionSpec, a: ApiRef): string {
+  const issue = c.serviceBasePaths?.[apiKey(a)]?.trim() ? null : chainIssue(c, a);
+  return issue ? `  /* TODO not from the base of the levels: ${issue} */\n` : '';
+}
+
 function serviceBasePath(c: ServiceCollectionSpec, a: ApiRef): string {
   // as the project has it (`s"$basePath/…/banks/$bankNumber"`) — the Abgleich takes it over
   const own = c.serviceBasePaths?.[apiKey(a)]?.trim();
@@ -584,15 +610,11 @@ export function collectionFiles(c: ServiceCollectionSpec, model: Model | null = 
     for (const s of own) out.push({ path: `${dDir}/${s.name}.scala`, content: domainObject(c, s, idx, schemaImports(typesOf(s, c.types))) });
     out.push({
       path: `${wDir}/exports.scala`,
-      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c, a)}\n`,
+      content: `${workerPackageClause(a)}\n\n/** where the API runs — per stage from the configuration, if it differs */\ndef serviceBasePath: String =\n  ${serviceBasePath(c, a)}\n${baseIssue(c, a)}`,
     });
-    const missing = new Map<string, MissingStep[]>();
-    for (const s of own) {
-      const steps: MissingStep[] = [];
-      out.push({ path: `${wDir}/${s.name}Worker.scala`, content: worker(c, s, idx, schemaImports(typesOf(s, c.types)), steps) });
-      missing.set(s.id, steps);
-    }
-    for (const s of own) out.push({ path: `${workerTestDir(a)}/${s.name}WorkerTest.scala`, content: workerTest(c, s, idx, schemaImports(typesOf(s, c.types)), missing.get(s.id) ?? []) });
+    const workers = own.map(s => ({ s, ...worker(c, s, idx, schemaImports(typesOf(s, c.types))) }));
+    for (const w of workers) out.push({ path: `${wDir}/${w.s.name}Worker.scala`, content: w.content });
+    for (const w of workers) out.push({ path: `${workerTestDir(a)}/${w.s.name}WorkerTest.scala`, content: workerTest(c, w.s, idx, schemaImports(typesOf(w.s, c.types)), w.missing) });
   }
   // the types: in the schema of their API, or of the level the APIs share
   const files = new Map<string, ScalaFile[]>();

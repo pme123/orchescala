@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { newCollection } from '../src/services/collection';
-import { baseChain, projectBaseVar } from '../src/services/basePaths';
+import { baseChain, chainFiles, chainIssue, projectBaseVar } from '../src/services/basePaths';
 import { feelCondition, feelToScala } from '../src/services/feelScala';
 import { collectionFiles, descr } from '../src/services/scalaCollection';
 import { indexTypes, renderType } from '../src/scala';
@@ -110,6 +110,8 @@ test('FEEL: `in.` names the In, an element of a list, a case field checked again
   assert.equal(feelToScala('= persons[2]', vars, []).scala, 'body.persons.flatMap(_.lift(1))');
   assert.equal(feelToScala('= persons[-1]', vars, []).scala, 'body.persons.flatMap(_.lastOption)');
   assert.ok(feelToScala('= clientKey[1]', vars, []).todo);
+  // a call is no list of a variable
+  assert.ok(!/headOption/.test(feelToScala('= f(persons)[1]', vars, []).scala ?? ''));
   const byCase = new Map([['clientKey', {
     scala: '(in match { case v: In.ByKey => Some(v.clientKey); case _ => None })', type: 'String', optional: true,
     byCase: { at: 'in', cases: ['In.Standard', 'In.ByKey'], own: { 'In.ByKey': { scala: 'v.clientKey', optional: false } } },
@@ -125,4 +127,54 @@ test('the description has no blanks at the end of a line; a text field takes a d
   assert.match(renderType(t, indexTypes([t], model)), /clientKey = defaultClientKey\.toString/);
   const long: TypeDef = { ...t, fields: [{ id: 'k', name: 'clientKey', type: 'Long' }] };
   assert.match(renderType(long, indexTypes([long], model)), /clientKey = defaultClientKey\n/);
+});
+
+const withPaths = (...paths: string[]): ServiceCollectionSpec => ({
+  ...spec(),
+  services: paths.map((path, i) => ({ ...spec().services[0], id: `s${i}`, name: `Svc${i}`, path })),
+});
+const persons = { project: 'acme-crm', api: 'clientMaster.persons', apiVersion: 1 };
+
+test('the chain: a version after the API only if every service has it and something after it', () => {
+  assert.deepEqual(baseChain(withPaths('/api/ClientMaster/v1/Persons/v2/Read', '/api/ClientMaster/v1/Persons/v2/List'), persons)?.api, ['Persons', 'v2']);
+  // one path ends at the version: the version belongs to the services, for all of them
+  assert.deepEqual(baseChain(withPaths('/api/ClientMaster/v1/Persons/v2', '/api/ClientMaster/v1/Persons/v2/List'), persons)?.api, ['Persons']);
+  assert.deepEqual(baseChain(withPaths('/api/ClientMaster/v1/Persons/v2'), persons)?.api, ['Persons']);
+});
+
+test('the chain: a path that does not follow the levels is a TODO, not a silent fallback', () => {
+  const c = withPaths('/api/ClientMaster/v1/Persons/Read', '/legacy/persons');
+  assert.equal(baseChain(c, persons), null);
+  assert.equal(chainIssue(c, persons), 'the paths of Svc1 do not follow the levels of clientMaster.persons');
+  const exports = collectionFiles(c).find(f => f.path.endsWith('/clientMaster/persons/v1/exports.scala'))!.content;
+  assert.match(exports, /\/\* TODO not from the base of the levels: the paths of Svc1 do not follow the levels of clientMaster\.persons \*\//);
+  // a flat API (no path follows the levels) stays without a note
+  assert.equal(chainIssue(withPaths('/persons/read'), persons), null);
+});
+
+test('a level two APIs reach with other segments: the first says them, the other is a TODO', () => {
+  const c: ServiceCollectionSpec = {
+    ...spec(),
+    services: [
+      { ...spec().services[0], id: 'a', name: 'ReadPersons', path: '/api/ClientMaster/v1/Persons/Read' },
+      { ...spec().services[0], id: 'b', name: 'ReadAccounts', api: 'clientMaster.accounts', path: '/api/ClientMaster/v2/Accounts/Read' },
+    ],
+  };
+  const files = chainFiles(c, [persons, { ...persons, api: 'clientMaster.accounts' }]);
+  const level = files.find(f => f.path.endsWith('/worker/clientMaster/exports.scala'))!.content;
+  assert.match(level, /s"\$crmBasePath\/ClientMaster\/v1"\n {2}\/\* TODO other APIs have other segments here: ClientMaster\/v2 \(clientMaster\.accounts v1\) \*\//);
+});
+
+test('the URI of the test: only the interpolations name the In — a segment `in.x` of the path stays', () => {
+  const keyIn: TypeDef = { id: 't-in', name: 'In', kind: 'case', interactionId: 's1', fields: [{ id: 'k', name: 'key', type: 'String' }] };
+  const c: ServiceCollectionSpec = {
+    ...spec(),
+    types: [person, response, keyIn, outType],
+    services: [{
+      ...spec().services[0], method: 'GET', path: '/api/ClientMaster/v1/Persons/in.json/{key}', serviceIn: undefined, bodyMappings: [],
+      params: [{ name: 'key', in: 'path', type: 'String', required: true, expression: '= in.key' }],
+    }],
+  } as never;
+  const t = collectionFiles(c).find(f => f.path.endsWith('WorkerTest.scala'))!.content;
+  assert.match(t, /s"\$crmBasePath\/ClientMaster\/v1\/Persons\/in\.json\/\$\{In\.example\.key\}"/);
 });

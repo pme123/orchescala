@@ -37,6 +37,11 @@ export interface CatalogApi extends ApiRef {
   /** `acme-crm-clientV1` */
   prefix: string;
   services: ServiceDef[];
+  /**
+   * other APIs of the project with the same topics (`clientMaster.persons` and `other.persons`,
+   * both `acme-crm-personsV1`) — the catalog cannot tell them apart; this entry is the first one
+   */
+  sameTopics?: string[];
 }
 
 export interface CatalogProject {
@@ -84,12 +89,12 @@ export function catalogProjects(model: Model | null): CatalogProject[] {
     const [, project, leaf, version] = m;
     const p = projects.get(project) ?? { project, ...(s.group ? { group: s.group } : {}), apis: [] };
     const prefix = `${project}-${leaf}V${version}`;
+    const api = nestedApi(project, leaf, Number(version), catalogObject(s.id, model)?.pkg);
     let a = p.apis.find(x => x.prefix === prefix);
     if (!a) {
-      const api = nestedApi(project, leaf, Number(version), catalogObject(s.id, model)?.pkg);
       a = { prefix, project, api, apiVersion: Number(version), services: [] };
       p.apis.push(a);
-    }
+    } else if (a.api !== api && !a.sameTopics?.includes(api)) a.sameTopics = [...(a.sameTopics ?? []), api];
     if (!a.services.some(x => x.id === s.id)) a.services.push(s);
     projects.set(project, p);
   }
@@ -334,6 +339,8 @@ export interface CatalogSync {
   addedTypes: string[];
   /** APIs the project has in a hierarchy — `multipleNaturalPersons v1 → clientMaster.multipleNaturalPersons` */
   renamedApis: string[];
+  /** APIs whose topics several APIs of the project have — not renamed: `persons v1: clientMaster.persons, other.persons` */
+  ambiguousApis: string[];
   /** types of the collection the project has higher up in the hierarchy — taken from there */
   adopted: Adopted[];
 }
@@ -358,14 +365,23 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   // has it in a hierarchy (`clientMaster.multipleNaturalPersons`), the collection follows
   let c = given;
   const renamedApis: string[] = [];
+  const ambiguousApis: string[] = [];
   for (const x of apisOf(given)) {
     const a = project.apis.find(y => y.prefix === topicPrefix(x));
     if (!a || sameApi(a, x)) continue;
+    // several APIs of the project with these topics: which one is meant, the catalog does not know
+    if (a.sameTopics?.length) {
+      if (!a.sameTopics.includes(x.api)) ambiguousApis.push(`${x.api} v${x.apiVersion}: ${[a.api, ...a.sameTopics].join(', ')}`);
+      continue;
+    }
     c = renameApi(c, x, a);
     renamedApis.push(`${x.api} v${x.apiVersion} → ${a.api}`);
   }
   const apis = project.apis.filter(a => apisOf(c).some(x => sameApi(x, a)));
-  if (!apis.length) return null;
+  // nothing to compare with — but say which API is not clear
+  if (!apis.length) return ambiguousApis.length
+    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], renamedApis: [], ambiguousApis, adopted: [] }
+    : null;
   const fresh = collectionFromCatalog(project, apis, model, c.title);
   const keyOf = (s: CollectionService) => serviceTopic(apiOf(c, s), s);
   const freshByKey = new Map(fresh.services.map(s => [keyOf(s), s]));
@@ -480,7 +496,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   });
   // own types the project has higher up in the hierarchy: taken from there
   const h = adoptHierarchyTypes(spec, model);
-  return { spec: h.spec, added: added.map(s => s.name), updated, removed, addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)), renamedApis, adopted: h.adopted };
+  return { spec: h.spec, added: added.map(s => s.name), updated, removed, addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)), renamedApis, ambiguousApis, adopted: h.adopted };
 }
 
 /**

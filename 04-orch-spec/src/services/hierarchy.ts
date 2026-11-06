@@ -117,6 +117,26 @@ export interface Adopted {
   name: string;
   /** where it lives now — `acme.crm.domain.clientMaster.schema.Gender` */
   from: string;
+  /**
+   * what only one of the two has — the fields (or cases) by name: `-zip` only the collection's,
+   * `+street` only the class of the hierarchy; empty when they match
+   */
+  differs?: string[];
+}
+
+/** The fields (or cases) only one of the two has — compared by name: the types are of two worlds. */
+function differences(t: TypeDef, d: DomainType): string[] {
+  const names = (xs: { name: string }[] | undefined) => new Set((xs ?? []).map(x => x.name));
+  const pairs: [Set<string>, Set<string>][] = [[names(t.fields), names(d.fields)]];
+  if (t.kind === 'enum' || d.kind === 'enum') {
+    const ours = names(t.values);
+    const theirs = new Set([...(d.values ?? []), ...(d.cases ?? []).map(x => x.name)]);
+    pairs.push([ours, theirs]);
+  }
+  return pairs.flatMap(([ours, theirs]) => [
+    ...[...ours].filter(n => !theirs.has(n)).map(n => `-${n}`),
+    ...[...theirs].filter(n => !ours.has(n)).map(n => `+${n}`),
+  ]);
 }
 
 /**
@@ -140,7 +160,9 @@ export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | nul
     const hit = inHierarchy(t.name, by, model);
     if (!hit) continue;
     replace.set(t.id, domainRef(hit.id));
-    adopted.push({ name: t.name, from: hit.id });
+    // the same name, but other fields: taken all the same — the preview shows it to check
+    const differs = hit.kind === 'alias' ? [] : differences(t, hit);
+    adopted.push({ name: t.name, from: hit.id, ...(differs.length ? { differs } : {}) });
   }
   if (!replace.size) return { spec: c, adopted };
   const map = (type: string) => replace.get(type) ?? type;

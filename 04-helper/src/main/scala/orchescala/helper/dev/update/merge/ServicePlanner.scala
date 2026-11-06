@@ -114,9 +114,10 @@ object ServicePlanner:
 
   private[merge] val Version = "v\\d+".r
 
-  /** `main` or `test` - `03-worker/src/test/scala/…/GetClientWorkerTest.scala` is a test. */
+  /** `main` or `test` - `03-worker/src/test/scala/…/GetClientWorkerTest.scala` is a test: the segment after `src`. */
   private[merge] def sourceSet(file: OrchSpecFile): String =
-    if file.path.segments.lift(2).contains("test") then "test" else "main"
+    val segments = file.path.segments
+    if segments.lift(segments.indexOf("src") + 1).contains("test") && segments.contains("src") then "test" else "main"
 
   /** `clientMaster/schema` - the shared classes of a level: a `schema/` not inside a version. */
   private[merge] def isSharedSchema(dir: os.RelPath): Boolean =

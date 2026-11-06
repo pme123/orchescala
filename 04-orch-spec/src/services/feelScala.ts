@@ -91,7 +91,8 @@ function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeD
   if (list) return list;
 
   // an element of a list: `persons[1]` (FEEL counts from 1, `[-1]` is the last) — it may be missing
-  const indexed = /^(.+?)\s*\[\s*(-?\d+)\s*\]$/.exec(body);
+  // only a path names a list (`persons[1]`, `body.persons[-1]`) — not a call (`f(x)[1]`)
+  const indexed = /^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\[\s*(-?\d+)\s*\]$/.exec(body);
   if (indexed) {
     const n = Number(indexed[2]);
     const list = translate(`= ${indexed[1]}`, vars, types);

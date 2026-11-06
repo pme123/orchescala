@@ -645,6 +645,49 @@ class SpecMergeTest extends FunSuite:
       val api = os.read(project / apiCreatorRel)
       assert(api.contains("import acme.demo.domain.clientMaster.naturalPersons.v1.*\n    group(\"NaturalPersonsV1\")("), api)
 
+  private def nestedApi(version: Int, withWorker: Boolean = true): Seq[(String, String)] =
+    val domain = s"01-domain/src/main/scala/acme/demo/domain/clientMaster/naturalPersons/v$version"
+    val worker = s"03-worker/src/%s/scala/acme/demo/worker/clientMaster/naturalPersons/v$version"
+    val pkg    = s"package acme.demo.worker.clientMaster.naturalPersons.v$version"
+    Seq(
+      s"$domain/NaturalPersonsV$version.scala" -> s"package acme.demo.domain\npackage clientMaster.naturalPersons.v$version\n\ntrait NaturalPersonsV$version",
+      s"$domain/GetPersons.scala"              -> s"package acme.demo.domain\npackage clientMaster.naturalPersons.v$version\n\nobject GetPersons\nend GetPersons",
+      s"${worker.format("test")}/GetPersonsWorkerTest.scala" ->
+        s"$pkg\n\nclass GetPersonsWorkerTest extends munit.FunSuite\nend GetPersonsWorkerTest"
+    ) ++ (if withWorker then Seq(s"${worker.format("main")}/GetPersonsWorker.scala" -> s"$pkg\n\nclass GetPersonsWorker\nend GetPersonsWorker") else Seq.empty)
+  end nestedApi
+
+  test("services: two versions of a nested API - each in its directory"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(nestedApi(1) ++ nestedApi(2)*))))
+      assertEquals(plan.notes, Seq.empty)
+      val workers = plan.files.map(_.path).filter(_.endsWith("GetPersonsWorker.scala")).sorted
+      assertEquals(workers, Seq(
+        "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala",
+        "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v2/GetPersonsWorker.scala"
+      ))
+      val tests = plan.files.map(_.path).filter(_.endsWith("GetPersonsWorkerTest.scala")).sorted
+      assertEquals(tests, Seq(
+        "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala",
+        "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v2/GetPersonsWorkerTest.scala"
+      ))
+      // the WorkerApp: a worker of the same name is registered once only (see OrchSpecRegistration.register)
+      val app = os.read(project / workerAppRel)
+      assert(app.contains("private lazy val naturalPersonsV1Workers =\n    import acme.demo.worker.clientMaster.naturalPersons.v1.*"), app)
+
+  test("services: a worker test without its worker - the test in the test sources, nothing registered for it"):
+    inProject: project =>
+      val (plan, _) = run(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(nestedApi(1, withWorker = false)*))))
+      assertEquals(path(project, "GetPersonsWorkerTest.scala"), "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala")
+      assertEquals(actionOf(plan, project, "GetPersonsWorkerTest.scala"), Action.create)
+      assert(!os.read(project / workerAppRel).contains("GetPersonsWorkerTest"))
+
+  test("services: the base path of a level of another project is refused"):
+    inProject: project =>
+      val foreign = nestedApi(1) :+
+        ("03-worker/src/main/scala/other/worker/clientMaster/exports.scala" -> "package other.worker\npackage clientMaster\n\ndef clientMasterBasePath = ???")
+      intercept[IllegalArgumentException](SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(foreign*))), strict = true))
+
   test("services: an export of another project is refused"):
     inProject: project =>
       val foreign = ServicesExport("x", scalaFiles("01-domain/src/main/scala/other/domain/client/v1/A.scala" -> "package other.domain.client.v1"))
