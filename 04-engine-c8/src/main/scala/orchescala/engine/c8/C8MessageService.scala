@@ -24,7 +24,7 @@ class C8MessageService(using
     ZIO.foreach(variables)(withoutCallerIdentityCorrelation).flatMap: variables =>
       withActorIdentityOfMessage(name, processInstanceId, identityCorrelation, variables)
     .flatMap: variables =>
-      // like C7: the processInstanceId wins - the BPMN takes it with correlationKey="=processInstanceId"
+      // like C7: the processInstanceId wins - the BPMN takes it with correlationKey="=string(camunda.processInstance.key)"
       val correlationKey = processInstanceId.orElse(businessKey)
       val variablesJson  = variables.fold(Json.obj())(Json.fromJsonObject)
       for
@@ -81,7 +81,7 @@ class C8MessageService(using
         failed match
           case e: EngineError.ServiceRequestError if e.errorCode == 404 && e.errorMsg.contains("subscription") =>
             e.copy(errorMsg = s"${e.errorMsg} - the correlationKey of the message in the BPMN " +
-              "(zeebe:subscription) must give this value: =processInstanceId resp. =businessKey")
+              "(zeebe:subscription) must give this value: =string(camunda.processInstance.key) resp. =businessKey")
           case e => e
       .map: resp =>
         val processInstanceId = resp.processInstanceKey.getOrElse(resp.messageKey)
