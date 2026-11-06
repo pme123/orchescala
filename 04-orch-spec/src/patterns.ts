@@ -1262,7 +1262,7 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
     matchBlocks(h.fr, graphOf(proc), new Set(), h.match.b).forEach((x, bi) => {
       if (!x) return;
       const keep = keepEventSubExtras(h.fr.blocks[bi], x.entry, x.b, proc);
-      if (keep) extras.push({ patternId: h.patternId, ...keep });
+      if (keep) extras.push({ patternId: h.patternId, targetId: null, ...keep });
       for (const el of x.elements) if (el.parentElement) dropWithRefs(w, el);
     });
   }
@@ -1272,6 +1272,8 @@ export function stripPatternItems(xml: string, defs: PatternDef[], engine: Engin
 /** What a pattern's event sub process holds beyond the pattern - kept over a conversion */
 export interface EventSubExtras {
   patternId: string;
+  /** the element the pattern hangs on - null: on the process */
+  targetId: string | null;
   /** the pattern's sub process (its ID in the pattern BPMN) and its ID in the diagram */
   block: string;
   esp: string;
@@ -1285,7 +1287,7 @@ export interface EventSubExtras {
  * Has the event sub process nodes of its own? Then they and all its flows move to the process
  * (`proc`) - the sub process itself goes with the pattern - and the result says where they belong.
  */
-function keepEventSubExtras(block: Fragment['blocks'][number], tn: Element, b: Binding, proc: Element): Omit<EventSubExtras, 'patternId'> | null {
+function keepEventSubExtras(block: Fragment['blocks'][number], tn: Element, b: Binding, proc: Element): Omit<EventSubExtras, 'patternId' | 'targetId'> | null {
   const pairs = eventSubPairs(block, tn, b);
   if (!pairs.length) return null;
   const mine = new Set(pairs.map(([, t]) => t));
@@ -1317,38 +1319,53 @@ export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs:
   const hits = detectIn(doc, defs, engine).hits;
   const w = new Writer(doc);
   const issues: string[] = [];
-  const rename = (ex: EventSubExtras, el: Element, id: string) => {
-    const was = el.getAttribute('id');
-    if (!was || was === id) return;
+  /** gives the node its former ID; if that is taken, it keeps its new one - returned */
+  const rename = (ex: EventSubExtras, el: Element, id: string): string => {
+    const was = el.getAttribute('id') ?? '';
+    if (!was || was === id) return id;
     if (byIdIn(doc.documentElement, id)) {
       issues.push(`«${nameOf(ex.patternId)}»: «${was}» bekommt seine frühere ID «${id}» nicht zurück (vergeben) — den Schritt der Spezifikation dazu prüfen.`);
-      return;
+      return was;
     }
     el.setAttribute('id', id);
     const di = w.di.get(was);
     if (di) { di.setAttribute('bpmnElement', id); w.di.delete(was); w.di.set(id, di); }
+    return id;
   };
+  /** the sub processes already given their steps - two instances never share one */
+  const used = new Set<Element>();
   let changed = false;
   for (const ex of extras) {
     // the block of this pattern with the same sub process in the pattern BPMN
     let found: { hit: InternalHit; bi: number; x: { b: Binding; entry: Element } } | null = null;
-    for (const hit of hits.filter(h => h.patternId === ex.patternId && !h.targetId)) {
+    // (its former ID first - then any other of the pattern not yet used)
+    const cands: Array<{ hit: InternalHit; bi: number; x: { b: Binding; entry: Element } }> = [];
+    for (const hit of hits.filter(h => h.patternId === ex.patternId && (h.targetId ?? null) === ex.targetId)) {
       const bi = hit.fr.blocks.findIndex(bl => bl.entry.getAttribute('id') === ex.block);
-      const x = bi >= 0 ? matchBlocks(hit.fr, graphOf(proc), new Set(), hit.match.b)[bi] : null;
-      if (x) { found = { hit, bi, x }; break; }
+      const scope = hit.targetId ? byIdIn(doc.documentElement, hit.targetId)?.parentElement ?? proc : proc;
+      const x = bi >= 0 ? matchBlocks(hit.fr, graphOf(scope), new Set(), hit.match.b)[bi] : null;
+      if (x && !used.has(x.entry)) cands.push({ hit, bi, x });
     }
+    found = cands.find(c => c.x.entry.getAttribute('id') === ex.esp) ?? cands[0] ?? null;
     if (!found) { issues.push(lost(ex)); continue; }
     const { hit, bi, x } = found;
     const esp = x.entry;
+    used.add(esp);
+    /** former ID → the one the node has now (if the former was taken) */
+    const now = new Map<string, string>();
     for (const [f, t] of eventSubPairs(hit.fr.blocks[bi], esp, x.b)) {
       const id = ex.nodes[f.getAttribute('id') ?? ''];
-      if (id) rename(ex, t, id);
+      if (id) { const got = rename(ex, t, id); if (got !== id) now.set(id, got); }
     }
     rename(ex, esp, ex.esp);
     for (const f of kids(esp).filter(c => local(c) === 'sequenceFlow')) drop(w, f);
+    const home = esp.parentElement ?? proc;
     for (const id of ex.ids) {
-      const el = kids(proc).find(c => c.getAttribute('id') === id);
-      if (el) esp.appendChild(el);
+      const el = kids(home).find(c => c.getAttribute('id') === id) ?? kids(proc).find(c => c.getAttribute('id') === id);
+      if (!el) continue;
+      esp.appendChild(el);
+      // a flow to a node that kept its new ID follows it
+      for (const a of ['sourceRef', 'targetRef']) { const r = el.getAttribute(a); if (r && now.has(r)) el.setAttribute(a, now.get(r)!); }
     }
     // incoming / outgoing after documentation and extensionElements, as BPMN wants them
     const flows = kids(esp).filter(c => local(c) === 'sequenceFlow');
@@ -2159,7 +2176,7 @@ function removeIn(xml: string, def: PatternDef, engine: EngineId, targetId: stri
       matchBlocks(fr, g2, new Set(), builtins(targetId ? t : null, proc)).forEach((x, bi) => {
         if (!x) return;
         const kept = keep ? keepEventSubExtras(fr.blocks[bi], x.entry, x.b, scope) : null;
-        if (kept) extras.push({ patternId: def.id, ...kept });
+        if (kept) extras.push({ patternId: def.id, targetId, ...kept });
         for (const el of x.elements) if (el.parentElement) dropWithRefs(w, el);
       });
     }

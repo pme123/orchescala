@@ -59,7 +59,7 @@ test('fixedStart: the name up to its first dynamic part - JUEL, placeholder, FEE
   assert.equal(fixedStart('cancel-{processInstanceId}'), 'cancel-');
   assert.equal(fixedStart('="cancel-" + string(camunda.processInstance.key)'), 'cancel-');
   assert.equal(fixedStart('= "orderCreated"'), 'orderCreated');
-  assert.equal(fixedStart('="a\\"b" + x'), 'a\\"b');
+  assert.equal(fixedStart('="a\\"b" + x'), 'a"b');
   assert.equal(fixedStart('=someVariable'), '');
   assert.equal(fixedStart('orderCreated'), 'orderCreated');
 });

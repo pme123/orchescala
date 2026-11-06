@@ -630,7 +630,8 @@ function objectKind(t: DomainType): InteractionKind | null {
  */
 export function fixedStart(name: string): string {
   const t = name.trim();
-  if (t.startsWith('=')) return /^=\s*"((?:[^"\\]|\\.)*)"/.exec(t)?.[1] ?? '';
+  // (the literal as text - `\"` is `"`)
+  if (t.startsWith('=')) return (/^=\s*"((?:[^"\\]|\\.)*)"/.exec(t)?.[1] ?? '').replace(/\\(.)/g, '$1');
   return t.split('${')[0].split('{')[0];
 }
 

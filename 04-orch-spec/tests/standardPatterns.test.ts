@@ -1092,13 +1092,17 @@ test('graftEventSubExtras: what cannot go back is reported - no block of the pat
   for (const engine of ['c7', 'c8'] as const) {
     // no «Abbruch per Signal» in the diagram: the own steps stay where they are - with a note
     const plain = diagram(engine, 'task');
-    const none = graftEventSubExtras(plain, [{ patternId: 'cancel-by-signal', block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Target'] }], STANDARD_PATTERNS, engine);
+    const none = graftEventSubExtras(plain, [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Target'] }], STANDARD_PATTERNS, engine);
     assert.equal(none.xml, plain, engine);
     assert.deepEqual(none.issues, ['«Abbruch per Signal»: die eigenen Schritte im Ereignis-Subprozess (Target) liessen sich nicht wieder hineinsetzen — sie stehen auf Prozessebene, von Hand prüfen.'], engine);
     // the former ID of the start is taken by another element: it keeps its new one - with a note
-    const xml = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml.replace(/CancelStartEvent/g, 'NewStart');
-    const taken = graftEventSubExtras(xml, [{ patternId: 'cancel-by-signal', block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: { CancelStartEvent: 'Start' }, ids: [] }], STANDARD_PATTERNS, engine);
+    // (a flow of its own to the former ID waits on the process level - it follows the new one)
+    const xml = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml.replace(/CancelStartEvent/g, 'NewStart')
+      .replace('</bpmn:process>', '<bpmn:sequenceFlow id="Own" sourceRef="Start" targetRef="CanceledEndEvent" /></bpmn:process>');
+    const taken = graftEventSubExtras(xml, [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: { CancelStartEvent: 'Start' }, ids: ['Own'] }], STANDARD_PATTERNS, engine);
     assert.ok(taken.xml.includes('id="NewStart"'), engine);
+    assert.match(taken.xml, /triggeredByEvent="true"[^]*<bpmn:sequenceFlow id="Own" sourceRef="NewStart" targetRef="CanceledEndEvent" \/>[^]*<\/bpmn:subProcess>/, engine);
+    assert.match(taken.xml, /id="NewStart"[^>]*>\s*<bpmn:outgoing>Own<\/bpmn:outgoing>/, engine);
     assert.deepEqual(taken.issues, ['«Abbruch per Signal»: «NewStart» bekommt seine frühere ID «Start» nicht zurück (vergeben) — den Schritt der Spezifikation dazu prüfen.'], engine);
   }
 });
