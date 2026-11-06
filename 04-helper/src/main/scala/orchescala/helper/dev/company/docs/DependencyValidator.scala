@@ -7,7 +7,7 @@ case class DependencyValidator()(using
     val configs: Seq[DocProjectConfig]
 ) extends DependencyCreator:
 
-  @throws[IllegalStateException]
+  // only a warning: the release page shows these dependencies in red (`2.30.*`)
   lazy val validateDependencies: Unit = {
     configs
       .map { packageConf =>
@@ -25,9 +25,9 @@ case class DependencyValidator()(using
           "All Packages have dependencies that are correctly configured in VERSION.conf."
         )
       case failures =>
-        throw new IllegalStateException(
-          s"There are Package Config dependencies that are not in the VERSION.conf listed:\n${failures
-              .mkString("\n")}\n${configs.map(c => c.fullName).mkString("\n")}"
+        println(
+          s"""${Console.YELLOW_B}There are Package Config dependencies that are not in the VERSION.conf listed:
+             |${failures.mkString("\n")}${Console.RESET}""".stripMargin
         )
   }
 
