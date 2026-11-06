@@ -48,7 +48,9 @@ object SpecRoutes:
           // bytes, not characters - the server reads no more than maxBody anyway (serverConfig)
           if bytes.length > maxBody then ZIO.succeed(tooLarge)
           else
-            // anything else than an Either is a bug - a 500 with the cause in the log, never a defect
+            // anything else than an Either is a bug - a 500 with the cause in the log, never a defect.
+            // The blocking pool, not the compute pool: a diff of big pages takes a while and must not
+            // hold the threads that serve the other requests; maxParallel bounds it.
             running.withPermit(ZIO.attemptBlocking(utf8(bytes).flatMap(diff))).foldCauseZIO(
               cause => ZIO.logWarningCause("POST /spec/pages/diff failed", cause).as(Response.status(Status.InternalServerError)),
               result => ZIO.succeed(result.fold(badRequest, json => Response.json(json.noSpaces)))

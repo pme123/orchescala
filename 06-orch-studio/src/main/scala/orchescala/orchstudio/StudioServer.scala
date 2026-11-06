@@ -19,7 +19,10 @@ abstract class StudioServer extends ZIOAppDefault:
   /** More routes of the company - they come before the studio's. */
   def companyRoutes: Routes[Any, Response] = Routes.empty
 
-  def routes: Routes[Any, Response] = companyRoutes ++ SpecRoutes.routes ++ SiteRoutes(config.site).routes
+  def routes: Routes[Any, Response] = routesOf(config)
+
+  private def routesOf(settings: StudioConfig): Routes[Any, Response] =
+    companyRoutes ++ SpecRoutes.routes ++ SiteRoutes(settings.site).routes
 
   def run: ZIO[Any, Throwable, Unit] =
     // the settings come from the environment (withEnv) - a wrong one ends the start with one line
@@ -28,20 +31,20 @@ abstract class StudioServer extends ZIOAppDefault:
       .tapError(e => ZIO.logError(s"Orch Studio does not start - the settings: ${Option(e.getMessage).getOrElse(e.toString)}"))
       .flatMap(serve)
 
-  private def serve(config: StudioConfig): ZIO[Any, Throwable, Unit] =
-    val url = s"http://${config.host}:${config.port}"
+  private def serve(settings: StudioConfig): ZIO[Any, Throwable, Unit] =
+    val url = s"http://${settings.host}:${settings.port}"
     val start =
       for
         _ <- ZIO.logInfo(s"Orch Studio on $url")
         _ <- ZIO.when(SiteSource.orchDocApps().isEmpty):
                ZIO.logWarning("orchescala-orch-doc is not on the classpath - no orch-doc, orch-spec, orch-ops")
-        _ <- ZIO.logInfo(s"Documentation: ${config.siteDir.fold("from the classpath (site/)")(_.toString)}")
+        _ <- ZIO.logInfo(s"Documentation: ${settings.siteDir.fold("from the classpath (site/)")(_.toString)}")
         _ <- ZIO.logInfo(s"  orch-doc  $url/site/")
         _ <- ZIO.logInfo(s"  orch-spec $url/site/spec/")
         _ <- ZIO.logInfo(s"  orch-ops  $url/site/ops/")
-        _ <- Server.serve(routes)
+        _ <- Server.serve(routesOf(settings))
       yield ()
-    start.provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding(config.host, config.port))))
+    start.provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding(settings.host, settings.port))))
 
 end StudioServer
 

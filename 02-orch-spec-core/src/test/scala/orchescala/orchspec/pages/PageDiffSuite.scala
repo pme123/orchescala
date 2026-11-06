@@ -96,6 +96,10 @@ class PageDiffSuite extends munit.FunSuite:
       Right("""[{"kind":"page","label":"Anfangszustand"},{"kind":"changed","key":"0","label":"Text «A»"}]""")
     )
 
+  test("a value that is no object keeps its index - also before a section and inside one"):
+    val body = parse("""[{"type":"text","text":"A"},42,{"type":"section","body":["x",{"type":"text","text":"B"}]}]""").toOption
+    assertEquals(Blocks.flatten(body).map(b => (b.key, b.depth)), Vector(("0", 0), ("2", 0), ("2.1", 1)))
+
   test("sections nested 5000 deep - no stack overflow"):
     import io.circe.Json
     val deep = (1 to 5000).foldLeft(Json.arr()): (body, _) =>
