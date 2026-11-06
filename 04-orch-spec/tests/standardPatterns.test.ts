@@ -705,7 +705,7 @@ for (const engine of ['c7', 'c8'] as const) {
       assert.deepEqual(call.inputs, [
         ['eventKey', '="started"'],
         ['processDefinitionKey', '="acme-demoV1"'],
-        ['processInstanceId', '=processInstanceId'],
+        ['processInstanceId', '=string(camunda.processInstance.key)'],
       ]);
     }
     const hits = detectPatterns(res.xml, STANDARD_PATTERNS, engine).hits.filter(h => h.patternId === 'send-process-event');
