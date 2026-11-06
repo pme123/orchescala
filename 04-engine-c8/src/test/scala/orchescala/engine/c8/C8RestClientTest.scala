@@ -604,6 +604,17 @@ object C8RestClientTest extends ZIOSpecDefault:
           val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
           assertTrue(info.processInstanceId == otherPartition, keys == Seq(Some("bk-1"), Some("bk-1"), None))
       },
+      test("start by message sent again without key, landed in a running instance on the message's partition (its older key): 409") {
+        val cluster = StubCluster: request =>
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
+          else 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(keys == Seq(Some("bk-1"), Some("bk-1"), None))
+      },
       test("start by message with key, the instance on another partition: 409 - a key and its equal business id share it") {
         val otherPartition = ((2L << 51) + 5).toString
         val cluster        = StubCluster(_ => 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}""")
@@ -650,6 +661,17 @@ object C8RestClientTest extends ZIOSpecDefault:
           C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000").contains(false),
           C8ProcessInstanceService.startedBy("1000", "1000").contains(false), // not newer
           C8ProcessInstanceService.startedBy("not-a-key", "1000").isEmpty
+        )
+      },
+      test("startedBy on the partition of the business id: another partition is a start, the message's is checked") {
+        import C8ProcessInstanceService.StartPartition.BusinessId
+        val partition2 = 2L << 51
+        assertTrue(
+          C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString, BusinessId).contains(true),
+          C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000", BusinessId).contains(true),
+          C8ProcessInstanceService.startedBy("999", "1000", BusinessId).contains(true),
+          C8ProcessInstanceService.startedBy("999", "500", BusinessId).contains(false), // older, on the message's partition
+          C8ProcessInstanceService.startedBy("not-a-key", "1000", BusinessId).isEmpty
         )
       }
     )
