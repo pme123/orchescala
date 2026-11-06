@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { scanScala } from '../src/domainScan';
-import { enrichSpec, fixedStart } from '../src/projectImport';
+import { enrichSpec, fixedStart, isFixed } from '../src/projectImport';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -75,3 +75,46 @@ for (const engine of ['c7', 'c8'] as const) {
     assert.equal(ia?.kind, 'signal');
   });
 }
+
+test('a name without a dynamic part is compared whole - not by its start', () => {
+  const source = (name: string) => `package ${PKG}
+
+object OrderSE extends CompanyBpmnSignalEventDsl:
+  val messageName   = "${name}"
+  val descr: String = ""
+  lazy val example = signalEvent()
+end OrderSE
+`;
+  for (const engine of ['c7', 'c8'] as const) {
+    for (const [domainName, matches] of [['cancel-', false], ['cancel-x', false]] as const) {
+      const domain = [...scanScala(processSource, 'Cancel.scala'), ...scanScala(source(domainName), 'OrderSE.scala')];
+      const r = enrichSpec({ ...importBpmn(bpmn(engine), 'cancel').spec, project: 'acme-demo' }, domain, null)!;
+      assert.equal(r.matched.includes('OrderSE'), matches, `${engine}: ${domainName}`);
+    }
+  }
+});
+
+test('isFixed: only fixed text - a FEEL name as one string literal', () => {
+  assert.equal(isFixed('orderCreated'), true);
+  assert.equal(isFixed('="orderCreated"'), true);
+  assert.equal(isFixed('cancel-${execution.processInstanceId}'), false);
+  assert.equal(isFixed('cancel-{processInstanceId}'), false);
+  assert.equal(isFixed('="cancel-" + string(camunda.processInstance.key)'), false);
+});
+
+test('a fixed name of the domain matches only the same fixed name - plain or FEEL', () => {
+  const xml = (name: string) => bpmn('c8').replace(/name="=&#34;cancel-&#34; \+ string\(camunda.processInstance.key\)"/, `name="${name}"`);
+  const source = `package ${PKG}
+
+object StopSE extends CompanyBpmnSignalEventDsl:
+  val messageName   = "stop"
+  val descr: String = ""
+  lazy val example = signalEvent()
+end StopSE
+`;
+  for (const [name, matches] of [['stop', true], ['=&#34;stop&#34;', true], ['stopLater', false], ['=&#34;stopLater&#34;', false]] as const) {
+    const domain = [...scanScala(processSource, 'Cancel.scala'), ...scanScala(source, 'StopSE.scala')];
+    const r = enrichSpec({ ...importBpmn(xml(name), 'cancel').spec, project: 'acme-demo' }, domain, null)!;
+    assert.equal(r.matched.includes('StopSE'), matches, name);
+  }
+});

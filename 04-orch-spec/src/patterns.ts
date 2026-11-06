@@ -1026,14 +1026,6 @@ function blockItems(fn: Element, tn: Element, b: Binding): Set<Element> {
 }
 
 /**
- * The pattern's block nodes with the diagram nodes of the same kind in its block. A block is
- * matched by its entry only (see matchBlocks), so there is no node-by-node mapping: each node of
- * a kind is paired with all of that kind. An item is still taken only if it matches an item of
- * the pattern's node - two ends with the same listener in one block both belong to it. So an own
- * pattern that brings exactly such an item is not recognised on a node of that block either: what
- * a block owns, it owns completely.
- */
-/**
  * The nodes of a pattern's event sub process that the pattern brings: each node of the pattern's
  * sub process matched to one node of the diagram's - same kind, same content. They belong to the
  * pattern like the sub process itself (its start sets the signal, its end the status), so they
@@ -1055,6 +1047,14 @@ function eventSubPairs(block: Fragment['blocks'][number], tn: Element, b: Bindin
   return out;
 }
 
+/**
+ * The pattern's block nodes with the diagram nodes of the same kind in its block. A block is
+ * matched by its entry only (see matchBlocks), so there is no node-by-node mapping: each node of
+ * a kind is paired with all of that kind. An item is still taken only if it matches an item of
+ * the pattern's node - two ends with the same listener in one block both belong to it. So an own
+ * pattern that brings exactly such an item is not recognised on a node of that block either: what
+ * a block owns, it owns completely.
+ */
 const blockPairs = (block: Fragment['blocks'][number], elements: Element[]): Array<[Element, Element]> =>
   block.nodes.flatMap(fn => {
     const same = elements.filter(e => local(e) === local(fn));
