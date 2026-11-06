@@ -81,13 +81,6 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
                                 _idempotentId = gv._idempotentId.orElse(Some(job.getKey.toString))
                               ))
         _                <- logDebug(s"generalVariables: $generalVariables")
-        // the InitWorker overwrites a processInstanceId from outside with the own one - say so
-        _                <- ZIO.foreachDiscard(C8Worker.foreignProcessInstanceId(worker, json, job.getProcessInstanceKey)):
-                              foreign =>
-                                logWarning(
-                                  s"Worker: ${job.getType} - processInstanceId '$foreign' (from outside) is overwritten with " +
-                                    s"the own '${job.getProcessInstanceKey}' - name a field that holds another process's id differently."
-                                )
         _                <- C8WorkerRunner(client, job, businessKey, generalVariables, processVariables, camundaClient)
                               .executeWorker()
         _                <-
@@ -211,9 +204,7 @@ trait C8Worker[In <: Product: InOutCodec, Out <: Product: InOutCodec]
             logDebug(s"handleSuccess BEFORE complete: ${orchescala.engine.LogSafe.names(variablesMap)}") *>
             attemptBlocking:
               client.newCompleteCommand(job)
-                .variables(
-                  (variablesMap ++ C8Worker.engineVariables(worker, job.getProcessInstanceKey)).asJava
-                )
+                .variables(variablesMap.asJava)
                 .send().join()
             .catchAll: err =>
               handleFailure(
@@ -395,46 +386,14 @@ object C8Worker:
     if worthTryingAgain then (jobRetries - 1).max(0) else 0
   end retriesAfter
 
-  /** What C7 has in `execution` - C8 has no `execution`: the InitWorker puts the key of the process
-    * instance as `processInstanceId` into the process variables (in FEEL `= processInstanceId`, e.g.
-    * `_idempotentId`) - engine agnostic, the name of the Gateway API and of C7.
+  /** The variables a worker fetches with its job.
     *
-    * Always the own one - like `execution.processInstanceId` in C7: a `processInstanceId` from
-    * outside (a start variable, the input of a call activity) is overwritten. Only the InitWorker:
-    * it runs in the scope of the process - another worker (e.g. in a call activity) must not
-    * overwrite it. A String: a key exceeds JavaScript's safe integers (the partition is in its
-    * upper bits) - and `_idempotentId` is a String.
-    *
-    * A worker that needs the own id before (e.g. the InitWorker itself) takes
+    * C8 has no `execution`: the own process instance is `camunda.processInstance.key` in FEEL
+    * (Camunda 8.10) - no worker sets it as a variable. A worker takes
     * `EngineRunContext.processInstance` - the same in all engines.
     */
-  def engineVariables(
-      worker: Worker[?, ?, ?],
-      processInstanceKey: Long
-  ): Map[String, String] =
-    worker match
-      case _: InitWorker[?, ?, ?] => Map(processInstanceIdName -> processInstanceKey.toString)
-      case _                      => Map.empty
-
-  private val processInstanceIdName = "processInstanceId"
-
-  /** The variables a worker fetches with its job - the InitWorker also a `processInstanceId` from
-    * outside, to report that it overwrites it (see `foreignProcessInstanceId`).
-    */
   def variablesToFetch(worker: Worker[?, ?, ?]): Seq[String] =
-    val own = worker match
-      case _: InitWorker[?, ?, ?] => Seq(processInstanceIdName)
-      case _                      => Seq.empty
-    (worker.variableNames ++ GeneralVariables.variableNames ++ own :+ "businessKey").distinct
-
-  /** A `processInstanceId` the InitWorker got from outside that is not its own - it overwrites it. */
-  def foreignProcessInstanceId(worker: Worker[?, ?, ?], json: Json, processInstanceKey: Long): Option[String] =
-    worker match
-      case _: InitWorker[?, ?, ?] =>
-        json.hcursor.downField(processInstanceIdName).focus
-          .flatMap(j => j.asString.orElse(j.asNumber.map(_.toString)))
-          .filter(id => id.nonEmpty && id != processInstanceKey.toString)
-      case _                      => None
+    (worker.variableNames ++ GeneralVariables.variableNames :+ "businessKey").distinct
 
   // the process instance of a job -> its root; a root never changes - bounded, so a long-running
   // worker app does not grow without end
