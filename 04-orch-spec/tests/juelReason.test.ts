@@ -31,6 +31,9 @@ test('getVariable with a computed name stays JUEL — with the reason and a list
 test('getVariable with another computed name: the general example', () => {
   const reason = juelImportReason('${execution.getVariable("file".concat(i + 1))}');
   assert.ok(reason?.endsWith('«= liste[index]»'), reason ?? 'no reason');
+  // an index other than loopCounter: no guessed list either
+  const other = juelImportReason('${execution.getVariable("file".concat(nr))}');
+  assert.ok(other?.endsWith('«= liste[index]»'), other ?? 'no reason');
 });
 
 test('unclosed ${ and a later part that fails have a reason', () => {

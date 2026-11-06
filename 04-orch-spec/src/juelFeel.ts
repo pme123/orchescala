@@ -202,11 +202,13 @@ function executionProperty(name: string): string {
  * `getVariable` with a computed name (`"fileLink".concat(loopCounter)`) has no counterpart:
  * FEEL cannot read a variable whose name is only known at runtime. And
  * `fileLink + string(loopCounter)` would append the number to the value, not read `fileLink3`.
- * `b` is the name already translated to FEEL; only `"name" + string(index)` gets a tailored example.
+ * `b` is the name already translated to FEEL; only `"name" + string(loopCounter)` gets a tailored example.
  */
 function computedNameError(b: string): Unsupported {
-  const m = /^"([A-Za-z_]\w*)" \+ string\(([A-Za-z_][\w.]*)\)$/.exec(b);
-  const example = m ? `${m[1]}s[${m[2]}]` : 'liste[index]';
+  // only for `loopCounter`: in Camunda 8 it counts from 1, like a FEEL list — the
+  // collected list (in the order of the collection) is then read with it as is
+  const m = /^"([A-Za-z_]\w*)" \+ string\(loopCounter\)$/.exec(b);
+  const example = m ? `${m[1]}s[loopCounter]` : 'liste[index]';
   return new Unsupported(`getVariable mit berechnetem Namen (${b}) — FEEL kennt keine Variable, deren Name erst zur Laufzeit entsteht. `
     + `Falls das eine Mehrfachausführung ist: in ${C8_LABEL} braucht es die Variable je Durchlauf nicht, «Ergebnisse sammeln» legt die Ergebnisse in eine Liste, dann z. B. «= ${example}»`);
 }
@@ -478,7 +480,7 @@ export function juelImportReason(text: string): string | null {
 export function untranslatableText(value: string, what: string, todo: string): string {
   const reason = juelImportReason(value)?.replace(/[.:;,\s]+$/, '');
   return reason
-    ? `${what} nicht nach FEEL übersetzbar: ${reason}. ${todo[0].toUpperCase()}${todo.slice(1)}`
+    ? `${what} nicht nach FEEL übersetzbar: ${reason}. ${todo.charAt(0).toUpperCase()}${todo.slice(1)}`
     : `${what} nicht nach FEEL übersetzbar — ${todo}`;
 }
 
