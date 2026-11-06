@@ -1104,6 +1104,10 @@ test('graftEventSubExtras: what cannot go back is reported - no block of the pat
     assert.ok(taken.xml.includes('id="NewStart"'), engine);
     assert.match(taken.xml, /triggeredByEvent="true"[^]*<bpmn:sequenceFlow id="Own" sourceRef="NewStart" targetRef="CanceledEndEvent" \/>[^]*<\/bpmn:subProcess>/, engine);
     assert.match(taken.xml, /id="NewStart"[^>]*>\s*<bpmn:outgoing>Own<\/bpmn:outgoing>/, engine);
+    // a step that is gone after the conversion is named - not skipped silently
+    const gone = graftEventSubExtras(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml,
+      [{ patternId: 'cancel-by-signal', targetId: null, block: 'CancelSubProcess', esp: 'CancelSubProcess', nodes: {}, ids: ['Vanished'] }], STANDARD_PATTERNS, engine);
+    assert.deepEqual(gone.issues, ['«Abbruch per Signal»: Vanished aus dem Ereignis-Subprozess fehlt nach dem Einsetzen — von Hand prüfen.'], engine);
     assert.deepEqual(taken.issues, ['«Abbruch per Signal»: «NewStart» bekommt seine frühere ID «Start» nicht zurück (vergeben) — den Schritt der Spezifikation dazu prüfen.'], engine);
   }
 });

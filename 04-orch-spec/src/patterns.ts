@@ -1366,13 +1366,15 @@ export function graftEventSubExtras(xml: string, extras: EventSubExtras[], defs:
     rename(ex, esp, ex.esp);
     for (const f of kids(esp).filter(c => local(c) === 'sequenceFlow')) drop(w, f);
     const home = esp.parentElement ?? proc;
+    const missing: string[] = [];
     for (const id of ex.ids) {
       const el = kids(home).find(c => c.getAttribute('id') === id) ?? kids(proc).find(c => c.getAttribute('id') === id);
-      if (!el) continue;
+      if (!el) { missing.push(id); continue; }
       esp.appendChild(el);
       // a flow to a node that kept its new ID follows it
       for (const a of ['sourceRef', 'targetRef']) { const r = el.getAttribute(a); if (r && now.has(r)) el.setAttribute(a, now.get(r)!); }
     }
+    if (missing.length) issues.push(`«${nameOf(ex.patternId)}»: ${missing.join(', ')} aus dem Ereignis-Subprozess fehlt nach dem Einsetzen — von Hand prüfen.`);
     // incoming / outgoing after documentation and extensionElements, as BPMN wants them
     const flows = kids(esp).filter(c => local(c) === 'sequenceFlow');
     const pre = prefixOf(esp);
