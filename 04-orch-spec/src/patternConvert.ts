@@ -11,7 +11,7 @@
 // So no old form stays beside the new one (C8 output mappings would otherwise become C7 output
 // parameters next to the pattern's listeners).
 import { convertBpmn, detectEngine, type ConvertOptions } from './engineConvert.ts';
-import { NO_DI, applyPattern, detectPatterns, fragmentFor, keepPositions, patternParams, resolvedDefaults, stripPatternItems, type PatternHit } from './patterns.ts';
+import { NO_DI, applyPattern, detectPatterns, fragmentFor, graftEventSubExtras, keepPositions, patternParams, resolvedDefaults, stripPatternItems, type PatternHit } from './patterns.ts';
 import { engineLabel } from './engineLabels.ts';
 import { paramForChecked, paramView } from './patternParams.ts';
 import type { WriteIssue, WriteResult } from './bpmnWrite.ts';
@@ -105,6 +105,9 @@ function attempt(xml: string, target: EngineId, byId: Map<string, PatternDef>, d
       failed.set(i, { h, why: e instanceof Error ? e.message : String(e) });
     }
   }
+
+  // the own steps of an event sub process back into it
+  out = graftEventSubExtras(out, strip.extras, defs, target);
 
   // each pattern on its element again - with the same parameters; a hit is matched only once,
   // the one with the same parameters first. Another one of the pattern on the element counts only

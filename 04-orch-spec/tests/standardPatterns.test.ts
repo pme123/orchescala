@@ -1022,6 +1022,33 @@ test('«Abbruch per Signal»: an end of its own in the event sub process (withou
   }
 });
 
+test('«Abbruch per Signal»: converting keeps a step of its own in the event sub process - in it, wired as before', () => {
+  const c8 = withOwnTask(applyPattern(diagram('c8', 'task'), cancel, 'c8', null).xml);
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS);
+  const back = convertWithPatterns(c7.xml, 'c8', STANDARD_PATTERNS);
+  for (const [engine, xml] of [['c7', c7.xml], ['c8', back.xml]] as const) {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
+    const esps = Array.from(doc.getElementsByTagName('bpmn:subProcess')).filter(e => e.getAttribute('triggeredByEvent') === 'true');
+    assert.equal(esps.length, 1, engine);
+    const esp = esps[0];
+    assert.equal(esp.getAttribute('id'), 'CancelSubProcess', engine);
+    const inner = (tag: string) => Array.from(esp.getElementsByTagName(tag)).map(e => e.getAttribute('id'));
+    assert.deepEqual(inner('bpmn:task'), ['Cleanup'], engine);
+    const flows = Array.from(esp.getElementsByTagName('bpmn:sequenceFlow')).map(f => `${f.getAttribute('id')}:${f.getAttribute('sourceRef')}->${f.getAttribute('targetRef')}`).sort();
+    assert.deepEqual(flows, ['CancelFlow:CancelStartEvent->Cleanup', 'CleanupFlow:Cleanup->CanceledEndEvent'], engine);
+    const refs = (id: string, tag: string) => Array.from(esp.getElementsByTagName(tag)).filter(e => e.parentElement?.getAttribute('id') === id).map(e => e.textContent);
+    assert.deepEqual([refs('CancelStartEvent', 'bpmn:outgoing'), refs('Cleanup', 'bpmn:incoming'), refs('Cleanup', 'bpmn:outgoing'), refs('CanceledEndEvent', 'bpmn:incoming')],
+      [['CancelFlow'], ['CancelFlow'], ['CleanupFlow'], ['CleanupFlow']], engine);
+    // nothing of it stays on the process level, and the pattern is the same
+    assert.ok(!Array.from(doc.getElementsByTagName('bpmn:process')[0].children).some(c => ['Cleanup', 'CleanupFlow', 'CancelFlow'].includes(c.getAttribute('id') ?? '')), engine);
+    const det = detectPatterns(xml, STANDARD_PATTERNS, engine);
+    assert.deepEqual(det.hits.map(h => h.patternId), ['cancel-by-signal'], engine);
+    assert.equal(det.owned.get('Cleanup'), undefined, engine);
+  }
+  assert.equal(signalNameOf(c7.xml), 'cancel-${execution.processInstanceId}');
+  assert.equal(signalNameOf(back.xml), '="cancel-" + string(camunda.processInstance.key)');
+});
+
 test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {
   const xml = (x: number) => `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="d">
   <bpmn:process id="p"><bpmn:subProcess id="CancelSubProcess" triggeredByEvent="true" /></bpmn:process>
