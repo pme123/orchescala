@@ -142,22 +142,34 @@ class C8ProcessInstanceService(
           )(err))
   end setCorrelationVariable
 
+  /** The `businessKey` is the instance's business id (C8 8.9): it shows in Operate, can be searched
+    * there and goes on to the instances of its call activities. It stays a variable too - the BPMNs
+    * correlate their messages with `=businessKey` and the workers read it, a job carries no
+    * business id (8.9).
+    *
+    * A blank key is no business id. The engine checks the rest: at most 256 characters (400), and
+    * unique among the running instances of the process if the cluster enforces it (409 - final, the
+    * gateway tries no other engine). Uniqueness is off by default.
+    */
   private def callStartProcessAsync(
       processDefId: String,
       businessKey: Option[String],
       tenantId: Option[String],
       processVariables: Json
   ): IO[EngineError, C8RestModel.CreateProcessInstanceResult] =
-    val variables = processVariables.deepMerge(businessKey.map(bk =>
+    val variables  = processVariables.deepMerge(businessKey.map(bk =>
       Json.obj("businessKey" -> bk.asJson)
     ).getOrElse(Json.obj()))
+    val businessId = businessKey.filterNot(_.isBlank).map(id => "businessId" -> id.asJson)
     rest
       .post[C8RestModel.CreateProcessInstanceResult](
         Seq("process-instances"),
-        Json.obj(
-          "processDefinitionId" -> processDefId.asJson, // latest version
-          "variables"           -> variables,
-          "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
+        Json.fromFields(
+          Seq(
+            "processDefinitionId" -> processDefId.asJson, // latest version
+            "variables"           -> variables,
+            "tenantId"            -> tenantId.orElse(engineConfig.tenantId).asJson
+          ) ++ businessId
         )
       )
       .mapError(withContext(s"Problem starting Process '$processDefId'"))
@@ -280,6 +292,9 @@ class C8ProcessInstanceService(
     * this message with that key gets it (e.g. the event subprocess of «Einmalige Ausführung») -
     * that is no start, answered with 409 (see `ensureStarted`). A process without such a waiting
     * event starts a new instance - as before, and as in C7 (see `correlateWithBusinessKey`).
+    *
+    * A message cannot set the business id of the instance it starts (8.9) - the `businessKey` is
+    * only its variable and correlation key.
     *
     * Landed in a running instance, the message's variables are merged into it - as in C7 with the
     * variables of a correlated message. A process with the pattern can restrict that with output

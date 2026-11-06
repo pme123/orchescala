@@ -124,7 +124,9 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         variables <- eventually(
                        engine.historicVariableService.getVariables(None, Some(pid), Some(Seq("count", "big", "businessKey")))
                      )(_.size == 3)
-        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(_ => true)
+        instance  <- eventually(engine.historicProcessInstanceService.getProcessInstance(pid))(
+                       _.businessKey.contains(businessKey) // the search index may lag
+                     )
         task      <- eventually(engine.userTaskService.getUserTask(pid, "task1"))(_.isDefined)
         _         <- engine.userTaskService.complete(task.get.id, JsonObject("approved" -> Json.True), None)
         _         <- eventually(
@@ -150,6 +152,7 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
           byName("big").contains(Json.fromString(bigValue)), // not truncated
           byName("businessKey").contains(Json.fromString(businessKey)),
           instance.processDefinitionId == processId,
+          instance.businessKey.contains(businessKey), // the business id of the instance
           task.get.taskDefinitionKey.contains("task1"), // the user task's BPMN id, like C7
           completed.state == HistoricProcessInstance.ProcessState.COMPLETED,
           allVars.exists(v => v.name == "approved" && v.value.contains(Json.True)),
@@ -188,11 +191,49 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         val signed = variables.head.value.flatMap(_.as[orchescala.domain.IdentityCorrelation].toOption)
         assertTrue(
           instance.processDefinitionId == msgStartProcessId, // a real process instance key
+          instance.businessKey.isEmpty,                      // a message sets no business id (8.9)
           signed.flatMap(_.processInstanceId).contains(pid),
           signed.exists(c =>
             orchescala.domain.IdentityCorrelationSigner.verify(c, pid, c.signature.get, "it-signing-key")
           )
         )
+      end for
+    },
+    test("start with the same businessKey twice: two instances - a cluster without uniqueness control (the default, c8run)") {
+      val restAddress = sys.env("C8_REST_IT")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig()
+      val engine         = C8ProcessEngine()
+      val shortId        = "orchescala-it-business-id"
+      val shortBpmn      =
+        s"""<?xml version="1.0" encoding="UTF-8"?>
+           |<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="defs"
+           |  targetNamespace="http://bpmn.io/schema/bpmn">
+           |  <bpmn:process id="$shortId" isExecutable="true">
+           |    <bpmn:startEvent id="start"/>
+           |    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="end"/>
+           |    <bpmn:endEvent id="end"/>
+           |  </bpmn:process>
+           |</bpmn:definitions>""".stripMargin
+      val businessKey    = s"bk-${java.util.UUID.randomUUID()}"
+      def start          = engine.processInstanceService.startProcessAsync(shortId, JsonObject.empty, Some(businessKey), None, None)
+      for
+        _      <- engine.deploymentService.deploy(
+                    "it-business-id",
+                    Seq(DeploymentResource(s"$shortId.bpmn", shortBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                    Some(EngineType.C8)
+                  )
+        first  <- start
+        second <- start
+        both   <- ZIO.foreach(Seq(first, second))(info =>
+                    eventually(engine.historicProcessInstanceService.getProcessInstance(info.processInstanceId))(
+                      _.businessKey.contains(businessKey) // the search index may lag
+                    )
+                  )
+      yield assertTrue(
+        first.processInstanceId != second.processInstanceId,
+        both.forall(_.businessKey.contains(businessKey))
+      )
       end for
     },
     test("start by message with a businessKey: with the pattern a second start is a 409 - also at the same time; without, a new instance") {
