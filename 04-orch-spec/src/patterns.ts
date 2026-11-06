@@ -2174,16 +2174,32 @@ export function keepPositions(before: Document | string, xml: string): string {
   if (!old || !after) return xml;
   const was = diIndex(old), now = diIndex(after);
   let moved = false;
+  // the geometry of the old one - its bounds, waypoints and label - replaces the new one's: a
+  // pattern's shape may come without the label the diagram had (or the other way round), and a
+  // flow with other waypoints; only the same kind of geometry, so a shape never gets waypoints
+  const geometry = (e: Element) => kids(e).filter(c => local(c) === 'Bounds' || local(c) === 'waypoint' || local(c) === 'BPMNLabel');
   for (const [id, di] of now) {
     const o = was.get(id);
     if (!o || local(o) !== local(di)) continue;
-    const ob = [o, ...descendants(o)].filter(e => local(e) === 'Bounds' || local(e) === 'waypoint');
-    const nb = [di, ...descendants(di)].filter(e => local(e) === 'Bounds' || local(e) === 'waypoint');
-    if (ob.length !== nb.length) continue;
-    ob.forEach((e, i) => { for (const a of ['x', 'y', 'width', 'height']) { const v = e.getAttribute(a); if (v != null) nb[i].setAttribute(a, v); } });
+    const og = geometry(o);
+    if (!og.length) continue;
+    const ng = geometry(di);
+    const at = ng[0] ?? null;
+    for (const c of og) di.insertBefore(copyInto(after, c), at);
+    ng.forEach(removeEl);
     moved = true;
   }
   return moved ? new Writer(after).serialize(xml) : xml;
+}
+
+/** A copy of an element (attributes and child elements) made by `doc` - from another document */
+function copyInto(doc: Document, el: Element): Element {
+  const c = doc.createElementNS(el.namespaceURI, el.tagName);
+  for (const a of Array.from(el.attributes)) {
+    if (a.namespaceURI) c.setAttributeNS(a.namespaceURI, a.name, a.value); else c.setAttribute(a.name, a.value);
+  }
+  for (const k of kids(el)) c.appendChild(copyInto(doc, k));
+  return c;
 }
 
 // ── For the UI ───────────────────────────────────────────────────────────────

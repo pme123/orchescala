@@ -1064,6 +1064,30 @@ test('«Abbruch per Signal»: changing the prefix keeps a step of its own in the
   }
 });
 
+test('«Abbruch per Signal»: converting keeps the drawing - shapes with a label (the pattern has none) and the flow between them', () => {
+  const DI = 'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI"';
+  const drawn = diagram('c8', 'task').replace('id="d">', `${DI} id="d">`).replace('</bpmn:definitions>', `<bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="P" bpmnElement="acme-demoV1">
+    <bpmndi:BPMNShape id="Start_di" bpmnElement="Start"><dc:Bounds x="100" y="100" width="36" height="36" /></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="Target_di" bpmnElement="Target"><dc:Bounds x="200" y="78" width="100" height="80" /></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="End_di" bpmnElement="End"><dc:Bounds x="400" y="100" width="36" height="36" /></bpmndi:BPMNShape>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>`);
+  // as the modeler saves it: start and end with their label, moved within the sub process
+  const label = (id: string, x: number) => new RegExp(`(<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}">\\s*<dc:Bounds )x="\\d+" y="\\d+"( width="36" height="36" />)`);
+  const c8 = applyPattern(drawn, cancel, 'c8', null).xml
+    .replace(label('CancelStartEvent', 0), '$1x="130" y="300"$2<bpmndi:BPMNLabel><dc:Bounds x="110" y="343" width="76" height="14" /></bpmndi:BPMNLabel>')
+    .replace(label('CanceledEndEvent', 0), '$1x="400" y="300"$2<bpmndi:BPMNLabel><dc:Bounds x="395" y="343" width="46" height="14" /></bpmndi:BPMNLabel>')
+    .replace(/(<bpmndi:BPMNEdge id="CancelFlow_di" bpmnElement="CancelFlow">)[\s\S]*?(<\/bpmndi:BPMNEdge>)/, '$1<di:waypoint x="166" y="318" /><di:waypoint x="400" y="318" />$2');
+  assert.match(c8, /x="130" y="300"/);
+  const geo = (xml: string) => ['CancelStartEvent', 'CanceledEndEvent', 'CancelFlow'].map(id => {
+    const di = new RegExp(`bpmnElement="${id}"[^>]*>([\\s\\S]*?)</bpmndi:BPMN(Shape|Edge)>`).exec(xml)?.[1] ?? '';
+    return Array.from(di.matchAll(/<(?:dc:Bounds|di:waypoint) ([^>]*)\/>/g)).map(m => ['x', 'y', 'width', 'height'].map(a => new RegExp(`${a}="([^"]*)"`).exec(m[1])?.[1] ?? '').join(',')).join(' ');
+  });
+  const want = geo(c8);
+  const c7 = convertWithPatterns(c8, 'c7', STANDARD_PATTERNS).xml;
+  assert.deepEqual(geo(c7), want);
+  assert.deepEqual(geo(convertWithPatterns(c7, 'c8', STANDARD_PATTERNS).xml), want);
+});
+
 test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {
   const xml = (x: number) => `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="d">
   <bpmn:process id="p"><bpmn:subProcess id="CancelSubProcess" triggeredByEvent="true" /></bpmn:process>
