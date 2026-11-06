@@ -993,6 +993,35 @@ test('«Abbruch per Signal» twice: the second one does not add a second event s
   }
 });
 
+/** A task of its own between the start and the end «canceled» of the event sub process */
+const withOwnTask = (xml: string) => xml
+  .replace(/(<bpmn:sequenceFlow id="CancelFlow" sourceRef="CancelStartEvent" targetRef=")CanceledEndEvent"/, '$1Cleanup"')
+  .replace(/<bpmn:incoming>CancelFlow<\/bpmn:incoming>/, '<bpmn:incoming>CleanupFlow</bpmn:incoming>')
+  .replace(/(<bpmn:sequenceFlow id="CancelFlow")/, '<bpmn:task id="Cleanup" name="Aufräumen"><bpmn:incoming>CancelFlow</bpmn:incoming><bpmn:outgoing>CleanupFlow</bpmn:outgoing></bpmn:task><bpmn:sequenceFlow id="CleanupFlow" sourceRef="Cleanup" targetRef="CanceledEndEvent" />$1');
+
+test('«Abbruch per Signal»: the start and the end «canceled» of its event sub process belong to the pattern - a task of its own there does not', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = withOwnTask(applyPattern(diagram(engine, 'task'), cancel, engine, null).xml);
+    assert.ok(xml.includes('id="Cleanup"'), engine);
+    const { owned, hits } = detectPatterns(xml, STANDARD_PATTERNS, engine);
+    assert.deepEqual(hits.map(h => h.patternId), ['cancel-by-signal'], engine);
+    assert.deepEqual(['CancelSubProcess', 'CancelStartEvent', 'CanceledEndEvent', 'Cleanup'].map(id => owned.get(id) ?? null),
+      ['cancel-by-signal', 'cancel-by-signal', 'cancel-by-signal', null], engine);
+    // the steps: locked by `pattern` - the own task stays editable
+    const steps = allSteps(importBpmn(xml, 'demo.bpmn', { patterns: patternDefs(null) }).spec.steps);
+    assert.deepEqual(['CancelStartEvent', 'CanceledEndEvent', 'Cleanup'].map(id => steps.find(s => s.id === id)?.pattern ?? null),
+      ['cancel-by-signal', 'cancel-by-signal', null], engine);
+  }
+});
+
+test('«Abbruch per Signal»: an end of its own in the event sub process (without the status) is not the pattern\'s', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const xml = applyPattern(diagram(engine, 'task'), cancel, engine, null).xml
+      .replace(/(<bpmn:sequenceFlow id="CancelFlow")/, '<bpmn:endEvent id="OtherEnd" name="canceled" />$1');
+    assert.equal(detectPatterns(xml, STANDARD_PATTERNS, engine).owned.get('OtherEnd'), undefined, engine);
+  }
+});
+
 test('keepPositions: a shape inserted again gets the coordinates it had - by its ID', () => {
   const xml = (x: number) => `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" id="d">
   <bpmn:process id="p"><bpmn:subProcess id="CancelSubProcess" triggeredByEvent="true" /></bpmn:process>

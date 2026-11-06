@@ -1033,6 +1033,24 @@ function blockItems(fn: Element, tn: Element, b: Binding): Set<Element> {
  * pattern that brings exactly such an item is not recognised on a node of that block either: what
  * a block owns, it owns completely.
  */
+/**
+ * The nodes of a pattern's event sub process that the pattern brings: each node of the pattern's
+ * sub process matched to one node of the diagram's - same kind, same content. They belong to the
+ * pattern like the sub process itself (its start sets the signal, its end the status), so they
+ * are locked. A step added there (a task before «canceled») does not match and stays free.
+ */
+function eventSubNodes(block: Fragment['blocks'][number], tn: Element, b: Binding): Element[] {
+  const entry = block.entry;
+  if (local(entry) !== 'subProcess' || entry.getAttribute('triggeredByEvent') !== 'true') return [];
+  const out: Element[] = [];
+  const tNodes = kids(tn).filter(c => FLOW_NODES.has(local(c)));
+  for (const fn of kids(entry).filter(c => FLOW_NODES.has(local(c)))) {
+    const hit = tNodes.find(t => !out.includes(t) && matchEl(fn, t, b));
+    if (hit) out.push(hit);
+  }
+  return out;
+}
+
 const blockPairs = (block: Fragment['blocks'][number], elements: Element[]): Array<[Element, Element]> =>
   block.nodes.flatMap(fn => {
     const same = elements.filter(e => local(e) === local(fn));
@@ -1142,7 +1160,10 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
       let b = m.b;
       for (const x of blocks) for (const [k, v] of x!.b) if (!b.has(k)) b = new Map(b).set(k, v);
       m.items.forEach(e => claimed.add(e));
-      blocks.forEach((x, i) => { own(x!.elements, def.id); ownBlock(def.id, blockPairs(fr.blocks[i], x!.elements), b); });
+      blocks.forEach((x, i) => {
+        own([...x!.elements, ...eventSubNodes(fr.blocks[i], x!.entry, b)], def.id);
+        ownBlock(def.id, blockPairs(fr.blocks[i], x!.elements), b);
+      });
       res.hits.push({ patternId: def.id, targetId: null, params: paramsOf(b, def), match: { ...m, b }, fr });
       continue;
     }
@@ -1174,7 +1195,7 @@ function detectIn(doc: Document, defs: PatternDef[] | undefined, engine: EngineI
         if (fr.blocks.length) {
           matchBlocks(fr, tg, claimed, m.b).forEach((x, i) => {
             if (!x) return;
-            own(x.elements, def.id);
+            own([...x.elements, ...eventSubNodes(fr.blocks[i], x.entry, x.b)], def.id);
             // x.b grew from m.b - it has the parameters of the anchor too
             ownBlock(def.id, blockPairs(fr.blocks[i], x.elements), x.b);
           });
