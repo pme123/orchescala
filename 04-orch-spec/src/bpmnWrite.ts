@@ -275,7 +275,7 @@ function writeBpmnWith(xml: string, spec: ProcessSpec, model: Model | null): Wri
       const ext = ensureExt(el);
       const ins = active(step.inputs);
       const outs = writtenOutputs(step, before);
-      if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues);
+      if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues, local(el) === 'callActivity');
       else if (local(el) === 'callActivity') writeCamundaInOut(doc, ext, ins, outs, step.id, issues);
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
     }
@@ -983,17 +983,26 @@ function controlsLast(ext: Element) {
 }
 
 // ── Business key to the subprocess ──────────────────────────────────────────
-// Camunda 7 has `camunda:in businessKey` for this; in Camunda 8 the business
-// key is a variable and is passed as the input `businessKey`.
+// Camunda 7 has `camunda:in businessKey` for this. Camunda 8 (from 8.10) has the
+// business id on the instance: a call activity child inherits it, and
+// `zeebe:calledElement businessId` overrides it. The variable `businessKey` is
+// gone there, so an input of that name from an earlier export is cleaned up:
+// the default `=businessKey` is dropped, any other source becomes the override.
+const STALE_BUSINESS_KEY = /^=\s*businessKey\s*$/;
 function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
   if (engine === 'c8') {
-    let io = firstNamed(ext, 'ioMapping');
-    if (io && kids(io).some(p => local(p) === 'input' && attr(p, 'target') === 'businessKey')) return;
-    const p = doc.createElementNS(ZEEBE_NS, 'zeebe:input');
-    p.setAttribute('source', '=businessKey');
-    p.setAttribute('target', 'businessKey');
-    if (io) { const rest = kids(io); for (const k of rest) removeEl(k); for (const k of [p, ...rest]) appendEl(io, k); }
-    else { io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping'); appendEl(ext, io); appendEl(io, p); }
+    const io = firstNamed(ext, 'ioMapping');
+    const stale = io ? kids(io).filter(p => local(p) === 'input' && attr(p, 'target') === 'businessKey') : [];
+    for (const p of stale) {
+      const source = (attr(p, 'source') ?? '').trim();
+      if (source && !STALE_BUSINESS_KEY.test(source)) {
+        let ce = firstNamed(ext, 'calledElement');
+        if (!ce) { ce = doc.createElementNS(ZEEBE_NS, 'zeebe:calledElement'); prependEl(ext, ce); }
+        ce.setAttribute('businessId', source);
+      }
+      removeEl(p);
+    }
+    if (io && stale.length && !kids(io).length) removeEl(io);
     return;
   }
   if (kids(ext).some(p => local(p) === 'in' && attr(p, 'businessKey'))) return;
@@ -1003,11 +1012,13 @@ function ensureBusinessKey(doc: Document, ext: Element, engine: EngineId) {
 }
 
 // ── Camunda 8 ────────────────────────────────────────────────────────────────
-function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
+function writeZeebe(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[], call = false) {
   const old = firstNamed(ext, 'ioMapping');
   const oldKids = old ? kids(old) : [];
-  // keep control parameters from the old mapping
-  const keep = oldKids.filter(p => TECHNICAL.has(attr(p, 'target') ?? ''));
+  // keep control parameters from the old mapping — and on a call activity an old input
+  // `businessKey` (the import does not show it), which ensureBusinessKey then turns into the override
+  const oldBusinessKey = (p: Element) => call && local(p) === 'input' && attr(p, 'target') === 'businessKey' && !ins.some(m => m.name.trim() === 'businessKey');
+  const keep = oldKids.filter(p => TECHNICAL.has(attr(p, 'target') ?? '') || oldBusinessKey(p));
   if (old) removeEl(old);
   if (!ins.length && !outs.length && !keep.length) return;
   const io = doc.createElementNS(ZEEBE_NS, 'zeebe:ioMapping');

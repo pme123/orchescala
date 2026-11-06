@@ -246,8 +246,8 @@ export const GENERAL_VARIABLES = new Set([
 /**
  * An input every callee accepts without having it in its In: the general variables - and on a
  * call activity `businessKey`, the business key of the subprocess. Camunda 7 passes it with
- * `camunda:in businessKey` (an input row of that name becomes that on the way to C7, see
- * engineConvert); Camunda 8 has no such thing, there it goes as the variable `businessKey`.
+ * `camunda:in businessKey`; Camunda 8 (from 8.10) inherits the business id of the caller, and
+ * the export writes an input row of that name as the override `zeebe:calledElement businessId`.
  * Either way it is not a field of the subprocess's In.
  */
 export const acceptedEverywhere = (name: string, stepKind: string): boolean =>
@@ -307,6 +307,12 @@ function readIo(el: Element): IoResult {
   const ext = firstNamed(el, 'extensionElements');
   if (!ext) return res;
 
+  // Camunda 8: the business id of the subprocess — overrides the inherited one; like
+  // `camunda:in businessKey` of Camunda 7 it belongs to the call, not to its mapping
+  const calledEl = local(el) === 'callActivity' ? firstNamed(ext, 'calledElement') : null;
+  const businessId = calledEl ? attr(calledEl, 'businessId') : undefined;
+  if (businessId) res.technical.push({ name: 'businessKey', expression: businessId });
+
   // callActivity: <camunda:in> / <camunda:out>
   for (const c of kids(ext)) {
     const n = local(c);
@@ -345,7 +351,10 @@ function readIo(el: Element): IoResult {
       }
       if (target === '_outputMock' || target === '_outputServiceMock') { res.mock = source; res.mockKind = target === '_outputMock' ? 'output' : 'service'; continue; }
       const m: Mapping = { name: target, expression: /^=/.test(source) ? `= ${source.slice(1).trim()}` : source };
-      (TECHNICAL.has(target) ? res.technical : res.inputs).push(m);
+      // Before 8.10 the business key went to the subprocess as this input — technical, like
+      // `camunda:in businessKey`; the export drops the default and makes any other one the override
+      const oldBusinessKey = target === 'businessKey' && local(el) === 'callActivity';
+      (TECHNICAL.has(target) || oldBusinessKey ? res.technical : res.inputs).push(m);
     }
     for (const p of childrenNamed(zio, 'output')) {
       const target = attr(p, 'target') ?? '';
