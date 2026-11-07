@@ -28,8 +28,14 @@ class DeployOnStartTest extends FunSuite:
         |{"deploymentId":"2","deployedProcesses":[{"id":"p:2","key":"my-process","version":2}],"deployedDecisions":[]}]""".stripMargin
     assertEquals(DeployOnStart.deployedKeys(body), "my-decision, my-process")
 
+  test("deployedKeys: without keys nothing changed (identical resources skipped)"):
+    assertEquals(DeployOnStart.deployedKeys("[]"), "nothing changed")
+    assertEquals(
+      DeployOnStart.deployedKeys("""[{"deploymentId":"1","deployedProcesses":[],"deployedDecisions":[]}]"""),
+      "nothing changed"
+    )
+
   test("deployedKeys: an unexpected body as it is"):
     assertEquals(DeployOnStart.deployedKeys("not json"), "not json")
-    assertEquals(DeployOnStart.deployedKeys("[]"), "[]")
 
 end DeployOnStartTest

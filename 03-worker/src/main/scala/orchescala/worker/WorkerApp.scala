@@ -86,6 +86,7 @@ trait WorkerApp extends ZIOAppDefault:
         requiredEngineLayers ++
         Server.defaultWithPort(port)
     )
+
   /** The BPMN/DMN of this app's project to the engines of its registries - if configured
     * (`WorkerConfig.deployOnStart`). Not those of its dependencies: they deploy themselves.
     */
@@ -93,12 +94,14 @@ trait WorkerApp extends ZIOAppDefault:
     workerConfig.deployOnStart match
       case None         => ZIO.unit
       case Some(config) =>
-        config.entry.orElse(DeployOnStart.entryOf(applicationName, implementationVersion)) match
+        (config.entry.orElse(DeployOnStart.entryOf(applicationName, implementationVersion)) match
           case Some(entry) => DeployOnStart.run(config, entry, workerRegistries.map(_.engineType))
           case None        =>
             ZIO.logWarning(
-              s"Deploy on start: no version of $applicationName (the app does not run from a jar) - nothing deployed; set DeployOnStart.entry to deploy anyway."
+              s"Deploy on start: no version of $applicationName (not run from a jar, or its manifest has no Implementation-Version) - nothing deployed; set DeployOnStart.entry to deploy anyway."
             )
+        ) // a defect (e.g. of the token effect) would otherwise only end the forked fiber, unseen
+          .catchAllCause(cause => ZIO.logErrorCause(s"Deploy on start of $applicationName failed", cause))
 
   // the version of the jar of this app (its manifest) - None outside a jar
   private def implementationVersion: Option[String] =

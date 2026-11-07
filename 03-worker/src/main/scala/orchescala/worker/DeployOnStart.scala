@@ -107,7 +107,9 @@ object DeployOnStart:
       case t: Throwable => t.getMessage
       case other        => other.toString
 
-  /** The keys of the deployed processes and decisions - or the body, if it is not the expected JSON. */
+  /** The keys of the deployed processes and decisions, `nothing changed` if there are none (the
+    * engine skipped identical resources) - or the body, if it is not the expected JSON.
+    */
   private[worker] def deployedKeys(body: String): String =
     io.circe.parser.parse(body).toOption
       .flatMap(_.asArray)
@@ -120,7 +122,7 @@ object DeployOnStart:
           .distinct
           .sorted
           .mkString(", ")
-      .filter(_.nonEmpty)
+      .map(keys => if keys.isEmpty then "nothing changed" else keys)
       .getOrElse(body.take(500))
 
 end DeployOnStart

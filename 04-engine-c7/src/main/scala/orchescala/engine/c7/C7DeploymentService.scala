@@ -7,7 +7,7 @@ import orchescala.engine.services.{DeploymentService, ManifestResolver, Reposito
 import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
 import org.camunda.community.rest.client.invoker.{ApiClient, Pair}
 import org.camunda.community.rest.client.api.DeploymentApi
-import zio.ZIO.{logDebug, logWarning}
+import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{IO, ZIO}
 
 import java.nio.file.{Files, Path, Paths}
@@ -61,8 +61,10 @@ class C7DeploymentService(using
                   val formParams = new HashMap[String, Object]()
                   Option(engineConfig.tenantId.orNull).foreach(formParams.put("tenant-id", _))
                   formParams.put("deployment-source", "orchescala-deployment")
-                  formParams.put("deploy-changed-only", Boolean.box(false))
-                  formParams.put("enable-duplicate-filtering", Boolean.box(false))
+                  // an unchanged resource is not deployed again - no new version on every deploy (e.g.
+                  // a worker app's deploy on start), like Zeebe, which skips an identical resource
+                  formParams.put("deploy-changed-only", Boolean.box(true))
+                  formParams.put("enable-duplicate-filtering", Boolean.box(true))
                   formParams.put("deployment-name", name)
                   resourceFiles.zipWithIndex.foreach: (file, index) =>
                     formParams.put(s"data-$index", file.toFile)
@@ -82,17 +84,14 @@ class C7DeploymentService(using
                     Array("basicAuth"),
                     new TypeReference[DeploymentWithDefinitionsDto]() {}
                   )
-                  val result = mapDeploymentResult(deployment)
-                  val expectedDefinitions = deployableResources.exists: resource =>
-                    resource.resourceType == DeploymentResourceType.Bpmn ||
-                      resource.resourceType == DeploymentResourceType.Dmn
-                  if expectedDefinitions && result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty then
-                    throw RuntimeException(
-                      s"C7 accepted deployment '$name' but returned no deployed process or decision definitions"
-                    )
-                  result
+                  // nothing changed: with duplicate filtering C7 answers with the existing deployment
+                  // and no definitions - not an error
+                  mapDeploymentResult(deployment)
               .mapError: err =>
                 C7Service.withStatus(err)(EngineError.ProcessError(s"Problem deploying '$name' to C7: $err"))
+              .tap: result =>
+                ZIO.when(result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty):
+                  logInfo(s"'$name' is unchanged - nothing deployed to C7")
     yield result
   end deploy
 
