@@ -78,7 +78,7 @@ jobs:
         # instead of being skipped when there is no Docker. helper/test runs the merge from Orch Spec
         # with Node.js and Orch Spec's tools (04-orch-doc/bundle/orch-doc-tools, built above by
         # bundleDocClient) - on CI it fails instead of being skipped when they are missing
-        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test; worker/test; gateway/test; persistencePostgres/test; helper/test"
+        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test; worker/test; gateway/test; orchSpecCoreJVM/test; orchSpecCoreJS/test; orchStudio/test; persistencePostgres/test; helper/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
       - name: Check the company project templates
