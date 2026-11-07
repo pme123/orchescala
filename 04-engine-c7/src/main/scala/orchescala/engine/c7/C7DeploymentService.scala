@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.`type`.TypeReference
 import orchescala.engine.domain.*
 import orchescala.engine.EngineConfig
 import orchescala.engine.services.{DeploymentService, ManifestResolver, RepositoryManifestResolver}
-import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
+import org.camunda.community.rest.client.dto.{CountResultDto, DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
 import org.camunda.community.rest.client.invoker.{ApiClient, Pair}
 import org.camunda.community.rest.client.api.DeploymentApi
 import zio.ZIO.{logDebug, logInfo, logWarning}
@@ -84,9 +84,20 @@ class C7DeploymentService(using
                     Array("basicAuth"),
                     new TypeReference[DeploymentWithDefinitionsDto]() {}
                   )
-                  // nothing changed: with duplicate filtering C7 answers with the existing deployment
-                  // and no definitions - not an error
-                  mapDeploymentResult(deployment)
+                  val result              = mapDeploymentResult(deployment)
+                  val expectedDefinitions = deployableResources.exists: resource =>
+                    resource.resourceType == DeploymentResourceType.Bpmn ||
+                      resource.resourceType == DeploymentResourceType.Dmn
+                  // no definitions: nothing changed - with duplicate filtering C7 answers with the
+                  // existing deployment, which has its definitions. A deployment without any did not
+                  // pick up the resources - an error, as before.
+                  if expectedDefinitions && result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty &&
+                    definitionCount(apiClient, result.deploymentId) == 0
+                  then
+                    throw RuntimeException(
+                      s"C7 accepted deployment '$name' but it has no process or decision definitions"
+                    )
+                  result
               .mapError: err =>
                 C7Service.withStatus(err)(EngineError.ProcessError(s"Problem deploying '$name' to C7: $err"))
               .tap: result =>
@@ -94,6 +105,30 @@ class C7DeploymentService(using
                   logInfo(s"'$name' is unchanged - nothing deployed to C7")
     yield result
   end deploy
+
+  /** The process and decision definitions of a deployment. */
+  private def definitionCount(apiClient: ApiClient, deploymentId: String): Long =
+    Seq("/process-definition/count", "/decision-definition/count")
+      .map: path =>
+        val query = new ArrayList[Pair]()
+        query.add(new Pair("deploymentId", deploymentId))
+        val count = apiClient.invokeAPI(
+          path,
+          "GET",
+          query,
+          new ArrayList[Pair](),
+          new StringJoiner("&").toString,
+          null,
+          new HashMap[String, String](),
+          new HashMap[String, String](),
+          new HashMap[String, Object](),
+          "application/json",
+          "application/json",
+          Array("basicAuth"),
+          new TypeReference[CountResultDto]() {}
+        )
+        Option(count).flatMap(c => Option(c.getCount)).map(_.longValue).getOrElse(0L)
+      .sum
 
   override def getDeployments(
       targetEngine: Option[EngineType] = None
