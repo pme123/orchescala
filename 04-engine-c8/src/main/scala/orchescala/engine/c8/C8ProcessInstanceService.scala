@@ -2,7 +2,7 @@ package orchescala.engine.c8
 
 import orchescala.domain.{CamundaVariable, IdentityCorrelation, IdentityCorrelationSigner, InputParams, JsonProperty}
 import orchescala.engine.*
-import orchescala.engine.c8.C8ProcessInstanceService.PendingMarker
+import orchescala.engine.c8.C8ProcessInstanceService.{PendingMarker, StartCorrelation, StartPartition}
 import orchescala.engine.domain.EngineType.C8
 import orchescala.engine.domain.{EngineError, MessageCorrelationResult, ProcessInfo}
 import orchescala.engine.services.ProcessInstanceService
@@ -315,14 +315,15 @@ class C8ProcessInstanceService(
       )
     for
       _                  <- logInfo(s"Send Message $messageName: ${variables.asObject.fold("-")(_.keys.mkString(", "))}")
-      response           <- correlateWithBusinessKey(messageName, businessKey, correlate)
+      correlation        <- correlateWithBusinessKey(messageName, businessKey, correlate)
                               .mapError(withContext(s"Problem sending message '$messageName' to start process"))
+      response            = correlation.response
       processInstanceKey <- ZIO
                               .fromOption(response.processInstanceKey)
                               .orElseFail(EngineError.ProcessError(
                                 s"Message '$messageName' was correlated, but no process instance key returned."
                               ))
-      _                  <- ensureStarted(messageName, response.messageKey, processInstanceKey, pendingMarker)
+      _                  <- ensureStarted(messageName, response.messageKey, processInstanceKey, correlation.startPartition, pendingMarker)
     yield MessageCorrelationResult.ProcessInstance(processInstanceKey, processInstanceKey, C8)
     end for
   end sendMessageToStartProcess
@@ -342,19 +343,29 @@ class C8ProcessInstanceService(
     * open that subscription (a cluster under load), a start at the same time is refused twice and
     * starts a second instance with the same `businessKey`. Starts one after the other are not
     * affected. Other 404s (no such message, another tenant) cost the wait and two requests more.
+    *
+    * The last try - a business id but no correlation key - may start its instance on the partition
+    * of the business id: see `StartPartition`.
     */
   private def correlateWithBusinessKey(
       messageName: String,
       businessKey: Option[String],
       correlate: Option[String] => IO[EngineError, C8RestModel.MessageCorrelationResult]
-  ): IO[EngineError, C8RestModel.MessageCorrelationResult] =
+  ): IO[EngineError, StartCorrelation] =
     def notFound(err: EngineError) = err match
       case EngineError.ServiceRequestError(404, _) => true
       case _                                       => false
+    def onMessagePartition(response: C8RestModel.MessageCorrelationResult) =
+      StartCorrelation(response, StartPartition.Message)
+    // the last try: a business id but no correlation key - a blank key is no business id
+    val lastTryPartition =
+      if C8ProcessInstanceService.businessIdField(businessKey).isDefined then StartPartition.BusinessId
+      else StartPartition.Message
     businessKey match
-      case None      => correlate(None)
+      case None      => correlate(None).map(onMessagePartition)
       case Some(key) =>
-        val withKey = correlate(Some(key))
+        val withKey    = correlate(Some(key)).map(onMessagePartition)
+        val withoutKey = correlate(None).map(StartCorrelation(_, lastTryPartition))
         withKey
           .catchSome { case err if notFound(err) => withKey.delay(timings.subscriptionWait) }
           .catchSome:
@@ -362,7 +373,7 @@ class C8ProcessInstanceService(
               logWarning(
                 s"Message '$messageName' with correlation key '$key' refused - an instance with it runs and waits for " +
                   "no such message (or none starts with it): sent again without key."
-              ) *> correlate(None).mapError(withContext(
+              ) *> withoutKey.mapError(withContext(
                 s"Refused with correlation key '$key' (${err.errorMsg}), then sent again without key"
               ))
   end correlateWithBusinessKey
@@ -374,9 +385,18 @@ class C8ProcessInstanceService(
       messageName: String,
       messageKey: String,
       processInstanceKey: String,
+      startPartition: StartPartition,
       pendingMarker: PendingMarker
   ): IO[EngineError, Unit] =
-    C8ProcessInstanceService.startedBy(messageKey, processInstanceKey) match
+    C8ProcessInstanceService.startedBy(messageKey, processInstanceKey, startPartition) match
+      case Some(true)
+          if startPartition == StartPartition.BusinessId &&
+            !C8ProcessInstanceService.onSamePartition(messageKey, processInstanceKey) =>
+        // the known limit of `StartPartition.BusinessId`: traceable when a 409 is missed
+        logInfo(
+          s"Message '$messageName': instance $processInstanceKey is on another partition than the message ($messageKey) - " +
+            "taken as started on the partition of its business id, not checked for a running instance."
+        )
       case Some(true)  => ZIO.unit
       case None        =>
         ZIO.logError(
@@ -453,6 +473,34 @@ object C8ProcessInstanceService:
   private[c8] def businessIdField(businessKey: Option[String]): Option[(String, Json)] =
     businessKey.filterNot(_.isBlank).map(id => "businessId" -> id.asJson)
 
+  /** The answer to a start message - and where an instance it starts is created. */
+  private[c8] final case class StartCorrelation(
+      response: C8RestModel.MessageCorrelationResult,
+      startPartition: StartPartition
+  )
+
+  /** Where Zeebe creates the instance a start message starts - what `startedBy` compares with.
+    *
+    *   - `Message`: on the partition of the message - a message with correlation key (it equals
+    *     the business id, so both hash to the same partition) or without business id.
+    *   - `BusinessId`: maybe on another partition - a message with a business id but no
+    *     correlation key (the last try of `correlateWithBusinessKey`) starts it on the partition of
+    *     the business id (8.10, also without uniqueness control).
+    *
+    * Known limit of `BusinessId`: an instance on another partition is taken as started - a running
+    * instance there cannot be told from a start by the keys (an instance with that business id is
+    * on that partition too). The message lands in a running instance only through an event whose
+    * correlation key is empty (`""`), in an instance with the same business id. The BPMNs correlate
+    * with `=camunda.processInstance.businessId` - that business id, not empty. A BPMN with an empty
+    * correlation key would get no 409 there.
+    *
+    * Checked against c8run 8.10.8 with three partitions (`C8RestIntegrationTest`, «sent again
+    * without key»): the started instances are on the partition of their business id; without
+    * `BusinessId` most of them were taken for running instances - a 409.
+    */
+  private[c8] enum StartPartition:
+    case Message, BusinessId
+
   /** The waits of a start by message - the defaults are used in production (`C8ProcessEngine`),
     * the tests shorten them.
     *
@@ -479,12 +527,27 @@ object C8ProcessInstanceService:
     * Two messages with the same key at the same time: a partition processes them one after the
     * other, and the first creates its instance while it is processed. So the second message's key
     * is newer than that instance - landed in it, it is no start (c8run test: two at the same time).
+    *
+    * With `StartPartition.BusinessId` the message may also have started an instance on another
+    * partition - taken as started there (see its known limit).
     */
-  def startedBy(messageKey: String, processInstanceKey: String): Option[Boolean] =
+  def startedBy(
+      messageKey: String,
+      processInstanceKey: String,
+      startPartition: StartPartition
+  ): Option[Boolean] =
     for
       message  <- messageKey.toLongOption
       instance <- processInstanceKey.toLongOption
-    yield partitionOf(instance) == partitionOf(message) && instance > message
+    yield
+      if partitionOf(instance) == partitionOf(message) then instance > message
+      else startPartition == StartPartition.BusinessId
+
+  /** Are both keys on the same partition? False if they are no Zeebe keys. */
+  def onSamePartition(messageKey: String, processInstanceKey: String): Boolean =
+    (messageKey.toLongOption, processInstanceKey.toLongOption) match
+      case (Some(message), Some(instance)) => partitionOf(message) == partitionOf(instance)
+      case _                               => false
 
   private def partitionOf(key: Long): Long = key >> 51
 

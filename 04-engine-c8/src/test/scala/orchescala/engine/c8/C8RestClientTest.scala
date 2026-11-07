@@ -590,29 +590,90 @@ object C8RestClientTest extends ZIOSpecDefault:
             failsWith(403, "Only one active") && failsWith(403, "no access to process p")
         ) && assertTrue(cluster.paths == Seq.fill(3)("v2/messages/correlation"))
       },
-      test("start by message sent again without key, landed on another partition: 409") {
+      test("start by message sent again without key: a start - also on the partition of its business id (8.10)") {
+        // without correlation key Zeebe starts the instance on the partition of the business id,
+        // not on the message's - an older key there is no running instance
         val otherPartition = ((2L << 51) + 5).toString
         val cluster        = StubCluster: request =>
           if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
           else 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}"""
         given C8RestClient = cluster.client()
         given orchescala.engine.EngineConfig = DefaultEngineConfig()
-        assertZIO(C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit)(
-          failsWith(409, s"($otherPartition)")
-        )
+        for info <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1"))
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assertTrue(info.processInstanceId == otherPartition, keys == Seq(Some("bk-1"), Some("bk-1"), None))
+      },
+      test("start by message sent again without key, landed in a running instance on the message's partition (its older key): 409") {
+        val cluster = StubCluster: request =>
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
+          else 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(keys == Seq(Some("bk-1"), Some("bk-1"), None))
+      },
+      test("start by message with key, the instance on another partition: 409 - a key and its equal business id share it") {
+        val otherPartition = ((2L << 51) + 5).toString
+        val cluster        = StubCluster(_ => 200 -> s"""{"messageKey":"999","processInstanceKey":"$otherPartition"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some("bk-1")).exit
+        yield
+          // answered on the first try - with key, not on the last one without
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, s"($otherPartition)")) && assertTrue(keys == Seq(Some("bk-1")))
+      },
+      test("start by message with a blank businessKey: its correlation key, no business id - a running instance (its older key) is a 409 on every try") {
+        val cluster = StubCluster: request =>
+          if bodyJson(request).hcursor.get[String]("correlationKey").isRight then uniqueStartRefused
+          else 200 -> """{"messageKey":"999","processInstanceKey":"500"}"""
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg", businessKey = Some(" ")).exit
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(
+            keys == Seq(Some(" "), Some(" "), None),
+            cluster.jsonBodies.forall(_.hcursor.downField("businessId").failed)
+          )
+      },
+      test("start by message without businessKey, landed in a running instance (its older key): 409 - no business id, the message's partition") {
+        val cluster = StubCluster(_ => 200 -> """{"messageKey":"999","processInstanceKey":"500"}""")
+        given C8RestClient = cluster.client()
+        given orchescala.engine.EngineConfig = DefaultEngineConfig()
+        for exit <- C8ProcessInstanceService(fastTimings).startProcessByMessage("start-msg").exit
+        yield
+          val keys = cluster.jsonBodies.map(_.hcursor.get[String]("correlationKey").toOption)
+          assert(exit)(failsWith(409, "(500)")) && assertTrue(keys == Seq(None))
       },
       test("startedBy: an instance the message started is newer, on its partition") {
         val partition2 = 2L << 51
         assertTrue(
-          C8ProcessInstanceService.startedBy("999", "1000").contains(true),
-          C8ProcessInstanceService.startedBy("999", "500").contains(false),
+          C8ProcessInstanceService.startedBy("999", "1000", C8ProcessInstanceService.StartPartition.Message).contains(true),
+          C8ProcessInstanceService.startedBy("999", "500", C8ProcessInstanceService.StartPartition.Message).contains(false),
           // a running instance on a higher partition has a larger key - but the message did not start it
-          C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString).contains(false),
-          C8ProcessInstanceService.startedBy((partition2 + 7).toString, (partition2 + 8).toString).contains(true),
+          C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString, C8ProcessInstanceService.StartPartition.Message).contains(false),
+          C8ProcessInstanceService.startedBy((partition2 + 7).toString, (partition2 + 8).toString, C8ProcessInstanceService.StartPartition.Message).contains(true),
           // the message on a higher partition than the running instance: also not started by it
-          C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000").contains(false),
-          C8ProcessInstanceService.startedBy("1000", "1000").contains(false), // not newer
-          C8ProcessInstanceService.startedBy("not-a-key", "1000").isEmpty
+          C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000", C8ProcessInstanceService.StartPartition.Message).contains(false),
+          C8ProcessInstanceService.startedBy("1000", "1000", C8ProcessInstanceService.StartPartition.Message).contains(false), // not newer
+          C8ProcessInstanceService.startedBy("not-a-key", "1000", C8ProcessInstanceService.StartPartition.Message).isEmpty
+        )
+      },
+      test("startedBy on the partition of the business id: the message's partition is checked - another one is taken as a start (known limit)") {
+        import C8ProcessInstanceService.StartPartition.BusinessId
+        val partition2 = 2L << 51
+        assertTrue(
+          // known limit: a start there - or a running instance with an empty correlation key and the
+          // same business id: the keys cannot tell them apart, taken as a start (see StartPartition)
+          C8ProcessInstanceService.startedBy("999", (partition2 + 5).toString, BusinessId).contains(true),
+          C8ProcessInstanceService.startedBy((partition2 + 7).toString, "1000", BusinessId).contains(true),
+          C8ProcessInstanceService.startedBy("999", "1000", BusinessId).contains(true),
+          C8ProcessInstanceService.startedBy("999", "500", BusinessId).contains(false), // older, on the message's partition
+          C8ProcessInstanceService.startedBy("not-a-key", "1000", BusinessId).isEmpty
         )
       }
     )
