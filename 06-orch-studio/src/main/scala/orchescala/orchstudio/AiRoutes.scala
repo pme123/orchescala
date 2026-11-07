@@ -42,13 +42,18 @@ final class AiRoutes private (ai: Option[AiConfig], tasks: Seq[AiSkills.Task], c
             else
               requestBody(bytes, config) match
                 case Left(error) => ZIO.succeed(apiError(Status.BadRequest, "invalid_request_error", error))
-                case Right(body) => running.withPermit(forward(req, body, config))
+                case Right(body) => forward(req, body, config)
         )
 
-  /** To the Claude API with the key of the studio - its answer as it is. */
+  /** To the Claude API with the key of the studio - its answer as it is. The timeout covers the wait
+    * for a permit too, so a request behind slow ones does not wait without end.
+    */
   private def forward(req: Request, body: Json, config: AiConfig): UIO[Response] =
-    val url = URL.decode(s"${config.baseUrl}/v1/messages").toOption.get
-      .copy(queryParams = req.url.queryParams) // `?beta=true` of the SDK
+    config.messagesUrl match
+      case Left(error) => ZIO.logWarning(error).as(apiError(Status.BadGateway, "api_error", error))
+      case Right(base) => send(req, body, config, base.copy(queryParams = req.url.queryParams)) // `?beta=true` of the SDK
+
+  private def send(req: Request, body: Json, config: AiConfig, url: URL): UIO[Response] =
     val headers = Headers(
       Header.Custom("x-api-key", config.apiKey),
       Header.Custom("anthropic-version", req.rawHeader("anthropic-version").getOrElse(anthropicVersion)),
@@ -70,14 +75,17 @@ final class AiRoutes private (ai: Option[AiConfig], tasks: Seq[AiSkills.Task], c
           Headers(response.rawHeader("request-id").map(Header.Custom("request-id", _)).toSeq),
         body = Body.fromArray(bytes)
       )
-    call
+    running.withPermit(call)
       .timeoutFail(TimeoutAfter)(timeout)
       .catchAllCause: cause =>
-        val (status, kind, text) =
-          if cause.failureOption.contains(TimeoutAfter) then (Status.GatewayTimeout, "timeout_error", s"no answer of the Claude API within $timeout")
-          else (Status.BadGateway, "api_error", "the Claude API cannot be reached from the studio")
-        ZIO.logWarningCause(s"POST /ai/anthropic/v1/messages - $text", cause).as(apiError(status, kind, text))
-  end forward
+        // the browser went away: nobody waits for an answer - no 502, no warning
+        if cause.isInterruptedOnly then ZIO.interrupt
+        else
+          val (status, kind, text) =
+            if cause.failureOption.contains(TimeoutAfter) then (Status.GatewayTimeout, "timeout_error", s"no answer of the Claude API within $timeout")
+            else (Status.BadGateway, "api_error", "the Claude API cannot be reached from the studio")
+          ZIO.logWarningCause(s"POST /ai/anthropic/v1/messages - $text", cause).as(apiError(status, kind, text))
+  end send
 
 end AiRoutes
 

@@ -137,6 +137,18 @@ object AiRoutesSpec extends ZIOSpecDefault:
         getClass.getClassLoader.getResource(AiSkills.path(AiSkills.Task.uiCreator, "anthropic")) != null
       )
     ,
+    test("a base URL that is no http(s) URL: the start names it; set in code: 502, no defect"):
+      val fromEnv = scala.util.Try(StudioConfig().withEnv(Map(
+        "STUDIO_AI_ANTHROPIC_API_KEY" -> "sk-ant-x", "STUDIO_AI_ANTHROPIC_URL" -> "api.anthropic.com"
+      ))).failed.toOption.map(_.getMessage)
+      for
+        r <- routes(Some(config(1).copy(baseUrl = "no url"))).flatMap(_.runZIO(fromBrowser(body)))
+        b <- r.body.asString
+      yield assertTrue(
+        fromEnv.exists(_.contains("STUDIO_AI_ANTHROPIC_URL")),
+        r.status == Status.BadGateway, b.contains("STUDIO_AI_ANTHROPIC_URL")
+      )
+    ,
     test("the Claude API not reachable - 502 in the form of the API"):
       for
         r <- routes(Some(config(1))).flatMap(_.runZIO(fromBrowser(body)))
