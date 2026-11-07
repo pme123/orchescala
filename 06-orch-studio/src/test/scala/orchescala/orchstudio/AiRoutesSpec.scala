@@ -33,8 +33,9 @@ object AiRoutesSpec extends ZIOSpecDefault:
     ZIO.serviceWithZIO[Client](AiRoutes.make(ai, _)).map(_.routes)
 
   /** A request as the SDK in the browser sends it - with a key of its own that must not count. */
-  private def fromBrowser(body: String) =
+  private def fromBrowser(body: String, task: Option[String] = Some("uiCreator")) =
     Request.post(URL.decode("/ai/anthropic/v1/messages?beta=true").toOption.get, Body.fromString(body))
+      .addHeaders(Headers(task.map(Header.Custom(AiRoutes.taskHeader, _)).toSeq))
       .addHeaders(Headers(
         Header.Custom("x-api-key", "from-the-browser"),
         Header.Custom("anthropic-version", "2023-06-01"),
@@ -46,14 +47,14 @@ object AiRoutesSpec extends ZIOSpecDefault:
   private val withServer = Server.defaultWith(c => StudioServer.serverConfig(c.binding("localhost", 0)))
 
   def spec = suite("AiRoutes")(
-    test("GET /ai/config - on with provider and model, never the key; off without a key"):
+    test("GET /ai/config - on with provider, model and the tasks with a skill, never the key; off without a key"):
       for
         on    <- routes(Some(config(1))).flatMap(_.runZIO(Request.get(URL.decode("/ai/config").toOption.get)))
         onB   <- on.body.asString
         off   <- routes(None).flatMap(_.runZIO(Request.get(URL.decode("/ai/config").toOption.get)))
         offB  <- off.body.asString
       yield assertTrue(
-        onB == """{"enabled":true,"provider":"anthropic","model":"claude-test"}""",
+        onB == """{"enabled":true,"provider":"anthropic","model":"claude-test","tasks":["uiCreator"]}""",
         !onB.contains("sk-ant"),
         offB == """{"enabled":false}"""
       )
@@ -75,6 +76,7 @@ object AiRoutesSpec extends ZIOSpecDefault:
         got.headers.rawHeader("anthropic-beta").contains("server-side-fallback-2026-07-01"),
         got.headers.rawHeader("anthropic-version").contains("2023-06-01"),
         got.query.queryParam("beta").contains("true"),
+        got.headers.rawHeader(AiRoutes.taskHeader).isEmpty, // only for the studio
         sent.hcursor.get[String]("model").contains("claude-test"),
         sent.hcursor.get[Int]("max_tokens").contains(AiRoutes.maxTokens),
         sent.hcursor.downField("messages").focus.exists(_.isArray)
@@ -109,6 +111,30 @@ object AiRoutesSpec extends ZIOSpecDefault:
         noObj.status == Status.BadRequest,
         big.status == Status.RequestEntityTooLarge,
         sent.isEmpty
+      )
+    ,
+    test("a task without a skill, an unknown one or none - 403, nothing sent"):
+      for
+        seen    <- Ref.make(Option.empty[Seen])
+        port    <- fakeApi(seen)
+        rs      <- routes(Some(config(port)))
+        process <- rs.runZIO(fromBrowser(body, Some("processCreator")))
+        unknown <- rs.runZIO(fromBrowser(body, Some("whatever")))
+        none    <- rs.runZIO(fromBrowser(body, None))
+        pb      <- process.body.asString
+        sent    <- seen.get
+      yield assertTrue(
+        process.status == Status.Forbidden, pb.contains(AiRoutes.noSkillMessage), pb.contains("processCreator"),
+        unknown.status == Status.Forbidden,
+        none.status == Status.Forbidden,
+        sent.isEmpty
+      )
+    ,
+    test("the skills on the classpath - today only uiCreator with anthropic"):
+      assertTrue(
+        AiSkills.available("anthropic") == Seq(AiSkills.Task.uiCreator),
+        AiSkills.available("bedrock-eu").isEmpty,
+        getClass.getClassLoader.getResource(AiSkills.path(AiSkills.Task.uiCreator, "anthropic")) != null
       )
     ,
     test("the Claude API not reachable - 502 in the form of the API"):

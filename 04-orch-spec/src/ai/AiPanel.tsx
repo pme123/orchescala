@@ -33,7 +33,7 @@ export function AiPanel({ isDark, slug, page, pages, app, targets, draft, onDraf
   const changes = useMemo(() => (draft ? pageDiff(draft.base, draft.page) : []), [draft]);
   const all = [...pages.filter((p) => p.slug !== slug), { slug, page }];
   return (
-    <AiChat<PageDraft> isDark={isDark} draft={draft} onDraft={onDraft} initialPrompt={initialPrompt} onInitialPrompt={onInitialPrompt}
+    <AiChat<PageDraft> isDark={isDark} task="uiCreator" draft={draft} onDraft={onDraft} initialPrompt={initialPrompt} onInitialPrompt={onInitialPrompt}
       system={() => pageSystem(specSource, targets, all, app)}
       kit={pageToolKit({ targets, others: all })}
       start={() => startDraft(slug, page)}

@@ -40,7 +40,8 @@ abstract class StudioServer extends ZIOAppDefault:
         _ <- ZIO.logInfo(s"  orch-doc  $url/site/")
         _ <- ZIO.logInfo(s"  orch-spec $url/site/spec/")
         _ <- ZIO.logInfo(s"  orch-ops  $url/site/ops/")
-        _ <- ZIO.logInfo(settings.ai.fold("AI: off - without STUDIO_AI_ANTHROPIC_API_KEY orch-spec shows no AI")(a => s"AI: on - $a"))
+        _ <- ZIO.logInfo(settings.ai.fold("AI: off - without STUDIO_AI_ANTHROPIC_API_KEY orch-spec shows no AI")(a =>
+               s"AI: on - $a, tasks with a skill: ${AiSkills.available(AiRoutes.provider).map(_.id).mkString(", ")}"))
         ai <- ZIO.serviceWithZIO[Client](AiRoutes.make(settings.ai, _))
         _ <- Server.serve(routesOf(settings, ai))
       yield ()

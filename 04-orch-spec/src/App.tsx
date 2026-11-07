@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow, Sparkles, Boxes } from 'lucide-react';
 import { AiDialog } from './ai/AiDialog';
-import { useAiConfig } from './ai/config';
+import { anyAi, useAiConfig } from './ai/config';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -283,7 +283,7 @@ export default function App() {
 
               {/* Display and the AI mode - only when the studio turns it on (E23) */}
               <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
-              {ai.enabled && (
+              {anyAi(ai) && (
                 <button onClick={() => setAiDialogOpen(true)} title="KI-Modus an – vom Studio freigegeben"
                   className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-violet-300 hover:text-violet-200' : 'text-violet-600 hover:text-violet-800'}`}>
                   <Sparkles size={13} />
@@ -299,7 +299,7 @@ export default function App() {
       </div>
 
       {feelOpen && <FeelCheatSheet isDark={isDark} onClose={() => setFeelOpen(false)} />}
-      {aiDialogOpen && ai.enabled && <AiDialog isDark={isDark} ai={ai} onClose={() => setAiDialogOpen(false)} />}
+      {aiDialogOpen && anyAi(ai) && <AiDialog isDark={isDark} ai={ai} onClose={() => setAiDialogOpen(false)} />}
 
       {/* Main content */}
       <div className={`flex-1 ${fullWidth ? 'overflow-hidden' : 'overflow-y-auto [scrollbar-gutter:stable]'}`}>

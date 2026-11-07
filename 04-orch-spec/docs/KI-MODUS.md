@@ -19,13 +19,26 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Key (`STUDIO_AI_ANTHROPIC_API_KEY`), antwortet `GET /ai/config` mit
   `enabled: true` samt Anbieter und Modell, nie mit dem Key. orch-spec fragt das
   einmal beim Laden.
+- **Pro Aufgabe ein Skill:** Das Studio bietet nur die Aufgaben an, für die es einen Skill hat
+  (`ai/skills/<Aufgabe>/<Provider>/SKILL.md` in seinen Ressourcen) – mit Einschränkungen,
+  Schritten und Anweisungen, die eine Bank prüfen kann. `GET /ai/config` nennt sie in `tasks`,
+  und jede Stelle zeigt ihre KI nur, wenn ihre Aufgabe dabei ist:
+
+  | Aufgabe | Stelle in orch-spec | Skill heute |
+  |---|---|---|
+  | `uiCreator` | Seiten-Designer, «Neue Seite» | ✓ `anthropic` |
+  | `processCreator` | Prozessansicht | – |
+  | `serviceRegistration`, `serviceCreator` | Katalog, Services | – (noch keine Stelle) |
+
+  Jede Anfrage trägt ihre Aufgabe im Header `x-orch-task`; eine Aufgabe ohne Skill lehnt das
+  Studio ab (403).
 - **Ohne Freigabe ist von KI nichts zu sehen:** kein Symbol, keine Panels, keine
   Buttons, und der KI-Code (samt SDK von Anthropic) wird gar nicht geladen. So
   ist es auch ohne Studio, etwa für die Doku als Ordner oder auf GitHub Pages.
   orch-spec bleibt ohne KI vollständig nutzbar.
 - **Mit Freigabe ist der KI-Modus an.** Oben rechts erscheint das violette
-  Symbol ✦ (Dialog **KI-Modus**: Anbieter und Modell), und im Seiten-Designer
-  und in der Prozessansicht der Button **Claude**.
+  Symbol ✦ (Dialog **KI-Modus**: Anbieter, Modell und die Aufgaben mit Skill),
+  und an den Stellen dieser Aufgaben der Button **Claude**.
 - **Im Browser liegt kein Key.** Die Anfragen gehen an das Studio
   (`/ai/anthropic/v1/messages`), und das Studio schickt sie mit seinem Key
   weiter. Das Modell bestimmt das Studio, `max_tokens` ist begrenzt. Ein Key,
@@ -144,7 +157,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 | Datei | Zweck |
 |---|---|
-| `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, `useAiOn` |
+| `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, die Aufgaben mit Skill, `useAiFor` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
 | `src/ai/client.ts` | `send` mit dem SDK über das Studio, Fehlertexte |
 | `src/ai/context.ts` | Anweisungen, Datenmodell als Text, Systemprompt mit Cache-Breakpoints |

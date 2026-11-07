@@ -4,7 +4,7 @@
 // `send` changes.
 import Anthropic from '@anthropic-ai/sdk';
 import type { Send } from './agent';
-import { MESSAGES_BASE, type AiConfig } from './config';
+import { MESSAGES_BASE, TASK_HEADER, type AiConfig, type AiTask } from './config';
 
 /** The model if the studio names none - the studio decides anyway. */
 export const MODEL = 'claude-opus-5-5';
@@ -15,9 +15,13 @@ export const studioBaseUrl = (origin: string = globalThis.location?.origin ?? 'h
 
 /** `send` for the agent: one request, the fixed settings here. Without streaming - the answers are
   * short (a block, a few sentences); the API validates the tool inputs before it returns them. Key,
-  * workspace and model are the studio's - the SDK wants a key, it gets a placeholder. */
-export function claudeSender(config: AiConfig): Send {
-  const client = new Anthropic({ apiKey: 'from-the-studio', baseURL: studioBaseUrl(), dangerouslyAllowBrowser: true });
+  * workspace and model are the studio's - the SDK wants a key, it gets a placeholder. `task` goes
+  * along in a header: the studio sends on only a task it has a skill for. */
+export function claudeSender(config: AiConfig, task: AiTask): Send {
+  const client = new Anthropic({
+    apiKey: 'from-the-studio', baseURL: studioBaseUrl(), dangerouslyAllowBrowser: true,
+    defaultHeaders: { [TASK_HEADER]: task },
+  });
   return (request, signal) =>
     client.beta.messages.create({
       model: config.model ?? MODEL,
@@ -49,6 +53,8 @@ function apiError(e: InstanceType<typeof Anthropic.APIError>): { type?: string; 
 export function errorText(e: unknown): string {
   if (e instanceof Anthropic.APIUserAbortError) return 'Abgebrochen.';
   if (e instanceof Anthropic.AuthenticationError) return 'Der API-Key des Studios wird nicht angenommen – STUDIO_AI_ANTHROPIC_API_KEY auf dem Server prüfen.';
+  if (e instanceof Anthropic.PermissionDeniedError && apiError(e).message.includes('no skill in the studio'))
+    return 'Für diese Aufgabe hat das Studio keinen Skill – neu laden.';
   if (e instanceof Anthropic.PermissionDeniedError) return 'Der API-Key des Studios darf das Modell nicht verwenden (403).';
   if (e instanceof Anthropic.NotFoundError && e.message.includes('AI of the studio is off'))
     return 'Die KI ist im Studio ausgeschaltet – neu laden.';

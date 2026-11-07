@@ -2,7 +2,7 @@
 import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, MessageSquare, Plus, Settings2, Trash2 } from 'lucide-react';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../../components/SpecList';
 import { useMemo, useState } from 'react';
-import { useAiOn } from '../../ai/config';
+import { useAiFor } from '../../ai/config';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
 import { useStore, type PageListItem } from '../../store';
@@ -188,7 +188,7 @@ function NewPage({ existing, onCreate, onClose }: {
 }) {
   const { isDark } = useStore();
   // with a key (AI mode): what the page should show - Claude drafts it right after creating
-  const aiOn = useAiOn();
+  const aiOn = useAiFor('uiCreator');
   const [describe, setDescribe] = useState('');
   const c = cls(isDark);
   const [title, setTitle] = useState('');

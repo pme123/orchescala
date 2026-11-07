@@ -10,7 +10,7 @@ import { errorText, studioBaseUrl } from '../src/ai/client';
 import { dataModelText, pageSystem } from '../src/ai/context';
 import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost';
 import { changedKeys, pageDiff } from '../src/ai/diff';
-import { AI_OFF, CONFIG_PATH, forgetBrowserKey, loadConfig, OLD_BROWSER_KEYS, parseConfig } from '../src/ai/config';
+import { AI_OFF, aiFor, anyAi, CONFIG_PATH, forgetBrowserKey, loadConfig, OLD_BROWSER_KEYS, parseConfig } from '../src/ai/config';
 import { draftChanged, newErrors, outlineOf, pageToolKit, runPageTool, startDraft, type PageContext } from '../src/ai/pageTools';
 import { flatten, targetsOf, withIds } from '../src/pages/designer/model';
 import type { Page } from '../src/pages/runtime/spec';
@@ -56,10 +56,10 @@ const fakeFetch = (status: number, body: unknown, seen: string[] = []): typeof f
     return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   }) as typeof fetch;
 
-test('the studio is the switch - on only with enabled: true, provider and model from it', async () => {
+test('the studio is the switch - on only with enabled: true, provider, model and tasks from it', async () => {
   const seen: string[] = [];
-  assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5' }, seen)),
-    { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5' });
+  assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'] }, seen)),
+    { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'] });
   assert.deepEqual(seen, [CONFIG_PATH]);
   assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: false })), AI_OFF);
 });
@@ -70,7 +70,19 @@ test('the studio is the switch - no studio, 404, no JSON or something odd: off, 
   assert.deepEqual(await loadConfig(fakeFetch(200, '<html>')), AI_OFF); // a page instead of JSON
   assert.deepEqual(parseConfig({ enabled: 'yes' }), AI_OFF);
   assert.deepEqual(parseConfig(null), AI_OFF);
-  assert.deepEqual(parseConfig({ enabled: true, model: '  ' }), { enabled: true, provider: undefined, model: undefined });
+  assert.deepEqual(parseConfig({ enabled: true, model: '  ' }), { enabled: true, provider: undefined, model: undefined, tasks: [] });
+});
+
+test('the AI per task - only the tasks with a skill in the studio show AI', () => {
+  const ui = parseConfig({ enabled: true, tasks: ['uiCreator', 'somethingNew', 42] });
+  assert.deepEqual(ui.tasks, ['uiCreator']); // unknown entries are dropped
+  assert.equal(aiFor(ui, 'uiCreator'), true);
+  assert.equal(aiFor(ui, 'processCreator'), false); // no skill yet: the process view shows no AI
+  assert.equal(anyAi(ui), true);
+  // on in the studio, but no skill at all: no icon either
+  const none = parseConfig({ enabled: true, tasks: [] });
+  assert.equal(anyAi(none), false);
+  assert.equal(aiFor(AI_OFF, 'uiCreator'), false);
 });
 
 test('the key once stored in the browser is removed; the SDK goes to the studio', () => {
@@ -401,6 +413,8 @@ test('errorText - what the RE reads', () => {
   const off = { type: 'error', error: { type: 'not_found_error', message: 'the AI of the studio is off (STUDIO_AI_ANTHROPIC_API_KEY)' } };
   assert.match(errorText(new Anthropic.NotFoundError(404, off, undefined, headers)), /im Studio ausgeschaltet/);
   assert.match(errorText(new Anthropic.AuthenticationError(401, undefined, 'invalid x-api-key', headers)), /STUDIO_AI_ANTHROPIC_API_KEY/);
+  const noSkill = { type: 'error', error: { type: 'permission_error', message: 'no skill in the studio for the task «processCreator» (x-orch-task)' } };
+  assert.match(errorText(new Anthropic.PermissionDeniedError(403, noSkill, undefined, headers)), /keinen Skill/);
   const unreachable = { type: 'error', error: { type: 'api_error', message: 'the Claude API cannot be reached from the studio' } };
   assert.match(errorText(Anthropic.APIError.generate(502, unreachable, undefined, headers)), /^Das Studio erreicht die Claude API nicht \(502\)/);
   assert.match(errorText(Anthropic.APIError.generate(504, { type: 'error', error: { type: 'timeout_error', message: 'x' } }, undefined, headers)), /nicht rechtzeitig/);

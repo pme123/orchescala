@@ -27,7 +27,7 @@ export function ProcessAiPanel({ isDark, spec, xml, model, specs, draft, onDraft
   // all workers of the domain - also those of the processes (targetsOf without specs keeps them)
   const targets = useMemo(() => ({ ...(model ? targetsOf(model, []) : { services: [], messages: [], userTasks: [] }), processes: model ? targetsOf(model, specs).processes : [] }), [model, specs]);
   return (
-    <AiChat<ProcessDraft> isDark={isDark} draft={draft} onDraft={onDraft}
+    <AiChat<ProcessDraft> isDark={isDark} task="processCreator" draft={draft} onDraft={onDraft}
       system={() => processSystem({ ...targets, messages: [], userTasks: [] })}
       kit={processToolKit({ model })}
       start={() => startProcessDraft(spec, xml)}

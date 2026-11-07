@@ -39,7 +39,7 @@ import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
 import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
-import { useAiOn } from '../ai/config';
+import { useAiFor } from '../ai/config';
 import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
@@ -158,9 +158,9 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { isDark, model: storeModel, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
-  // ── AI mode (E19, E23, stage B): only when the studio turns it on. While Claude's draft is open, the view shows it
+  // ── AI mode (E19, E23, stage B): only with a skill for processCreator in the studio. While Claude's draft is open, the view shows it
   // (diagram and flow) read only - until the RE accepts or discards it
-  const aiOn = useAiOn();
+  const aiOn = useAiFor('processCreator');
   const [aiDraft, setAiDraft] = useState<ProcessDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   /** the state before the last accepted draft - for undo, as long as nothing else changed */

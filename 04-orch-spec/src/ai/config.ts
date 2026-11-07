@@ -1,10 +1,24 @@
 // The AI mode (E19, E23): the studio is the switch. Its settings (STUDIO_AI_ANTHROPIC_API_KEY …) turn
-// the AI on; orch-spec asks `GET /ai/config` once and learns only on/off, provider and model - never
-// the key. The requests of the agent go through the studio (`/ai/anthropic`, see client.ts).
+// the AI on; orch-spec asks `GET /ai/config` once and learns only on/off, provider, model and the
+// tasks with a skill - never the key. Each place shows its AI only if its task is among them (the
+// page designer `uiCreator`, the process view `processCreator`). The requests of the agent go
+// through the studio (`/ai/anthropic`, see client.ts), with their task in a header.
 //
 // Without a studio (a folder of the docs, GitHub Pages, the dev server without ORCH_SPEC_STUDIO) the
 // request fails - then the AI is off and nothing of it is visible. orch-spec stays fully usable.
 import { useSyncExternalStore } from 'react';
+
+/** The tasks orch-spec has a place for - the studio offers those it has a skill for. */
+export const AI_TASKS = ['uiCreator', 'processCreator', 'serviceRegistration', 'serviceCreator'] as const;
+export type AiTask = (typeof AI_TASKS)[number];
+
+/** What the RE reads about a task. */
+export const TASK_LABEL: Record<AiTask, string> = {
+  uiCreator: 'Seiten (UI-Creator)',
+  processCreator: 'Prozesse',
+  serviceRegistration: 'Service registrieren',
+  serviceCreator: 'Service erstellen',
+};
 
 export type AiConfig = {
   enabled: boolean;
@@ -12,9 +26,14 @@ export type AiConfig = {
   provider?: string;
   /** the model the studio asks - for the costs and the hint in the dialog */
   model?: string;
+  /** the tasks with a skill in the studio - only they show AI */
+  tasks: AiTask[];
 };
 
-export const AI_OFF: AiConfig = { enabled: false };
+export const AI_OFF: AiConfig = { enabled: false, tasks: [] };
+
+/** The header with the task of a request - the studio refuses a task without a skill. */
+export const TASK_HEADER = 'x-orch-task';
 
 /** On the origin of the page - the studio serves orch-spec and these paths. */
 export const CONFIG_PATH = '/ai/config';
@@ -27,7 +46,8 @@ export function parseConfig(json: unknown): AiConfig {
   const o = json as Record<string, unknown>;
   if (o.enabled !== true) return AI_OFF;
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
-  return { enabled: true, provider: text(o.provider), model: text(o.model) };
+  const tasks = Array.isArray(o.tasks) ? AI_TASKS.filter((t) => (o.tasks as unknown[]).includes(t)) : [];
+  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks };
 }
 
 /** Asks the studio - every failure (no studio, 404, no JSON) is «off». */
@@ -68,8 +88,14 @@ export function useAiConfig(): AiConfig {
   return useSyncExternalStore(subscribe, () => current, () => AI_OFF);
 }
 
-/** The switch: is the AI on? */
-export const useAiOn = (): boolean => useAiConfig().enabled;
+/** Is the AI on for `task` - on in the studio and a skill for the task? */
+export const aiFor = (config: AiConfig, task: AiTask): boolean => config.enabled && config.tasks.includes(task);
+
+/** The switch of one place: the AI of its task. */
+export const useAiFor = (task: AiTask): boolean => aiFor(useAiConfig(), task);
+
+/** Is there AI anywhere - the icon in the header. */
+export const anyAi = (config: AiConfig): boolean => config.enabled && config.tasks.length > 0;
 
 /** Until E23 the key was stored in the browser - it is removed, so it does not stay there unused. */
 export const OLD_BROWSER_KEYS = ['orch-spec.anthropicKey', 'orch-spec.anthropicWorkspace'];

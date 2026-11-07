@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { changedKeys, pageDiff } from '../../ai/diff';
-import { useAiOn } from '../../ai/config';
+import { useAiFor } from '../../ai/config';
 import type { PageDraft } from '../../ai/pageTools';
 import { useAuth, useAuthor, usePermissions } from '../../auth';
 import { countIndex, markNotified, threadOf } from '../../comments';
@@ -132,9 +132,9 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
   // ---- history (change log): for the selected building block, otherwise for everything
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditFocus, setAuditFocus] = useState<string | null>(null);
-  // ---- the AI mode (E19, E23): only when the studio turns it on. Claude's draft is shown instead of the page - in the
+  // ---- the AI mode (E19, E23): only with a skill for uiCreator in the studio. Claude's draft is shown instead of the page - in the
   // outline and the preview, read only - until the RE accepts (one step of undo) or discards it
-  const aiOn = useAiOn();
+  const aiOn = useAiFor('uiCreator');
   const [draft, setDraft] = useState<PageDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(!!aiPrompt);
   // the description of a new page for Claude - sent once, then dropped (a later mount of the chat does not send it again)

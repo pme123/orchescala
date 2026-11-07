@@ -9,7 +9,7 @@ import { cls } from '../ui';
 import { runTurn, type AgentEvent, type Stop } from './agent';
 import { claudeSender, errorText } from './client';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
-import { useAiConfig } from './config';
+import { useAiConfig, type AiTask } from './config';
 import type { ToolKit } from './toolkit';
 
 type Entry =
@@ -34,6 +34,8 @@ export type AcceptOutcome = void | { refused: string } | { saveError: string };
 
 export type AiChatProps<D> = {
   isDark: boolean;
+  /** the task of the chat - the studio needs a skill for it */
+  task: AiTask;
   /** the system of a conversation - built at its start and then kept (cache) */
   system: () => BetaTextBlockParam[];
   kit: ToolKit<D>;
@@ -121,7 +123,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
     try {
       const before = draft ?? p.start();
       const r = await runTurn({
-        send: claudeSender(ai), system: sys, kit: p.kit,
+        send: claudeSender(ai, p.task), system: sys, kit: p.kit,
         history: history.current, prompt, draft: before, onEvent, signal: controller.signal,
       });
       if (!current()) return;
