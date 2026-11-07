@@ -1,9 +1,13 @@
 package orchescala.worker
 
+import orchescala.engine.domain.EngineType
 import zio.{Scope, ZIO, ZLayer}
 import zio.ZIO.*
 
 trait WorkerRegistry:
+
+  /** The engine the workers of this registry run on - e.g. for [[DeployOnStart]]. */
+  def engineType: EngineType
 
   /** Each topic once: a worker registered twice (two instances of the same class, e.g. two
     * blocks in the WorkerApp) would be subscribed twice - the C7 client refuses the second

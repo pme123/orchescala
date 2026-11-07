@@ -53,6 +53,11 @@ trait WorkerConfig:
     */
   def uiMaxFileSize: Long = UiRoutes.defaultMaxFileSize
 
+  /** Deploys the BPMN/DMN of the app's project through the gateway when the app starts - see
+    * [[DeployOnStart]]. Default: off.
+    */
+  def deployOnStart: Option[DeployOnStart] = None
+
 end WorkerConfig
 
 case class DefaultWorkerConfig(
@@ -68,7 +73,8 @@ case class DefaultWorkerConfig(
       //  "Service Unavailable",
       //  "Gateway Timeout"
     ).map(_.toLowerCase),
-    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly
+    override val tokenValidation: TokenValidation = TokenValidation.PresenceOnly,
+    override val deployOnStart: Option[DeployOnStart] = None
 ) extends WorkerConfig
 
 object WorkerConfig:

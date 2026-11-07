@@ -1,7 +1,7 @@
 package orchescala.worker
 
 import orchescala.engine.auth.TokenValidation
-import orchescala.engine.rest.HttpClientProvider
+import orchescala.engine.rest.{HttpClientProvider, SttpClientBackend}
 import orchescala.engine.{EngineRuntime, banner}
 import zio.ZIO.*
 import zio.http.Server
@@ -53,6 +53,7 @@ trait WorkerApp extends ZIOAppDefault:
         workersFork <- foreachParDiscard(workerRegistries) { registry =>
                          registry.register(workerApps(this).flatMap(_.theWorkers).toSet)(using workerConfig)
                        }.withParallelism(engineContext.engineConfig.parallelism).fork
+        _           <- deployOnStart.fork
         // Start HTTP server
         workerRoutes = WorkerRoutes(engineContext).routes(workerApps(this).flatMap(_.theWorkers).toSet)
         docsRoutes   = OpenApiRoutes.routes
@@ -85,6 +86,24 @@ trait WorkerApp extends ZIOAppDefault:
         requiredEngineLayers ++
         Server.defaultWithPort(port)
     )
+  /** The BPMN/DMN of this app's project to the engines of its registries - if configured
+    * (`WorkerConfig.deployOnStart`). Not those of its dependencies: they deploy themselves.
+    */
+  private def deployOnStart: ZIO[SttpClientBackend, Nothing, Unit] =
+    workerConfig.deployOnStart match
+      case None         => ZIO.unit
+      case Some(config) =>
+        config.entry.orElse(DeployOnStart.entryOf(applicationName, implementationVersion)) match
+          case Some(entry) => DeployOnStart.run(config, entry, workerRegistries.map(_.engineType))
+          case None        =>
+            ZIO.logWarning(
+              s"Deploy on start: no version of $applicationName (the app does not run from a jar) - nothing deployed; set DeployOnStart.entry to deploy anyway."
+            )
+
+  // the version of the jar of this app (its manifest) - None outside a jar
+  private def implementationVersion: Option[String] =
+    Option(getClass.getPackage).flatMap(p => Option(p.getImplementationVersion))
+
   private[worker] def workerApps(workerApp: WorkerApp): Seq[WorkerApp] =
     workerApp.theDependencies match
       case Nil => Seq(workerApp)
