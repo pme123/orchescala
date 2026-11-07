@@ -6,43 +6,47 @@ Modell Claude Opus 5.5) ändert daraufhin einen **Entwurf** der Spezifikation.
 Den Code ändert Claude nie. Der Entwurf wird mit denselben Befunden wie im
 Designer geprüft, und Claude korrigiert ihn selbst. Der RE sieht den Entwurf und
 die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
-(Entscheide E19, E20 im Konzept).
+(Entscheide E19, E23 im Konzept).
 
 | Stufe | Wo | Was Claude ändert | Geprüft mit |
 |---|---|---|---|
 | **A – Seiten** | Seiten → eine Seite → **Claude** | Bausteine, Bindungen, Aktionen, Texte, Rollen, Eigenschaften der Seite | den Befunden des Seiten-Designers |
 | **B – Prozesse** | Prozess → **Claude** (Werkzeugleiste) | Schritte, Benutzer-Tasks, Entscheide mit Zweigen, Fehlerpfade (im Diagramm); Beschreibung und Zuweisung eines Schritts (in der Spez) | den Befunden der Spezifikation |
 
-## Der API-Key ist der Schalter
+## Das Studio ist der Schalter
 
-- **Ohne Key ist von KI nichts zu sehen:** keine Panels und keine Buttons, und
-  der KI-Code (samt SDK von Anthropic) wird gar nicht geladen. Einzige Spur ist
-  das Symbol ✦ oben rechts. Es öffnet den Dialog **KI-Modus** mit dem Feld für
-  den Key. orch-spec bleibt ohne Key vollständig nutzbar.
-- **Mit Key ist der KI-Modus an.** Das Symbol ist dann violett, und im
-  Seiten-Designer und in der Prozessansicht erscheint der Button **Claude**.
-- **Key löschen heisst KI aus, sofort:** in allen offenen Ansichten und Tabs
-  dieses Browsers. Ein offener Entwurf wird verworfen.
-- Der Key ist ein Key der **Claude API** aus der Anthropic Console
-  (platform.claude.com). Er wird **nur in diesem Browser** gespeichert
-  (`localStorage`, `orch-spec.anthropicKey`): nie im Ordner der
-  Spezifikationen, nie in SharePoint. Arbeiten zwei REs am selben Ordner, sieht
-  nur der mit Key die KI.
-- **Workspace-ID** (optional): Ist der Key keinem Workspace zugeordnet,
-  verlangt die API zusätzlich die ID eines Workspace. Dann die ID aus der
-  Console (Settings → Workspaces) eintragen. Sie wird wie der Key nur im
-  Browser gespeichert.
-- **Schutz des Keys:** Jedes Skript, das in der Seite läuft, kann den Key aus
-  `localStorage` lesen. orch-spec zeigt Inhalte der Spez deshalb nie als
-  ausführbares HTML: Markdown-Felder geben eingegebenes HTML als Text aus, Links
-  nur mit `http(s)`/`mailto` (`src/markdownEdit.ts`), alles andere rendert React
-  escaped. Wer orch-spec selbst hostet, sollte zusätzlich eine
-  Content-Security-Policy setzen, die Skripte nur vom eigenen Origin und
-  Verbindungen nur zu `api.anthropic.com` (plus Login und SharePoint) zulässt.
-- **Wer den Key eingibt, bezahlt.** Ein Claude-Abo (Pro, Max) deckt die API
-  nicht ab. Als Grenze dient das Guthaben in der Console mit ausgeschaltetem
-  Auto-Reload. Besser noch ein Key aus einem eigenen Workspace mit
-  Ausgabenlimit: Kommt der Key abhanden, ist der Schaden begrenzt.
+- **Die KI schaltet das Studio ein,** nicht der Browser: Hat das Studio einen
+  Key (`STUDIO_AI_ANTHROPIC_API_KEY`), antwortet `GET /ai/config` mit
+  `enabled: true` samt Anbieter und Modell, nie mit dem Key. orch-spec fragt das
+  einmal beim Laden.
+- **Ohne Freigabe ist von KI nichts zu sehen:** kein Symbol, keine Panels, keine
+  Buttons, und der KI-Code (samt SDK von Anthropic) wird gar nicht geladen. So
+  ist es auch ohne Studio, etwa für die Doku als Ordner oder auf GitHub Pages.
+  orch-spec bleibt ohne KI vollständig nutzbar.
+- **Mit Freigabe ist der KI-Modus an.** Oben rechts erscheint das violette
+  Symbol ✦ (Dialog **KI-Modus**: Anbieter und Modell), und im Seiten-Designer
+  und in der Prozessansicht der Button **Claude**.
+- **Im Browser liegt kein Key.** Die Anfragen gehen an das Studio
+  (`/ai/anthropic/v1/messages`), und das Studio schickt sie mit seinem Key
+  weiter. Das Modell bestimmt das Studio, `max_tokens` ist begrenzt. Ein Key,
+  den eine frühere Version im Browser gespeichert hat
+  (`orch-spec.anthropicKey`), wird beim Laden gelöscht.
+- **Die Kosten trägt, wem der Key des Studios gehört:** die Firma, nicht die
+  Person. Am besten ein Key aus einem eigenen Workspace mit Ausgabenlimit.
+- **Login:** Das Studio hat im PoC keinen und hört nur auf `localhost`. Wer es
+  erreicht, nutzt seinen Key. Im Ziel gibt das Studio die KI pro Person frei
+  (Entra, `GET /ai/tasks`).
+
+| Variable des Studios | |
+|---|---|
+| `STUDIO_AI_ANTHROPIC_API_KEY` | der Key der Claude API – der Schalter |
+| `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` | nur wenn die API sie verlangt (Key ohne Workspace) |
+| `STUDIO_AI_MODEL` | Standard `claude-opus-5-5` |
+| `STUDIO_AI_ANTHROPIC_URL` | Standard `https://api.anthropic.com` – z.B. ein Gateway der Firma |
+
+**Im Dev-Server** (`npm run dev`) gibt es die KI nur mit einem laufenden Studio:
+`ORCH_SPEC_STUDIO=http://localhost:8880` in `.env.local`, dann leitet Vite
+`/ai/…` dorthin weiter.
 
 ## Bedienung
 
@@ -117,12 +121,13 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 ## Technik
 
-- **Ablauf ohne Backend:** Der Browser ruft die Claude API direkt auf, mit dem
-  TypeScript-SDK von Anthropic und `dangerouslyAllowBrowser`. Das ist mit einem
-  persönlichen Key vertretbar, weil der Key der Person vor dem Browser gehört.
-  Ein Proxy (Gateway, Bedrock, Vertex) würde nur `send` in `src/ai/client.ts`
-  ersetzen.
-- **Anfrage:** Modell `claude-opus-5-5`, adaptives Denken, `effort: medium`.
+- **Ablauf über das Studio:** Die Agent-Schleife läuft noch im Browser, mit dem
+  TypeScript-SDK von Anthropic. Dessen Basis-URL ist das Studio
+  (`/ai/anthropic`); das Studio setzt Key, Workspace und Modell und gibt die
+  Antwort unverändert zurück, auch Fehler der API. Später ersetzt ein Service
+  je Aufgabe im Studio (`POST /ai/uiCreator` …, mit Skill) die Schleife im
+  Browser; dann ändert sich nur `send` in `src/ai/client.ts`.
+- **Anfrage:** Modell des Studios (Standard `claude-opus-5-5`), adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
   nennt die Kostenzeile es, und der Betrag ist eine Schätzung (gerechnet mit
@@ -139,9 +144,9 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 | Datei | Zweck |
 |---|---|
-| `src/ai/key.ts` | der Schalter: Key und Workspace im Browser, `useAiKey` |
+| `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, `useAiOn` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
-| `src/ai/client.ts` | `send` mit dem SDK, Fehlertexte |
+| `src/ai/client.ts` | `send` mit dem SDK über das Studio, Fehlertexte |
 | `src/ai/context.ts` | Anweisungen, Datenmodell als Text, Systemprompt mit Cache-Breakpoints |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
 | `src/ai/bpmnEdit.ts` | Schritt, Entscheid, Fehlerpfad im BPMN einfügen, entfernen, umbenennen – samt Layout |
@@ -152,7 +157,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 Tests: `tests/aiPages.test.ts` und `tests/aiProcess.test.ts`. Sie laufen ohne
 Netz, Claude ist darin gemockt. Geprüft werden die Werkzeuge, Übernehmen und
-Verwerfen, die Selbstkorrektur, der Schalter über den Key, die Kosten und die
+Verwerfen, die Selbstkorrektur, der Schalter über das Studio, die Kosten und die
 Unterschiede.
 
 ## Kosten — gemessen
@@ -189,5 +194,6 @@ als ein neues Gespräch.
   entsteht wie bisher mit der Vorlage, danach kann Claude ihn ausbauen.
 - **Datenmodell des Prozesses:** Interaktionen und Klassen für neue Schritte
   legt der RE an.
-- **Zentraler Key:** Ein Proxy mit einem Key der Bank wäre der nächste Schritt.
-  Für ihn wäre Workload Identity Federation statt eines festen Keys gut.
+- **Freigabe pro Person:** Im PoC gibt das Studio die KI allen frei, die es
+  erreichen. Im Ziel mit Entra und `GET /ai/tasks` (welche Aufgaben eine Person
+  nutzen darf); für den Key Workload Identity Federation statt eines festen Keys.

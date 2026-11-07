@@ -15,7 +15,7 @@ import scala.annotation.tailrec
   *   - `POST /spec/pages/diff` `{"before": Page, "after": Page}` - the differences (`PageChange[]`)
   *
   * The diff grows with the product of the blocks of both pages - a page has tens of them, so a body
-  * above [[maxBody]] (the server reads no more, see [[StudioServer.serverConfig]]), JSON nested deeper
+  * above [[maxBody]] (checked here - the server reads at most [[StudioServer.maxBody]]), JSON nested deeper
   * than [[maxDepth]] or a page above [[maxBlocks]] is refused (413 / 400) instead of computed. It
   * runs on the blocking pool, so a few big diffs do not hold the threads of the server.
   *
@@ -45,7 +45,7 @@ object SpecRoutes:
       req.body.asArray.foldZIO(
         e => ZIO.succeed(badRequest(s"the body cannot be read: ${Option(e.getMessage).getOrElse(e.toString)}")),
         bytes =>
-          // bytes, not characters - the server reads no more than maxBody anyway (serverConfig)
+          // bytes, not characters - also a chunked body without Content-Length
           if bytes.length > maxBody then ZIO.succeed(tooLarge)
           else
             // anything else than an Either is a bug - a 500 with the cause in the log, never a defect.

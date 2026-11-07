@@ -2,7 +2,7 @@
 import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, MessageSquare, Plus, Settings2, Trash2 } from 'lucide-react';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../../components/SpecList';
 import { useMemo, useState } from 'react';
-import { aiEnabled, useAiKey } from '../../ai/key';
+import { useAiOn } from '../../ai/config';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
 import { useStore, type PageListItem } from '../../store';
@@ -188,7 +188,7 @@ function NewPage({ existing, onCreate, onClose }: {
 }) {
   const { isDark } = useStore();
   // with a key (AI mode): what the page should show - Claude drafts it right after creating
-  const aiKey = useAiKey();
+  const aiOn = useAiOn();
   const [describe, setDescribe] = useState('');
   const c = cls(isDark);
   const [title, setTitle] = useState('');
@@ -207,7 +207,7 @@ function NewPage({ existing, onCreate, onClose }: {
         <SelectField isDark={isDark} label="Zugang" value={access} onChange={setAccess}
           options={[{ value: 'public', label: 'öffentlich' }, { value: 'login', label: 'mit Login' }]} />
       </div>
-      {aiEnabled(aiKey) && (
+      {aiOn && (
         <TextField isDark={isDark} label="Beschreibung für Claude" hint="optional – Claude entwirft die Seite gleich nach dem Anlegen" multiline
           value={describe} onChange={setDescribe} placeholder="Eine Seite, auf der Kunden ihre Adresse ändern: Strasse, PLZ, Ort, gültig ab …" />
       )}
@@ -223,7 +223,7 @@ function NewPage({ existing, onCreate, onClose }: {
               const r = await onCreate(slug, {
                 path: path.trim(), title: title.trim(), access: access === 'public' ? 'public' : { roles: [] },
                 state: {}, body: [{ type: 'heading', text: title.trim() }],
-              }, aiEnabled(aiKey) && describe.trim() ? describe.trim() : undefined);
+              }, aiOn && describe.trim() ? describe.trim() : undefined);
               if (!r.ok) setError(r.message);
             } finally {
               setBusy(false);
