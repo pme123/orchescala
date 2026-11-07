@@ -4,10 +4,10 @@ import com.fasterxml.jackson.core.`type`.TypeReference
 import orchescala.engine.domain.*
 import orchescala.engine.EngineConfig
 import orchescala.engine.services.{DeploymentService, ManifestResolver, RepositoryManifestResolver}
-import org.camunda.community.rest.client.dto.{DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
+import org.camunda.community.rest.client.dto.{CountResultDto, DecisionDefinitionDto, DeploymentDto, DeploymentWithDefinitionsDto, ProcessDefinitionDto}
 import org.camunda.community.rest.client.invoker.{ApiClient, Pair}
 import org.camunda.community.rest.client.api.DeploymentApi
-import zio.ZIO.{logDebug, logWarning}
+import zio.ZIO.{logDebug, logInfo, logWarning}
 import zio.{IO, ZIO}
 
 import java.nio.file.{Files, Path, Paths}
@@ -61,8 +61,10 @@ class C7DeploymentService(using
                   val formParams = new HashMap[String, Object]()
                   Option(engineConfig.tenantId.orNull).foreach(formParams.put("tenant-id", _))
                   formParams.put("deployment-source", "orchescala-deployment")
-                  formParams.put("deploy-changed-only", Boolean.box(false))
-                  formParams.put("enable-duplicate-filtering", Boolean.box(false))
+                  // an unchanged resource is not deployed again - no new version on every deploy (e.g.
+                  // a worker app's deploy on start), like Zeebe, which skips an identical resource
+                  formParams.put("deploy-changed-only", Boolean.box(true))
+                  formParams.put("enable-duplicate-filtering", Boolean.box(true))
                   formParams.put("deployment-name", name)
                   resourceFiles.zipWithIndex.foreach: (file, index) =>
                     formParams.put(s"data-$index", file.toFile)
@@ -82,19 +84,51 @@ class C7DeploymentService(using
                     Array("basicAuth"),
                     new TypeReference[DeploymentWithDefinitionsDto]() {}
                   )
-                  val result = mapDeploymentResult(deployment)
+                  val result              = mapDeploymentResult(deployment)
                   val expectedDefinitions = deployableResources.exists: resource =>
                     resource.resourceType == DeploymentResourceType.Bpmn ||
                       resource.resourceType == DeploymentResourceType.Dmn
-                  if expectedDefinitions && result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty then
+                  // no definitions: nothing changed - with duplicate filtering C7 answers with the
+                  // existing deployment, which has its definitions. A deployment without any did not
+                  // pick up the resources - an error, as before.
+                  if expectedDefinitions && result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty &&
+                    definitionCount(apiClient, result.deploymentId) == 0
+                  then
                     throw RuntimeException(
-                      s"C7 accepted deployment '$name' but returned no deployed process or decision definitions"
+                      s"C7 accepted deployment '$name' but it has no process or decision definitions"
                     )
                   result
               .mapError: err =>
                 C7Service.withStatus(err)(EngineError.ProcessError(s"Problem deploying '$name' to C7: $err"))
+              .tap: result =>
+                ZIO.when(result.deployedProcesses.isEmpty && result.deployedDecisions.isEmpty):
+                  logInfo(s"'$name' is unchanged - nothing deployed to C7")
     yield result
   end deploy
+
+  /** The process and decision definitions of a deployment. */
+  private def definitionCount(apiClient: ApiClient, deploymentId: String): Long =
+    Seq("/process-definition/count", "/decision-definition/count")
+      .map: path =>
+        val query = new ArrayList[Pair]()
+        query.add(new Pair("deploymentId", deploymentId))
+        val count = apiClient.invokeAPI(
+          path,
+          "GET",
+          query,
+          new ArrayList[Pair](),
+          new StringJoiner("&").toString,
+          null,
+          new HashMap[String, String](),
+          new HashMap[String, String](),
+          new HashMap[String, Object](),
+          "application/json",
+          "application/json",
+          Array("basicAuth"),
+          new TypeReference[CountResultDto]() {}
+        )
+        Option(count).flatMap(c => Option(c.getCount)).map(_.longValue).getOrElse(0L)
+      .sum
 
   override def getDeployments(
       targetEngine: Option[EngineType] = None

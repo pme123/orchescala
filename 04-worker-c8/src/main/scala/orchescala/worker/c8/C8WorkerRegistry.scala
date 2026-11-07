@@ -4,6 +4,7 @@ import io.camunda.client.CamundaClient
 import orchescala.domain.GeneralVariables
 import orchescala.engine.c8.{C8Client, SharedC8ClientManager}
 import orchescala.engine.DefaultEngineConfig
+import orchescala.engine.domain.EngineType
 import orchescala.worker.{WorkerConfig, WorkerDsl, WorkerRegistry}
 import zio.*
 import zio.ZIO.*
@@ -12,6 +13,8 @@ import scala.jdk.CollectionConverters.*
 
 class C8WorkerRegistry(c8Client: C8Client)
     extends WorkerRegistry:
+
+  val engineType: EngineType = EngineType.C8
 
   // Provide the SharedC8ClientManager layer required by C8 workers
   override def requiredLayers: Seq[ZLayer[Any, Nothing, Any]] =

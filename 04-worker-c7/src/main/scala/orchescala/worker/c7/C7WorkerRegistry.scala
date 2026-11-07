@@ -2,6 +2,7 @@ package orchescala.worker.c7
 
 import orchescala.domain.GeneralVariables
 import orchescala.engine.DefaultEngineConfig
+import orchescala.engine.domain.EngineType
 import orchescala.worker.{JobPermits, WorkerConfig, WorkerDsl, WorkerRegistry}
 import org.camunda.bpm.client.ExternalTaskClient
 import zio.{Scope, UIO, ZIO, ZLayer}
@@ -9,6 +10,8 @@ import zio.ZIO.*
 
 class C7WorkerRegistry(client: C7WorkerClient)
     extends WorkerRegistry:
+
+  val engineType: EngineType = EngineType.C7
 
   // jobs running at once: the client fetches up to maxTasks per call and calls the handlers one
   // after the other, which run the job in the background (BaseWorker.executeForked)
