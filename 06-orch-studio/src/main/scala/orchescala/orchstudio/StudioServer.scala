@@ -9,8 +9,8 @@ import zio.http.*
   * object StudioServerApp extends StudioServer:
   *   lazy val config = StudioConfig().withEnv()
   * }}}
-  * It serves the documentation apps (see [[SiteRoutes]]) and the services on a specification (see
-  * [[SpecRoutes]]); more REST of the studio comes later.
+  * It serves the documentation apps (see [[SiteRoutes]]), the services on a specification (see
+  * [[SpecRoutes]]) and the AI of orch-spec (see [[AiRoutes]]); more REST of the studio comes later.
   */
 abstract class StudioServer extends ZIOAppDefault:
 
@@ -19,10 +19,8 @@ abstract class StudioServer extends ZIOAppDefault:
   /** More routes of the company - they come before the studio's. */
   def companyRoutes: Routes[Any, Response] = Routes.empty
 
-  def routes: Routes[Any, Response] = routesOf(config)
-
-  private def routesOf(settings: StudioConfig): Routes[Any, Response] =
-    companyRoutes ++ SpecRoutes.routes ++ SiteRoutes(settings.site).routes
+  private def routesOf(settings: StudioConfig, ai: AiRoutes): Routes[Any, Response] =
+    companyRoutes ++ SpecRoutes.routes ++ ai.routes ++ SiteRoutes(settings.site).routes
 
   def run: ZIO[Any, Throwable, Unit] =
     // the settings come from the environment (withEnv) - a wrong one ends the start with one line
@@ -42,19 +40,28 @@ abstract class StudioServer extends ZIOAppDefault:
         _ <- ZIO.logInfo(s"  orch-doc  $url/site/")
         _ <- ZIO.logInfo(s"  orch-spec $url/site/spec/")
         _ <- ZIO.logInfo(s"  orch-ops  $url/site/ops/")
-        _ <- Server.serve(routesOf(settings))
+        _ <- ZIO.logInfo(settings.ai.fold("AI: off - without STUDIO_AI_ANTHROPIC_API_KEY orch-spec shows no AI")(a =>
+               s"AI: on - $a, tasks with a skill: ${AiSkills.available(AiRoutes.provider).map(_.id).mkString(", ")}"))
+        ai <- ZIO.serviceWithZIO[Client](AiRoutes.make(settings.ai, _))
+        _ <- Server.serve(routesOf(settings, ai))
       yield ()
-    start.provide(Server.defaultWith(c => StudioServer.serverConfig(c.binding(settings.host, settings.port))))
+    start.provide(
+      Server.defaultWith(c => StudioServer.serverConfig(c.binding(settings.host, settings.port))),
+      Client.default
+    )
 
 end StudioServer
 
 object StudioServer:
 
-  /** The settings of the HTTP server: a request body is read up to [[SpecRoutes.maxBody]] - also a
-    * chunked one; a bigger body is refused before it is in memory.
+  /** The settings of the HTTP server: a request body is read up to [[maxBody]] - also a chunked one;
+    * a bigger body is refused before it is in memory. Each service checks its own limit below.
     */
   def serverConfig(config: Server.Config): Server.Config =
-    config.disableRequestStreaming(SpecRoutes.maxBody)
+    config.disableRequestStreaming(maxBody)
+
+  /** The largest body of a service of the studio - the requests of the AI. */
+  val maxBody: Int = math.max(SpecRoutes.maxBody, AiRoutes.maxBody)
 
 /** Without a company: `sbt orchStudio/run`, the documentation from `STUDIO_SITE_DIR`. */
 object LocalStudioServerApp extends StudioServer:

@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow, Sparkles, Boxes } from 'lucide-react';
-import { SettingsDialog } from './ai/SettingsDialog';
-import { aiEnabled, useAiKey } from './ai/key';
+import { AiDialog } from './ai/AiDialog';
+import { anyAi, useAiConfig } from './ai/config';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -56,8 +56,8 @@ function takeDeepLink(): DeepLink | null {
 
 export default function App() {
   const [feelOpen, setFeelOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const aiOn = aiEnabled(useAiKey());
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const ai = useAiConfig();
   const companyFolder = useCompanyFolder();
   const { isDark, toggleTheme, storage, pickDirectory, savedHandleName, reconnectDirectory, model, modelError,
     savedSharePoint, pendingFolder, rememberFolderLink, connectPendingFolder, folderLinkError, clearFolderLinkError, reconnectSharePoint, forgetSharePoint, disconnect, previousStorage, resumePrevious } = useStore();
@@ -281,15 +281,14 @@ export default function App() {
                 <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
               )}
 
-              {/* Display and the AI mode - the key is personal, only in this browser (violet: on) */}
+              {/* Display and the AI mode - only when the studio turns it on (E23) */}
               <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />
-              <button onClick={() => setSettingsOpen(true)}
-                title={aiOn ? 'KI-Modus an – API-Key (nur dieser Browser)' : 'KI-Modus – mit eigenem API-Key einschalten (nur dieser Browser)'}
-                className={`flex items-center gap-1 p-1.5 rounded transition-colors ${aiOn
-                  ? (isDark ? 'text-violet-300 hover:text-violet-200' : 'text-violet-600 hover:text-violet-800')
-                  : (isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70')}`}>
-                <Sparkles size={13} />
-              </button>
+              {anyAi(ai) && (
+                <button onClick={() => setAiDialogOpen(true)} title="KI-Modus an – vom Studio freigegeben"
+                  className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-violet-300 hover:text-violet-200' : 'text-violet-600 hover:text-violet-800'}`}>
+                  <Sparkles size={13} />
+                </button>
+              )}
               <button onClick={toggleTheme} title={isDark ? 'Helle Darstellung' : 'Dunkle Darstellung'}
                 className={`flex items-center gap-1 p-1.5 rounded transition-colors ${isDark ? 'text-white/35 hover:text-white/70' : 'text-black/35 hover:text-black/70'}`}>
                 {isDark ? <Sun size={13} /> : <Moon size={13} />}
@@ -300,7 +299,7 @@ export default function App() {
       </div>
 
       {feelOpen && <FeelCheatSheet isDark={isDark} onClose={() => setFeelOpen(false)} />}
-      {settingsOpen && <SettingsDialog isDark={isDark} onClose={() => setSettingsOpen(false)} />}
+      {aiDialogOpen && anyAi(ai) && <AiDialog isDark={isDark} ai={ai} onClose={() => setAiDialogOpen(false)} />}
 
       {/* Main content */}
       <div className={`flex-1 ${fullWidth ? 'overflow-hidden' : 'overflow-y-auto [scrollbar-gutter:stable]'}`}>

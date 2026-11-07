@@ -61,6 +61,11 @@ function devCatalog(catalogEnv: string | undefined): Plugin {
   };
 }
 
+/** Dev server only: /ai/… to the studio - its key never reaches the dev server or the browser. */
+function studioProxy(studio: string | undefined) {
+  return studio?.trim() ? { '/ai': { target: studio.trim(), changeOrigin: true } } : undefined;
+}
+
 /** the real folder behind `node_modules` — none before the install */
 function realNodeModules(): string[] {
   try { return [fs.realpathSync(path.resolve(__dirname, 'node_modules'))]; } catch { return []; }
@@ -80,6 +85,9 @@ export default defineConfig(({ mode }) => ({
     // sample-data can be chosen as a shared folder — the app's write accesses
     // must not trigger a dev server reload
     watch: { ignored: ['**/sample-data/**'] },
+    // the AI comes from the studio (E23): with ORCH_SPEC_STUDIO (e.g. http://localhost:8880 in
+    // `.env.local`) the dev server sends /ai/… there; without it the AI is off
+    proxy: studioProxy(loadEnv(mode, __dirname, '').ORCH_SPEC_STUDIO),
   },
   build: {
     // The modeler (bpmn-js) is large, but is only loaded when someone expands the

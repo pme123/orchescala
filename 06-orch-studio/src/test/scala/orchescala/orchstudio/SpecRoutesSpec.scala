@@ -69,7 +69,7 @@ object SpecRoutesSpec extends ZIOSpecDefault:
         d.contains(s"deeper than ${SpecRoutes.maxDepth}")
       )
     ,
-    test("the server reads no body above maxBody - also a chunked one; it answers afterwards"):
+    test("a chunked body above maxBody - 413; the server answers afterwards"):
       import java.net.URI
       import java.net.http.{HttpClient, HttpRequest, HttpResponse}
       val client = HttpClient.newHttpClient()
@@ -81,7 +81,7 @@ object SpecRoutesSpec extends ZIOSpecDefault:
       (for
         port   <- Server.install(SpecRoutes.routes)
         big    <- ZIO.attemptBlocking(client.send(request(port, chunked), HttpResponse.BodyHandlers.ofString()))
-                    .map(_.statusCode()) // refused by the server before the handler: 413
+                    .map(_.statusCode()) // read by the server (up to StudioServer.maxBody), refused by the service: 413
         normal <- ZIO.attemptBlocking(client.send(
                     request(port, HttpRequest.BodyPublishers.ofString(s"""{"before":$book,"after":$edited}""")),
                     HttpResponse.BodyHandlers.ofString()))

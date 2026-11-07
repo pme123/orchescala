@@ -1,7 +1,7 @@
 // The chat of the AI mode - the same for pages (stage A) and processes (stage B). The RE writes what
 // they want; Claude changes a draft with the tools of the kit and corrects it until the findings show no
 // errors of its own. The designer shows the draft; the RE accepts it - like a change by hand - or
-// discards it. Only shown with a key (E20): the designers mount it only then.
+// discards it. Only shown when the studio turns the AI on (E23): the designers mount it only then.
 import type { BetaMessageParam, BetaTextBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { AlertTriangle, Check, CircleStop, Info, Loader2, MessageSquarePlus, Send as SendIcon, Sparkles, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -9,7 +9,7 @@ import { cls } from '../ui';
 import { runTurn, type AgentEvent, type Stop } from './agent';
 import { claudeSender, errorText } from './client';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
-import { useAiWorkspace } from './key';
+import { useAiConfig, type AiTask } from './config';
 import type { ToolKit } from './toolkit';
 
 type Entry =
@@ -34,7 +34,8 @@ export type AcceptOutcome = void | { refused: string } | { saveError: string };
 
 export type AiChatProps<D> = {
   isDark: boolean;
-  apiKey: string;
+  /** the task of the chat - the studio needs a skill for it */
+  task: AiTask;
   /** the system of a conversation - built at its start and then kept (cache) */
   system: () => BetaTextBlockParam[];
   kit: ToolKit<D>;
@@ -65,7 +66,7 @@ export type AiChatProps<D> = {
 export function AiChat<D>(p: AiChatProps<D>) {
   const { isDark, draft } = p;
   const c = cls(isDark);
-  const workspace = useAiWorkspace();
+  const ai = useAiConfig();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -94,7 +95,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
   const add = (...e: Entry[]) => setEntries((list) => [...list, ...e]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [entries, busy]);
-  // leaving the designer or deleting the key stops a running request
+  // leaving the designer or the AI switched off stops a running request
   // (in dev, StrictMode mounts twice: the request from outside is then started again on the second mount)
   useEffect(() => () => { turn.current++; abort.current?.abort(); abort.current = null; started.current = false; }, []);
 
@@ -122,7 +123,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
     try {
       const before = draft ?? p.start();
       const r = await runTurn({
-        send: claudeSender(p.apiKey, workspace), system: sys, kit: p.kit,
+        send: claudeSender(ai, p.task), system: sys, kit: p.kit,
         history: history.current, prompt, draft: before, onEvent, signal: controller.signal,
       });
       if (!current()) return;
