@@ -11,6 +11,9 @@ import zio.test.*
   * {{{
   * C8_REST_IT=http://localhost:8181 sbt "engineC8/testOnly orchescala.engine.c8.C8RestIntegrationTest"
   * }}}
+  * The test of a start on the partition of its business id needs a cluster with several partitions
+  * (c8run: `camunda.cluster.partition-count: 3` in its application.yaml, on a fresh data
+  * directory) and runs only with `C8_REST_IT_PARTITIONED=true` - it fails on one partition.
   */
 object C8RestIntegrationTest extends ZIOSpecDefault:
 
@@ -295,6 +298,52 @@ object C8RestIntegrationTest extends ZIOSpecDefault:
         plain1.processInstanceId != plain2.processInstanceId
       )
       end for
-    }
+    },
+    test("start by message sent again without key: a start with its business id - on its partition, not the message's (several partitions)") {
+      // Without the pattern a second start with the same businessKey is refused with key and sent
+      // without key, carrying the business id: Zeebe starts it on the partition of the business id
+      // (8.10) - the same as the first instance's. With several partitions most of these starts are
+      // on another partition than the keyless message: no 409. Only meaningful on a cluster with
+      // several partitions - it fails at once on one (C8_REST_IT_PARTITIONED, see the spec's doc).
+      //
+      // Assumption (Zeebe 8.10 routing): a message is placed by the hash of its correlation key, an
+      // instance with a business id by the hash of that id. The first start's key equals its business
+      // id, so both starts of a businessKey end up on the same partition.
+      val restAddress = sys.env("C8_REST_IT")
+      given C8RestClient = C8RestClient(restAddress, C8RestAuth.NoAuth)
+      given EngineConfig = DefaultEngineConfig()
+      val engine         = C8ProcessEngine()
+      val service        = engine.processInstanceService
+      def partition(key: String) = key.toLong >> 51
+      val businessKeys   = Seq.fill(8)(s"bk-${java.util.UUID.randomUUID()}")
+      for
+        topology <- summon[C8RestClient].get[Json](Seq("topology"))
+        partitions = topology.hcursor.get[Int]("partitionsCount").getOrElse(0)
+        _      <- ZIO.when(partitions < 2):
+                    ZIO.fail(EngineError.ProcessError(
+                      s"needs a cluster with several partitions, $restAddress has $partitions - unset C8_REST_IT_PARTITIONED"
+                    ))
+        _      <- engine.deploymentService.deploy(
+                    "it-msgstart",
+                    Seq(DeploymentResource(s"$msgStartProcessId.bpmn", msgStartBpmn.getBytes, DeploymentResourceType.Bpmn)),
+                    Some(EngineType.C8)
+                  )
+        pairs  <- ZIO.foreach(businessKeys): bk =>
+                    for
+                      first  <- eventually(service.startProcessByMessage(startMessageName, businessKey = Some(bk)))(_ => true)
+                      second <- service.startProcessByMessage(startMessageName, businessKey = Some(bk))
+                    yield (bk, first.processInstanceId, second.processInstanceId)
+        seconds <- ZIO.foreach(pairs): (bk, _, second) =>
+                     eventually(engine.historicProcessInstanceService.getProcessInstance(second))(_.businessKey.contains(bk))
+        _      <- ZIO.logInfo(s"Partitions of the second starts: ${pairs.map(p => partition(p._3)).mkString(", ")}")
+      yield assertTrue(
+        pairs.forall((_, first, second) => first != second),
+        pairs.forall((_, first, second) => partition(first) == partition(second)),
+        // spread by their business ids - a single partition would mean they ignore it
+        pairs.map((_, _, second) => partition(second)).distinct.size > 1,
+        seconds.size == businessKeys.size
+      )
+      end for
+    } @@ TestAspect.ifEnvSet("C8_REST_IT_PARTITIONED")
   ) @@ TestAspect.ifEnvSet("C8_REST_IT") @@ TestAspect.withLiveClock @@ TestAspect.timeout(2.minutes)
 end C8RestIntegrationTest

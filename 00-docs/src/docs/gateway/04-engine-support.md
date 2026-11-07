@@ -93,6 +93,18 @@ So the BPMN decides which of the two it takes:
   same `businessKey` with 409 while the first instance runs.
 - Any variable works too: send its value as `businessKey`.
 
+**Start by message with a `businessKey`:** the `businessKey` is the message's correlation key and
+business id. A running instance waiting for this message with it gets it (e.g. the event subprocess
+of the pattern «Einmalige Ausführung») - no process is started, the Gateway answers 409. Otherwise a
+new instance starts, also when another instance with the same `businessKey` runs.
+
+Limit: if the start with key is refused (an instance started with it runs and waits for no such
+message), the message is sent again without correlation key, with the business id. Its instance may
+then be created on another partition, and is taken as started there. A message without key lands in
+a running instance only through an event with an empty correlation key (`""`) - with
+`=camunda.processInstance.businessId` that does not happen, with an empty correlation key it would
+give no 409.
+
 ### Operaton
 
 [Operaton](https://operaton.org/) is the open-source fork of Camunda 7, maintained by the community.
