@@ -287,3 +287,16 @@ test('a class of a collection by its name - a case of the Out of the orchestrati
   assert.match(out.values![0].fields![0].type, /^dom:.*people\.v1.*NaturalPerson3$/);
   assert.match(processModelText(d.draft.spec, withPeople), /Auswahl NaturalPerson\{naturalPerson: NaturalPerson3\} \| Company\{name: String\}/);
 });
+
+test('an In/Out that is a simple enum (no fields) - its values, not empty cases', () => {
+  const simple: ServiceCollectionSpec = {
+    ...newCollection({ title: 'Status', project: 'acme-crm', api: 'status', apiVersion: 1 }),
+    types: [
+      t('st-in', 'In', [['clientKey', 'Long']], 'st'),
+      { id: 'st-out', name: 'Out', kind: 'enum', interactionId: 'st', values: [{ name: 'Active' }, { name: 'Closed' }] },
+    ],
+    services: [{ ...svc('st', 'GetStatus', 'GET'), api: 'status', inTypeId: 'st-in', outTypeId: 'st-out' }],
+  };
+  const s = orchestrationTargets([simple], withCollections(catalog, [simple])).find((x) => x.name === 'GetStatus')!;
+  assert.match(orchestrationSystem([s])[0].text, /\n  Out: Active \| Closed$/);
+});

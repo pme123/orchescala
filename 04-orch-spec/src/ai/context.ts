@@ -69,7 +69,7 @@ export const pagePrompt = (slug: string, text: string, first: boolean) =>
 /** In or Out of a service: its fields - or, for a choice, its cases with their fields (and the shared ones). */
 const memberText = (fields: PField[], cases?: { name: string; fields: PField[] }[]) =>
   cases?.length
-    ? `${cases.map((c) => `${c.name}{${fieldsText(c.fields)}}`).join(' | ')}${fields.length ? `; gemeinsam: {${fieldsText(fields)}}` : ''}`
+    ? `${cases.map((c) => (c.fields.length ? `${c.name}{${fieldsText(c.fields)}}` : c.name)).join(' | ')}${fields.length ? `; gemeinsam: {${fieldsText(fields)}}` : ''}`
     : `{${fieldsText(fields)}}`;
 
 const servicesText = (services: Targets['services']) =>
