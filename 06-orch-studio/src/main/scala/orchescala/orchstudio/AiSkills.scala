@@ -1,6 +1,6 @@
 package orchescala.orchstudio
 
-import io.circe.ACursor
+import io.circe.{ACursor, Decoder}
 
 /** The tasks of the AI and their skills (E23). A task is offered only if the studio has a skill for
   * it and its provider: `ai/skills/<task>/<provider>/SKILL.md` on the classpath. The skill holds the
@@ -75,38 +75,65 @@ object AiSkills:
       head         <- io.circe.yaml.parser.parse(lines.slice(1, end).mkString("\n"))
                         .left.map(e => s"the front matter is no YAML: ${e.getMessage}")
       c             = head.hcursor
+      request       = c.downField("request")
       name         <- c.get[String]("name").left.map(_ => "no name in the front matter")
-      _            <- c.get[String]("task").toOption.filter(_ != task.id)
-                        .map(t => s"task «$t» is not the task of its path «${task.id}»").toLeft(())
-      _            <- c.get[String]("provider").toOption.filter(_ != provider)
+      ofTask       <- optional[String](c, "task")
+      _            <- ofTask.filter(_ != task.id).map(t => s"task «$t» is not the task of its path «${task.id}»").toLeft(())
+      ofProvider   <- optional[String](c, "provider")
+      _            <- ofProvider.filter(_ != provider)
                         .map(p => s"provider «$p» is not the provider of its path «$provider»").toLeft(())
+      version      <- optionalInt(c, "version")
+      model        <- optionalText(c, "model")
+      _            <- request.focus.filterNot(j => j.isObject || j.isNull).map(_ => "«request» is no object").toLeft(())
+      maxTokens    <- optionalInt(request, "max_tokens", "request.")
+      _            <- maxTokens.filter(_ <= 0).map(n => s"«request.max_tokens» must be more than 0: $n").toLeft(())
+      thinking     <- optionalText(request, "thinking", "request.")
+      effort       <- optionalText(request, "effort", "request.")
+      fallbacks    <- optionalText(request, "fallbacks", "request.")
       tools        <- c.get[Seq[String]]("tools").left.map(_ => "no list of tools in the front matter")
       instructions <- instructionsOf(lines.drop(end + 1)).toRight("no text in the section ## Instructions")
-    yield
-      val request = c.downField("request")
-      Skill(
-        task = task,
-        provider = provider,
-        name = name,
-        version = c.get[Int]("version").getOrElse(1),
-        model = textOf(c, "model"),
-        maxTokens = request.get[Int]("max_tokens").toOption,
-        thinking = textOf(request, "thinking"),
-        effort = textOf(request, "effort"),
-        fallbacks = textOf(request, "fallbacks"),
-        tools = tools,
-        instructions = instructions
-      )
+    yield Skill(
+      task = task,
+      provider = provider,
+      name = name,
+      version = version.getOrElse(1),
+      model = model,
+      maxTokens = maxTokens,
+      thinking = thinking,
+      effort = effort,
+      fallbacks = fallbacks,
+      tools = tools,
+      instructions = instructions
+    )
   end parse
 
-  private def textOf(c: ACursor, field: String) = c.get[String](field).toOption.map(_.trim).filter(_.nonEmpty)
+  /** A field that may be missing - but if it is there, it has the type: a wrong one is no silent default. */
+  private def optional[A: Decoder](c: ACursor, field: String, prefix: String = ""): Either[String, Option[A]] =
+    c.downField(field).focus.filterNot(_.isNull) match
+      case None    => Right(None)
+      case Some(j) => j.as[A].map(Some(_)).left.map(_ => s"«$prefix$field» has the wrong type: ${j.noSpaces}")
 
-  /** The text of `## Instructions` up to the next section - without HTML comments (notes for people). */
+  /** A whole number - not a text with one (circe would read «"16000"» as 16000). */
+  private def optionalInt(c: ACursor, field: String, prefix: String = ""): Either[String, Option[Int]] =
+    c.downField(field).focus.filterNot(_.isNull) match
+      case None    => Right(None)
+      case Some(j) => j.asNumber.flatMap(_.toInt).map(Some(_)).toRight(s"«$prefix$field» has the wrong type: ${j.noSpaces}")
+
+  private def optionalText(c: ACursor, field: String, prefix: String = ""): Either[String, Option[String]] =
+    optional[String](c, field, prefix).map(_.map(_.trim).filter(_.nonEmpty))
+
+  /** The text of `## Instructions` up to the next section - without HTML comments (notes for people).
+    * A line `## …` in a code fence belongs to the text; it does not end the section.
+    */
   private def instructionsOf(body: Vector[String]): Option[String] =
     val start = body.indexWhere(_.trim.matches("##\\s+Instructions"))
     if start < 0 then None
     else
-      val text = body.drop(start + 1).takeWhile(l => !l.startsWith("## ")).mkString("\n")
-      Some(text.replaceAll("(?s)<!--.*?-->", "").trim).filter(_.nonEmpty)
+      val rest    = body.drop(start + 1)
+      val isFence = (l: String) => l.trim.startsWith("```") || l.trim.startsWith("~~~")
+      // in a fence before each line?
+      val inFence = rest.scanLeft(false)((open, l) => if isFence(l) then !open else open)
+      val end     = rest.indices.find(i => !inFence(i) && rest(i).startsWith("## ")).getOrElse(rest.length)
+      Some(rest.take(end).mkString("\n").replaceAll("(?s)<!--.*?-->", "").trim).filter(_.nonEmpty)
 
 end AiSkills

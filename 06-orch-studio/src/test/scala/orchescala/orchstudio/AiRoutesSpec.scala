@@ -155,15 +155,23 @@ object AiRoutesSpec extends ZIOSpecDefault:
         sent.isEmpty
       )
     ,
-    test("a tool that is not in the skill - 400 that names it, nothing sent"):
-      val other = body.replace(""""name":"read_page"""", """"name":"remove_block"""")
+    test("a tool that is not in the skill or has no name - 400 that names it, nothing sent"):
+      val other  = body.replace(""""name":"read_page"""", """"name":"remove_block"""")
+      val noName = body.replace(""""name":"read_page",""", "")
       for
         seen <- Ref.make(Option.empty[Seen])
         port <- fakeApi(seen)
-        r    <- routes(Some(config(port))).flatMap(_.runZIO(fromBrowser(other)))
+        rs   <- routes(Some(config(port)))
+        r    <- rs.runZIO(fromBrowser(other))
         b    <- r.body.asString
+        n    <- rs.runZIO(fromBrowser(noName))
+        nb   <- n.body.asString
         sent <- seen.get
-      yield assertTrue(r.status == Status.BadRequest, b.contains("«remove_block»"), b.contains("uiCreator-test v2"), sent.isEmpty)
+      yield assertTrue(
+        r.status == Status.BadRequest, b.contains("«remove_block»"), b.contains("uiCreator-test v2"),
+        n.status == Status.BadRequest, nb.contains("(without name)"),
+        sent.isEmpty
+      )
     ,
     test("a task without a skill, an unknown one, the old route - 403, nothing sent"):
       for
@@ -242,7 +250,24 @@ object AiRoutesSpec extends ZIOSpecDefault:
         parsed(ok.replace("tools: [a]\n", "")).left.exists(_.contains("tools")),
         parsed(ok.replace("name: x", "name: x\ntask: processCreator")).left.exists(_.contains("processCreator")),
         parsed(ok.replace("Do it.", "<!-- only a note -->")).left.exists(_.contains("Instructions")),
-        parsed(ok.replace("tools: [a]", "tools: [a\n")).left.exists(_.contains("YAML"))
+        parsed(ok.replace("tools: [a]", "tools: [a\n")).left.exists(_.contains("YAML")),
+        // a field with the wrong type is no silent default
+        parsed(ok.replace("name: x", "name: x\nrequest:\n  max_tokens: \"16000\"")).left.exists(_.contains("«request.max_tokens»")),
+        parsed(ok.replace("name: x", "name: x\nrequest:\n  max_tokens: 0")).left.exists(_.contains("more than 0")),
+        parsed(ok.replace("name: x", "name: x\nversion: \"2\"")).left.exists(_.contains("«version»")),
+        parsed(ok.replace("name: x", "name: x\ntask: 5")).left.exists(_.contains("«task»")),
+        parsed(ok.replace("name: x", "name: x\nrequest:\n  thinking: 1")).left.exists(_.contains("«request.thinking»")),
+        parsed(ok.replace("name: x", "name: x\nrequest: 5")).left.exists(_.contains("«request»")),
+        parsed(ok.replace("name: x", "name: x\nrequest:\n  max_tokens: 8000\n  effort: low")).map(s => (s.maxTokens, s.effort))
+          == Right((Some(8000), Some("low")))
+      )
+    ,
+    test("a line «## …» in a code fence belongs to the instructions; the next section outside ends them"):
+      val text =
+        "---\nname: x\ntools: [a]\n---\n\n## Instructions\n\nBefore.\n```md\n## Heading of an example\n```\nAfter.\n\n## Notes\n\nNot for the model.\n"
+      assertTrue(
+        AiSkills.parse(AiSkills.Task.uiCreator, "anthropic", text).map(_.instructions) ==
+          Right("Before.\n```md\n## Heading of an example\n```\nAfter.")
       )
     ,
     test("a base URL that is no http(s) URL: the start names it; set in code: 502, no defect"):

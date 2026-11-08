@@ -151,7 +151,7 @@ object AiRoutes:
       json   <- parse(text).left.map(e => s"the body is no JSON: ${e.message}")
       obj    <- json.asObject.toRight("the body is no JSON object")
       system <- systemOf(obj("system"))
-      _      <- Some(toolsOf(obj).filterNot(skill.tools.contains)).filter(_.nonEmpty)
+      _      <- Some(toolsOf(obj).filterNot(_.exists(skill.tools.contains)).map(_.getOrElse("(without name)"))).filter(_.nonEmpty)
                   .map(t => s"the tools ${t.map(n => s"«$n»").mkString(", ")} are not in the skill ${skill.label}").toLeft(())
     yield
       val limit  = skill.maxTokens.getOrElse(maxTokens).min(maxTokens)
@@ -179,9 +179,9 @@ object AiRoutes:
       case Some(j) if j.isArray       => Right(j.asArray.getOrElse(Vector.empty))
       case Some(_)                    => Left("the system is neither a text nor a list of blocks")
 
-  /** The names of the tools a request offers the model. */
-  private def toolsOf(obj: JsonObject): Vector[String] =
-    obj("tools").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.hcursor.get[String]("name").toOption)
+  /** The names of the tools a request offers the model - None for one without a name (refused too). */
+  private def toolsOf(obj: JsonObject): Vector[Option[String]] =
+    obj("tools").flatMap(_.asArray).getOrElse(Vector.empty).map(_.hcursor.get[String]("name").toOption)
 
   /** The tokens of an answer for the log - nothing if it has none (an error). */
   private def usageText(bytes: Array[Byte]): String =
