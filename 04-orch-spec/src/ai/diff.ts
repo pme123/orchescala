@@ -3,7 +3,7 @@
 import { blockName } from '../pages/designer/model';
 import { pageDiff, type PageChange } from '../core/core';
 import { allSteps } from '../bpmn';
-import type { ProcessSpec, Step } from '../types';
+import type { ProcessSpec, Step, TypeDef } from '../types';
 
 export { blockName, pageDiff, type PageChange };
 
@@ -41,5 +41,32 @@ export function processDiff(before: ProcessSpec, after: ProcessSpec): ProcessCha
       ...(details.length || paths.length ? [{ kind: 'changed' as const, id: s.id, label: name(s), detail: [...details, ...paths].join(', ') }] : []),
     ];
   });
-  return [...changed, ...[...a.values()].filter((s) => !b.has(s.id)).map((s): ProcessChange => ({ kind: 'removed', id: s.id, label: name(s) }))];
+  return [
+    ...changed,
+    ...[...a.values()].filter((s) => !b.has(s.id)).map((s): ProcessChange => ({ kind: 'removed', id: s.id, label: name(s) })),
+    ...typeDiff(before.types ?? [], after.types ?? []),
+  ];
+}
+
+/** The id of a type in a change - not a step, nothing to select in the flow. */
+export const TYPE_CHANGE = 'type:';
+
+/** The classes and choices of the data model: new, removed, renamed, changed (fields, cases, kind). */
+function typeDiff(before: TypeDef[], after: TypeDef[]): ProcessChange[] {
+  const label = (t: TypeDef) =>
+    `${t.root ? 'In des Prozesses' : t.processOut ? 'Out des Prozesses' : t.kind === 'enum' ? 'Auswahl' : 'Klasse'} «${t.name}»`;
+  const content = (t: TypeDef) => JSON.stringify([t.kind, t.description ?? '', t.fields ?? [], t.values ?? []]);
+  const old = new Map(before.map((t) => [t.id, t]));
+  return [
+    ...after.flatMap((t): ProcessChange[] => {
+      const o = old.get(t.id);
+      const id = `${TYPE_CHANGE}${t.id}`;
+      if (!o) return [{ kind: 'added', id, label: label(t) }];
+      return [
+        ...(o.name !== t.name ? [{ kind: 'renamed' as const, id, label: label(t), detail: `vorher «${o.name}»` }] : []),
+        ...(content(o) !== content(t) ? [{ kind: 'changed' as const, id, label: label(t), detail: o.kind !== t.kind ? 'Art, Felder' : 'Felder/Fälle' }] : []),
+      ];
+    }),
+    ...before.filter((t) => !after.some((x) => x.id === t.id)).map((t): ProcessChange => ({ kind: 'removed', id: `${TYPE_CHANGE}${t.id}`, label: label(t) })),
+  ];
 }

@@ -4,7 +4,7 @@
 name: processCreator-anthropic
 task: processCreator
 provider: anthropic
-version: 1
+version: 2
 description: Den Ablauf eines Prozesses in orch-spec im Gespräch ändern – Diagramm und Spez, als Entwurf, den der RE übernimmt oder verwirft.
 
 model: claude-opus-5-5
@@ -29,6 +29,9 @@ tools:
   - remove_step
   - rename_step
   - update_step
+  - add_type
+  - update_type
+  - remove_type
   - check_process
   - report_open_point
 
@@ -47,7 +50,8 @@ data:
 ## Zweck
 
 Ein Requirements Engineer (RE) ändert den Ablauf eines Prozesses in der Prozessansicht von
-orch-spec, im Gespräch mit Claude: Schritte, Benutzer-Tasks, Entscheide, Fehlerpfade. Claude ändert
+orch-spec, im Gespräch mit Claude: Schritte, Benutzer-Tasks, Entscheide, Fehlerpfade – und sein
+Datenmodell: Klassen, Auswahlen, In und Out des Prozesses. Claude ändert
 **Diagramm und Spez, nicht den Code** (E19). Das Ergebnis ist ein Entwurf; der RE sieht ihn im
 Diagramm und im Ablauf und **übernimmt oder verwirft** ihn.
 
@@ -81,6 +85,9 @@ Es ist derselbe Code wie in der Prozessansicht, also dieselben Prüfungen.
 | `remove_step` | einen Schritt oder einen Fehlerpfad entfernen |
 | `rename_step` | einen Schritt, ein Ereignis oder einen Zweig umbenennen |
 | `update_step` | Beschreibung, und bei einem Benutzer-Task, wer ihn sieht |
+| `add_type` | eine Klasse oder eine Auswahl (mit Fällen, ein Fall mit Feldern) ins Datenmodell |
+| `update_type` | eine Klasse oder Auswahl ändern – auch In und Out |
+| `remove_type` | eine Klasse oder Auswahl entfernen, die kein Feld mehr verwendet |
 | `check_process` | die Befunde der Spez |
 | `report_open_point` | melden, was in der Spez nicht geht – vor allem ein fehlender Worker |
 
@@ -90,7 +97,7 @@ Es ist derselbe Code wie in der Prozessansicht, also dieselben Prüfungen.
 |---|---|---|
 | Modell, Denken, Aufwand | wie oben | Plattform – der Browser kann sie nicht wählen |
 | Anweisungen an das Modell | Abschnitt unten, unverändert | Plattform – setzt sie selbst vor jede Anfrage |
-| Werkzeuge | nur die neun oben | Plattform |
+| Werkzeuge | nur die zwölf oben | Plattform |
 | Anfragen pro Wunsch | 24 | Plattform |
 | Korrekturen pro Wunsch | 2 | Plattform |
 | Kosten pro Wunsch / Person und Tag | 1 / 20 USD | Plattform |
@@ -120,6 +127,10 @@ How you work:
 - You work on a DRAFT of one process: its diagram and its spec. The RE sees the flow and the differences and then accepts or discards the draft.
 - Read the draft first (read_process). Address steps by their ID from the flow. After a decision, address a branch by its label.
 - Structure with add_step, add_decision, add_error_path, remove_step, rename_step; details (description, who sees a user task) with update_step.
+- The data model of the process - its classes and choices (enums; a case may carry fields, fields of the choice are shared by all cases),
+  and In and Out of the process - with add_type, update_type («In», «Out» for the process) and remove_type. Address a type by its id or name from read_process.
+  The type of a field is a simple type (String, Long, Boolean, LocalDate …), a class of the data model or a class of the domain.
+  The In and Out of an interaction (a user task, a worker) are not yours: they follow the flow - report what they need.
 - Names of steps are German and short, as in the existing process («Adresse prüfen»). Error codes are kebab-case («address-invalid»).
 - A service step calls a worker of the data model below by its topic. Never invent a worker. If one is missing, do not add it: report it with report_open_point
   and, if the RE wants the step in the flow now, insert a manual step with the same name as a placeholder and say so.

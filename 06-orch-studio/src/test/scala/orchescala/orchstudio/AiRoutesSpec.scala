@@ -237,8 +237,8 @@ object AiRoutesSpec extends ZIOSpecDefault:
       def of(t: AiSkills.Task) = loaded.toOption.flatMap(_.find(_.task == t))
       val ui     = of(uiCreator)
       val processTools = Seq(
-        "read_process", "add_step", "add_decision", "add_error_path", "remove_step", "rename_step", "update_step", "check_process",
-        "report_open_point"
+        "read_process", "add_step", "add_decision", "add_error_path", "remove_step", "rename_step", "update_step", "add_type",
+        "update_type", "remove_type", "check_process", "report_open_point"
       )
       assertTrue(
         loaded.map(_.map(_.task)) == Right(Seq(uiCreator, processCreator, serviceOrchestrator)),

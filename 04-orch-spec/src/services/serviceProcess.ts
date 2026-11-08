@@ -10,6 +10,8 @@
 // — the collections as the project would have them, read from their generated Scala, so the
 // step shows their `In` and `Out` with the real types (local wins over the catalog).
 import { scanScala } from '../domainScan';
+import type { PField, Targets } from '../pages/designer/model';
+import { indexTypes } from '../scala';
 import { importBpmn, withStatus } from '../bpmn';
 import type { Branch, DomainType, Field, Mapping, Model, ProcessSpec, ServiceMode, ServiceParam, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util';
@@ -17,6 +19,9 @@ import { catalogProjects, collectionFromCatalog, withProjectDomain } from './cat
 import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, serviceMembers, servicesByTopic, type ServiceRef } from './orchestration';
 import { collectionFiles } from './scalaCollection';
 import type { OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
+
+/** A service as the AI sees it (the context of a conversation about an orchestration). */
+export type AiService = Targets['services'][number];
 
 /** A process in service mode — with its project. */
 export type ServiceProcess = ProcessSpec & { service: ServiceMode; project: string };
@@ -136,6 +141,39 @@ export function callableServices(collections: ServiceCollectionSpec[], model: Mo
     } catch { /* a catalog entry that does not make a collection: not callable */ }
   }
   return out;
+}
+
+/**
+ * What a service orchestration can call, for the AI: the services a step can call (`callableServices`)
+ * with their In and Out as fields - the types named as in the step, a class of the collection with its
+ * fields (two levels), an enum with its cases.
+ */
+export function orchestrationTargets(collections: ServiceCollectionSpec[], model: Model | null): AiService[] {
+  return [...callableServices(collections, model).values()]
+    .map((ref) => {
+      const { in: inType, out: outType } = serviceMembers(ref);
+      const idx = indexTypes(ref.collection.types, model);
+      const fieldsOf = (t: TypeDef | undefined, depth: number): PField[] =>
+        (t?.fields ?? []).filter((f) => f.name.trim()).map((f) => {
+          const own = ref.collection.types.find((x) => x.id === f.type);
+          return {
+            name: f.name,
+            type: idx.nameOf(f.type),
+            optional: !!f.optional,
+            collection: !!f.collection,
+            ...(own?.kind === 'enum' ? { values: (own.values ?? []).map((v) => v.name) } : {}),
+            ...(own?.kind === 'case' && depth < 2 ? { fields: fieldsOf(own, depth + 1) } : {}),
+          };
+        });
+      return {
+        topic: ref.topic,
+        name: ref.service.name,
+        ...(ref.service.description ? { descr: ref.service.description } : {}),
+        in: ref.service.noIn ? [] : fieldsOf(inType, 0),
+        out: ref.service.noOut ? [] : fieldsOf(outType, 0),
+      };
+    })
+    .sort((a, b) => a.topic.localeCompare(b.topic));
 }
 
 /** The collections behind the services — what the export needs for packages and types. */

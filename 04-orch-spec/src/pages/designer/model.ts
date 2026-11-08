@@ -1,6 +1,6 @@
 // The designer of the pages (E15) - what a page can call, example data for the preview, the
 // tree of the building blocks and the findings. Without React, tested like the rest (tests/pagesDesigner.test.ts).
-import type { DomainField, DomainType, Field, Model, ProcessSpec, ServiceParam, TypeDef } from '../../types';
+import type { DomainField, DomainType, Field, Model, ProcessSpec, TypeDef } from '../../types';
 import { uid } from '../../util.ts';
 import { conditionProblem } from '../runtime/expr.ts';
 import type { Action, Component, Page } from '../runtime/spec';
@@ -152,27 +152,6 @@ export function targetsOf(model: Model, specs: ProcessSpec[]): Targets {
       })),
   );
   return { services, processes, messages, userTasks };
-}
-
-/** What a service orchestration can call: every service of the model a worker runs - the collections
-  * of the project (merged in by services/serviceProcess.ts) and the catalog; the first per topic wins.
-  * In/Out from the domain where it has them, else the parameters of the entry. */
-export function orchestrationTargets(model: Model): Targets['services'] {
-  const domain = model.domainTypes ?? [];
-  const member = (topic: string, which: 'In' | 'Out') => domain.find((t) => t.topicName === topic && t.name.endsWith(`.${which}`));
-  const params = (ps: ServiceParam[] | undefined): PField[] =>
-    (ps ?? []).map((p) => ({ name: p.name, type: '?', optional: !p.required, collection: false }));
-  const services = model.services
-    .filter((s) => (s.kind ?? 'service') === 'service')
-    .map((s) => {
-      const topic = s.topic ?? s.id;
-      const inT = member(topic, 'In');
-      const outT = member(topic, 'Out');
-      return { topic, name: s.name, descr: s.description, in: inT ? fieldsOf(model, inT, 0) : params(s.inputs), out: outT ? fieldsOf(model, outT, 0) : params(s.outputs) };
-    });
-  return services
-    .filter((s, i) => services.findIndex((o) => o.topic === s.topic) === i)
-    .sort((a, b) => a.topic.localeCompare(b.topic));
 }
 
 /** An input for an action with every field of the In type: `{"topic": "{{topic}}", …}`. */
