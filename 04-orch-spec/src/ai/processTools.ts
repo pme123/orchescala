@@ -5,7 +5,7 @@
 import { allSteps, importBpmn, mergeSpec } from '../bpmn';
 import { engineLabel } from '../engineLabels';
 import { collectFindings, PROCESS_FINDINGS } from '../findings';
-import { targetsOf } from '../pages/designer/model';
+import { orchestrationTargets, targetsOf } from '../pages/designer/model';
 import type { Model, ProcessSpec, Step } from '../types';
 import {
   insertDecision, insertErrorPath, insertStep, NEW_STEP_KINDS, removeStep, renameElement, type BranchSpec, type EditResult, type NewStepKind,
@@ -30,7 +30,11 @@ export const processDraftChanged = (d: ProcessDraft) =>
   d.xml !== d.base.xml || JSON.stringify(stripTimes(d.spec)) !== JSON.stringify(stripTimes(d.base.spec));
 const stripTimes = (s: ProcessSpec) => ({ ...s, updatedAt: undefined });
 
-export type ProcessContext = { model: Model | null };
+export type ProcessContext = {
+  model: Model | null;
+  /** a service orchestration (a process in service mode): only service steps, only its services */
+  serviceMode?: boolean;
+};
 
 // ---------------------------------------------------------------- what Claude reads
 
@@ -91,9 +95,21 @@ const findingsText = (fs: { level: string; line: string }[]) => (fs.length ? fs.
 /** The worker topics of the domain - what a service step may call. */
 export const workerTopics = (model: Model | null) => new Set(model ? targetsOf(model, []).services.map((s) => s.topic) : []);
 
+/** What a service step may call here: the workers of the domain - or, in a service orchestration,
+  * its services (the collections of the project and the catalog). */
+export const callableTopics = (ctx: ProcessContext) =>
+  ctx.serviceMode ? new Set(ctx.model ? orchestrationTargets(ctx.model).map((s) => s.topic) : []) : workerTopics(ctx.model);
+
 // ---------------------------------------------------------------- the tools
 
 const KIND_TEXT = 'user (Benutzer-Task), service (Worker mit topic), manual (manuell), timer (warten, ISO-Dauer wie P1D), end (benennt das Ende des Zweigs)';
+
+/** A worker runs in one go: no user tasks, no waiting, nothing manual. */
+const SERVICE_KINDS: NewStepKind[] = ['service', 'end'];
+const SERVICE_KIND_TEXT = 'service (ein Service der Orchestrierung mit topic), end (benennt das Ende des Zweigs)';
+
+const kindsOf = (ctx: ProcessContext) => (ctx.serviceMode ? SERVICE_KINDS : NEW_STEP_KINDS);
+const kindText = (ctx: ProcessContext) => (ctx.serviceMode ? SERVICE_KIND_TEXT : KIND_TEXT);
 
 const tools: ToolKit<ProcessDraft>['tools'] = [
   {
@@ -224,10 +240,14 @@ export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ct
       };
     case 'add_step': {
       const kind = str(args.kind) as NewStepKind | undefined;
-      if (!kind || !NEW_STEP_KINDS.includes(kind)) return failed(d, `«kind» ist eines von: ${KIND_TEXT}.`);
+      if (!kind || !kindsOf(ctx).includes(kind))
+        return failed(d, `«kind» ist eines von: ${kindText(ctx)}.${ctx.serviceMode && kind ? ' Eine Orchestrierung ist ein Worker – Benutzer-Tasks, Timer und manuelle Schritte gibt es darin nicht; dafür braucht es einen Prozess (report_open_point).' : ''}`);
       const topic = str(args.topic)?.trim();
-      if (kind === 'service' && topic && !workerTopics(ctx.model).has(topic))
-        return failed(d, `Einen Worker «${topic}» gibt es im Datenmodell nicht. Nicht erfinden – mit report_open_point melden (und z.B. einen manuellen Schritt als Platzhalter nehmen).`);
+      if (ctx.serviceMode && kind === 'service' && !topic) return failed(d, '«topic» fehlt – ein Service-Schritt einer Orchestrierung ruft einen ihrer Services auf.');
+      if (kind === 'service' && topic && !callableTopics(ctx).has(topic))
+        return failed(d, ctx.serviceMode
+          ? `Einen Service «${topic}» kann die Orchestrierung nicht aufrufen. Nicht erfinden – mit report_open_point melden.`
+          : `Einen Worker «${topic}» gibt es im Datenmodell nicht. Nicht erfinden – mit report_open_point melden (und z.B. einen manuellen Schritt als Platzhalter nehmen).`);
       const r = insertStep(d.xml, engine, str(args.after) ?? '', { kind, name: str(args.name) ?? '', topic, timer: str(args.timer) }, str(args.branch));
       return afterEdit(d, r, ctx, `Schritt «${str(args.name)}» eingefügt`);
     }
@@ -277,17 +297,44 @@ export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ct
   }
 }
 
-/** The errors the draft has and the process before did not - those Claude corrects itself. */
+/** The errors the draft has and the process before did not - those Claude corrects itself. In a
+  * service orchestration not the missing inputs of a step Claude added: the RE maps them in the
+  * step, Claude has no tool for it (the skill says to name them as open). */
 export function newProcessErrors(d: ProcessDraft, ctx: ProcessContext): string[] {
   if (!processDraftChanged(d)) return [];
   const errors = (s: ProcessSpec) => processFindings(s, ctx, false).map((f) => f.line);
   const before = new Set(errors(d.base.spec));
-  return errors(d.spec).filter((l) => !before.has(l));
+  const known = new Set(allSteps(d.base.spec.steps).map((s) => s.id));
+  const added = allSteps(d.spec.steps).map((s) => s.id).filter((id) => !known.has(id));
+  const toMap = (l: string) =>
+    !!ctx.serviceMode && MAPPING_ERROR.test(l) && added.some((id) => l.startsWith(`${id} `) || l.startsWith(`${id}:`));
+  return errors(d.spec).filter((l) => !before.has(l) && !toMap(l));
 }
 
-/** The tools of stage B for one process. */
+/** The error of a required input that is not mapped (findings.ts). */
+const MAPPING_ERROR = /Pflichtfeld «[^»]+» fehlt in den Eingaben/;
+
+/** The tools - in a service orchestration add_step offers only its kinds. */
+const toolsFor = (ctx: ProcessContext): ToolKit<ProcessDraft>['tools'] =>
+  ctx.serviceMode
+    ? tools.map((t) => (t.name !== 'add_step' ? t : {
+      ...t,
+      description: `Inserts a service step after the step \`after\` - on its only outgoing flow, or on the branch \`branch\` (its label) after a decision. Kinds: ${SERVICE_KIND_TEXT}. Answers with the new ID, the flow and the findings.`,
+      input_schema: {
+        ...t.input_schema,
+        properties: {
+          // no timer in a worker
+          ...Object.fromEntries(Object.entries(t.input_schema.properties as Record<string, unknown>).filter(([k]) => k !== 'timer')),
+          kind: { type: 'string', enum: SERVICE_KINDS },
+          topic: { type: 'string', description: 'kind service: the topic of a service the orchestration can call' },
+        },
+      },
+    }))
+    : tools;
+
+/** The tools of stage B for one process - or one service orchestration. */
 export const processToolKit = (ctx: ProcessContext): ToolKit<ProcessDraft> => ({
-  tools,
+  tools: toolsFor(ctx),
   run: (name, input, d) => runProcessTool(name, input, d, ctx),
   remainingErrors: (d) => newProcessErrors(d, ctx),
 });

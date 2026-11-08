@@ -231,11 +231,27 @@ object AiRoutesSpec extends ZIOSpecDefault:
           .contains("claude-test")
       )
     ,
-    test("the skills on the classpath - today only uiCreator with anthropic, its instructions without comments"):
+    test("the skills on the classpath - pages, processes and orchestrations with anthropic, instructions without comments"):
+      import AiSkills.Task.*
       val loaded = AiSkills.load("anthropic")
-      val ui     = loaded.toOption.flatMap(_.headOption)
+      def of(t: AiSkills.Task) = loaded.toOption.flatMap(_.find(_.task == t))
+      val ui     = of(uiCreator)
+      val processTools = Seq(
+        "read_process", "add_step", "add_decision", "add_error_path", "remove_step", "rename_step", "update_step", "check_process",
+        "report_open_point"
+      )
       assertTrue(
-        loaded.map(_.map(_.task)) == Right(Seq(AiSkills.Task.uiCreator)),
+        loaded.map(_.map(_.task)) == Right(Seq(uiCreator, processCreator, serviceOrchestrator)),
+        // the same settings, the tools of the process view - each with its own instructions
+        Seq(processCreator, serviceOrchestrator).forall(t =>
+          of(t).exists(s =>
+            s.name == s"${t.id}-anthropic" && s.tools == processTools && s.maxTokens.contains(16000) &&
+              s.thinking.contains("adaptive") && s.instructions.endsWith("No JSON, no XML in the answer.") &&
+              !s.instructions.contains("<!--")
+          )
+        ),
+        of(processCreator).exists(_.instructions.contains("specify a process of an app")),
+        of(serviceOrchestrator).exists(_.instructions.contains("one worker that calls services in one go")),
         AiSkills.load("bedrock-eu") == Right(Nil),
         ui.map(_.name).contains("uiCreator-anthropic"),
         ui.flatMap(_.model).contains("claude-opus-5-5"),

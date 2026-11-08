@@ -27,7 +27,7 @@ export function AiDialog({ isDark, ai, onClose }: { isDark: boolean; ai: AiConfi
         {AI_TASKS.map((t) => (
           <div key={t} className={`flex items-center gap-2 text-[11px] ${ai.tasks.includes(t) ? c.text : c.muted}`}>
             {ai.tasks.includes(t) ? <Check size={11} /> : <Minus size={11} />}
-            <span>{TASK_LABEL[t]}</span>
+            <span className="whitespace-nowrap">{TASK_LABEL[t]}</span>
             {!ai.tasks.includes(t) && <span className="text-[10px]">– noch kein Skill im Studio</span>}
             {ai.skills[t] && (
               <span className={`font-mono text-[10px] ${c.muted}`}>

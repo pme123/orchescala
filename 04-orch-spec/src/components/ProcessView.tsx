@@ -39,7 +39,7 @@ import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
 import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
-import { useAiFor } from '../ai/config';
+import { aiFor, useAiConfig } from '../ai/config';
 import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
@@ -158,16 +158,14 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { isDark, model: storeModel, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
-  // ── AI mode (E19, E23, stage B): only with a skill for processCreator in the studio. While Claude's draft is open, the view shows it
-  // (diagram and flow) read only - until the RE accepts or discards it
-  const aiOn = useAiFor('processCreator');
+  // ── AI mode (E19, E23, stage B): only with a skill for the task in the studio - processCreator, or serviceOrchestrator
+  // in service mode (aiOn below). While Claude's draft is open, the view shows it (diagram and flow) read only - until
+  // the RE accepts or discards it
+  const aiConfig = useAiConfig();
   const [aiDraft, setAiDraft] = useState<ProcessDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   /** the state before the last accepted draft - for undo, as long as nothing else changed */
   const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedSpec: ProcessSpec | null; acceptedXml: string } | null>(null);
-  // without the AI of the studio the draft is gone too
-  // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
-  useEffect(() => { if (!aiOn || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiOn, mayEdit]);
   const canEdit = mayEdit && !aiDraft;
   const author = useAuthor();
   const authorRef = useRef(author);
@@ -183,6 +181,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { services } = useServices();
   const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
   const serviceMode = !!spec?.service;
+  const aiOn = aiFor(aiConfig, serviceMode ? 'serviceOrchestrator' : 'processCreator');
+  // without the AI of the studio the draft is gone too
+  // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
+  useEffect(() => { if (!aiOn || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiOn, mayEdit]);
   // otherwise their classes — a type can refer to them (a copied class to its original)
   const model = useMemo(() => (serviceMode ? withCollections(storeModel, collections) : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections]);
   const [serviceExportOpen, setServiceExportOpen] = useState(false);
@@ -1179,7 +1181,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           </button>
           {aiOn && mayEdit && (
             <button onClick={() => { setAiOpen(o => !o); setCommentsOpen(false); setAuditOpen(false); }}
-              title="Claude – den Ablauf im Gespräch ändern (KI-Modus)"
+              title={serviceMode ? 'Claude – die Orchestrierung im Gespräch ändern (KI-Modus)' : 'Claude – den Ablauf im Gespräch ändern (KI-Modus)'}
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
                 aiOpen || aiDraft ? (isDark ? 'border-violet-400/50 bg-violet-500/15 text-violet-200' : 'border-violet-400 bg-violet-50 text-violet-800') : c.btn}`}>
               <Sparkles size={12} /> Claude
@@ -1452,7 +1454,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <PanelWidthHandle isDark={isDark} width={aiW} min={320} max={800} onWidth={setAiW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
-              <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)}
+              <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)} serviceMode={serviceMode}
                 draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
                 onAccept={acceptAi}
                 undo={aiUndoable ? { label: 'Den Stand vor der letzten KI-Änderung wiederherstellen', run: undoAi } : null}
