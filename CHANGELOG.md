@@ -16,7 +16,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## 0.9.0 - 2026-11-08
-### Changed
+
+### To note when upgrading
+- **Rebuild all worker JARs** against 0.9.0 - `DefaultWorkerConfig` has a new field (`deployOnStart`) and `WorkerRegistry` a new member (`engineType`); an own `WorkerRegistry` must add `engineType`.
+- **Gateway:** the actor of a user task or message comes as `_identityCorrelationOfActor` - `_identityCorrelation` is set only at the start, so a worker checks the identity of the starter ([#90](https://github.com/pme123/orchescala/pull/90)).
+- **C8:** the businessKey is the instance's business id, no variable ([#125](https://github.com/pme123/orchescala/pull/125), [#127](https://github.com/pme123/orchescala/pull/127)); the own process instance comes from `camunda.processInstance.key` - the InitWorker no longer sets `processInstanceId` ([#121](https://github.com/pme123/orchescala/pull/121)).
+- **Orch Spec export:** renamed imports, `type Out = In`, no Iron imports ([#80](https://github.com/pme123/orchescala/pull/80)).
+
+### Orch Studio
+- The skill of a task is applied on the server ([#132](https://github.com/pme123/orchescala/pull/132)).
+- The AI of Orch Spec is switched on by the studio - the key is on the server ([#131](https://github.com/pme123/orchescala/pull/131)).
+- The platform server moves to Orchescala; page differences are computed in Scala ([#129](https://github.com/pme123/orchescala/pull/129)).
+
+### Orch Spec
+**Standard patterns**
+- Standard patterns come with Orchescala - Init Process, identity, passing on mocks ([#95](https://github.com/pme123/orchescala/pull/95)).
+- New patterns: «Einmalige Ausführung» ([#97](https://github.com/pme123/orchescala/pull/97)), «Prozess-Status am Ende» ([#104](https://github.com/pme123/orchescala/pull/104)), «Prozess mit Fehler stoppen» ([#106](https://github.com/pme123/orchescala/pull/106)), «Prozess-Event senden» with a process picker ([#114](https://github.com/pme123/orchescala/pull/114)), «Abbruch per Signal» ([#122](https://github.com/pme123/orchescala/pull/122)).
+- A pattern adds the extensions it needs to an existing message, signal or error ([#85](https://github.com/pme123/orchescala/pull/85)); its shared block must fit ([#84](https://github.com/pme123/orchescala/pull/84)); it can bring a colour to its element ([#107](https://github.com/pme123/orchescala/pull/107)).
+- Switching the engine takes the patterns over in their form for the target engine ([#105](https://github.com/pme123/orchescala/pull/105)).
+- Event sub process of a pattern: locked pattern steps, own steps and drawing kept on conversion; C8 signal in the domain sync ([#126](https://github.com/pme123/orchescala/pull/126)).
+
+**Services and orchestration**
+- Services: REST collections and orchestrations from OpenAPI, exported as Scala ([#108](https://github.com/pme123/orchescala/pull/108)).
+- Service orchestration in the process editor; pasted classes refer to their originals ([#118](https://github.com/pme123/orchescala/pull/118)).
+- Nested APIs, ADT decoder without discriminator, base paths and test of the worker ([#120](https://github.com/pme123/orchescala/pull/120)).
+- What is built locally wins over the delivered catalog - «Lokal überschreibt» ([#109](https://github.com/pme123/orchescala/pull/109)).
+
+**Modelling and export**
+- Timers of events and boundary events: variable, kind, default in the InConfig - per engine on export and merge ([#50](https://github.com/pme123/orchescala/pull/50), [#51](https://github.com/pme123/orchescala/pull/51)).
+- Multi-instance: collection, element and collected results; variable types per step ([#115](https://github.com/pme123/orchescala/pull/115)).
+- Variants for inputs («alle Ausprägungen»), mocks described by their response ([#43](https://github.com/pme123/orchescala/pull/43)).
+- Message correlation engine agnostic: processInstanceId everywhere, correlation and boundary events ([#56](https://github.com/pme123/orchescala/pull/56)).
+- JUEL/FEEL: a Spin path of unknown type ends by the target field's type ([#116](https://github.com/pme123/orchescala/pull/116)); the warning says why JUEL cannot be translated ([#124](https://github.com/pme123/orchescala/pull/124)).
+- C7 → C8: a setVariable listener becomes a None-Throw-Event where an output mapping does not apply ([#55](https://github.com/pme123/orchescala/pull/55)).
+- Names in backticks round-trip ([#70](https://github.com/pme123/orchescala/pull/70)); enum cases with comments and underscores ([#67](https://github.com/pme123/orchescala/pull/67)), parameters in the order of the code ([#60](https://github.com/pme123/orchescala/pull/60)).
+- Constructor defaults as example values, InConfig values as defaults ([#82](https://github.com/pme123/orchescala/pull/82)); exampleMinimal sets a union alias with an Option to None ([#72](https://github.com/pme123/orchescala/pull/72)); an unresolved type name is exported as named ([#117](https://github.com/pme123/orchescala/pull/117)).
+- Import: a union type alias in a companion object is kept as the field type ([#57](https://github.com/pme123/orchescala/pull/57)).
+- Catalog merged per project, sync without silent fallback ([#76](https://github.com/pme123/orchescala/pull/76)); a worker of another project is no own worker of the process ([#75](https://github.com/pme123/orchescala/pull/75)).
+- DMN decisions without the process id in the decisionRef are matched ([#63](https://github.com/pme123/orchescala/pull/63)).
+- `IdentityCorrelation` of orchescala.domain is a built-in type ([#49](https://github.com/pme123/orchescala/pull/49)).
+
+**Pages and UI**
+- KI-Modus: Claude changes pages and processes as a draft ([#69](https://github.com/pme123/orchescala/pull/69)).
+- Pages like processes - company/project, epics, comments, history, one search for all lists ([#74](https://github.com/pme123/orchescala/pull/74)); pages show whether they are for a user task ([#73](https://github.com/pme123/orchescala/pull/73)).
+- The start shows In, InitIn, InConfig; an interaction shows one status for itself, its In and Out ([#38](https://github.com/pme123/orchescala/pull/38)).
+- Header and footer like Arch Review ([#65](https://github.com/pme123/orchescala/pull/65)); z9nai byline in the pages app and on the API page ([#40](https://github.com/pme123/orchescala/pull/40)); the browser tab shows the company of the folder ([#102](https://github.com/pme123/orchescala/pull/102)).
+- «Zurück zu» shows the SharePoint URL of the previous folder ([#112](https://github.com/pme123/orchescala/pull/112)); resizable panels, catalog parent folder ([#115](https://github.com/pme123/orchescala/pull/115)).
+
+**Fixes**
+- A process link no longer hangs on «Lade Spezifikation …» ([#91](https://github.com/pme123/orchescala/pull/91)).
+- A pattern block in the tree no longer contains itself ([#83](https://github.com/pme123/orchescala/pull/83)).
+- Fixes from testing: paste keeps name and type, output mapping per case of an Out with cases ([#111](https://github.com/pme123/orchescala/pull/111)).
+- A project remembered with the folder above it reads only itself ([#68](https://github.com/pme123/orchescala/pull/68)); the domain scan skips hidden folders ([#64](https://github.com/pme123/orchescala/pull/64)).
+- The tools run in Node again ([#53](https://github.com/pme123/orchescala/pull/53)); the administration is its own chunk ([#48](https://github.com/pme123/orchescala/pull/48)).
+- Code comments in English ([#62](https://github.com/pme123/orchescala/pull/62)).
+
+### Orch Ops
+- Recurring errors in operation as an app - part of the docs site (`ops/`), like Orch Spec ([#77](https://github.com/pme123/orchescala/pull/77)).
+- Roles listed and editable when setting up the Microsoft sign-in ([#79](https://github.com/pme123/orchescala/pull/79)).
+- Folder first, then the sign-in - like Orch Spec ([#103](https://github.com/pme123/orchescala/pull/103)).
+
+### Worker
+- The worker app deploys the BPMN/DMN of its project on start, through the gateway - off by default ([#130](https://github.com/pme123/orchescala/pull/130)).
+- A worker of the same name from another package gets its own block ([#123](https://github.com/pme123/orchescala/pull/123)).
+- A refusal of the worker app (4xx) is logged as info, not as an error - one refusal rule for worker and forwarding ([#39](https://github.com/pme123/orchescala/pull/39)).
+- C8: an IdentityCorrelation of the parent is accepted in a call activity ([#96](https://github.com/pme123/orchescala/pull/96)); the variables of a BPMN error reach the process, like C7 ([#61](https://github.com/pme123/orchescala/pull/61)).
+
+### Engines
+- C7 start by message: the pending marker of a running instance is removed only if no correlation shows up ([#100](https://github.com/pme123/orchescala/pull/100)).
+- C8 start by message: businessKey as correlation key - a message landing in a running instance answers 409, like C7 ([#98](https://github.com/pme123/orchescala/pull/98)); a start without correlation key is no 409 ([#128](https://github.com/pme123/orchescala/pull/128)).
+- C8: the InitWorker sets processInstanceKey as a String ([#52](https://github.com/pme123/orchescala/pull/52)).
+
+### Gateway
+- A 409 of an engine is the answer - no fall-through to the next engine ([#99](https://github.com/pme123/orchescala/pull/99)).
+- PublicAccessSpec deterministic and no longer able to hang CI ([#66](https://github.com/pme123/orchescala/pull/66), [#71](https://github.com/pme123/orchescala/pull/71)).
+
+### Simulation
+- A user task or message can act as another identity (`actingAs`) ([#92](https://github.com/pme123/orchescala/pull/92)).
+- A check on a process keeps the name of the val it is defined in ([#87](https://github.com/pme123/orchescala/pull/87)).
+
+### Helper
+- Merge robust against failing tools and IO errors ([#110](https://github.com/pme123/orchescala/pull/110)); an enum In keeps its own codec ([#81](https://github.com/pme123/orchescala/pull/81)); a process object round-trips ([#59](https://github.com/pme123/orchescala/pull/59)).
+- Import: an In that gets `WithConfig[InConfig]` brings the empty InConfig ([#113](https://github.com/pme123/orchescala/pull/113)).
+- The buildx check reads an empty driver as no driver ([#101](https://github.com/pme123/orchescala/pull/101)).
+- Company folders, docs preview port per company and test data folders ([#86](https://github.com/pme123/orchescala/pull/86), [#89](https://github.com/pme123/orchescala/pull/89)).
+- Release overview: dependency versions from VERSIONS.conf ([#119](https://github.com/pme123/orchescala/pull/119)).
+
+### Documentation
+- The documentation site is a Vite/React app instead of Laika ([#93](https://github.com/pme123/orchescala/pull/93)).
+- Docs of a project: its own BPMN and worker sources for Uses/Used by, one cache key ([#42](https://github.com/pme123/orchescala/pull/42), [#44](https://github.com/pme123/orchescala/pull/44), [#45](https://github.com/pme123/orchescala/pull/45), [#46](https://github.com/pme123/orchescala/pull/46)).
+- Orch Doc: `#tag/<Tag>` links open the process ([#47](https://github.com/pme123/orchescala/pull/47)); an operation link jumps to the operation ([#94](https://github.com/pme123/orchescala/pull/94)); `build:spec` / `build:ops` install missing node_modules ([#78](https://github.com/pme123/orchescala/pull/78)); `api/run` colours the spec's copy of the BPMN ([#54](https://github.com/pme123/orchescala/pull/54)).
+- Neutral example names: acme instead of company names ([#88](https://github.com/pme123/orchescala/pull/88)).
+
+### Tests
+- WorkerExecutionSpec: lock renewal test robust on a loaded runner ([#41](https://github.com/pme123/orchescala/pull/41)).
+
+<details><summary>All commits</summary>
+
 - Orch Studio: the skill of a task is applied on the server (#132) - see [Commit](https://github.com/pme123/orchescala/commit/451179075f4caf5732e494795993af67dc740a14)
 - Orch Studio: the AI of orch-spec is switched on by the studio - the key on the server (#131) - see [Commit](https://github.com/pme123/orchescala/commit/93c1a3adb6cf085851c95017a31a5bcee20586de)
 - Worker app: deploy the BPMN/DMN of its project on start, through the gateway (#130) - see [Commit](https://github.com/pme123/orchescala/commit/ebdabf2c2353f0528266fa09a1a6b43f4e1692d7)
@@ -188,6 +284,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engine: a refusal of the worker app (4xx) is logged as info, not as an error - see [Commit](https://github.com/pme123/orchescala/commit/3cc94beb840412727e8b0989fc78180597a483bc)
 - Merge pull request #38 from pme123/feature/orch-spec-start-classes - see [Commit](https://github.com/pme123/orchescala/commit/8db7f5d3ad2d8123b9e08c59f574471ed920d4bc)
 - Orch Spec: the start shows In, InitIn, InConfig; an interaction shows one status for itself, its In and Out - see [Commit](https://github.com/pme123/orchescala/commit/85c9222d338853c5d7d88d7790b9af7546fb9bc8)
+
+</details>
 
 ## 0.8.3 - 2026-10-09
 ### Changed 
