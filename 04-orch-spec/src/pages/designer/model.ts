@@ -103,7 +103,12 @@ const specFields = (t: TypeDef | undefined, spec: ProcessSpec, model: Model): PF
 
 /** What a page can call - services (workers), processes, messages and user tasks. */
 export type Targets = {
-  services: { topic: string; name: string; descr?: string; in: PField[]; out: PField[] }[];
+  services: {
+    topic: string; name: string; descr?: string; in: PField[]; out: PField[];
+    /** an In/Out that is a choice (ADT): its cases with their own fields - `in`/`out` are then the shared ones */
+    inCases?: { name: string; fields: PField[] }[];
+    outCases?: { name: string; fields: PField[] }[];
+  }[];
   processes: { key: string; title: string; in: PField[] }[];
   messages: { name: string; process: string; in: PField[] }[];
   userTasks: { key: string; name: string; process: string; in: PField[]; out: PField[] }[];

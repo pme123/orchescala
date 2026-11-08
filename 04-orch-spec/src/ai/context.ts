@@ -66,8 +66,14 @@ export const pagePrompt = (slug: string, text: string, first: boolean) =>
 // The instructions for processes and service orchestrations are the skills' (processCreator,
 // serviceOrchestrator in the studio) - here only the context.
 
+/** In or Out of a service: its fields - or, for a choice, its cases with their fields (and the shared ones). */
+const memberText = (fields: PField[], cases?: { name: string; fields: PField[] }[]) =>
+  cases?.length
+    ? `${cases.map((c) => `${c.name}{${fieldsText(c.fields)}}`).join(' | ')}${fields.length ? `; gemeinsam: {${fieldsText(fields)}}` : ''}`
+    : `{${fieldsText(fields)}}`;
+
 const servicesText = (services: Targets['services']) =>
-  services.map((s) => `- ${s.topic} (${s.name})${s.descr ? ` – ${s.descr.replace(/\s+/g, ' ').slice(0, 160)}` : ''}\n  In: {${fieldsText(s.in)}}\n  Out: {${fieldsText(s.out)}}`);
+  services.map((s) => `- ${s.topic} (${s.name})${s.descr ? ` – ${s.descr.replace(/\s+/g, ' ').slice(0, 160)}` : ''}\n  In: ${memberText(s.in, s.inCases)}\n  Out: ${memberText(s.out, s.outCases)}`);
 
 /** The system of a conversation about a process - the workers of the domain with In/Out and the other processes. */
 export function processSystem(targets: Targets): BetaTextBlockParam[] {
