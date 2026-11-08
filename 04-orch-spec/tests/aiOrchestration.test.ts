@@ -9,6 +9,7 @@ import { processDiff } from '../src/ai/diff';
 import { callableTopics, newProcessErrors, processModelText, processToolKit, runProcessTool, startProcessDraft, type ProcessContext, type ProcessDraft } from '../src/ai/processTools';
 import { newCollection } from '../src/services/collection';
 import { newServiceProcess, orchestrationTargets, withCollections } from '../src/services/serviceProcess';
+import { checkTypes } from '../src/scala';
 import type { CollectionService, ServiceCollectionSpec } from '../src/services/types';
 import type { Model, TypeDef } from '../src/types';
 
@@ -191,4 +192,36 @@ test('data model - the tools are there for processes and orchestrations', () => 
     const names = processToolKit(c).tools.map((t) => t.name);
     assert.ok(['add_type', 'update_type', 'remove_type'].every((n) => names.includes(n)), names.join());
   }
+});
+
+test('data model - review: no class named like a simple type; flags kept when re-sent; a rename brings no new errors', () => {
+  const d0 = draft();
+  const r = runProcessTool('add_type', { name: 'String', kind: 'case' }, d0, ctx);
+  assert.equal(r.isError, true);
+  assert.match(r.content, /einfacher Typ/);
+
+  const out = ok(runProcessTool('update_type', { type: 'Out', fields: [{ name: 'tags', type: 'String', optional: true, list: true }] }, d0, ctx));
+  // Claude re-sends the list to add a field - without repeating the flags of the old one
+  const more = ok(runProcessTool('update_type', { type: 'Out', fields: [{ name: 'tags', type: 'String' }, { name: 'clientKey', type: 'Long' }] }, out.draft, ctx));
+  const tags = more.draft.spec.types!.find((t) => t.processOut)!.fields![0];
+  assert.equal(tags.optional, true);
+  assert.equal(tags.collection, true);
+  const off = ok(runProcessTool('update_type', { type: 'Out', fields: [{ name: 'tags', type: 'String', optional: false, list: false }] }, more.draft, ctx));
+  assert.deepEqual([off.draft.spec.types!.find((t) => t.processOut)!.fields![0].optional, off.draft.spec.types!.find((t) => t.processOut)!.fields![0].collection], [undefined, undefined]);
+
+  // a class with an error in the process before the draft: renamed by Claude, its error is not new
+  const broken = { ...d0, spec: { ...d0.spec, types: [...(d0.spec.types ?? []), { id: 't-x', name: 'Part', kind: 'case' as const, fields: [{ id: 'f1', name: 'a', type: 'String' }, { id: 'f2', name: 'a', type: 'Long' }] }] } };
+  const base = startProcessDraft(broken.spec, broken.xml);
+  assert.ok(checkTypes(base.spec.types, model).some((i) => i.typeId === 't-x' && !i.warn), 'the class has an error'); // else the test proves nothing
+  assert.ok(newProcessErrors({ ...base, spec: { ...base.spec, title: 'x' } }, ctx).every((l) => !l.includes('Part'))); // as before: not new
+  const renamed = ok(runProcessTool('update_type', { type: 'Part', name: 'Piece' }, base, ctx));
+  assert.deepEqual(newProcessErrors(renamed.draft, ctx).filter((l) => l.startsWith('Typ')), []);
+});
+
+test('data model - a choice back to a class: shared and case fields together, once per name', () => {
+  const d0 = draft();
+  const choice = ok(runProcessTool('update_type', { type: 'Out', kind: 'enum', fields: [{ name: 'clientKey', type: 'Long' }],
+    cases: [{ name: 'Person', fields: [{ name: 'name', type: 'String' }] }, { name: 'Company', fields: [{ name: 'name', type: 'String' }, { name: 'uid', type: 'String' }] }] }, d0, ctx));
+  const back = ok(runProcessTool('update_type', { type: 'Out', kind: 'case' }, choice.draft, ctx));
+  assert.deepEqual(back.draft.spec.types!.find((t) => t.processOut)!.fields!.map((f) => f.name), ['clientKey', 'name', 'uid']);
 });

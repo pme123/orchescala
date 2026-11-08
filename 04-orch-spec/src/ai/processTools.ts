@@ -328,6 +328,7 @@ const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
 function typeNameIssue(name: string, spec: ProcessSpec): string | null {
   if (!TYPE_NAME.test(name)) return `«${name}» ist kein Name für einen Typ – PascalCase, nur Buchstaben und Ziffern (z.B. ClientResult).`;
   if (name === 'In' || name === 'Out') return 'In und Out sind die Rollen des Prozesses – einen anderen Namen wählen, oder update_type mit «In»/«Out».';
+  if ((SCALA_TYPES as readonly string[]).includes(name)) return `«${name}» ist ein einfacher Typ – ein Feld mit diesem Typ fände die Klasse nie; einen anderen Namen wählen.`;
   if ((spec.types ?? []).some((t) => !t.interactionId && t.name === name)) return `Einen Typ «${name}» gibt es schon – update_type nehmen oder einen anderen Namen.`;
   return null;
 }
@@ -362,8 +363,9 @@ function fieldsOf(input: unknown, spec: ProcessSpec, model: Model | null, existi
     const old = existing.find((x) => x.name === name);
     out.push({
       ...(old ?? {}), id: old?.id ?? uid('f'), name, type,
-      optional: f.optional === true ? true : undefined,
-      collection: f.list === true ? true : undefined,
+      // a flag that is not given stays as it was - Claude re-sends the list to add one field
+      optional: f.optional === undefined ? old?.optional : f.optional === true ? true : undefined,
+      collection: f.list === undefined ? old?.collection : f.list === true ? true : undefined,
       description: str(f.description)?.trim() || (old && f.description === undefined ? old.description : undefined),
     });
   }
@@ -531,13 +533,18 @@ export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ct
   * step, Claude has no tool for it (the skill says to name them as open). */
 export function newProcessErrors(d: ProcessDraft, ctx: ProcessContext): string[] {
   if (!processDraftChanged(d)) return [];
-  const errors = (s: ProcessSpec) => [...processFindings(s, ctx, false), ...typeFindings(s.types ?? [], ctx, false)].map((f) => f.line);
+  const errors = (s: ProcessSpec) => processFindings(s, ctx, false).map((f) => f.line);
   const before = new Set(errors(d.base.spec));
+  // the classes by id and message - a renamed class keeps its old errors, they are not new
+  const typeErrors = (s: ProcessSpec) => checkTypes(s.types ?? [], ctx.model).filter((i) => !i.warn);
+  const typesBefore = new Set(typeErrors(d.base.spec).map((i) => `${i.typeId}|${i.message}`));
+  const nameOf = (id: string) => d.spec.types?.find((t) => t.id === id)?.name ?? id;
+  const newTypeErrors = typeErrors(d.spec).filter((i) => !typesBefore.has(`${i.typeId}|${i.message}`)).map((i) => `Typ «${nameOf(i.typeId)}»: ${i.message}`);
   const known = new Set(allSteps(d.base.spec.steps).map((s) => s.id));
   const added = allSteps(d.spec.steps).map((s) => s.id).filter((id) => !known.has(id));
   const toMap = (l: string) =>
     !!ctx.serviceMode && MAPPING_ERROR.test(l) && added.some((id) => l.startsWith(`${id} `) || l.startsWith(`${id}:`));
-  return errors(d.spec).filter((l) => !before.has(l) && !toMap(l));
+  return [...errors(d.spec).filter((l) => !before.has(l) && !toMap(l)), ...newTypeErrors];
 }
 
 /** The error of a required input that is not mapped (findings.ts). */
