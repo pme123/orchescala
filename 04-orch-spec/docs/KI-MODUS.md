@@ -30,8 +30,13 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   | `processCreator` | Prozessansicht | – |
   | `serviceRegistration`, `serviceCreator` | Katalog, Services | – (noch keine Stelle) |
 
-  Jede Anfrage trägt ihre Aufgabe im Header `x-orch-task`; eine Aufgabe ohne Skill lehnt das
-  Studio ab (403).
+  Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/v1/messages`); eine Aufgabe
+  ohne Skill lehnt das Studio ab (403).
+- **Der Skill bestimmt, nicht der Browser:** Das Studio setzt die Anweisungen des Skills
+  (Abschnitt «Instructions») an den Anfang jeder Anfrage; orch-spec schickt nur den Kontext
+  (Katalog, Datenmodell, Seiten). Modell, Denken, Aufwand und Fallback nimmt das Studio aus dem
+  Skill, und es lässt nur die Werkzeuge des Skills zu. Die Grenzen pro Wunsch und Person
+  (`limits`) kommen mit dem Agent auf dem Server.
 - **Ohne Freigabe ist von KI nichts zu sehen:** kein Symbol, keine Panels, keine
   Buttons, und der KI-Code (samt SDK von Anthropic) wird gar nicht geladen. So
   ist es auch ohne Studio, etwa für die Doku als Ordner oder auf GitHub Pages.
@@ -40,8 +45,8 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Symbol ✦ (Dialog **KI-Modus**: Anbieter, Modell und die Aufgaben mit Skill),
   und an den Stellen dieser Aufgaben der Button **Claude**.
 - **Im Browser liegt kein Key.** Die Anfragen gehen an das Studio
-  (`/ai/anthropic/v1/messages`), und das Studio schickt sie mit seinem Key
-  weiter. Das Modell bestimmt das Studio, `max_tokens` ist begrenzt. Ein Key,
+  (`/ai/<Aufgabe>/v1/messages`), und das Studio schickt sie mit seinem Key
+  weiter. Das Modell bestimmt der Skill, `max_tokens` ist begrenzt. Ein Key,
   den eine frühere Version im Browser gespeichert hat
   (`orch-spec.anthropicKey`), wird beim Laden gelöscht.
 - **Die Kosten trägt, wem der Key des Studios gehört:** die Firma, nicht die
@@ -54,7 +59,7 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
 |---|---|
 | `STUDIO_AI_ANTHROPIC_API_KEY` | der Key der Claude API – der Schalter |
 | `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` | nur wenn die API sie verlangt (Key ohne Workspace) |
-| `STUDIO_AI_MODEL` | Standard `claude-opus-5-5` |
+| `STUDIO_AI_MODEL` | Standard `claude-opus-5-5` – für einen Skill, der kein Modell nennt |
 | `STUDIO_AI_ANTHROPIC_URL` | Standard `https://api.anthropic.com` – z.B. ein Gateway der Firma |
 
 **Im Dev-Server** (`npm run dev`) gibt es die KI nur mit einem laufenden Studio:
@@ -135,17 +140,17 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 ## Technik
 
 - **Ablauf über das Studio:** Die Agent-Schleife läuft noch im Browser, mit dem
-  TypeScript-SDK von Anthropic. Dessen Basis-URL ist das Studio
-  (`/ai/anthropic`); das Studio setzt Key, Workspace und Modell und gibt die
-  Antwort unverändert zurück, auch Fehler der API. Später ersetzt ein Service
-  je Aufgabe im Studio (`POST /ai/uiCreator` …, mit Skill) die Schleife im
-  Browser; dann ändert sich nur `send` in `src/ai/client.ts`.
-- **Anfrage:** Modell des Studios (Standard `claude-opus-5-5`), adaptives Denken, `effort: medium`.
+  TypeScript-SDK von Anthropic. Dessen Basis-URL ist die Adresse der Aufgabe
+  im Studio (`/ai/uiCreator`); das Studio wendet den Skill an, setzt Key und
+  Workspace und gibt die Antwort unverändert zurück, auch Fehler der API.
+  Später läuft der ganze Skill im Studio, samt Schleife und Grenzen; dann
+  ändert sich nur `send` in `src/ai/client.ts`.
+- **Anfrage:** wie im Skill – für `uiCreator` heute `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
   nennt die Kostenzeile es, und der Betrag ist eine Schätzung (gerechnet mit
   den Preisen von Opus 5.5).
-- **Prompt Caching:** Die festen Teile werden gecacht: Anweisungen und Katalog
+- **Prompt Caching:** Die festen Teile werden gecacht: Anweisungen des Skills und Katalog
   der Bausteine (Breakpoint 1), das Datenmodell zu Beginn des Gesprächs
   (Breakpoint 2) und das wachsende Gespräch (automatisch).
 - **Agent-Schleife** (`src/ai/agent.ts`):
@@ -160,7 +165,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 | `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, die Aufgaben mit Skill, `useAiFor` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
 | `src/ai/client.ts` | `send` mit dem SDK über das Studio, Fehlertexte |
-| `src/ai/context.ts` | Anweisungen, Datenmodell als Text, Systemprompt mit Cache-Breakpoints |
+| `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen für Seiten sind im Skill des Studios) |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
 | `src/ai/bpmnEdit.ts` | Schritt, Entscheid, Fehlerpfad im BPMN einfügen, entfernen, umbenennen – samt Layout |
 | `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings` |

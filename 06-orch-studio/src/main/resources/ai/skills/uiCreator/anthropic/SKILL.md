@@ -93,6 +93,11 @@ Daten oder Code. Es ist derselbe Code wie im Designer von orch-spec, also diesel
 | Freigabe | pro Person und Skill | Plattform – ohne Freigabe zeigt orch-spec keine KI |
 | Protokoll | wer, Skill, Tokens, Kosten, Ergebnis – ohne Inhalt | Plattform |
 
+Heute setzt das Studio die ersten drei Zeilen bei jeder Anfrage durch, und sein Log nennt Skill,
+Modell und Tokens ohne Inhalt. Die Schleife läuft noch im Browser; Anfragen, Korrekturen und Kosten
+pro Wunsch, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Agent auf dem
+Server und dem Login.
+
 ## Daten
 
 Siehe `data` oben. Die Anfragen gehen an die **Claude API von Anthropic**. Ob die Spezifikationen

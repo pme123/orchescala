@@ -544,6 +544,8 @@ lazy val orchStudio = project
     zioTestSettings,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-http" % zioHttpVersion,
+      // the front matter of the skills of the AI (AiSkills)
+      "io.circe" %% "circe-yaml" % circeYamlVersion,
       osLib
     ),
     fork               := true,

@@ -56,10 +56,11 @@ const fakeFetch = (status: number, body: unknown, seen: string[] = []): typeof f
     return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   }) as typeof fetch;
 
-test('the studio is the switch - on only with enabled: true, provider, model and tasks from it', async () => {
+test('the studio is the switch - on only with enabled: true, provider, model, tasks and skills from it', async () => {
   const seen: string[] = [];
-  assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'] }, seen)),
-    { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'] });
+  const skill = { name: 'uiCreator-anthropic', version: 1, model: 'claude-opus-5-5' };
+  assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'], skills: { uiCreator: skill } }, seen)),
+    { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'], skills: { uiCreator: skill } });
   assert.deepEqual(seen, [CONFIG_PATH]);
   assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: false })), AI_OFF);
 });
@@ -70,12 +71,15 @@ test('the studio is the switch - no studio, 404, no JSON or something odd: off, 
   assert.deepEqual(await loadConfig(fakeFetch(200, '<html>')), AI_OFF); // a page instead of JSON
   assert.deepEqual(parseConfig({ enabled: 'yes' }), AI_OFF);
   assert.deepEqual(parseConfig(null), AI_OFF);
-  assert.deepEqual(parseConfig({ enabled: true, model: '  ' }), { enabled: true, provider: undefined, model: undefined, tasks: [] });
+  assert.deepEqual(parseConfig({ enabled: true, model: '  ' }), { enabled: true, provider: undefined, model: undefined, tasks: [], skills: {} });
 });
 
 test('the AI per task - only the tasks with a skill in the studio show AI', () => {
-  const ui = parseConfig({ enabled: true, tasks: ['uiCreator', 'somethingNew', 42] });
+  const ui = parseConfig({ enabled: true, tasks: ['uiCreator', 'somethingNew', 42],
+    skills: { uiCreator: { name: 'uiCreator-anthropic', version: 'one' }, processCreator: { name: 'not offered' }, somethingNew: { name: 'x' } } });
   assert.deepEqual(ui.tasks, ['uiCreator']); // unknown entries are dropped
+  assert.deepEqual(ui.skills, { uiCreator: { name: 'uiCreator-anthropic', version: undefined, model: undefined } }); // only of the tasks
+  assert.deepEqual(parseConfig({ enabled: true, tasks: ['uiCreator'], skills: { uiCreator: { version: 1 } } }).skills, {}); // no name, no skill
   assert.equal(aiFor(ui, 'uiCreator'), true);
   assert.equal(aiFor(ui, 'processCreator'), false); // no skill yet: the process view shows no AI
   assert.equal(anyAi(ui), true);
@@ -85,12 +89,13 @@ test('the AI per task - only the tasks with a skill in the studio show AI', () =
   assert.equal(aiFor(AI_OFF, 'uiCreator'), false);
 });
 
-test('the key once stored in the browser is removed; the SDK goes to the studio', () => {
+test('the key once stored in the browser is removed; the SDK goes to the route of its task in the studio', () => {
   const map = new Map(OLD_BROWSER_KEYS.map((k) => [k, 'sk-ant-old'] as [string, string]));
   forgetBrowserKey({ removeItem: (k) => void map.delete(k) });
   assert.equal(map.size, 0);
   assert.doesNotThrow(() => forgetBrowserKey({ removeItem: () => { throw new Error('blocked'); } }));
-  assert.equal(studioBaseUrl('https://studio.example.ch'), 'https://studio.example.ch/ai/anthropic');
+  assert.equal(studioBaseUrl('uiCreator', 'https://studio.example.ch'), 'https://studio.example.ch/ai/uiCreator');
+  assert.equal(studioBaseUrl('processCreator', 'https://studio.example.ch/site/spec/'), 'https://studio.example.ch/ai/processCreator');
 });
 
 // ---------------------------------------------------------------- the tools on the draft
@@ -413,8 +418,10 @@ test('errorText - what the RE reads', () => {
   const off = { type: 'error', error: { type: 'not_found_error', message: 'the AI of the studio is off (STUDIO_AI_ANTHROPIC_API_KEY)' } };
   assert.match(errorText(new Anthropic.NotFoundError(404, off, undefined, headers)), /im Studio ausgeschaltet/);
   assert.match(errorText(new Anthropic.AuthenticationError(401, undefined, 'invalid x-api-key', headers)), /STUDIO_AI_ANTHROPIC_API_KEY/);
-  const noSkill = { type: 'error', error: { type: 'permission_error', message: 'no skill in the studio for the task «processCreator» (x-orch-task)' } };
+  const noSkill = { type: 'error', error: { type: 'permission_error', message: 'no skill in the studio for the task «processCreator»' } };
   assert.match(errorText(new Anthropic.PermissionDeniedError(403, noSkill, undefined, headers)), /keinen Skill/);
+  const tool = { type: 'error', error: { type: 'invalid_request_error', message: 'the tools «remove_block» are not in the skill uiCreator-anthropic v1' } };
+  assert.match(errorText(new Anthropic.BadRequestError(400, tool, undefined, headers)), /^Der Skill des Studios erlaubt ein Werkzeug nicht.*«remove_block»/);
   const unreachable = { type: 'error', error: { type: 'api_error', message: 'the Claude API cannot be reached from the studio' } };
   assert.match(errorText(Anthropic.APIError.generate(502, unreachable, undefined, headers)), /^Das Studio erreicht die Claude API nicht \(502\)/);
   assert.match(errorText(Anthropic.APIError.generate(504, { type: 'error', error: { type: 'timeout_error', message: 'x' } }, undefined, headers)), /nicht rechtzeitig/);
@@ -425,10 +432,11 @@ test('errorText - what the RE reads', () => {
 
 // ---------------------------------------------------------------- what Claude knows, what it costs
 
-test('the system - two cached blocks, the data model as text, deterministic', () => {
+test('the system - two cached blocks, the data model as text, deterministic; the instructions are the skill\'s', () => {
   assert.equal(system.length, 2);
   assert.ok(system.every((b) => b.cache_control?.type === 'ephemeral'));
-  assert.match(system[0].text, /type Page = …/);
+  assert.match(system[0].text, /^The catalog of the building blocks.*\ntype Page = …$/);
+  assert.doesNotMatch(system.map((b) => b.text).join('\n'), /You help a requirements engineer/); // the studio adds them
   assert.match(system[1].text, /acme-shop-branches \(Branches\)\n  In: \{region\?: String\}\n  Out: \{branches: \[Branch\{id: String, name: String\}\]\}/);
   assert.match(system[1].text, /- book – \/shop\/book – Termin buchen – public/);
   assert.deepEqual(pageSystem('type Page = …', targets, [...ctx.others].reverse(), { title: 'Shop' }), system); // same prefix, same cache

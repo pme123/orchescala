@@ -1,8 +1,9 @@
 // The AI mode (E19, E23): the studio is the switch. Its settings (STUDIO_AI_ANTHROPIC_API_KEY …) turn
 // the AI on; orch-spec asks `GET /ai/config` once and learns only on/off, provider, model and the
-// tasks with a skill - never the key. Each place shows its AI only if its task is among them (the
+// tasks with their skill - never the key. Each place shows its AI only if its task is among them (the
 // page designer `uiCreator`, the process view `processCreator`). The requests of the agent go
-// through the studio (`/ai/anthropic`, see client.ts), with their task in a header.
+// through the studio to the route of their task (`/ai/uiCreator`, see client.ts); there the skill
+// adds its instructions and decides model and settings.
 //
 // Without a studio (a folder of the docs, GitHub Pages, the dev server without ORCH_SPEC_STUDIO) the
 // request fails - then the AI is off and nothing of it is visible. orch-spec stays fully usable.
@@ -20,6 +21,9 @@ export const TASK_LABEL: Record<AiTask, string> = {
   serviceCreator: 'Service erstellen',
 };
 
+/** The skill of a task in the studio - for the dialog. */
+export type AiSkill = { name: string; version?: number; model?: string };
+
 export type AiConfig = {
   enabled: boolean;
   /** only `anthropic` for now */
@@ -28,17 +32,17 @@ export type AiConfig = {
   model?: string;
   /** the tasks with a skill in the studio - only they show AI */
   tasks: AiTask[];
+  /** the skill of each of these tasks */
+  skills: Partial<Record<AiTask, AiSkill>>;
 };
 
-export const AI_OFF: AiConfig = { enabled: false, tasks: [] };
-
-/** The header with the task of a request - the studio refuses a task without a skill. */
-export const TASK_HEADER = 'x-orch-task';
+export const AI_OFF: AiConfig = { enabled: false, tasks: [], skills: {} };
 
 /** On the origin of the page - the studio serves orch-spec and these paths. */
 export const CONFIG_PATH = '/ai/config';
-/** The base URL of the Messages API for the SDK - the studio sends it on with its key. */
-export const MESSAGES_BASE = '/ai/anthropic';
+/** The base URL of the Messages API for the SDK - one per task; the studio applies its skill and
+  * sends it on with its key. A task without a skill is refused (403). */
+export const messagesBase = (task: AiTask) => `/ai/${task}`;
 
 /** The answer of `GET /ai/config` - anything unexpected counts as off. */
 export function parseConfig(json: unknown): AiConfig {
@@ -47,7 +51,13 @@ export function parseConfig(json: unknown): AiConfig {
   if (o.enabled !== true) return AI_OFF;
   const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
   const tasks = Array.isArray(o.tasks) ? AI_TASKS.filter((t) => (o.tasks as unknown[]).includes(t)) : [];
-  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks };
+  const all = o.skills && typeof o.skills === 'object' ? (o.skills as Record<string, unknown>) : {};
+  const skills = Object.fromEntries(tasks.flatMap((t) => {
+    const s = all[t] && typeof all[t] === 'object' ? (all[t] as Record<string, unknown>) : {};
+    const name = text(s.name);
+    return name ? [[t, { name, version: typeof s.version === 'number' ? s.version : undefined, model: text(s.model) }]] : [];
+  })) as Partial<Record<AiTask, AiSkill>>;
+  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks, skills };
 }
 
 /** Asks the studio - every failure (no studio, 404, no JSON) is «off». */

@@ -40,9 +40,14 @@ abstract class StudioServer extends ZIOAppDefault:
         _ <- ZIO.logInfo(s"  orch-doc  $url/site/")
         _ <- ZIO.logInfo(s"  orch-spec $url/site/spec/")
         _ <- ZIO.logInfo(s"  orch-ops  $url/site/ops/")
+        // a skill that cannot be read ends the start with one line that names it - as a wrong setting
+        skills <- ZIO.when(settings.ai.isDefined)(ZIO.fromEither(AiSkills.load(AiRoutes.provider)))
+                    .map(_.getOrElse(Nil))
+                    .tapError(e => ZIO.logError(s"Orch Studio does not start - a skill of the AI: $e"))
+                    .mapError(IllegalArgumentException(_))
         _ <- ZIO.logInfo(settings.ai.fold("AI: off - without STUDIO_AI_ANTHROPIC_API_KEY orch-spec shows no AI")(a =>
-               s"AI: on - $a, tasks with a skill: ${AiSkills.available(AiRoutes.provider).map(_.id).mkString(", ")}"))
-        ai <- ZIO.serviceWithZIO[Client](AiRoutes.make(settings.ai, _))
+               s"AI: on - $a, skills: ${if skills.isEmpty then "none - orch-spec shows no AI" else skills.map(_.label).mkString(", ")}"))
+        ai <- ZIO.serviceWithZIO[Client](AiRoutes.make(settings.ai, _, skills))
         _ <- Server.serve(routesOf(settings, ai))
       yield ()
     start.provide(
