@@ -11,17 +11,29 @@ this module is the library; the company builds its studio from it in `<company>-
 | `/site/ops/` | orch-ops | the jar |
 | `/`, `/spec`, `/ops` | redirect there | – |
 | `POST /spec/pages/diff` | differences of two pages: `{before, after}` → `PageChange[]` | `orchescala-orch-spec-core` - the same code as orch-spec in the browser (Scala.js) |
-| `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
-| `POST /ai/anthropic/v1/messages` | a request of orch-spec's agent for the task in `x-orch-task`, sent on to the Claude API with the studio's key, workspace and model; a task without a skill is refused (403) | `STUDIO_AI_*`, the skills |
+| `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
+| `POST /ai/<task>/v1/messages` | a request of orch-spec's agent for `<task>` (e.g. `uiCreator`), with the skill applied and sent on to the Claude API with the studio's key and workspace; a task without a skill is refused (403), a tool that is not in the skill too (400) | `STUDIO_AI_*`, the skills |
 
 **Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceRegistration`, `serviceCreator`)
 is offered only with a skill for it and its provider: `ai/skills/<task>/<provider>/SKILL.md` on the
 classpath - its constraints, steps and the instructions for the model, written to be reviewed by a
 bank. The studio brings `uiCreator/anthropic`; a company adds or replaces one with the same path in
-the resources of its module `studio`.
+the resources of its module `studio`. A skill that cannot be read ends the start with a line that
+names it.
 
-Later: a service per AI task that runs its skill on the server (`POST /ai/uiCreator` …) instead of
-the agent in the browser, the buttons of orch-spec and the runner.
+What the studio applies of a skill, per request:
+
+| From the skill | In the request to the Claude API |
+|---|---|
+| `## Instructions` | the first block of the system - orch-spec sends only the context (catalog, data model) |
+| `model` | the model - without one, `STUDIO_AI_MODEL` |
+| `request.max_tokens`, `thinking`, `effort`, `fallbacks` | the same settings - those of the browser do not count; `max_tokens` at most 32000 |
+| `tools` | the only tools a request may offer - another one is refused (400) |
+
+The log has one line per request: skill, model, status, time and tokens - no content.
+
+Later: the agent on the server with the limits of the skill (`limits`: steps, corrections, costs),
+the buttons of orch-spec and the runner.
 
 - **Who wins:** first files in memory (the folders of orch-spec and orch-ops, `spec/folder.json`,
   `ops/folder.json`), then the apps from the jar - the version the studio is built with, also when
@@ -66,7 +78,7 @@ sbt studio/run      # http://localhost:8880/site/
 | `STUDIO_SPEC_DIR`, `STUDIO_OPS_DIR` | as in the code | the folders orch-spec and orch-ops show at the start |
 | `STUDIO_AI_ANTHROPIC_API_KEY` | – (AI off) | the key of the Claude API - the switch of the AI in orch-spec; it stays on the server |
 | `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` | – | only if the API asks for it (a key without a workspace) |
-| `STUDIO_AI_MODEL` | `claude-opus-5-5` | the studio decides the model, whatever orch-spec sends |
+| `STUDIO_AI_MODEL` | `claude-opus-5-5` | the model of a skill that names none - whatever orch-spec sends |
 | `STUDIO_AI_ANTHROPIC_URL` | `https://api.anthropic.com` | e.g. a gateway of the company |
 
 ## Without a company

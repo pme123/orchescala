@@ -27,6 +27,7 @@ object Dependencies {
   val sttpClient3Version    = "3.11.0"
   // 03-dmn-tester-shared / 04-dmn-tester-server / 04-dmn-tester-client
   val circeVersion          = "0.14.16"
+  val circeYamlVersion      = "0.16.1"
   // dmn-scala: the DMN engine embedded in Camunda 8 (Scala 2.13 jar, usable from Scala 3)
   val dmnScalaVersion       = "1.11.0"
   val http4sVersion         = "0.23.36"

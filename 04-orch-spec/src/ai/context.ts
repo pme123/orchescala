@@ -1,36 +1,18 @@
-// What Claude knows at the start of a conversation: the instructions, the catalog of the building
-// blocks and the data model of the app (services with In/Out, processes, messages, user tasks) and
-// the list of pages. Only the spec - no customer data (E19); the preview works with sample data.
+// What Claude knows at the start of a conversation: the catalog of the building blocks and the data
+// model of the app (services with In/Out, processes, messages, user tasks) and the list of pages -
+// the instructions come from the skill of the task in the studio (E23), which puts them first. Only
+// the spec - no customer data (E19); the preview works with sample data.
 //
-// Prompt caching: two system blocks, each with a breakpoint. The first (instructions + catalog) is
-// the same for every project, the second (data model) for one conversation - it is built once at
-// its start and then kept, so the prefix stays byte for byte the same.
+// Prompt caching: two system blocks, each with a breakpoint. The first (the catalog, after the
+// instructions of the skill) is the same for every project, the second (data model) for one
+// conversation - it is built once at its start and then kept, so the prefix stays byte for byte the same.
 import type { BetaTextBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { PField, Targets } from '../pages/designer/model';
 import type { App, Page } from '../pages/runtime/spec';
 
-const PAGE_INSTRUCTIONS = `You help a requirements engineer (RE) of a bank or company to specify the pages of an app in orch-spec.
-Always answer in German (Swiss spelling: ss instead of ß) - the RE works in German.
-A page is declarative JSON (E15): a generic renderer shows it at runtime, the same renderer is the live preview in the designer.
-You change the specification only - never code, environments or data.
-
-How you work:
-- You work on a DRAFT of one page. The RE sees the preview and the differences and then accepts or discards the draft.
-- Read the draft first (read_page). Address building blocks by their key from the outline ("2", "1.0" in a section); keys change after an insert, move or remove - use the outline of the last answer.
-- Change as little as needed. Keep texts, bindings and actions that the request does not concern.
-- Every change answers with the findings of the designer. Errors must be gone before you finish; warnings should be gone where the spec allows it.
-- Bind fields to paths of the state ({{path}} in texts). Inputs of actions are templates: {"field": "{{path}}"}.
-- Call only services, processes, messages and user tasks of the data model below - with their In fields as input. Never invent one and never call one that is not there.
-- If the request needs something the data model does not have, do the part of the page anyway and report the rest with report_open_point:
-  a field the In of a service or process does not have yet: add the input to the page (bound in the state, e.g. contact.branch) and pass it in the input of the action - report that the In needs the field;
-  a service that does not exist: do not call it; build what works without it (e.g. a free text instead of a list) and report the missing service.
-  Say in your answer what is open.
-- A public page (access "public") calls with "public": true. A page with login has roles.
-- Texts for users are German (Swiss spelling: ss instead of ß), short and friendly - like the existing pages.
-- When you are done, answer in two or three German sentences: what you changed and what is open. No JSON in the answer.
-
-The catalog of the building blocks (TypeScript types of the page specification, spec.ts):
-`;
+// The instructions for pages are the skill's (uiCreator in the studio) - the studio puts them in
+// front of these blocks; here only the context.
+const CATALOG_INTRO = 'The catalog of the building blocks (TypeScript types of the page specification, spec.ts):';
 
 /** The fields of a type in one line: `topic: Topic(advice|mortgage), days: Int, from?: LocalDate, slots: [Slot{start: LocalDateTime, …}]`. */
 export function fieldsText(fields: PField[], depth = 0): string {
@@ -70,7 +52,7 @@ export function pagesText(pages: { slug: string; page: Page }[], app: App | unde
 /** The system of a conversation about pages - built once at its start (see above). */
 export function pageSystem(catalog: string, targets: Targets, pages: { slug: string; page: Page }[], app: App | undefined): BetaTextBlockParam[] {
   return [
-    { type: 'text', text: `${PAGE_INSTRUCTIONS}\n${catalog.trim()}`, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: `${CATALOG_INTRO}\n${catalog.trim()}`, cache_control: { type: 'ephemeral' } },
     { type: 'text', text: `The data model of this app:\n${dataModelText(targets)}\n\n${pagesText(pages, app)}`, cache_control: { type: 'ephemeral' } },
   ];
 }
@@ -81,6 +63,8 @@ export const pagePrompt = (slug: string, text: string, first: boolean) =>
 
 // ---------------------------------------------------------------- stage B: processes
 
+// Still here: there is no skill processCreator yet, so the process view shows no AI. With the skill
+// these instructions move into it (its section «Instructions») and leave this file - as for pages.
 const PROCESS_INSTRUCTIONS = `You help a requirements engineer (RE) of a bank or company to specify a process of an app in orch-spec.
 Always answer in German (Swiss spelling: ss instead of ß) - the RE works in German.
 The process runs on Camunda (BPMN); orch-spec derives the flow (steps, user tasks, decisions, error paths) from the diagram and keeps the business details in the spec.

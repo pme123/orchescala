@@ -1,38 +1,31 @@
 // The Claude API through the studio (E23): the SDK of Anthropic in the browser, but its requests go to
-// the studio (`/ai/anthropic`), which sends them on with its key - the browser has none. The agent
-// (agent.ts) stays here for now; later a service per task on the studio takes its place - only
-// `send` changes.
+// the studio - to the route of their task (`/ai/uiCreator`) - which applies the skill of the task
+// (its instructions first in the system, its model, thinking, effort, fallbacks and tools) and sends
+// them on with its key - the browser has none. The agent (agent.ts) stays here for now; later the
+// skill runs on the studio as a whole - only `send` changes.
 import Anthropic from '@anthropic-ai/sdk';
 import type { Send } from './agent';
-import { MESSAGES_BASE, TASK_HEADER, type AiConfig, type AiTask } from './config';
+import { messagesBase, type AiConfig, type AiTask } from './config';
 
-/** The model if the studio names none - the studio decides anyway. */
+/** The model if the studio names none - the skill decides anyway. */
 export const MODEL = 'claude-opus-5-5';
 
-/** The address of the studio for the SDK - on the origin of the page, which the studio serves. */
-export const studioBaseUrl = (origin: string = globalThis.location?.origin ?? 'http://localhost') =>
-  new URL(MESSAGES_BASE, origin).href;
+/** The address of the studio for the SDK - the route of `task`, on the origin of the page, which the studio serves. */
+export const studioBaseUrl = (task: AiTask, origin: string = globalThis.location?.origin ?? 'http://localhost') =>
+  new URL(messagesBase(task), origin).href;
 
-/** `send` for the agent: one request, the fixed settings here. Without streaming - the answers are
-  * short (a block, a few sentences); the API validates the tool inputs before it returns them. Key,
-  * workspace and model are the studio's - the SDK wants a key, it gets a placeholder. `task` goes
-  * along in a header: the studio sends on only a task it has a skill for. */
+/** `send` for the agent: one request of `task`. Without streaming - the answers are short (a block,
+  * a few sentences); the API validates the tool inputs before it returns them. Key, workspace, model
+  * and settings are the studio's (the skill) - the SDK wants a key and a model, it gets a placeholder
+  * and the model the studio named. The system holds only the context (catalog, data model): the
+  * instructions are the skill's. */
 export function claudeSender(config: AiConfig, task: AiTask): Send {
-  const client = new Anthropic({
-    apiKey: 'from-the-studio', baseURL: studioBaseUrl(), dangerouslyAllowBrowser: true,
-    defaultHeaders: { [TASK_HEADER]: task },
-  });
+  const client = new Anthropic({ apiKey: 'from-the-studio', baseURL: studioBaseUrl(task), dangerouslyAllowBrowser: true });
   return (request, signal) =>
     client.beta.messages.create({
-      model: config.model ?? MODEL,
+      model: config.skills[task]?.model ?? config.model ?? MODEL,
       max_tokens: 16000,
-      // thinking is always on with Opus 5.5 - effort says how much; editing a page is routine work
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
-      // if a safety classifier declines, the API retries on a fitting model within the same request
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      // the growing conversation; the two system blocks carry their own breakpoints (context.ts)
+      // the growing conversation; the system blocks carry their own breakpoints (context.ts)
       cache_control: { type: 'ephemeral' },
       system: request.system,
       tools: request.tools,
@@ -63,6 +56,8 @@ export function errorText(e: unknown): string {
     return 'Das Guthaben des API-Keys des Studios ist aufgebraucht – in der Anthropic Console (Billing) aufladen.';
   if (e instanceof Anthropic.BadRequestError && e.message.includes('anthropic-workspace-id'))
     return 'Der Key des Studios ist keinem Workspace zugeordnet – auf dem Server STUDIO_AI_ANTHROPIC_WORKSPACE_ID setzen.';
+  if (e instanceof Anthropic.BadRequestError && apiError(e).message.includes('are not in the skill'))
+    return `Der Skill des Studios erlaubt ein Werkzeug nicht – orch-spec und Studio passen nicht zusammen: ${apiError(e).message}`;
   if (e instanceof Anthropic.BadRequestError) return `Die Anfrage wurde abgelehnt (400): ${apiError(e).message}`;
   if (e instanceof Anthropic.APIConnectionError) return 'Keine Verbindung zum Studio.';
   // what the studio answers itself when the Claude API does not (AiRoutes)

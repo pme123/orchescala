@@ -29,11 +29,17 @@ export function AiDialog({ isDark, ai, onClose }: { isDark: boolean; ai: AiConfi
             {ai.tasks.includes(t) ? <Check size={11} /> : <Minus size={11} />}
             <span>{TASK_LABEL[t]}</span>
             {!ai.tasks.includes(t) && <span className="text-[10px]">– noch kein Skill im Studio</span>}
+            {ai.skills[t] && (
+              <span className={`font-mono text-[10px] ${c.muted}`}>
+                – {ai.skills[t]?.name}{ai.skills[t]?.version ? ` v${ai.skills[t]?.version}` : ''}{ai.skills[t]?.model ? ` · ${ai.skills[t]?.model}` : ''}
+              </span>
+            )}
           </div>
         ))}
       </div>
       <p className={`text-[10px] leading-relaxed ${c.muted}`}>
-        Bei den Aufgaben mit Skill ändert Claude auf Wunsch die Spez als Entwurf; du übernimmst oder verwirfst. Die Anfragen gehen
+        Bei den Aufgaben mit Skill ändert Claude auf Wunsch die Spez als Entwurf; du übernimmst oder verwirfst. Der Skill im Studio
+        bestimmt die Anweisungen an Claude, das Modell und die Werkzeuge. Die Anfragen gehen
         über das Studio an Anthropic – nur die Spezifikation (Seiten, Datenmodell, Service-Katalog) und der Chat,
         keine Kundendaten. Ein- und ausgeschaltet wird die KI auf dem Server (STUDIO_AI_ANTHROPIC_API_KEY).
       </p>
