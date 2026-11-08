@@ -339,11 +339,17 @@ function fieldType(name: string, spec: ProcessSpec, model: Model | null): string
   if ((SCALA_TYPES as readonly string[]).includes(n)) return n;
   const own = (spec.types ?? []).filter((t) => t.id === n || (!t.interactionId && t.name === n));
   if (own.length === 1) return own[0].id;
-  const domain = (model?.domainTypes ?? []).filter((t) => t.name === n || t.name.endsWith(`.${n}`));
-  const exact = domain.filter((t) => t.name === n);
+  // a class of the domain by its name - or qualified by its package (naturalPerson.v1.schema.NaturalPerson3),
+  // when two APIs have a class of the same name
+  const domain = (model?.domainTypes ?? []).filter((t) => t.name === n || t.name.endsWith(`.${n}`) || t.id === n || t.id.endsWith(`.${n}`));
+  const exact = domain.filter((t) => t.name === n || t.id === n);
   const hit = exact.length === 1 ? exact[0] : domain.length === 1 ? domain[0] : undefined;
   if (hit) return domainRef(hit.id);
-  if (own.length > 1 || domain.length > 1) return { error: `Den Typ «${n}» gibt es mehrmals – genauer angeben (z.B. GetClient.Out).` };
+  if (own.length > 1) return { error: `Den Typ «${n}» gibt es im Datenmodell mehrmals – mit der id angeben (read_process).` };
+  if (domain.length > 1) {
+    const qualified = domain.map((t) => `«${t.id.replace(/^.*?\.domain\./, '')}»`).join(', ');
+    return { error: `Den Typ «${n}» gibt es in der Domain mehrmals – qualifiziert angeben: ${qualified}.` };
+  }
   return { error: `Einen Typ «${n}» gibt es nicht – ${SCALA_TYPES.join(', ')} oder eine Klasse des Datenmodells (zuerst add_type) oder der Domain.` };
 }
 

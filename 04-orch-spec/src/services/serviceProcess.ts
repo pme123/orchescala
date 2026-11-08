@@ -146,7 +146,7 @@ export function callableServices(collections: ServiceCollectionSpec[], model: Mo
 /**
  * What a service orchestration can call, for the AI: the services a step can call (`callableServices`)
  * with their In and Out as fields - the types named as in the step, a class of the collection with its
- * fields (two levels), an enum with its cases.
+ * fields (two levels), an enum with its cases; an In/Out that is a choice with each case and its fields.
  */
 export function orchestrationTargets(collections: ServiceCollectionSpec[], model: Model | null): AiService[] {
   return [...callableServices(collections, model).values()]
@@ -165,12 +165,19 @@ export function orchestrationTargets(collections: ServiceCollectionSpec[], model
             ...(own?.kind === 'case' && depth < 2 ? { fields: fieldsOf(own, depth + 1) } : {}),
           };
         });
+      // an In/Out that is a choice (the cases of the response, `outCases`): each case with its fields
+      const casesOf = (t: TypeDef | undefined) =>
+        t?.kind === 'enum' && t.values?.length ? t.values.map((v) => ({ name: v.name, fields: fieldsOf({ ...t, fields: v.fields }, 0) })) : undefined;
+      const inCases = ref.service.noIn ? undefined : casesOf(inType);
+      const outCases = ref.service.noOut ? undefined : casesOf(outType);
       return {
         topic: ref.topic,
         name: ref.service.name,
         ...(ref.service.description ? { descr: ref.service.description } : {}),
         in: ref.service.noIn ? [] : fieldsOf(inType, 0),
         out: ref.service.noOut ? [] : fieldsOf(outType, 0),
+        ...(inCases ? { inCases } : {}),
+        ...(outCases ? { outCases } : {}),
       };
     })
     .sort((a, b) => a.topic.localeCompare(b.topic));

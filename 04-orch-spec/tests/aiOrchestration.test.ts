@@ -225,3 +225,78 @@ test('data model - a choice back to a class: shared and case fields together, on
   const back = ok(runProcessTool('update_type', { type: 'Out', kind: 'case' }, choice.draft, ctx));
   assert.deepEqual(back.draft.spec.types!.find((t) => t.processOut)!.fields!.map((f) => f.name), ['clientKey', 'name', 'uid']);
 });
+
+// ---------------------------------------------------------------- an Out with cases (the reading services of a client master)
+
+const people: ServiceCollectionSpec = {
+  ...newCollection({ title: 'People', project: 'acme-crm', api: 'people', apiVersion: 1 }),
+  types: [
+    t('np', 'NaturalPerson3', [['name', 'String'], ['birth', 'LocalDate', true]]),
+    t('rp-in', 'In', [['clientKey', 'Long', true]], 'rp'),
+    {
+      id: 'rp-out', name: 'Out', kind: 'enum', interactionId: 'rp',
+      values: [
+        { name: 'Standard', fields: [{ id: 'f-s', name: 'naturalPersons', type: 'np', collection: true }] },
+        { name: 'ClientKey', fields: [{ id: 'f-c', name: 'naturalPerson', type: 'np' }] },
+      ],
+    },
+  ],
+  services: [{ ...svc('rp', 'PostReadNaturalPerson2', 'GET'), api: 'people', inTypeId: 'rp-in', outTypeId: 'rp-out' }],
+};
+// another API with a class of the same name (as clientMasterOrganisation has its own NaturalPerson3)
+const companies: ServiceCollectionSpec = {
+  ...newCollection({ title: 'Companies', project: 'acme-crm', api: 'companies', apiVersion: 1 }),
+  types: [
+    t('np-c', 'NaturalPerson3', [['name', 'String']]),
+    t('co-in', 'In', [['clientKey', 'Long']], 'co'), t('co-out', 'Out', [['contact', 'np-c']], 'co'),
+  ],
+  services: [{ ...svc('co', 'PostReadOrganisation2', 'GET'), api: 'companies', inTypeId: 'co-in', outTypeId: 'co-out' }],
+};
+const withPeople = withCollections(catalog, [collection, people, companies]);
+const peopleServices = orchestrationTargets([collection, people, companies], withPeople);
+const READ = 'acme-crm-peopleV1.PostReadNaturalPerson2';
+
+test('an Out that is a choice - the AI sees its cases with their fields, the classes of the collection two levels deep', () => {
+  const read = peopleServices.find((s) => s.topic === READ)!;
+  assert.deepEqual(read.out, []); // no shared fields
+  assert.deepEqual(read.outCases?.map((c) => c.name), ['Standard', 'ClientKey']);
+  assert.deepEqual(read.outCases?.[0].fields[0], {
+    name: 'naturalPersons', type: 'NaturalPerson3', optional: false, collection: true,
+    fields: [{ name: 'name', type: 'String', optional: false, collection: false }, { name: 'birth', type: 'LocalDate', optional: true, collection: false }],
+  });
+  const text = orchestrationSystem(peopleServices)[0].text;
+  assert.match(text, /PostReadNaturalPerson2\)\n  In: \{clientKey\?: Long\}\n  Out: Standard\{naturalPersons: \[NaturalPerson3\{name: String, birth\?: LocalDate\}\]\} \| ClientKey\{naturalPerson: NaturalPerson3\{name: String, birth\?: LocalDate\}\}/);
+  // a class without cases as before
+  assert.equal(peopleServices.find((s) => s.topic === GET)!.outCases, undefined);
+});
+
+test('a class of a collection by its name - a case of the Out of the orchestration carries it', () => {
+  const c: ProcessContext = { model: withPeople, serviceMode: true, services: peopleServices };
+  const outWith = (type: string) => runProcessTool('update_type', {
+    type: 'Out', kind: 'enum',
+    cases: [{ name: 'NaturalPerson', fields: [{ name: 'naturalPerson', type }] }, { name: 'Company', fields: [{ name: 'name', type: 'String' }] }],
+  }, draft(), c);
+  // two APIs with a NaturalPerson3: the tool names both, qualified - Claude takes the one it means
+  const twice = outWith('NaturalPerson3');
+  assert.equal(twice.isError, true);
+  assert.match(twice.content, /mehrmals – qualifiziert angeben: «.*people\.v1.*NaturalPerson3», «.*companies\.v1.*NaturalPerson3»|mehrmals – qualifiziert angeben: «.*companies\.v1.*NaturalPerson3», «.*people\.v1.*NaturalPerson3»/);
+  // as Claude does: one of the names the message offers
+  const qualified = [...twice.content.matchAll(/«([^»]+)»/g)].map((m) => m[1]).find((q) => q.includes('people'))!;
+  const d = ok(outWith(qualified));
+  const out = d.draft.spec.types!.find((x) => x.processOut)!;
+  assert.match(out.values![0].fields![0].type, /^dom:.*people\.v1.*NaturalPerson3$/);
+  assert.match(processModelText(d.draft.spec, withPeople), /Auswahl NaturalPerson\{naturalPerson: NaturalPerson3\} \| Company\{name: String\}/);
+});
+
+test('an In/Out that is a simple enum (no fields) - its values, not empty cases', () => {
+  const simple: ServiceCollectionSpec = {
+    ...newCollection({ title: 'Status', project: 'acme-crm', api: 'status', apiVersion: 1 }),
+    types: [
+      t('st-in', 'In', [['clientKey', 'Long']], 'st'),
+      { id: 'st-out', name: 'Out', kind: 'enum', interactionId: 'st', values: [{ name: 'Active' }, { name: 'Closed' }] },
+    ],
+    services: [{ ...svc('st', 'GetStatus', 'GET'), api: 'status', inTypeId: 'st-in', outTypeId: 'st-out' }],
+  };
+  const s = orchestrationTargets([simple], withCollections(catalog, [simple])).find((x) => x.name === 'GetStatus')!;
+  assert.match(orchestrationSystem([s])[0].text, /\n  Out: Active \| Closed$/);
+});
