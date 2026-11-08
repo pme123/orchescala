@@ -1,7 +1,7 @@
 // The AI mode (E19, E23): the studio is the switch. Its settings (STUDIO_AI_ANTHROPIC_API_KEY …) turn
 // the AI on; orch-spec asks `GET /ai/config` once and learns only on/off, provider, model and the
 // tasks with their skill - never the key. Each place shows its AI only if its task is among them (the
-// page designer `uiCreator`, the process view `processCreator`). The requests of the agent go
+// page designer `uiCreator`, the process view `processCreator`, in service mode `serviceOrchestrator`). The requests of the agent go
 // through the studio to the route of their task (`/ai/uiCreator`, see client.ts); there the skill
 // adds its instructions and decides model and settings.
 //
@@ -10,13 +10,14 @@
 import { useSyncExternalStore } from 'react';
 
 /** The tasks orch-spec has a place for - the studio offers those it has a skill for. */
-export const AI_TASKS = ['uiCreator', 'processCreator', 'serviceRegistration', 'serviceCreator'] as const;
+export const AI_TASKS = ['uiCreator', 'processCreator', 'serviceOrchestrator', 'serviceRegistration', 'serviceCreator'] as const;
 export type AiTask = (typeof AI_TASKS)[number];
 
 /** What the RE reads about a task. */
 export const TASK_LABEL: Record<AiTask, string> = {
   uiCreator: 'Seiten (UI-Creator)',
   processCreator: 'Prozesse',
+  serviceOrchestrator: 'Service-Orchestrierungen',
   serviceRegistration: 'Service registrieren',
   serviceCreator: 'Service erstellen',
 };

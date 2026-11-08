@@ -27,8 +27,14 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   | Aufgabe | Stelle in orch-spec | Skill heute |
   |---|---|---|
   | `uiCreator` | Seiten-Designer, «Neue Seite» | ✓ `anthropic` |
-  | `processCreator` | Prozessansicht | – |
+  | `processCreator` | Prozessansicht | ✓ `anthropic` |
+  | `serviceOrchestrator` | Prozessansicht im Service-Modus (Service-Orchestrierung) | ✓ `anthropic` |
   | `serviceRegistration`, `serviceCreator` | Katalog, Services | – (noch keine Stelle) |
+
+  Eine Service-Orchestrierung ist ein Worker, der Services aufruft: Im Service-Modus fügt Claude
+  nur Service-Schritte (mit einem Service der Collections oder des Katalogs) und Entscheide ein,
+  keine Benutzer-Tasks, Timer oder manuellen Schritte. Die Eingaben und Ausgaben eines neuen
+  Schritts mappt der RE im Schritt; Claude nennt sie als offen.
 
   Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/v1/messages`); eine Aufgabe
   ohne Skill lehnt das Studio ab (403).
@@ -145,7 +151,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
   Workspace und gibt die Antwort unverändert zurück, auch Fehler der API.
   Später läuft der ganze Skill im Studio, samt Schleife und Grenzen; dann
   ändert sich nur `send` in `src/ai/client.ts`.
-- **Anfrage:** wie im Skill – für `uiCreator` heute `claude-opus-5-5`, adaptives Denken, `effort: medium`.
+- **Anfrage:** wie im Skill – heute bei allen drei `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
   nennt die Kostenzeile es, und der Betrag ist eine Schätzung (gerechnet mit
@@ -165,10 +171,10 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 | `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, die Aufgaben mit Skill, `useAiFor` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
 | `src/ai/client.ts` | `send` mit dem SDK über das Studio, Fehlertexte |
-| `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen für Seiten sind im Skill des Studios) |
+| `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen sind in den Skills des Studios) |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
 | `src/ai/bpmnEdit.ts` | Schritt, Entscheid, Fehlerpfad im BPMN einfügen, entfernen, umbenennen – samt Layout |
-| `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings` |
+| `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings`; im Service-Modus nur Service-Schritte |
 | `src/ai/diff.ts` | Unterschiede Seite ↔ Entwurf, Prozess ↔ Entwurf |
 | `src/ai/cost.ts` | Tokens und Kosten je Änderung |
 | `src/ai/AiChat.tsx`, `AiPanel.tsx`, `ProcessAiPanel.tsx` | der Chat, für Seiten und Prozesse |

@@ -14,10 +14,10 @@ this module is the library; the company builds its studio from it in `<company>-
 | `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
 | `POST /ai/<task>/v1/messages` | a request of orch-spec's agent for `<task>` (e.g. `uiCreator`), with the skill applied and sent on to the Claude API with the studio's key and workspace; a task without a skill is refused (403), a tool that is not in the skill too (400) | `STUDIO_AI_*`, the skills |
 
-**Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceRegistration`, `serviceCreator`)
+**Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceOrchestrator`, `serviceRegistration`, `serviceCreator`)
 is offered only with a skill for it and its provider: `ai/skills/<task>/<provider>/SKILL.md` on the
 classpath - its constraints, steps and the instructions for the model, written to be reviewed by a
-bank. The studio brings `uiCreator/anthropic`; a company adds or replaces one with the same path in
+bank. The studio brings `uiCreator`, `processCreator` and `serviceOrchestrator` for `anthropic`; a company adds or replaces one with the same path in
 the resources of its module `studio`. A skill that cannot be read ends the start with a line that
 names it.
 

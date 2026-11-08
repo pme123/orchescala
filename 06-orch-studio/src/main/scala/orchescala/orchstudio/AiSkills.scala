@@ -21,6 +21,8 @@ object AiSkills:
     case uiCreator extends Task("uiCreator")
     /** the processes, in the process view */
     case processCreator extends Task("processCreator")
+    /** a service orchestration - one worker that calls services, in the process view in service mode */
+    case serviceOrchestrator extends Task("serviceOrchestrator")
     /** a service from an OpenAPI, in the catalog */
     case serviceRegistration extends Task("serviceRegistration")
     /** a new service collection */
