@@ -9,9 +9,8 @@ import { processPrompt, processSystem } from './context';
 import { processDiff } from './diff';
 import { processDraftChanged, processToolKit, startProcessDraft, type ProcessDraft } from './processTools';
 
-export function ProcessAiPanel({ isDark, apiKey, spec, xml, model, specs, draft, onDraft, onAccept, undo, onSelect }: {
+export function ProcessAiPanel({ isDark, spec, xml, model, specs, draft, onDraft, onAccept, undo, onSelect }: {
   isDark: boolean;
-  apiKey: string;
   /** the process as it is saved (without the draft) */
   spec: ProcessSpec;
   xml: string;
@@ -28,7 +27,7 @@ export function ProcessAiPanel({ isDark, apiKey, spec, xml, model, specs, draft,
   // all workers of the domain - also those of the processes (targetsOf without specs keeps them)
   const targets = useMemo(() => ({ ...(model ? targetsOf(model, []) : { services: [], messages: [], userTasks: [] }), processes: model ? targetsOf(model, specs).processes : [] }), [model, specs]);
   return (
-    <AiChat<ProcessDraft> isDark={isDark} apiKey={apiKey} draft={draft} onDraft={onDraft}
+    <AiChat<ProcessDraft> isDark={isDark} task="processCreator" draft={draft} onDraft={onDraft}
       system={() => processSystem({ ...targets, messages: [], userTasks: [] })}
       kit={processToolKit({ model })}
       start={() => startProcessDraft(spec, xml)}

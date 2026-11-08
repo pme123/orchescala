@@ -1,16 +1,16 @@
 // The AI mode, stage A (pages) - without network: the tools on the draft, the conversation with a
-// mocked Claude (send), the self-correction with the findings, the differences, the costs and the key as switch.
+// mocked Claude (send), the self-correction with the findings, the differences, the costs and the studio as switch.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import Anthropic from '@anthropic-ai/sdk';
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { runTurn, withPrompt, type AgentEvent, type AgentRequest, type Send } from '../src/ai/agent';
-import { errorText } from '../src/ai/client';
+import { errorText, studioBaseUrl } from '../src/ai/client';
 import { dataModelText, pageSystem } from '../src/ai/context';
 import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost';
 import { changedKeys, pageDiff } from '../src/ai/diff';
-import { aiEnabled, KEY_STORAGE, looksLikeKey, maskKey, readKey, writeKey, type KeyStore } from '../src/ai/key';
+import { AI_OFF, aiFor, anyAi, CONFIG_PATH, forgetBrowserKey, loadConfig, OLD_BROWSER_KEYS, parseConfig } from '../src/ai/config';
 import { draftChanged, newErrors, outlineOf, pageToolKit, runPageTool, startDraft, type PageContext } from '../src/ai/pageTools';
 import { flatten, targetsOf, withIds } from '../src/pages/designer/model';
 import type { Page } from '../src/pages/runtime/spec';
@@ -46,34 +46,51 @@ const book: Page = {
 const confirm: Page = { path: 'shop/confirm', title: 'Bestätigt', access: 'public', body: [{ type: 'text', text: 'Danke' }] };
 const ctx: PageContext = { targets, others: [{ slug: 'book', page: book }, { slug: 'confirm', page: confirm }] };
 
-// ---------------------------------------------------------------- the key is the switch
+// ---------------------------------------------------------------- the studio is the switch
 
-const memoryStore = (): KeyStore & { map: Map<string, string> } => {
-  const map = new Map<string, string>();
-  return { map, getItem: (k) => map.get(k) ?? null, setItem: (k, v) => void map.set(k, v), removeItem: (k) => void map.delete(k) };
-};
+/** a fetch that answers `status` with `body` - or fails like a page without a studio */
+const fakeFetch = (status: number, body: unknown, seen: string[] = []): typeof fetch =>
+  (async (input: RequestInfo | URL) => {
+    seen.push(String(input));
+    if (status === 0) throw new TypeError('Failed to fetch');
+    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  }) as typeof fetch;
 
-test('the key - stored in the browser only, empty deletes it, without key the AI is off', () => {
-  const store = memoryStore();
-  assert.equal(readKey(store), null);
-  assert.equal(aiEnabled(readKey(store)), false);
-  writeKey('  sk-ant-api03-abcdefghijklmnopqrstuvwxyz  ', store);
-  assert.equal(store.map.get(KEY_STORAGE), 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'); // trimmed
-  assert.equal(aiEnabled(readKey(store)), true);
-  writeKey('', store); // delete = AI off at once
-  assert.equal(store.map.has(KEY_STORAGE), false);
-  assert.equal(aiEnabled(readKey(store)), false);
-  // a blocked storage (private mode): no key, no AI - and no exception
-  const blocked: KeyStore = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => {} };
-  assert.equal(readKey(blocked), null);
-  assert.doesNotThrow(() => writeKey('sk-ant-x', blocked));
-  assert.equal(readKey(null), null);
+test('the studio is the switch - on only with enabled: true, provider, model and tasks from it', async () => {
+  const seen: string[] = [];
+  assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'] }, seen)),
+    { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['uiCreator'] });
+  assert.deepEqual(seen, [CONFIG_PATH]);
+  assert.deepEqual(await loadConfig(fakeFetch(200, { enabled: false })), AI_OFF);
 });
 
-test('the key - a hint for the format, masked when shown', () => {
-  assert.equal(looksLikeKey('sk-ant-api03-abcdefghijklmnopqrstuvwxyz'), true);
-  assert.equal(looksLikeKey('hello'), false);
-  assert.equal(maskKey('sk-ant-api03-abcdefghijklmnopqrstuvwxyz'), 'sk-ant-…wxyz');
+test('the studio is the switch - no studio, 404, no JSON or something odd: off, no exception', async () => {
+  assert.deepEqual(await loadConfig(fakeFetch(0, null)), AI_OFF);       // GitHub Pages, a folder, the dev server
+  assert.deepEqual(await loadConfig(fakeFetch(404, 'Not Found')), AI_OFF);
+  assert.deepEqual(await loadConfig(fakeFetch(200, '<html>')), AI_OFF); // a page instead of JSON
+  assert.deepEqual(parseConfig({ enabled: 'yes' }), AI_OFF);
+  assert.deepEqual(parseConfig(null), AI_OFF);
+  assert.deepEqual(parseConfig({ enabled: true, model: '  ' }), { enabled: true, provider: undefined, model: undefined, tasks: [] });
+});
+
+test('the AI per task - only the tasks with a skill in the studio show AI', () => {
+  const ui = parseConfig({ enabled: true, tasks: ['uiCreator', 'somethingNew', 42] });
+  assert.deepEqual(ui.tasks, ['uiCreator']); // unknown entries are dropped
+  assert.equal(aiFor(ui, 'uiCreator'), true);
+  assert.equal(aiFor(ui, 'processCreator'), false); // no skill yet: the process view shows no AI
+  assert.equal(anyAi(ui), true);
+  // on in the studio, but no skill at all: no icon either
+  const none = parseConfig({ enabled: true, tasks: [] });
+  assert.equal(anyAi(none), false);
+  assert.equal(aiFor(AI_OFF, 'uiCreator'), false);
+});
+
+test('the key once stored in the browser is removed; the SDK goes to the studio', () => {
+  const map = new Map(OLD_BROWSER_KEYS.map((k) => [k, 'sk-ant-old'] as [string, string]));
+  forgetBrowserKey({ removeItem: (k) => void map.delete(k) });
+  assert.equal(map.size, 0);
+  assert.doesNotThrow(() => forgetBrowserKey({ removeItem: () => { throw new Error('blocked'); } }));
+  assert.equal(studioBaseUrl('https://studio.example.ch'), 'https://studio.example.ch/ai/anthropic');
 });
 
 // ---------------------------------------------------------------- the tools on the draft
@@ -390,8 +407,19 @@ test('errorText - what the RE reads', () => {
   assert.equal(errorText(new Error('kaputt')), 'kaputt');
   const headers = new Headers();
   assert.match(errorText(new Anthropic.RateLimitError(429, undefined, 'rate_limit_error', headers)), /^Zu viele Anfragen \(429\)/);
-  assert.match(errorText(new Anthropic.BadRequestError(400, undefined, 'Your credit balance is too low to access the Anthropic API.', headers)), /Guthaben des API-Keys ist aufgebraucht/);
+  assert.match(errorText(new Anthropic.BadRequestError(400, undefined, 'Your credit balance is too low to access the Anthropic API.', headers)), /Guthaben des API-Keys des Studios ist aufgebraucht/);
   assert.match(errorText(new Anthropic.BadRequestError(400, undefined, 'messages: bad', headers)), /^Die Anfrage wurde abgelehnt \(400\)/);
+  // what the studio answers (AiRoutes): the AI switched off meanwhile, its key not accepted
+  const off = { type: 'error', error: { type: 'not_found_error', message: 'the AI of the studio is off (STUDIO_AI_ANTHROPIC_API_KEY)' } };
+  assert.match(errorText(new Anthropic.NotFoundError(404, off, undefined, headers)), /im Studio ausgeschaltet/);
+  assert.match(errorText(new Anthropic.AuthenticationError(401, undefined, 'invalid x-api-key', headers)), /STUDIO_AI_ANTHROPIC_API_KEY/);
+  const noSkill = { type: 'error', error: { type: 'permission_error', message: 'no skill in the studio for the task «processCreator» (x-orch-task)' } };
+  assert.match(errorText(new Anthropic.PermissionDeniedError(403, noSkill, undefined, headers)), /keinen Skill/);
+  const unreachable = { type: 'error', error: { type: 'api_error', message: 'the Claude API cannot be reached from the studio' } };
+  assert.match(errorText(Anthropic.APIError.generate(502, unreachable, undefined, headers)), /^Das Studio erreicht die Claude API nicht \(502\)/);
+  assert.match(errorText(Anthropic.APIError.generate(504, { type: 'error', error: { type: 'timeout_error', message: 'x' } }, undefined, headers)), /nicht rechtzeitig/);
+  // otherwise the message of the body, not the body as JSON
+  assert.equal(errorText(Anthropic.APIError.generate(500, { type: 'error', error: { type: 'api_error', message: 'Internal' } }, undefined, headers)), 'Fehler der Claude API (500): Internal');
   assert.equal(errorText('nur Text'), 'nur Text');
 });
 

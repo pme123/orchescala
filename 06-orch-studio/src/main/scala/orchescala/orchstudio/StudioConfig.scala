@@ -9,17 +9,20 @@ package orchescala.orchstudio
   *                  of `<company>-orchescala` puts it
   * @param specDir   the company folder of orch-spec - shown on its start screen
   * @param opsDir    the company folder of orch-ops - likewise
+  * @param ai        the AI of the studio - None: off, orch-spec shows nothing of AI
   */
 final case class StudioConfig(
     port: Int = StudioConfig.defaultPort,
     host: String = "localhost",
     siteDir: Option[os.Path] = None,
     specDir: Option[os.Path] = None,
-    opsDir: Option[os.Path] = None
+    opsDir: Option[os.Path] = None,
+    ai: Option[AiConfig] = None
 ):
 
   /** The same with what the environment sets: `STUDIO_PORT`, `STUDIO_HOST`, `STUDIO_SITE_DIR`,
-    * `STUDIO_SPEC_DIR`, `STUDIO_OPS_DIR` (paths absolute or relative to the working directory).
+    * `STUDIO_SPEC_DIR`, `STUDIO_OPS_DIR` (paths absolute or relative to the working directory) and
+    * the AI (`STUDIO_AI_*`, see [[AiConfig.fromEnv]]).
     */
   def withEnv(env: Map[String, String] = sys.env): StudioConfig =
     def get(name: String)  = env.get(name).map(_.trim).filter(_.nonEmpty)
@@ -30,7 +33,8 @@ final case class StudioConfig(
       host = get("STUDIO_HOST").getOrElse(host),
       siteDir = path("STUDIO_SITE_DIR").orElse(siteDir),
       specDir = path("STUDIO_SPEC_DIR").orElse(specDir),
-      opsDir = path("STUDIO_OPS_DIR").orElse(opsDir)
+      opsDir = path("STUDIO_OPS_DIR").orElse(opsDir),
+      ai = AiConfig.fromEnv(env).orElse(ai)
     )
 
   def site: Site =

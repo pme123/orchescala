@@ -200,7 +200,7 @@ export default function AuditPanel(p: Props) {
           </div>
         )}
         <div className="flex flex-wrap gap-1">
-          {/* KI only where the log has entries of it - otherwise no trace of AI (E20) */}
+          {/* KI only where the log has entries of it - otherwise no trace of AI (E23) */}
           {SOURCES.filter(s => s !== 'ai' || merged.some(e => e.source === 'ai')).map(s => (
             <button key={s} type="button" onClick={() => toggleSource(s)}
               title={hidden.has(s) ? 'Einblenden' : 'Ausblenden'}

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { changedKeys, pageDiff } from '../../ai/diff';
-import { useAiKey } from '../../ai/key';
+import { useAiFor } from '../../ai/config';
 import type { PageDraft } from '../../ai/pageTools';
 import { useAuth, useAuthor, usePermissions } from '../../auth';
 import { countIndex, markNotified, threadOf } from '../../comments';
@@ -132,16 +132,16 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
   // ---- history (change log): for the selected building block, otherwise for everything
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditFocus, setAuditFocus] = useState<string | null>(null);
-  // ---- the AI mode (E19, E20): only with a key. Claude's draft is shown instead of the page - in the
+  // ---- the AI mode (E19, E23): only with a skill for uiCreator in the studio. Claude's draft is shown instead of the page - in the
   // outline and the preview, read only - until the RE accepts (one step of undo) or discards it
-  const aiKey = useAiKey();
+  const aiOn = useAiFor('uiCreator');
   const [draft, setDraft] = useState<PageDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(!!aiPrompt);
   // the description of a new page for Claude - sent once, then dropped (a later mount of the chat does not send it again)
   const [pendingPrompt, setPendingPrompt] = useState(aiPrompt);
-  // deleting the key turns the AI off at once - the draft is gone too
+  // without the AI of the studio the draft is gone too
   // also without the right to edit (another role after a new login): the chat panel is gone, so is the draft
-  useEffect(() => { if (!aiKey || !canEdit) { setDraft(null); setAiOpen(false); } }, [aiKey, canEdit]);
+  useEffect(() => { if (!aiOn || !canEdit) { setDraft(null); setAiOpen(false); } }, [aiOn, canEdit]);
   const shown = draft?.page ?? page;
   const editable = canEdit && !draft;
 
@@ -499,7 +499,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
         </button>
         {canEdit && (
           <div className="flex items-center gap-0.5">
-            {aiKey && (
+            {aiOn && (
               <button onClick={() => setAiOpen((o) => !o)} title="Claude - die Seite im Gespräch ändern (KI-Modus)"
                 className={`mr-1.5 flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${
                   aiOpen || draft ? (isDark ? 'border-violet-400/50 bg-violet-500/15 text-violet-200' : 'border-violet-400 bg-violet-50 text-violet-800') : c.btn}`}>
@@ -674,11 +674,11 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
             teamsEnabled={model?.notifications?.teams?.enabled === true}
             width={sideW} onWidth={setSideW} overlay={false} />
         )}
-        {aiKey && canEdit && (
+        {aiOn && canEdit && (
           <div style={{ width: sideW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <PanelWidthHandle isDark={isDark} width={sideW} min={320} max={800} onWidth={setSideW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
-            <AiPanel isDark={isDark} apiKey={aiKey} slug={slug} page={page} app={pagesApp?.data} targets={targets}
+            <AiPanel isDark={isDark} slug={slug} page={page} app={pagesApp?.data} targets={targets}
               pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
               draft={draft} onDraft={setDraft} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
               onAccept={(next, requests) => {
@@ -694,7 +694,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
           </div>
         )}
         {/* Properties */}
-        <div style={{ width: sideW }} className={`relative flex-shrink-0 flex ${(aiKey && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
+        <div style={{ width: sideW }} className={`relative flex-shrink-0 flex ${(aiOn && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
           <PanelWidthHandle isDark={isDark} width={sideW} min={320} max={800} onWidth={setSideW} />
         <div className={`flex-1 min-w-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (
