@@ -4,7 +4,7 @@
 name: serviceOrchestrator-anthropic
 task: serviceOrchestrator
 provider: anthropic
-version: 1
+version: 2
 description: Eine Service-Orchestrierung in orch-spec im Gespräch ändern – ein Worker, der Services aufruft; Diagramm und Spez als Entwurf, den der RE übernimmt oder verwirft.
 
 model: claude-opus-5-5
@@ -29,6 +29,9 @@ tools:
   - remove_step
   - rename_step
   - update_step
+  - add_type
+  - update_type
+  - remove_type
   - check_process
   - report_open_point
 
@@ -54,6 +57,7 @@ parallele und exklusive Gateways.
 Der RE ändert ihren Ablauf im Gespräch mit Claude. Claude ändert **Diagramm und Spez, nicht den
 Code** (E19). Das Ergebnis ist ein Entwurf; der RE **übernimmt oder verwirft** ihn. Welche Felder
 eines Services woher kommen (die Eingaben und Ausgaben eines Schritts), mappt der RE im Schritt.
+Ihr Datenmodell – Klassen, Auswahlen, In und Out – ändert Claude mit.
 
 ## Ablauf eines Wunsches
 
@@ -81,6 +85,9 @@ Ende eines Zweigs) ein und nur mit einem Service, den die Orchestrierung aufrufe
 | `remove_step` | einen Schritt oder einen Fehlerpfad entfernen |
 | `rename_step` | einen Schritt oder einen Zweig umbenennen |
 | `update_step` | die Beschreibung eines Schritts |
+| `add_type` | eine Klasse oder eine Auswahl (mit Fällen, ein Fall mit Feldern) ins Datenmodell |
+| `update_type` | eine Klasse oder Auswahl ändern – auch In und Out |
+| `remove_type` | eine Klasse oder Auswahl entfernen, die kein Feld mehr verwendet |
 | `check_process` | die Befunde |
 | `report_open_point` | melden, was in der Spez nicht geht – vor allem ein fehlender Service |
 
@@ -90,7 +97,7 @@ Ende eines Zweigs) ein und nur mit einem Service, den die Orchestrierung aufrufe
 |---|---|---|
 | Modell, Denken, Aufwand | wie oben | Plattform – der Browser kann sie nicht wählen |
 | Anweisungen an das Modell | Abschnitt unten, unverändert | Plattform – setzt sie selbst vor jede Anfrage |
-| Werkzeuge | nur die neun oben | Plattform |
+| Werkzeuge | nur die zwölf oben | Plattform |
 | Arten von Schritten | nur Service (und Ende) | orch-spec – das Werkzeug lehnt andere ab |
 | Anfragen pro Wunsch | 24 | Plattform |
 | Korrekturen pro Wunsch | 2 | Plattform |
@@ -122,6 +129,11 @@ How you work:
 - You work on a DRAFT of the orchestration: its diagram and its spec. The RE sees the flow and the differences and then accepts or discards the draft.
 - Read the draft first (read_process). Address steps by their ID from the flow. After a decision, address a branch by its label.
 - Structure with add_step (kind service, or end to name the end of a branch), add_decision, add_error_path, remove_step, rename_step; a description with update_step.
+- The data model of the orchestration - its classes and choices (enums; a case may carry fields, fields of the choice are shared by all cases),
+  and its In and Out - with add_type, update_type («In», «Out») and remove_type. Address a type by its id or name from read_process.
+  The type of a field is a simple type (String, Long, Boolean, LocalDate …), a class of the data model or a class of the domain -
+  e.g. the Out of a service as the name in the list below (GetClient.Out).
+  An Out that differs by what was found is a choice: update_type «Out» with kind enum and one case per result, each with the fields it brings.
 - Only what a worker runs in one go: service steps and decisions. No user tasks, no timers, no manual steps - the tools refuse them.
   If the request needs one, it is a process, not an orchestration: say so and report it with report_open_point.
 - A service step calls a service of the list below by its topic - the services of the collections of the project and of the catalog.

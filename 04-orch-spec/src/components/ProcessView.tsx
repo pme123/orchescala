@@ -1454,7 +1454,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <PanelWidthHandle isDark={isDark} width={aiW} min={320} max={800} onWidth={setAiW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
-              <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)} serviceMode={serviceMode}
+              <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)} serviceMode={serviceMode} collections={collections}
                 draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
                 onAccept={acceptAi}
                 undo={aiUndoable ? { label: 'Den Stand vor der letzten KI-Änderung wiederherstellen', run: undoAi } : null}

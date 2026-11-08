@@ -32,9 +32,15 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   | `serviceRegistration`, `serviceCreator` | Katalog, Services | – (noch keine Stelle) |
 
   Eine Service-Orchestrierung ist ein Worker, der Services aufruft: Im Service-Modus fügt Claude
-  nur Service-Schritte (mit einem Service der Collections oder des Katalogs) und Entscheide ein,
-  keine Benutzer-Tasks, Timer oder manuellen Schritte. Die Eingaben und Ausgaben eines neuen
-  Schritts mappt der RE im Schritt; Claude nennt sie als offen.
+  nur Service-Schritte (mit einem Service, den auch ein Schritt aufrufen kann – Collections und
+  Katalog) und Entscheide ein, keine Benutzer-Tasks, Timer oder manuellen Schritte. Die Eingaben
+  und Ausgaben eines neuen Schritts mappt der RE im Schritt; Claude nennt sie als offen.
+
+  In Prozessen und Orchestrierungen ändert Claude auch das **Datenmodell**: Klassen und Auswahlen
+  (Enums, ein Fall mit Feldern) anlegen, ändern und entfernen, In und Out setzen – z.B. ein Out als
+  Auswahl mit einem Fall pro Ergebnis. Ein Feld hat einen einfachen Typ, eine Klasse des
+  Datenmodells oder eine der Domain (etwa das Out eines Services). Das In und Out einer Interaktion
+  (Benutzer-Task, Worker) bleibt beim RE.
 
   Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/v1/messages`); eine Aufgabe
   ohne Skill lehnt das Studio ab (403).
@@ -174,7 +180,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 | `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen sind in den Skills des Studios) |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
 | `src/ai/bpmnEdit.ts` | Schritt, Entscheid, Fehlerpfad im BPMN einfügen, entfernen, umbenennen – samt Layout |
-| `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings`; im Service-Modus nur Service-Schritte |
+| `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings` und `checkTypes`; das Datenmodell (`add_type`, `update_type`, `remove_type`); im Service-Modus nur Service-Schritte |
 | `src/ai/diff.ts` | Unterschiede Seite ↔ Entwurf, Prozess ↔ Entwurf |
 | `src/ai/cost.ts` | Tokens und Kosten je Änderung |
 | `src/ai/AiChat.tsx`, `AiPanel.tsx`, `ProcessAiPanel.tsx` | der Chat, für Seiten und Prozesse |

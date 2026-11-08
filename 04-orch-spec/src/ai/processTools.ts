@@ -5,8 +5,11 @@
 import { allSteps, importBpmn, mergeSpec } from '../bpmn';
 import { engineLabel } from '../engineLabels';
 import { collectFindings, PROCESS_FINDINGS } from '../findings';
-import { orchestrationTargets, targetsOf } from '../pages/designer/model';
-import type { Model, ProcessSpec, Step } from '../types';
+import { targetsOf, type Targets } from '../pages/designer/model';
+import { checkTypes, indexTypes } from '../scala';
+import { SCALA_TYPES, type EnumValue, type Field, type Model, type ProcessSpec, type Step, type TypeDef } from '../types';
+import { domainRef } from '../serviceTypes';
+import { uid } from '../util';
 import {
   insertDecision, insertErrorPath, insertStep, NEW_STEP_KINDS, removeStep, renameElement, type BranchSpec, type EditResult, type NewStepKind,
 } from './bpmnEdit';
@@ -34,6 +37,8 @@ export type ProcessContext = {
   model: Model | null;
   /** a service orchestration (a process in service mode): only service steps, only its services */
   serviceMode?: boolean;
+  /** in service mode: the services it can call - the same as a step (serviceProcess.orchestrationTargets) */
+  services?: Targets['services'];
 };
 
 // ---------------------------------------------------------------- what Claude reads
@@ -67,14 +72,27 @@ export function processOutline(steps: Step[], depth = 0): string[] {
   ]);
 }
 
-/** The data model of the process: its interactions (user tasks, workers) with In/Out, its classes. */
-export function processModelText(spec: ProcessSpec): string {
-  const typeName = (id?: string) => spec.types?.find((t) => t.id === id)?.name;
+/** The data model of the process: its interactions (user tasks, workers) with In/Out, its classes and
+  * choices with their id - the data-model tools address a type by it (or by its name). */
+export function processModelText(spec: ProcessSpec, model: Model | null = null): string {
+  const types = spec.types ?? [];
+  const idx = indexTypes(types, model);
+  const typeName = (id?: string) => types.find((t) => t.id === id)?.name;
+  const ia = (t: TypeDef) => (spec.interactions ?? []).find((i) => i.id === t.interactionId);
+  const role = (t: TypeDef) =>
+    t.root ? ' (In des Prozesses)' : t.processOut ? ' (Out des Prozesses)' : t.inConfig ? ' (InConfig)' : t.initIn ? ' (InitIn)'
+      : ia(t) ? ` (${t.name} von «${ia(t)!.name}»)` : '';
+  const field = (f: Field) => `${f.name}${f.optional ? '?' : ''}: ${f.collection ? `[${idx.nameOf(f.type)}]` : idx.nameOf(f.type)}`;
+  const fields = (fs: Field[] | undefined) => (fs ?? []).filter((f) => f.name.trim()).map(field).join(', ');
+  const body = (t: TypeDef) =>
+    t.kind === 'enum'
+      ? `Auswahl ${(t.values ?? []).map((v) => (v.fields?.length ? `${v.name}{${fields(v.fields)}}` : v.name)).join(' | ')}${t.fields?.length ? `; gemeinsam: ${fields(t.fields)}` : ''}`
+      : `{${fields(t.fields)}}`;
   return [
     '# Interaktionen (Schritt – Art – Name – In/Out)',
     ...(spec.interactions ?? []).map((i) => `- ${i.stepId} – ${i.kind} – ${i.name} (${i.key})${typeName(i.inTypeId) ? ` In: ${typeName(i.inTypeId)}` : ''}${typeName(i.outTypeId) ? ` Out: ${typeName(i.outTypeId)}` : ''}`),
-    '# Klassen',
-    ...(spec.types ?? []).map((t) => `- ${t.name}${t.root ? ' (In des Prozesses)' : ''}: ${t.kind === 'enum' ? (t.values ?? []).map((v) => v.name).join(' | ') : (t.fields ?? []).map((f) => `${f.name}${f.optional ? '?' : ''}: ${f.type.replace(/^dom:/, '').split('.').pop()}`).join(', ')}`),
+    '# Klassen und Auswahlen (id – Name – Rolle: Felder)',
+    ...types.map((t) => `- ${t.id} – ${t.name}${role(t)}: ${body(t)}`),
   ].join('\n');
 }
 
@@ -98,7 +116,7 @@ export const workerTopics = (model: Model | null) => new Set(model ? targetsOf(m
 /** What a service step may call here: the workers of the domain - or, in a service orchestration,
   * its services (the collections of the project and the catalog). */
 export const callableTopics = (ctx: ProcessContext) =>
-  ctx.serviceMode ? new Set(ctx.model ? orchestrationTargets(ctx.model).map((s) => s.topic) : []) : workerTopics(ctx.model);
+  ctx.serviceMode ? new Set((ctx.services ?? []).map((s) => s.topic)) : workerTopics(ctx.model);
 
 // ---------------------------------------------------------------- the tools
 
@@ -110,6 +128,23 @@ const SERVICE_KIND_TEXT = 'service (ein Service der Orchestrierung mit topic), e
 
 const kindsOf = (ctx: ProcessContext) => (ctx.serviceMode ? SERVICE_KINDS : NEW_STEP_KINDS);
 const kindText = (ctx: ProcessContext) => (ctx.serviceMode ? SERVICE_KIND_TEXT : KIND_TEXT);
+
+const FIELD_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: 'camelCase' },
+    type: { type: 'string', description: `${SCALA_TYPES.join(', ')} - or the name of a class/choice of the data model or of the domain (e.g. of a service In/Out)` },
+    optional: { type: 'boolean', description: 'Option[...] - may be missing' },
+    list: { type: 'boolean', description: 'Seq[...] - several' },
+    description: { type: 'string' },
+  },
+  required: ['name', 'type'],
+};
+const CASE_SCHEMA = {
+  type: 'object',
+  properties: { name: { type: 'string', description: 'PascalCase' }, description: { type: 'string' }, fields: { type: 'array', items: FIELD_SCHEMA } },
+  required: ['name'],
+};
 
 const tools: ToolKit<ProcessDraft>['tools'] = [
   {
@@ -187,6 +222,42 @@ const tools: ToolKit<ProcessDraft>['tools'] = [
     input_schema: { type: 'object', properties: {} },
   },
   {
+    name: 'add_type',
+    description: 'Adds a class (kind case, with fields) or a choice (kind enum, with cases - a case may carry fields; fields of the choice itself are shared by all cases) to the data model of the process. Answers with its id, the data model and the findings of the classes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'PascalCase, e.g. ClientResult' },
+        kind: { type: 'string', enum: ['case', 'enum'] },
+        description: { type: 'string' },
+        fields: { type: 'array', items: FIELD_SCHEMA, description: 'kind case: its fields; kind enum: the fields all cases share' },
+        cases: { type: 'array', items: CASE_SCHEMA, description: 'kind enum: its cases' },
+      },
+      required: ['name', 'kind'],
+    },
+  },
+  {
+    name: 'update_type',
+    description: 'Changes a class or choice of the data model - also In and Out of the process («In», «Out»). Only what is given changes; `fields` and `cases` replace the whole list (fields of the same name keep their identity). `kind` switches between class and choice. Not the In/Out of an interaction - those come from the flow.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', description: 'the id or the name of the type (In, Out for the process)' },
+        name: { type: 'string', description: 'a new name - not for In and Out' },
+        kind: { type: 'string', enum: ['case', 'enum'] },
+        description: { type: 'string' },
+        fields: { type: 'array', items: FIELD_SCHEMA },
+        cases: { type: 'array', items: CASE_SCHEMA },
+      },
+      required: ['type'],
+    },
+  },
+  {
+    name: 'remove_type',
+    description: 'Removes a class or choice of the data model that no field uses. Not In and Out of the process, not the types of an interaction.',
+    input_schema: { type: 'object', properties: { type: { type: 'string', description: 'id or name' } }, required: ['type'] },
+  },
+  {
     name: 'report_open_point',
     description: 'Reports what cannot be done in the spec - above all a worker (service) that is missing in the data model. Do not invent it; a developer implements it.',
     input_schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
@@ -228,6 +299,121 @@ function patchStep(steps: Step[], id: string, patch: Partial<Step>): Step[] {
   });
 }
 
+// ---------------------------------------------------------------- the data model
+
+/** A type of the process by its id or name - «In» and «Out» are the roles of the process; a name
+  * means a type of the process itself (not of an interaction, where In and Out repeat). */
+function typeOf(spec: ProcessSpec, ref: string | undefined): TypeDef | string {
+  const types = spec.types ?? [];
+  const r = ref?.trim() ?? '';
+  if (!r) return '«type» fehlt – die id oder der Name des Typs (In, Out für den Prozess).';
+  const byId = types.find((t) => t.id === r);
+  if (byId) return byId;
+  const role = r === 'In' ? types.find((t) => t.root) : r === 'Out' ? types.find((t) => t.processOut) : undefined;
+  if (role) return role;
+  const named = types.filter((t) => !t.interactionId && t.name === r);
+  if (named.length === 1) return named[0];
+  return named.length ? `«${r}» gibt es mehrmals – mit der id angeben (read_process).` : `Einen Typ «${r}» gibt es im Datenmodell nicht (read_process zeigt die Typen mit id).`;
+}
+
+/** The types the AI does not change: those of an interaction (they follow the flow), the InitIn (from the init worker). */
+function notEditable(t: TypeDef): string | null {
+  if (t.interactionId && !t.root && !t.processOut) return `«${t.name}» gehört zu einer Interaktion – ihr In und Out legt der RE an (Datenmodell → aus dem Ablauf); mit report_open_point melden.`;
+  if (t.initIn) return 'Das InitIn kommt vom Init-Worker – es wird nicht hier geändert.';
+  return null;
+}
+
+const TYPE_NAME = /^[A-Z][A-Za-z0-9]*$/;
+
+function typeNameIssue(name: string, spec: ProcessSpec): string | null {
+  if (!TYPE_NAME.test(name)) return `«${name}» ist kein Name für einen Typ – PascalCase, nur Buchstaben und Ziffern (z.B. ClientResult).`;
+  if (name === 'In' || name === 'Out') return 'In und Out sind die Rollen des Prozesses – einen anderen Namen wählen, oder update_type mit «In»/«Out».';
+  if ((spec.types ?? []).some((t) => !t.interactionId && t.name === name)) return `Einen Typ «${name}» gibt es schon – update_type nehmen oder einen anderen Namen.`;
+  return null;
+}
+
+/** The type of a field: a simple type, a type of the process (name or id) or a class of the domain by its name. */
+function fieldType(name: string, spec: ProcessSpec, model: Model | null): string | { error: string } {
+  const n = name.trim();
+  if ((SCALA_TYPES as readonly string[]).includes(n)) return n;
+  const own = (spec.types ?? []).filter((t) => t.id === n || (!t.interactionId && t.name === n));
+  if (own.length === 1) return own[0].id;
+  const domain = (model?.domainTypes ?? []).filter((t) => t.name === n || t.name.endsWith(`.${n}`));
+  const exact = domain.filter((t) => t.name === n);
+  const hit = exact.length === 1 ? exact[0] : domain.length === 1 ? domain[0] : undefined;
+  if (hit) return domainRef(hit.id);
+  if (own.length > 1 || domain.length > 1) return { error: `Den Typ «${n}» gibt es mehrmals – genauer angeben (z.B. GetClient.Out).` };
+  return { error: `Einen Typ «${n}» gibt es nicht – ${SCALA_TYPES.join(', ')} oder eine Klasse des Datenmodells (zuerst add_type) oder der Domain.` };
+}
+
+/** The fields of the input - a field of the same name keeps its id (comments, references). */
+function fieldsOf(input: unknown, spec: ProcessSpec, model: Model | null, existing: Field[], where: string): Field[] | string {
+  if (!Array.isArray(input)) return `${where}: «fields» ist eine Liste.`;
+  const seen = new Set<string>();
+  const out: Field[] = [];
+  for (const raw of input) {
+    const f = isObject(raw) ? raw : {};
+    const name = str(f.name)?.trim() ?? '';
+    if (!/^[a-z][A-Za-z0-9]*$/.test(name)) return `${where}: «${name}» ist kein Feldname – camelCase (z.B. naturalPerson).`;
+    if (seen.has(name)) return `${where}: das Feld «${name}» kommt doppelt vor.`;
+    seen.add(name);
+    const type = fieldType(str(f.type) ?? '', spec, model);
+    if (typeof type !== 'string') return `${where}, «${name}»: ${type.error}`;
+    const old = existing.find((x) => x.name === name);
+    out.push({
+      ...(old ?? {}), id: old?.id ?? uid('f'), name, type,
+      optional: f.optional === true ? true : undefined,
+      collection: f.list === true ? true : undefined,
+      description: str(f.description)?.trim() || (old && f.description === undefined ? old.description : undefined),
+    });
+  }
+  return out;
+}
+
+/** Fields and cases of a type from the input - what is not given stays as `current`. */
+function buildMembers(kind: 'case' | 'enum', args: Record<string, unknown>, spec: ProcessSpec, ctx: ProcessContext, current: { fields: Field[]; values: EnumValue[] }): { fields: Field[]; values?: EnumValue[] } | string {
+  const fields = args.fields === undefined ? current.fields : fieldsOf(args.fields, spec, ctx.model, current.fields, 'fields');
+  if (typeof fields === 'string') return fields;
+  if (kind === 'case') {
+    if (args.cases !== undefined) return 'Eine Klasse hat keine Fälle – kind enum nehmen.';
+    return { fields };
+  }
+  if (args.cases === undefined) return current.values.length ? { fields, values: current.values } : 'Eine Auswahl braucht ihre Fälle (cases).';
+  if (!Array.isArray(args.cases) || !args.cases.length) return 'Eine Auswahl braucht mindestens einen Fall (cases).';
+  const values: EnumValue[] = [];
+  for (const raw of args.cases) {
+    const c = isObject(raw) ? raw : {};
+    const name = str(c.name)?.trim() ?? '';
+    if (!TYPE_NAME.test(name)) return `«${name}» ist kein Name für einen Fall – PascalCase (z.B. Company).`;
+    if (values.some((v) => v.name === name)) return `Den Fall «${name}» gibt es doppelt.`;
+    const old = current.values.find((v) => v.name === name);
+    const own = c.fields === undefined ? old?.fields ?? [] : fieldsOf(c.fields, spec, ctx.model, old?.fields ?? [], `Fall «${name}»`);
+    if (typeof own === 'string') return own;
+    values.push({ ...(old ?? {}), name, description: str(c.description)?.trim() || old?.description, ...(own.length ? { fields: own } : { fields: undefined }) });
+  }
+  return { fields, values };
+}
+
+const fieldsAndCases = (t: TypeDef): Field[] => [...(t.fields ?? []), ...(t.values ?? []).flatMap((v) => v.fields ?? [])];
+
+/** The findings of the classes (checkTypes) as lines «type: message». */
+function typeFindings(types: TypeDef[], ctx: ProcessContext, withWarnings = true): { level: 'error' | 'warning'; line: string }[] {
+  const nameOf = (id: string) => types.find((t) => t.id === id)?.name ?? id;
+  return checkTypes(types, ctx.model)
+    .filter((i) => withWarnings || !i.warn)
+    .map((i) => ({ level: i.warn ? 'warning' as const : 'error' as const, line: `Typ «${nameOf(i.typeId)}»: ${i.message}` }));
+}
+
+function afterTypeEdit(d: ProcessDraft, types: TypeDef[], touched: TypeDef | null, ctx: ProcessContext, summary: string): ToolOutcome<ProcessDraft> {
+  const spec = { ...d.spec, types };
+  const fs = typeFindings(types, ctx).filter((f) => !touched || f.line.startsWith(`Typ «${touched.name}»`));
+  return {
+    draft: { ...d, spec },
+    content: `ok${touched ? ` – ${touched.name} (${touched.id})` : ''}\nDatenmodell:\n${processModelText(spec, ctx.model)}\nBefunde der Klassen:\n${findingsText(fs)}`,
+    summary,
+  };
+}
+
 export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ctx: ProcessContext): ToolOutcome<ProcessDraft> {
   const args = isObject(input) ? input : {};
   const engine = d.spec.engine ?? 'c7';
@@ -235,7 +421,7 @@ export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ct
     case 'read_process':
       return {
         draft: d,
-        content: `Prozess «${d.spec.title}» (${d.spec.processId ?? d.slug}, ${engineLabel(engine)})\nAblauf:\n${processOutline(d.spec.steps).join('\n')}\n\n${processModelText(d.spec)}`,
+        content: `Prozess «${d.spec.title}» (${d.spec.processId ?? d.slug}, ${engineLabel(engine)})\nAblauf:\n${processOutline(d.spec.steps).join('\n')}\n\n${processModelText(d.spec, ctx.model)}`,
         summary: `Prozess «${d.spec.title}» gelesen`,
       };
     case 'add_step': {
@@ -287,6 +473,49 @@ export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ct
       const fs = processFindings(d.spec, ctx);
       return { draft: d, content: findingsText(fs), summary: `geprüft: ${fs.filter((f) => f.level === 'error').length} Fehler, ${fs.filter((f) => f.level === 'warning').length} Warnungen` };
     }
+    case 'add_type': {
+      const name = str(args.name)?.trim() ?? '';
+      const kind = args.kind === 'enum' ? 'enum' : args.kind === 'case' ? 'case' : undefined;
+      if (!kind) return failed(d, '«kind» ist case (Klasse) oder enum (Auswahl).');
+      const nameIssue = typeNameIssue(name, d.spec);
+      if (nameIssue) return failed(d, nameIssue);
+      const built = buildMembers(kind, args, d.spec, ctx, { fields: [], values: [] });
+      if (typeof built === 'string') return failed(d, built);
+      const t: TypeDef = { id: uid('t'), name, kind, status: 'draft', ...(str(args.description)?.trim() ? { description: str(args.description)!.trim() } : {}), ...built };
+      return afterTypeEdit(d, [...(d.spec.types ?? []), t], t, ctx, `${kind === 'enum' ? 'Auswahl' : 'Klasse'} «${name}» angelegt`);
+    }
+    case 'update_type': {
+      const t = typeOf(d.spec, str(args.type));
+      if (typeof t === 'string') return failed(d, t);
+      const locked = notEditable(t);
+      if (locked) return failed(d, locked);
+      const name = str(args.name)?.trim();
+      if (name !== undefined && name !== t.name) {
+        if (t.root || t.processOut) return failed(d, 'In und Out des Prozesses behalten ihren Namen.');
+        const nameIssue = typeNameIssue(name, d.spec);
+        if (nameIssue) return failed(d, nameIssue);
+      }
+      const kind = args.kind === 'enum' ? 'enum' : args.kind === 'case' ? 'case' : t.kind;
+      if (kind === 'enum' && t.kind !== 'enum' && !Array.isArray(args.cases)) return failed(d, 'Eine Auswahl braucht ihre Fälle (cases).');
+      // a choice that becomes a class: its shared and specific fields together, if no fields are given
+      const current = kind === 'case' && t.kind === 'enum'
+        ? { fields: [...(t.fields ?? []), ...(t.values ?? []).flatMap((v) => v.fields ?? [])].filter((f, i, all) => all.findIndex((o) => o.name === f.name) === i), values: [] }
+        : { fields: t.fields ?? [], values: t.values ?? [] };
+      const built = buildMembers(kind, args, d.spec, ctx, current);
+      if (typeof built === 'string') return failed(d, built);
+      const description = typeof args.description === 'string' ? args.description.trim() || undefined : t.description;
+      const next: TypeDef = { ...t, kind, ...(name ? { name } : {}), description, ...built, ...(kind === 'case' ? { values: undefined } : {}) };
+      return afterTypeEdit(d, (d.spec.types ?? []).map((x) => (x.id === t.id ? next : x)), next, ctx, `«${next.name}» geändert`);
+    }
+    case 'remove_type': {
+      const t = typeOf(d.spec, str(args.type));
+      if (typeof t === 'string') return failed(d, t);
+      const locked = notEditable(t) ?? (t.root || t.processOut ? 'In und Out des Prozesses bleiben – ändern mit update_type.' : null);
+      if (locked) return failed(d, locked);
+      const users = (d.spec.types ?? []).filter((x) => x.id !== t.id && fieldsAndCases(x).some((f) => f.type === t.id));
+      if (users.length) return failed(d, `«${t.name}» wird noch verwendet – in ${users.map((u) => `«${u.name}»`).join(', ')}. Zuerst dort ändern.`);
+      return afterTypeEdit(d, (d.spec.types ?? []).filter((x) => x.id !== t.id), null, ctx, `«${t.name}» entfernt`);
+    }
     case 'report_open_point': {
       const text = str(args.text)?.trim();
       if (!text) return failed(d, '«text» fehlt.');
@@ -302,7 +531,7 @@ export function runProcessTool(name: string, input: unknown, d: ProcessDraft, ct
   * step, Claude has no tool for it (the skill says to name them as open). */
 export function newProcessErrors(d: ProcessDraft, ctx: ProcessContext): string[] {
   if (!processDraftChanged(d)) return [];
-  const errors = (s: ProcessSpec) => processFindings(s, ctx, false).map((f) => f.line);
+  const errors = (s: ProcessSpec) => [...processFindings(s, ctx, false), ...typeFindings(s.types ?? [], ctx, false)].map((f) => f.line);
   const before = new Set(errors(d.base.spec));
   const known = new Set(allSteps(d.base.spec.steps).map((s) => s.id));
   const added = allSteps(d.spec.steps).map((s) => s.id).filter((id) => !known.has(id));
