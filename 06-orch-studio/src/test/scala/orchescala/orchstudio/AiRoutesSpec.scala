@@ -210,13 +210,23 @@ object AiRoutesSpec extends ZIOSpecDefault:
         tokens("""{"max_tokens":50000}""", skill.copy(maxTokens = Some(50000))).contains(AiRoutes.maxTokens)
       )
     ,
-    test("a skill without model and settings - the model of the studio, the settings of the browser"):
-      val bare = skill.copy(model = None, thinking = None, effort = None, fallbacks = None)
-      val sent = AiRoutes.requestBody(body.getBytes("UTF-8"), config(1), bare).toOption.map(_.hcursor)
+    test("a skill without model and settings - the model of the studio, none of the browser's settings"):
+      val bare    = skill.copy(model = None, thinking = None, effort = None, fallbacks = None)
+      val browser = body.replace(""""output_config":{"effort":"high"}""",
+        """"output_config":{"effort":"high","format":"x"},"thinking":{"type":"enabled","budget_tokens":9},"fallbacks":"default"""")
+      val sent = AiRoutes.requestBody(browser.getBytes("UTF-8"), config(1), bare).toOption.map(_.hcursor)
+      val full = AiRoutes.requestBody(browser.getBytes("UTF-8"), config(1), skill).toOption.map(_.hcursor)
       assertTrue(
         sent.flatMap(_.get[String]("model").toOption).contains("claude-test"),
-        sent.flatMap(_.downField("output_config").get[String]("effort").toOption).contains("high"),
+        sent.exists(_.downField("output_config").downField("effort").focus.isEmpty),
+        sent.flatMap(_.downField("output_config").get[String]("format").toOption).contains("x"), // not a setting of the skill
         sent.exists(_.downField("thinking").focus.isEmpty),
+        sent.exists(_.downField("fallbacks").focus.isEmpty),
+        // with the settings in the skill: the skill's, the rest of output_config kept
+        full.flatMap(_.downField("thinking").get[String]("type").toOption).contains("adaptive"),
+        full.exists(_.downField("thinking").downField("budget_tokens").focus.isEmpty),
+        full.flatMap(_.downField("output_config").get[String]("effort").toOption).contains("medium"),
+        full.flatMap(_.downField("output_config").get[String]("format").toOption).contains("x"),
         AiRoutes.configJson(Some(config(1)), Seq(bare)).hcursor.downField("skills").downField("uiCreator").get[String]("model")
           .contains("claude-test")
       )
@@ -258,16 +268,25 @@ object AiRoutesSpec extends ZIOSpecDefault:
         parsed(ok.replace("name: x", "name: x\ntask: 5")).left.exists(_.contains("«task»")),
         parsed(ok.replace("name: x", "name: x\nrequest:\n  thinking: 1")).left.exists(_.contains("«request.thinking»")),
         parsed(ok.replace("name: x", "name: x\nrequest: 5")).left.exists(_.contains("«request»")),
+        parsed(ok.replace("name: x", "name: x\nrequest:\n  thinking: enabled")).left.exists(_.contains("only adaptive or disabled")),
         parsed(ok.replace("name: x", "name: x\nrequest:\n  max_tokens: 8000\n  effort: low")).map(s => (s.maxTokens, s.effort))
           == Right((Some(8000), Some("low")))
       )
     ,
-    test("a line «## …» in a code fence belongs to the instructions; the next section outside ends them"):
+    test("a line «## …» in a code fence or a comment belongs to the instructions; the next section outside ends them"):
       val text =
-        "---\nname: x\ntools: [a]\n---\n\n## Instructions\n\nBefore.\n```md\n## Heading of an example\n```\nAfter.\n\n## Notes\n\nNot for the model.\n"
+        "---\nname: x\ntools: [a]\n---\n\n## Instructions\n\nBefore.\n```md\n## Heading of an example\n```\n" +
+          "<!-- a note\n## not a section\n-->\nAfter.\n\n## Notes\n\nNot for the model.\n"
       assertTrue(
         AiSkills.parse(AiSkills.Task.uiCreator, "anthropic", text).map(_.instructions) ==
-          Right("Before.\n```md\n## Heading of an example\n```\nAfter.")
+          Right("Before.\n```md\n## Heading of an example\n```\n\nAfter.")
+      )
+    ,
+    test("stream: true - 400, the studio answers with one JSON"):
+      val streamed = body.replace(""""max_tokens":100000,""", """"max_tokens":100000,"stream":true,""")
+      assertTrue(
+        AiRoutes.requestBody(streamed.getBytes("UTF-8"), config(1), skill).left.exists(_.contains("does not stream")),
+        AiRoutes.requestBody(body.replace(""""max_tokens":100000,""", """"stream":false,"max_tokens":100000,""").getBytes("UTF-8"), config(1), skill).isRight
       )
     ,
     test("a base URL that is no http(s) URL: the start names it; set in code: 502, no defect"):

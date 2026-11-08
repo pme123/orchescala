@@ -88,6 +88,9 @@ object AiSkills:
       maxTokens    <- optionalInt(request, "max_tokens", "request.")
       _            <- maxTokens.filter(_ <= 0).map(n => s"«request.max_tokens» must be more than 0: $n").toLeft(())
       thinking     <- optionalText(request, "thinking", "request.")
+      // sent as {"type": …} - `enabled` would need budget_tokens, and the API refuses it per request
+      _            <- thinking.filterNot(thinkingTypes.contains)
+                        .map(t => s"«request.thinking» is «$t» - only ${thinkingTypes.mkString(" or ")}").toLeft(())
       effort       <- optionalText(request, "effort", "request.")
       fallbacks    <- optionalText(request, "fallbacks", "request.")
       tools        <- c.get[Seq[String]]("tools").left.map(_ => "no list of tools in the front matter")
@@ -107,6 +110,9 @@ object AiSkills:
     )
   end parse
 
+  /** The values of `request.thinking` the studio can send as they are. */
+  val thinkingTypes: Seq[String] = Seq("adaptive", "disabled")
+
   /** A field that may be missing - but if it is there, it has the type: a wrong one is no silent default. */
   private def optional[A: Decoder](c: ACursor, field: String, prefix: String = ""): Either[String, Option[A]] =
     c.downField(field).focus.filterNot(_.isNull) match
@@ -123,17 +129,18 @@ object AiSkills:
     optional[String](c, field, prefix).map(_.map(_.trim).filter(_.nonEmpty))
 
   /** The text of `## Instructions` up to the next section - without HTML comments (notes for people).
-    * A line `## …` in a code fence belongs to the text; it does not end the section.
+    * A line `## …` in a code fence or in a comment belongs to the text; it does not end the section.
     */
   private def instructionsOf(body: Vector[String]): Option[String] =
     val start = body.indexWhere(_.trim.matches("##\\s+Instructions"))
     if start < 0 then None
     else
-      val rest    = body.drop(start + 1)
+      // the comments first - a line «## …» in one must not end the section
+      val rest    = body.drop(start + 1).mkString("\n").replaceAll("(?s)<!--.*?-->", "").split("\n", -1).toVector
       val isFence = (l: String) => l.trim.startsWith("```") || l.trim.startsWith("~~~")
       // in a fence before each line?
       val inFence = rest.scanLeft(false)((open, l) => if isFence(l) then !open else open)
       val end     = rest.indices.find(i => !inFence(i) && rest(i).startsWith("## ")).getOrElse(rest.length)
-      Some(rest.take(end).mkString("\n").replaceAll("(?s)<!--.*?-->", "").trim).filter(_.nonEmpty)
+      Some(rest.take(end).mkString("\n").trim).filter(_.nonEmpty)
 
 end AiSkills

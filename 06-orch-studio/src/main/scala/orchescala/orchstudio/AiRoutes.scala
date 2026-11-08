@@ -150,6 +150,8 @@ object AiRoutes:
                 ).toEither.left.map(_ => "the body is no UTF-8")
       json   <- parse(text).left.map(e => s"the body is no JSON: ${e.message}")
       obj    <- json.asObject.toRight("the body is no JSON object")
+      // the answer goes back as one JSON - a stream would be buffered and sent as JSON, which the SDK cannot read
+      _      <- obj("stream").filter(_.asBoolean.contains(true)).map(_ => "the studio does not stream (stream: true)").toLeft(())
       system <- systemOf(obj("system"))
       _      <- Some(toolsOf(obj).filterNot(_.exists(skill.tools.contains)).map(_.getOrElse("(without name)"))).filter(_.nonEmpty)
                   .map(t => s"the tools ${t.map(n => s"«$n»").mkString(", ")} are not in the skill ${skill.label}").toLeft(())
@@ -158,16 +160,19 @@ object AiRoutes:
       val tokens = obj("max_tokens").flatMap(_.asNumber).flatMap(_.toInt).fold(limit)(_.min(limit))
       // no breakpoint of its own: the next block (the catalog) caches it along
       val first  = Json.obj("type" -> Json.fromString("text"), "text" -> Json.fromString(skill.instructions))
-      val output = obj("output_config").flatMap(_.asObject).getOrElse(JsonObject.empty)
-      val set    = Seq(
+      // thinking, effort and fallbacks are the skill's - without them in the skill, the defaults of the API
+      val output = obj("output_config").flatMap(_.asObject).getOrElse(JsonObject.empty).remove("effort")
+      val ofSkill = Seq(
         Some("model" -> Json.fromString(modelOf(config, skill))),
         Some("max_tokens" -> Json.fromInt(tokens)),
         Some("system" -> Json.arr((first +: system)*)),
         skill.thinking.map(t => "thinking" -> Json.obj("type" -> Json.fromString(t))),
-        skill.effort.map(e => "output_config" -> Json.fromJsonObject(output.add("effort", Json.fromString(e)))),
+        Some(skill.effort.fold(output)(e => output.add("effort", Json.fromString(e)))).filter(_.nonEmpty)
+          .map(o => "output_config" -> Json.fromJsonObject(o)),
         skill.fallbacks.map(f => "fallbacks" -> Json.fromString(f))
       ).flatten
-      Json.fromJsonObject(set.foldLeft(obj) { case (o, (k, v)) => o.add(k, v) })
+      val ofBrowser = obj.remove("thinking").remove("output_config").remove("fallbacks")
+      Json.fromJsonObject(ofSkill.foldLeft(ofBrowser) { case (o, (k, v)) => o.add(k, v) })
 
   /** The system of the browser as blocks - a text, a list of blocks or none. */
   private def systemOf(system: Option[Json]): Either[String, Vector[Json]] =
