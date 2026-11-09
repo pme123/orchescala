@@ -29,6 +29,16 @@ class SbtCodeTest extends FunSuite:
   test("envValue: an empty variable counts as not set"):
     assertEquals(SbtCode.envValue("A_URL"), """sys.env.get("A_URL").map(_.trim).filter(_.nonEmpty)""")
 
+  test("envUrlOrElseWarn: a warning when the variable is not set"):
+    assertEquals(
+      SbtCode.envUrlOrElseWarn(Some("A_URL"), "https://x/r", "  "),
+      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {
+        |    println("[warn] A_URL is not set - the repo of the last ./helper.scala update: https://x/r")
+        |    "https://x/r"
+        |  }""".stripMargin
+    )
+    assertEquals(SbtCode.envUrlOrElseWarn(None, "https://x/r", "  "), """"https://x/r"""")
+
   test("envUrlOrElse: the url of the variable as the helper reads it (trimUrl)"):
     assertEquals(
       SbtCode.envUrlOrElse(Some("A_URL"), "https://x/r"),

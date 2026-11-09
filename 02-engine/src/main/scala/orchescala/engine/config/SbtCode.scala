@@ -7,6 +7,8 @@ import java.util.Locale
   */
 object SbtCode:
 
+  private val trailingSlashes = "/+$"
+
   /** A Scala string literal of `value` - quotes and backslashes escaped. */
   def literal(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -36,7 +38,19 @@ object SbtCode:
         s"$trimmed.filter(_.nonEmpty).getOrElse(${literal(url)})"
       .getOrElse(literal(url))
 
-  private val trailingSlashes = "/+$"
+  /** As `envUrlOrElse`, but a block that prints a warning when the variable is not set - the url
+    * then is the one of the last `./helper.scala update` (maybe of another machine).
+    */
+  def envUrlOrElseWarn(env: Option[String], url: String, indent: String): String =
+    env
+      .map: e =>
+        val trimmed = s"sys.env.get(${literal(e)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")}))"
+        val warning = literal(s"[warn] $e is not set - the repo of the last ./helper.scala update: $url")
+        s"""$trimmed.filter(_.nonEmpty).getOrElse {
+           |$indent  println($warning)
+           |$indent  ${literal(url)}
+           |$indent}""".stripMargin
+      .getOrElse(literal(url))
 
   /** The prefix of the env variables of a company: upper case (independent of the locale), every
     * character other than a letter or digit as `_` - e.g. `acme-bank` -> `ACME_BANK`.

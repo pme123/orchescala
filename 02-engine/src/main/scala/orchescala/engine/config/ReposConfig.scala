@@ -35,9 +35,9 @@ case class ReposConfig(
   def releaseRepoCurlConfig(env: String => Option[String] = sys.env.get): Either[String, Seq[String]] =
     // a line break in a secret (read from a file) would start another config line - an option
     def line(option: String, value: String, envName: String): Either[String, Seq[String]] =
-      if value.exists(c => c == '\n' || c == '\r') then
-        Left(s"System Environment Variable $envName contains a line break.")
-      else Right(Seq(s"""$option = "${value.replace("\\", "\\\\").replace("\"", "\\\"")}""""))
+      RepoConfig.curlLine(option, value)
+        .map(Seq(_))
+        .toRight(s"System Environment Variable $envName contains a line break.")
     def userPassword(usernameEnv: String, passwordEnv: String) =
       (for
         user <- env(usernameEnv)
@@ -111,10 +111,12 @@ object ReposConfig:
       case None             => dummyRepos
       case Some(releaseUrl) =>
         val release    = artifactory("release", releaseUrl, releaseEnv, credentialsName, "Artifactory Realm")
-        // own credentials - also on the same host: the generated build takes the host from the
-        // variable, so the repo may move to another host without a new `./helper.scala update`.
-        // sbt needs another resolver name for a second repo of the same host - with the same name
-        // the artifacts are not loaded (unauthorized / forbidden).
+        // its own credentials: the generated build takes their host from the variable, so the repo
+        // may move to another host without a new `./helper.scala update`. On the same host sbt
+        // keeps one of the two (same host and auth realm) - the same user and password.
+        // "Artifactory Realm 2" is the name of the resolver (not the auth realm): sbt needs another
+        // name for a second repo of the same host - with the same name the artifacts are not
+        // loaded (unauthorized / forbidden).
         val dependency = read(dependencyEnv).map: url =>
           artifactory("maven", url, dependencyEnv, s"${credentialsName}Dependency", "Artifactory Realm 2")
         val repos      = release +: dependency.toSeq
@@ -144,7 +146,7 @@ object RepoConfig:
     lazy val sbtContent =
       s"""  // $descr
          |  lazy val ${name}RepoStr =
-         |    ${SbtCode.envUrlOrElse(urlEnv, repo)}
+         |    ${SbtCode.envUrlOrElseWarn(urlEnv, repo, "    ")}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
     lazy val ammoniteRepo = "/*NOT SUPPORTED*/"
@@ -168,7 +170,7 @@ object RepoConfig:
 
     lazy val sbtContent =
       s""" // $descr
-         |  lazy val ${name}RepoStr = ${SbtCode.envUrlOrElse(urlEnv, repoUrl)}
+         |  lazy val ${name}RepoStr = ${SbtCode.envUrlOrElseWarn(urlEnv, repoUrl, "  ")}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
 
@@ -180,20 +182,26 @@ object RepoConfig:
 
     /** looks up a package's latest version via Artifactory's search API - None if not found there
       * (e.g. a third-party dependency that only exists on Maven Central), so callers can fall
-      * back. None (rather than throwing) if the credentials env vars are not set.
+      * back. None (rather than throwing) if the credentials env vars are not set, or curl fails
+      * (e.g. no network). The credentials go through stdin (`curl -K -`) - not visible in `ps`.
       */
     lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
         for
           username <- sys.env.get(usernameEnv)
           password <- sys.env.get(passwordEnv)
-          result    = os.proc(
-                        "curl",
-                        "--silent",
-                        s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo",
-                        "-u",
-                        s"$username:$password"
-                      ).call()
+          config   <- RepoConfig.curlLine("user", s"$username:$password")
+          result   <- scala.util.Try(
+                        os.proc(
+                          "curl",
+                          "--silent",
+                          "--fail",
+                          "-K",
+                          "-",
+                          s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo"
+                        ).call(stdin = config + "\n", check = false)
+                      ).toOption
+          if result.exitCode == 0
           version   = result.out.text().trim
           if version.matches("""\d+\.\d+\.\d+(-.+)?""")
         yield version
@@ -228,13 +236,21 @@ object RepoConfig:
 
   /** The url of a repo (`urlEnv`): `http(s)://<host>/<path>` with at least one segment in the
     * path (the repo) and no query or fragment - otherwise an `IllegalArgumentException` that
-    * names the variable. Spaces around and slashes at the end are removed (`SbtCode.trimUrl`).
+    * names the variable. No user info (`user:password@`): the url is written into the generated
+    * `project/Settings.scala`. Spaces around and slashes at the end are removed (`SbtCode.trimUrl`).
     */
   def repoUri(urlEnv: String, url: String): URI =
-    def invalid(reason: String) =
-      throw IllegalArgumentException(s"$urlEnv $reason: $url")
+    // the url in the message without user info - it may have a password
+    def invalid(reason: String, shown: String = url) =
+      throw IllegalArgumentException(s"$urlEnv $reason: $shown")
     val uri = scala.util.Try(URI.create(SbtCode.trimUrl(url)))
-      .getOrElse(invalid("is no valid url"))
+      .getOrElse(invalid("is no valid url", url.replaceAll("//[^/@]*@", "//***@")))
+    // the url is written into the generated project/Settings.scala - which is committed
+    if uri.getRawUserInfo != null then
+      invalid(
+        "must have no user info - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables",
+        url.replace(uri.getRawUserInfo + "@", "***@")
+      )
     if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
       invalid("is no http(s) url")
     if Option(uri.getHost).forall(_.isEmpty) then invalid("has no host")
@@ -244,6 +260,13 @@ object RepoConfig:
       invalid("must have no query or fragment")
     uri
   end repoUri
+
+  /** A line of a curl config (`curl -K -`) - None for a value with a line break (it would start
+    * another option).
+    */
+  private[config] def curlLine(option: String, value: String): Option[String] =
+    Option.unless(value.exists(c => c == '\n' || c == '\r')):
+      s"""$option = "${value.replace("\\", "\\\\").replace("\"", "\\\"")}""""
 
 end RepoConfig
 

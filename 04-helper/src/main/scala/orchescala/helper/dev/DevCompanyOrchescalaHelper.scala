@@ -9,7 +9,7 @@ import orchescala.helper.dev.publish.RepoCheck.{BuildNames, reportUploaded, veri
 import orchescala.helper.dev.publish.WorkingTree.*
 import orchescala.helper.dev.publish.{DockerCheck, ReleaseRun, SbtRuns}
 import orchescala.engine.config.RepoConfig
-import orchescala.helper.util.{DevConfig, PublishConfig}
+import orchescala.helper.util.{ConfigCheck, DevConfig, PublishConfig}
 
 import scala.util.{Failure, Success, Try}
 
@@ -19,6 +19,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
   def devConfig: DevConfig
 
   def runForCompany(command: String, arguments: String*): Unit =
+    ConfigCheck.orExit { devConfig; engineConfig }
     registerPrivateRepoLookup()
     val args = arguments.toSeq
     println(s"Running for Company command: $command with args: $args")

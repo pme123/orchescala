@@ -72,6 +72,16 @@ class SbtSettingsGeneratorTest extends FunSuite:
         settings
       )
 
+  test("the docker default: eclipse-temurin:21-jre - not openjdk:8 of sbt-native-packager"):
+    // a change for every project without company docker settings - see the PR / CHANGELOG
+    assertEquals(SbtConfig.defaultBaseImage, "eclipse-temurin:21-jre")
+    assertEquals(SbtConfig.defaultDockerSettings, """Seq(dockerBaseImage := "eclipse-temurin:21-jre")""")
+    assert(
+      SbtConfig.dockerSettingsFromEnv("democompany").contains(
+        """dockerBaseImage := sys.env.get("DEMOCOMPANY_DOCKER_BASE_IMAGE").map(_.trim).filter(_.nonEmpty).getOrElse("eclipse-temurin:21-jre")"""
+      )
+    )
+
   test("Settings.scala: the docker repository with a default of the company"):
     val docker = SbtConfig.dockerSettingsFromEnv("democompany", defaultRepository = Some("registry.example.com"))
     assert(
@@ -99,13 +109,13 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(settings.contains("resolvers ++= Seq(releaseRepo, mavenRepo)"), settings)
       assert(
         settings.contains(
-          """sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com/artifactory/releases")"""
+          """lazy val releaseRepoStr = sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {"""
         ),
         settings
       )
       assert(
         settings.contains(
-          """sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com/artifactory/virtual")"""
+          """lazy val mavenRepoStr = sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {"""
         ),
         settings
       )

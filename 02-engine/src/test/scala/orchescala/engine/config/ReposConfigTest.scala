@@ -140,11 +140,13 @@ class ReposConfigTest extends FunSuite:
 
   test("the generated build reads the env variables - the values are the fallback"):
     val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
-    assert(
-      repos.repos.head.sbtContent.contains(
-        """lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com/artifactory/my-releases")"""
-      ),
-      repos.repos.head.sbtContent
+    // the exact snippet: the regex in `replaceAll`, the warning when the variable is not set
+    assertEquals(
+      repos.repos.head.sbtContent.linesIterator.slice(1, 5).mkString("\n"),
+      """  lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {
+        |    println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY is not set - the repo of the last ./helper.scala update: https://bin.example.com/artifactory/my-releases")
+        |    "https://bin.example.com/artifactory/my-releases"
+        |  }""".stripMargin
     )
     assert(
       repos.repos(1).sbtContent.contains(
@@ -237,7 +239,7 @@ class ReposConfigTest extends FunSuite:
     val repo = artifactory.copy(repo = """libs"release""", urlEnv = Some("REPO_URL"))
     assert(
       repo.sbtContent.contains(
-        """lazy val releaseRepoStr = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://repo.example.com/artifactory/libs\"release")"""
+        """    "https://repo.example.com/artifactory/libs\"release""""
       ),
       repo.sbtContent
     )
@@ -259,7 +261,10 @@ class ReposConfigTest extends FunSuite:
     val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
     assert(
       gitlab.sbtContent.contains(
-        """sys.env.get("GITLAB_REPO").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://gitlab.example.com/api/v4/projects/1/packages/maven")"""
+        """sys.env.get("GITLAB_REPO").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {
+          |      println("[warn] GITLAB_REPO is not set - the repo of the last ./helper.scala update: https://gitlab.example.com/api/v4/projects/1/packages/maven")
+          |      "https://gitlab.example.com/api/v4/projects/1/packages/maven"
+          |    }""".stripMargin
       ),
       gitlab.sbtContent
     )
@@ -316,5 +321,25 @@ class ReposConfigTest extends FunSuite:
       failure("https://bin.example.com/artifactory/releases#top"),
       "REPO_URL must have no query or fragment: https://bin.example.com/artifactory/releases#top"
     )
+
+  test("repoUri: a url with user info is refused - the password is not in the message"):
+    val message = intercept[IllegalArgumentException](
+      ReposConfig.artifactoryFromEnv(
+        "myCompany",
+        Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "https://me:secret@bin.example.com/artifactory/releases").get
+      )
+    ).getMessage
+    assert(message.startsWith("MYCOMPANY_MVN_RELEASE_REPOSITORY must have no user info"), message)
+    assert(message.endsWith("https://***@bin.example.com/artifactory/releases"), message)
+    assert(!message.contains("secret"), message)
+    // also an invalid url with user info
+    val invalid = intercept[IllegalArgumentException](
+      RepoConfig.repoUri("REPO_URL", "https://me:secret@bin.example.com/a b")
+    ).getMessage
+    assertEquals(invalid, "REPO_URL is no valid url: https://***@bin.example.com/a b")
+
+  test("curlLine: escaped - none with a line break"):
+    assertEquals(RepoConfig.curlLine("user", """me:p"w\d"""), Some("""user = "me:p\"w\\d""""))
+    assertEquals(RepoConfig.curlLine("user", "me:secret\n"), None)
 
 end ReposConfigTest
