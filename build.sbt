@@ -26,8 +26,6 @@ lazy val root = project
     api,
     dmnTester.jvm,
     dmnTester.js,
-    orchSpecCore.jvm,
-    orchSpecCore.js,
     dmn,
     dmnTesterServer,
     dmnTesterClient,
@@ -130,48 +128,6 @@ lazy val dmnTester =
       // the model uses java.time.LocalDateTime, which Scala.js does not have
       libraryDependencies +=
         "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTimeVersion
-    )
-
-lazy val linkToOrchSpec = taskKey[File](
-  "Links orch-spec-core with Scala.js and copies it to 04-orch-spec/src/core/orchSpecCore.js"
-)
-
-/** The logic of orch-spec that the platform server needs too - the differences of a page today,
-  * the tools and findings later. Written once in Scala: the JVM build goes to the platform
-  * (orch-platform), the Scala.js build into orch-spec, which keeps working without a server.
-  * JSON is the only contract - the same as over HTTP.
-  */
-lazy val orchSpecCore =
-  crossProject(JSPlatform, JVMPlatform)
-    .crossType(CrossType.Pure)
-    .in(file("./02-orch-spec-core"))
-    .settings(publicationSettings)
-    .settings(projectSettings("orch-spec-core"))
-    .settings(
-      // like orch-doc: Business Source License 1.1 (see 02-orch-spec-core/LICENSE)
-      licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
-      libraryDependencies ++= Seq(
-        "io.circe"      %%% "circe-core"   % circeVersion,
-        "io.circe"      %%% "circe-parser" % circeVersion,
-        "org.scalameta" %%% "munit"        % mUnitVersion % Test
-      ),
-      testFrameworks += new TestFramework("munit.Framework")
-    )
-    .jsSettings(
-      scalaJSLinkerConfig ~= {
-        _.withModuleKind(ModuleKind.ESModule).withSourceMap(false)
-      },
-      // the linker cleans its own directory - orch-spec gets a copy (gitignored) next to the
-      // types it imports with it (orchSpecCore.d.ts)
-      Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
-        target.value / "scalajs" / "prod",
-      linkToOrchSpec := {
-        val _      = (Compile / fullLinkJS).value
-        val linked = (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value / "main.js"
-        val copy   = (LocalRootProject / baseDirectory).value / "04-orch-spec" / "src" / "core" / "orchSpecCore.js"
-        IO.copyFile(linked, copy)
-        copy
-      }
     )
 
 // layer 03
@@ -415,9 +371,6 @@ lazy val orchDocClient = project
       .dependsOn(bundleDocClient)
       .value,
     bundleDocClient := {
-      // orch-spec imports the Scala.js build of orch-spec-core (src/core/orchSpecCore.js) - before
-      // its inputs are hashed, so a change in the Scala code builds the apps again
-      val _         = (orchSpecCore.js / linkToOrchSpec).value
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -530,8 +483,8 @@ lazy val gateway = project
 
 /** The studio - the app with which the business side describes an app and brings it to a test
   * environment (Orch Platform, the «Entwicklung» side): it serves orch-doc, orch-spec and orch-ops
-  * with the company's documentation and the services on a specification (orch-spec-core); later the
-  * AI proxy, the buttons and the runner. Like the gateway, the company builds its app from it in
+  * with the company's documentation and the AI proxy of orch-spec; later the buttons and the
+  * runner. Like the gateway, the company builds its app from it in
   * `<company>-orchescala`, module `studio`.
   */
 lazy val orchStudio = project
@@ -544,6 +497,8 @@ lazy val orchStudio = project
     zioTestSettings,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-http" % zioHttpVersion,
+      "io.circe" %% "circe-core" % circeVersion,
+      "io.circe" %% "circe-parser" % circeVersion,
       // the front matter of the skills of the AI (AiSkills)
       "io.circe" %% "circe-yaml" % circeYamlVersion,
       osLib
@@ -551,8 +506,8 @@ lazy val orchStudio = project
     fork               := true,
     run / connectInput := true
   )
-  // orchDocClient: the apps (orch-doc-site/) on the classpath; orchSpecCore: the same logic as orch-spec
-  .dependsOn(orchDocClient, orchSpecCore.jvm)
+  // orchDocClient: the apps (orch-doc-site/) on the classpath
+  .dependsOn(orchDocClient)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))
