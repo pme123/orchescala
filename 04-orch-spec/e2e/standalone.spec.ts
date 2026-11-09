@@ -104,12 +104,15 @@ test('without a studio: folder, process and page work, no AI', async ({ page }) 
 test('a studio that does not answer does not hold orch-spec up', async ({ page }) => {
   // /ai/config never answers - the folder opens and the process shows while it is still pending.
   // An orch-spec that waits for the studio never gets there and fails on the test's timeout.
+  const w = watch(page);
   await page.route('**/ai/config', () => { /* left pending */ });
   const asked = page.waitForRequest('**/ai/config');
   await openFolder(page);
   await asked;
   await openProcess(page);
   await expect(page.locator(AI.process)).toHaveCount(0);
+  await expect(page.locator(AI.header)).toHaveCount(0);
+  expect(w.errors).toEqual([]);
 });
 
 test('cross-check: with a studio the AI shows', async ({ page }) => {
