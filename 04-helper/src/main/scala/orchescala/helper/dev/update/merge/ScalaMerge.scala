@@ -16,8 +16,10 @@ import orchescala.helper.dev.update.OrchSpecImports
   * |                                | (`???`, a `TODO`): that is the developer's to implement         |
   * | only in the spec               | added - after the part it follows in the spec                   |
   * | a member only in the code      | stays - it is implementation                                    |
-  * | a class, object, case only in  | stays - and is `removable`: the caller asks whether it goes     |
-  * | the code                       |                                                                 |
+  * | a class, object, case or a     | stays - and is `removable`: the caller asks whether it goes     |
+  * | declared field (`def x: T`, the |                                                                 |
+  * | shared field of an enum) only  |                                                                 |
+  * | in the code                    |                                                                 |
   *
   * What differs only in its form (indentation, line breaks) stays as the code has it.
   */
@@ -200,8 +202,11 @@ object ScalaMerge:
     val out       = Seq.newBuilder[String]
     val removable = Seq.newBuilder[String]
     // a class, an object, a case only the code has - an object of a type that stays is its companion
+    // a class, object, case or declared field (a shared field of an enum) only the code has - an
+    // object of a type that stays is its companion
     def removableCode(p: Part) =
-      !sKeys(p.key) && (p.kind == Kind.Type || p.kind == Kind.Case || (p.kind == Kind.Obj && !names(p.name) && !sKeys(s"type ${p.name}")))
+      !sKeys(p.key) && (p.kind == Kind.Type || p.kind == Kind.Case || declaration(c, p) ||
+        (p.kind == Kind.Obj && !names(p.name) && !sKeys(s"type ${p.name}")))
     def qualified(p: Part) = if owner.isEmpty then p.name else s"$owner.${p.name}"
     // the spec parts only it has, after the spec part they follow that the code has too (None: before all)
     val anchored  = sParts.zipWithIndex.filterNot((p, _) => cKeys(p.key)).groupBy: (_, i) =>
@@ -266,6 +271,14 @@ object ScalaMerge:
         end match
     end match
   end both
+
+  /** A `def` or `val` without a value - `def readFromFcs: Option[Boolean]`, the shared field of an
+    * enum: what the spec declares, no implementation.
+    */
+  private def declaration(lines: Seq[String], p: Part): Boolean =
+    p.kind == Kind.Member && (definition(lines(p.at).trim) match
+      case ValStart(_) => !lines.slice(p.at, p.until).map(_.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "")).exists(_.contains("="))
+      case _           => false)
 
   // `???` or a `TODO` of the generator: the code has its implementation there
   private def placeholder(spec: Seq[String]): Boolean =

@@ -242,7 +242,7 @@ enum, the members - each with its doc comment and annotations):
 | a member or case in both               | the one of _Orch Spec_ - the code's when _Orch Spec_ has a placeholder there (`???`, a `TODO`, like the decoder of an enum without a field that names its case) |
 | only in _Orch Spec_                    | added - after the part it follows there                             |
 | a member only in the code              | stays - it is your implementation                                   |
-| a class, object or case only in the code | stays - you are asked whether it goes                             |
+| a class, object, case or a shared field of an enum (`def x: T` without a value) only in the code | stays - you are asked whether it goes |
 
 What differs only in its form (indentation, line breaks, the imports in another form) stays as the
 code has it. A Scala file next to the domain classes that _Orch Spec_ does not know (in the

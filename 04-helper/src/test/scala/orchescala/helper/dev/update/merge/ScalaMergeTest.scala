@@ -211,6 +211,38 @@ class ScalaMergeTest extends FunSuite:
     assert(r.text.endsWith("end Client\n\ncase class Address(street: String)\n"), r.text)
     assertEquals(r.removable, Seq.empty)
 
+  test("a shared field of an enum Orch Spec no longer has: removable like a case - an own def with a value stays"):
+    val code = """object GetClient:
+                 |  enum In:
+                 |    @description("From the source of truth")
+                 |    def readFromFcs: Option[Boolean]
+                 |    def dummy: Seq[String]
+                 |    def label: String = readFromFcs.toString
+                 |
+                 |    case Standard(
+                 |        readFromFcs: Option[Boolean],
+                 |        dummy: Seq[String]
+                 |    )
+                 |  end In
+                 |end GetClient
+                 |""".stripMargin
+    val spec = """object GetClient:
+                 |  enum In:
+                 |    @description("From the source of truth")
+                 |    def readFromFcs: Option[Boolean]
+                 |
+                 |    case Standard(
+                 |        readFromFcs: Option[Boolean]
+                 |    )
+                 |  end In
+                 |end GetClient
+                 |""".stripMargin
+    val r    = ScalaMerge.merge(code, spec)
+    assertEquals(r.removable, Seq("GetClient.In.dummy"))
+    assert(r.text.contains("    def dummy: Seq[String]\n"), r.text)
+    assert(!r.without.contains("dummy"), r.without)
+    assert(r.without.contains("    def readFromFcs: Option[Boolean]\n    def label: String = readFromFcs.toString\n"), r.without)
+
   test("the report: each change with the line of the code and two lines around it - near ones in one block"):
     import orchescala.helper.dev.update.MergeReport
     val code    = (1 to 12).map(i => s"  line$i").mkString("\n")
