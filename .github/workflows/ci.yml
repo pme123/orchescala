@@ -62,6 +62,20 @@ jobs:
         # 04-orch-doc/bundle - packaged into orchescala-orch-doc, which helper and gateway
         # ship. Same reason for an own step as above.
         run: sbt orchDocClient/bundleDocClient
+      - name: Orch Spec without a server
+        # E28: the studio becomes a TypeScript server - orch-spec must keep working without it at every
+        # step. The built app (as orch-doc ships it), served statically: a local folder, a process, a
+        # new page, no AI, no request to the studio besides GET /ai/config (04-orch-spec/e2e). Needs
+        # orchSpecCore.js and node_modules - both from the step above.
+        working-directory: 04-orch-spec
+        run: npx playwright install --with-deps chromium && npm run test:standalone
+      - name: Keep the trace of a failed run without a server
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orch-spec-standalone-trace
+          path: 04-orch-spec/test-results/
+          if-no-files-found: ignore
       - name: Test the theme skill
         # .claude/skills/orch-theme-from-site/build_theme.py - plain Python 3, no packages; its colour
         # rules share colour-cases.json with orch-spec's tests, which bundleDocClient runs (above) - the
