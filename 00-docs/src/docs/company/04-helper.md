@@ -113,9 +113,16 @@ private lazy val companySbtConfig = SbtConfig(
   ))
 )
 ```
-Without `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo. The dependency repo gets its own
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo; a url that is set but no
+`http(s)://<host>/.../<repo>` fails, naming the variable. The dependency repo gets its own
 resolver name (`Artifactory Realm 2`) - sbt does not load from two resolvers of the same host with
-the same name (_unauthorized_ / _forbidden_).
+the same name (_unauthorized_ / _forbidden_). On another host it gets its own credentials (the same
+user and password variables). The env names are upper case, other characters than letters and
+digits become `_` (`acme-bank` → `ACME_BANK_...`).
+
+> [!NOTE]
+> Only the generated build reads the variables - the helper itself (e.g. the release check) uses
+> the urls of the config, with `artifactoryFromEnv` read from the same variables.
 
 > [!WARNING]
 > The default builds **every** image for `linux/amd64` - on an amd64 machine nothing changes, on

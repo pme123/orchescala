@@ -1,6 +1,6 @@
 package orchescala.helper.util
 
-import orchescala.engine.config.{ReposConfig}
+import orchescala.engine.config.{ReposConfig, SbtCode}
 
 case class SbtConfig(
     // sbt settings for publishing
@@ -36,14 +36,16 @@ object SbtConfig:
       defaultBaseImage: Option[String] = None,
       otherSettings: Seq[String] = Seq.empty
   ): String =
-    val repositoryEnv = s"${companyName.toUpperCase}_DOCKER_REPOSITORY"
-    val baseImageEnv  = s"${companyName.toUpperCase}_DOCKER_BASE_IMAGE"
+    val repositoryEnv = SbtCode.companyEnvName(companyName, "DOCKER_REPOSITORY")
+    val baseImageEnv  = SbtCode.companyEnvName(companyName, "DOCKER_BASE_IMAGE")
+    // `key := f(key.value)` takes the value before this setting (the one of sbt-native-packager) -
+    // checked with `show worker/dockerRepository` / `dockerBaseImage`, with and without variables
     val repository    =
-      s"""dockerRepository := sys.env.get("$repositoryEnv")${
+      s"""dockerRepository := sys.env.get(${scalaString(repositoryEnv)})${
           defaultRepository.map(r => s".orElse(Some(${scalaString(r)}))").getOrElse(".orElse(dockerRepository.value)")
         }"""
     val baseImage     =
-      s"""dockerBaseImage := sys.env.getOrElse("$baseImageEnv", ${
+      s"""dockerBaseImage := sys.env.getOrElse(${scalaString(baseImageEnv)}, ${
           defaultBaseImage.map(scalaString).getOrElse("dockerBaseImage.value")
         })"""
     (Seq(repository, baseImage) ++ otherSettings)
@@ -64,7 +66,6 @@ object SbtConfig:
   end dockerBuildSettings
 
   /** A Scala string literal of `value` - quotes and backslashes escaped. */
-  private def scalaString(value: String): String =
-    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+  private def scalaString(value: String): String = SbtCode.literal(value)
 
 end SbtConfig

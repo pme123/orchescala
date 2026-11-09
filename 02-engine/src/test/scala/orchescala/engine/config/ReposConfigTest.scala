@@ -158,4 +158,86 @@ class ReposConfigTest extends FunSuite:
       """Credentials("Artifactory Realm", "repo.example.com", user, pwd)"""
     ))
 
+  test("artifactoryFromEnv: a dependency repo on another host gets its own credentials"):
+    val repos = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      companyEnv.updated("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY", "https://deps.example.com/artifactory/virtual").get
+    )
+    assertEquals(
+      repos.credentials.map(c => c.name -> c.repoHost),
+      Seq("mycompany" -> "bin.example.com", "mycompanyDependency" -> "deps.example.com")
+    )
+    assertEquals(
+      repos.credentials.collect { case u: RepoCredentials.UserPassword => u.repoUrlEnv },
+      Seq(Some("MYCOMPANY_MVN_RELEASE_REPOSITORY"), Some("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY"))
+    )
+    assertEquals(repos.sbtCredentials, "mycompanyCredentials, mycompanyDependencyCredentials")
+    assertEquals(repos.repos(1).repoUrl, "https://deps.example.com/artifactory/virtual")
+
+  test("artifactoryFromEnv: an invalid url fails early - naming the variable"):
+    def failure(release: String, dependency: String = "https://bin.example.com/artifactory/virtual") =
+      intercept[IllegalArgumentException](
+        ReposConfig.artifactoryFromEnv(
+          "myCompany",
+          Map(
+            "MYCOMPANY_MVN_RELEASE_REPOSITORY"    -> release,
+            "MYCOMPANY_MVN_DEPENDENCY_REPOSITORY" -> dependency
+          ).get
+        )
+      ).getMessage
+    assertEquals(
+      failure("https://bin.example.com"),
+      "MYCOMPANY_MVN_RELEASE_REPOSITORY has no repo in its path (https://<host>/artifactory/<repo>): https://bin.example.com"
+    )
+    assertEquals(
+      failure("https://bin.example.com/"),
+      "MYCOMPANY_MVN_RELEASE_REPOSITORY has no repo in its path (https://<host>/artifactory/<repo>): https://bin.example.com/"
+    )
+    assertEquals(
+      failure("bin.example.com/artifactory/releases"),
+      "MYCOMPANY_MVN_RELEASE_REPOSITORY is no http(s) url: bin.example.com/artifactory/releases"
+    )
+    assertEquals(failure("https:///artifactory/releases"), "MYCOMPANY_MVN_RELEASE_REPOSITORY has no host: https:///artifactory/releases")
+    assertEquals(failure("not a url"), "MYCOMPANY_MVN_RELEASE_REPOSITORY is no valid url: not a url")
+    // the dependency repo is checked as well
+    assertEquals(
+      failure("https://bin.example.com/artifactory/releases", "https://bin.example.com"),
+      "MYCOMPANY_MVN_DEPENDENCY_REPOSITORY has no repo in its path (https://<host>/artifactory/<repo>): https://bin.example.com"
+    )
+
+  test("a repo directly below the host"):
+    val repos = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/releases").get
+    )
+    val release = repos.repos.head.asInstanceOf[RepoConfig.Artifactory]
+    assertEquals(release.artifactoryApiUrl -> release.repo, "https://bin.example.com" -> "releases")
+
+  test("the generated code escapes quotes and backslashes of the values"):
+    val repo = artifactory.copy(repo = """libs"release""", urlEnv = Some("REPO_URL"))
+    assert(
+      repo.sbtContent.contains(
+        """lazy val releaseRepoStr = sys.env.getOrElse("REPO_URL", "https://repo.example.com/artifactory/libs\"release")"""
+      ),
+      repo.sbtContent
+    )
+    val credentials =
+      RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
+    assert(
+      credentials.sbtContent.contains(
+        """Option(java.net.URI.create(sys.env.getOrElse("REPO_URL", "https://repo\"host")).getHost).getOrElse("repo\"host")"""
+      ),
+      credentials.sbtContent
+    )
+
+  test("a GitLab repo with an env variable"):
+    val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
+    assert(
+      gitlab.sbtContent.contains(
+        """sys.env.getOrElse("GITLAB_REPO", "https://gitlab.example.com/api/v4/projects/1/packages/maven")"""
+      ),
+      gitlab.sbtContent
+    )
+    assert(RepoConfig.Gitlab("release", "https://x").sbtContent.contains("""    "https://x""""))
+
 end ReposConfigTest

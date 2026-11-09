@@ -40,7 +40,7 @@ case class CompanySbtGenerator(
   private lazy val gatewaySettings  =
     Seq("dockerSettings") ++ Option.when(hasGatewayDocker)("dockerBuildSettings") ++
       Seq("unitTestSettings", "zioTestSettings")
-  private lazy val companyNameUpper = companyName.toUpperCase()
+  private lazy val companyNameUpper = orchescala.engine.config.SbtCode.companyEnvPrefix(companyName)
 
   private lazy val projectDev =
     s"""import sbtbuildinfo.BuildInfoPlugin.autoImport.BuildInfoKey

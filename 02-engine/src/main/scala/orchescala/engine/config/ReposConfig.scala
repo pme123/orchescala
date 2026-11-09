@@ -72,19 +72,21 @@ object ReposConfig:
     ))
   )
 
-  /** The env variable `{COMPANY}_{suffix}`, e.g. `MYCOMPANY_MVN_RELEASE_REPOSITORY`. */
+  /** The env variable `{COMPANY}_{suffix}`, e.g. `ACME_MVN_RELEASE_REPOSITORY`. */
   def envName(companyName: String, suffix: String): String =
-    s"${companyName.toUpperCase}_$suffix"
+    SbtCode.companyEnvName(companyName, suffix)
 
   /** The Artifactory repos of a company from its env variables - the same as the build of the
     * `company-orchescala` project uses:
     *   - `{COMPANY}_MVN_RELEASE_REPOSITORY`: `https://<host>/artifactory/<repo>` (the release repo)
     *   - `{COMPANY}_MVN_DEPENDENCY_REPOSITORY`: optional, the repo for the dependencies
-    *   - `{COMPANY}_MVN_REPOSITORY_USERNAME` / `_PASSWORD`: the credentials
+    *   - `{COMPANY}_MVN_REPOSITORY_USERNAME` / `_PASSWORD`: the credentials - for both repos
     *
     * The generated `project/Settings.scala` reads these variables as well - so a project's build
-    * follows them, the values of the generation are only the fallback. Without
-    * `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo.
+    * follows them, the values of the generation are only the fallback.
+    *
+    * Without `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo. A url that is set but no
+    * `http(s)://<host>/.../<repo>` fails with an `IllegalArgumentException` naming the variable.
     */
   def artifactoryFromEnv(
       companyName: String,
@@ -92,26 +94,42 @@ object ReposConfig:
   ): ReposConfig =
     val releaseEnv    = envName(companyName, "MVN_RELEASE_REPOSITORY")
     val dependencyEnv = envName(companyName, "MVN_DEPENDENCY_REPOSITORY")
-    env(releaseEnv)
-      .map: releaseUrl =>
-        val credentials = RepoCredentials.UserPassword(
-          companyName.toLowerCase,
-          scala.util.Try(URI.create(releaseUrl).getHost).toOption.flatMap(Option(_))
-            .getOrElse(throw IllegalArgumentException(s"$releaseEnv has no host: $releaseUrl")),
-          envName(companyName, "MVN_REPOSITORY_USERNAME"),
-          envName(companyName, "MVN_REPOSITORY_PASSWORD"),
-          repoUrlEnv = Some(releaseEnv)
-        )
-        val dependencyRepo = env(dependencyEnv).map: url =>
+    val credentialsName = SbtCode.identifier(companyName)
+
+    def credentials(name: String, uri: URI, urlEnv: String) = RepoCredentials.UserPassword(
+      name,
+      uri.getHost,
+      envName(companyName, "MVN_REPOSITORY_USERNAME"),
+      envName(companyName, "MVN_REPOSITORY_PASSWORD"),
+      repoUrlEnv = Some(urlEnv)
+    )
+
+    env(releaseEnv) match
+      case None             => dummyRepos
+      case Some(releaseUrl) =>
+        val releaseUri         = RepoConfig.repoUri(releaseEnv, releaseUrl)
+        val releaseCredentials = credentials(credentialsName, releaseUri, releaseEnv)
+        val dependency         = env(dependencyEnv).map: url =>
+          val uri = RepoConfig.repoUri(dependencyEnv, url)
+          // sbt picks the credentials by host - another host needs its own
+          val dependencyCredentials =
+            Option.when(uri.getHost != releaseUri.getHost):
+              credentials(s"${credentialsName}Dependency", uri, dependencyEnv)
           // sbt needs another name for the second resolver of the same host - with the same
           // name the artifacts are not loaded (unauthorized / forbidden)
-          RepoConfig.Artifactory.fromUrl("maven", url, credentials, dependencyEnv, "Artifactory Realm 2")
+          RepoConfig.Artifactory.fromUrl(
+            "maven",
+            url,
+            dependencyCredentials.getOrElse(releaseCredentials),
+            dependencyEnv,
+            "Artifactory Realm 2"
+          ) -> dependencyCredentials
         ReposConfig(
-          Seq(credentials),
-          RepoConfig.Artifactory.fromUrl("release", releaseUrl, credentials, releaseEnv) +:
-            dependencyRepo.toSeq
+          releaseCredentials +: dependency.flatMap(_._2).toSeq,
+          RepoConfig.Artifactory.fromUrl("release", releaseUrl, releaseCredentials, releaseEnv) +:
+            dependency.map(_._1).toSeq
         )
-      .getOrElse(dummyRepos)
+    end match
   end artifactoryFromEnv
 end ReposConfig
 
@@ -128,14 +146,15 @@ object RepoConfig:
       repo: String,
       descr: String = "",
       realm: String = "gitlab",
-      // the env variable with the url - the generated build reads it, `repo` is the fallback
+      // the env variable with the url - only the generated build reads it (`repo` is the
+      // fallback); the helper itself (release check) uses `repo`
       urlEnv: Option[String] = None
   ) extends RepoConfig:
     lazy val repoUrl: String = repo
     lazy val sbtContent =
       s"""  // $descr
          |  lazy val ${name}RepoStr =
-         |    ${RepoConfig.sbtValue(repo, urlEnv)}
+         |    ${SbtCode.envOrElse(urlEnv, repo)}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
     lazy val ammoniteRepo = "/*NOT SUPPORTED*/"
@@ -150,20 +169,22 @@ object RepoConfig:
       descr: String = "",
       // the name of the sbt resolver - a second repo of the same host needs another one
       realm: String = "Artifactory Realm",
-      // the env variable with the url - the generated build reads it, the url is the fallback
+      // the env variable with the url - only the generated build reads it (the url is the
+      // fallback); the helper itself (release check, version lookup) uses the url - with
+      // `ReposConfig.artifactoryFromEnv` both come from the same variable
       urlEnv: Option[String] = None
   ) extends RepoConfig:
     lazy val repoUrl: String = s"$artifactoryApiUrl/$repo"
 
     lazy val sbtContent =
       s""" // $descr
-         |  lazy val ${name}RepoStr = ${RepoConfig.sbtValue(repoUrl, urlEnv)}
+         |  lazy val ${name}RepoStr = ${SbtCode.envOrElse(urlEnv, repoUrl)}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
 
     lazy val ammoniteRepo: String =
       s"""  MavenRepository
-         |    .of(${RepoConfig.sbtValue(repoUrl, urlEnv)})
+         |    .of(${SbtCode.envOrElse(urlEnv, repoUrl)})
          |    .withCredentials(Credentials.of(sys.env("$usernameEnv"),
          |      sys.env("$passwordEnv")))""".stripMargin
 
@@ -190,7 +211,9 @@ object RepoConfig:
   end Artifactory
 
   object Artifactory:
-    /** An Artifactory repo from its url `https://<host>/artifactory/<repo>`. */
+    /** An Artifactory repo from its url `https://<host>/artifactory/<repo>` - the last segment of
+      * the path is the repo. An invalid url fails with an `IllegalArgumentException`.
+      */
     def fromUrl(
         name: String,
         url: String,
@@ -198,7 +221,8 @@ object RepoConfig:
         urlEnv: String,
         realm: String = "Artifactory Realm"
     ): Artifactory =
-      val trimmed = url.stripSuffix("/")
+      repoUri(urlEnv, url)
+      val trimmed = url.trim.stripSuffix("/")
       val idx     = trimmed.lastIndexOf('/')
       Artifactory(
         name,
@@ -212,9 +236,21 @@ object RepoConfig:
     end fromUrl
   end Artifactory
 
-  /** A string of the generated build: the env variable with the value as fallback, or the value. */
-  private[config] def sbtValue(value: String, env: Option[String]): String =
-    env.map(e => s"""sys.env.getOrElse("$e", "$value")""").getOrElse(s""""$value"""")
+  /** The url of a repo (`urlEnv`): `http(s)://<host>/<path>` with at least one segment in the
+    * path (the repo) - otherwise an `IllegalArgumentException` that names the variable.
+    */
+  def repoUri(urlEnv: String, url: String): URI =
+    def invalid(reason: String) =
+      throw IllegalArgumentException(s"$urlEnv $reason: $url")
+    val uri = scala.util.Try(URI.create(url.trim.stripSuffix("/")))
+      .getOrElse(invalid("is no valid url"))
+    if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
+      invalid("is no http(s) url")
+    if Option(uri.getHost).forall(_.isEmpty) then invalid("has no host")
+    if Option(uri.getPath).forall(_.stripPrefix("/").isEmpty) then
+      invalid("has no repo in its path (https://<host>/artifactory/<repo>)")
+    uri
+  end repoUri
 
 end RepoConfig
 
@@ -257,8 +293,8 @@ object RepoCredentials:
     private lazy val sbtHost: String =
       repoUrlEnv
         .map: env =>
-          s"""Option(java.net.URI.create(sys.env.getOrElse("$env", "https://$repoHost")).getHost).getOrElse("$repoHost")"""
-        .getOrElse(s""""$repoHost"""")
+          s"Option(java.net.URI.create(${SbtCode.envOrElse(Some(env), s"https://$repoHost")}).getHost).getOrElse(${SbtCode.literal(repoHost)})"
+        .getOrElse(SbtCode.literal(repoHost))
     lazy val sbtContent: String =
       s"""  lazy val ${name}Credentials: Credentials = (for {
          |    user <- sys.env.get("$usernameEnv")
