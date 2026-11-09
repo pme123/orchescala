@@ -72,7 +72,11 @@ object ReposConfig:
     ))
   )
 
-  private val warnedOldEnvNames = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+  private val warned = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
+  /** Prints a warning once per JVM - the default `warn` of `artifactoryFromEnv`. */
+  def warnOnce(message: String): Unit =
+    if warned.add(message) then println(message)
 
   /** The Artifactory repos of a company from its env variables - the same as the build of the
     * `company-orchescala` project uses:
@@ -89,11 +93,12 @@ object ReposConfig:
     * variable - deliberately: it is read when the company config is built, so every command of
     * the helper stops, instead of publishing to or resolving from the dummy repo. Keep the result
     * in a `lazy val` (as the generated company config does) - it reads the variables each call;
-    * its warning for old env names comes once per JVM.
+    * its warnings go to `warn` (default: printed once per JVM).
     */
   def artifactoryFromEnv(
       companyName: String,
-      env: String => Option[String] = sys.env.get
+      env: String => Option[String] = sys.env.get,
+      warn: String => Unit = warnOnce
   ): ReposConfig =
     def envName(suffix: String) = SbtCode.companyEnvName(companyName, suffix)
     // an empty variable counts as not set - as in the generated build
@@ -114,11 +119,12 @@ object ReposConfig:
 
     // the names before: `{companyName.toUpperCase}_` - for a name with other characters than
     // letters and digits (`acme-bank`: `ACME-BANK_`) they are not read any more
-    val oldReleaseEnv = s"${companyName.toUpperCase(java.util.Locale.ROOT)}_MVN_RELEASE_REPOSITORY"
-    if oldReleaseEnv != releaseEnv && read(releaseEnv).isEmpty && read(oldReleaseEnv).nonEmpty &&
-      warnedOldEnvNames.add(oldReleaseEnv) // once - also if a company config calls it again (a `def`)
-    then
-      println(s"[warn] $oldReleaseEnv is set, but not read any more - rename the ..._MVN_* variables to $releaseEnv etc.")
+    Seq("MVN_RELEASE_REPOSITORY", "MVN_DEPENDENCY_REPOSITORY", "MVN_REPOSITORY_USERNAME", "MVN_REPOSITORY_PASSWORD")
+      .foreach: suffix =>
+        val oldEnv = s"${companyName.toUpperCase(java.util.Locale.ROOT)}_$suffix"
+        val newEnv = envName(suffix)
+        if oldEnv != newEnv && env(newEnv).isEmpty && env(oldEnv).nonEmpty then
+          warn(s"[warn] $oldEnv is set, but not read any more - rename it to $newEnv")
 
     read(releaseEnv) match
       case None if read(dependencyEnv).nonEmpty =>
@@ -209,14 +215,20 @@ object RepoConfig:
       * credentials go through stdin (`curl -K -`) - not visible in `ps`. Blocking (up to 15 s) -
       * for the helper; in a ZIO fiber wrap it in `ZIO.attemptBlocking`.
       */
-    lazy val versionLookup: (String, String) => Option[String] =
+    lazy val versionLookup: (String, String) => Option[String] = versionLookupWith()
+
+    /** `versionLookup` with the env variables and the warning as parameters (e.g. for tests). */
+    private[config] def versionLookupWith(
+        env: String => Option[String] = sys.env.get,
+        warn: String => Unit = println
+    ): (String, String) => Option[String] =
       (project: String, org: String) =>
         def enc(value: String)          = java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8)
         val url                         =
           s"$artifactoryApiUrl/api/search/latestVersion?g=${enc(org)}&a=${enc(project)}&repos=${enc(repo)}"
         def failed(reason: String)      =
           if lookupWarned.compareAndSet(false, true) then
-            println(
+            warn(
               s"[warn] The version of $org:$project could not be looked up in $repoUrl - $reason" +
                 " (further failures of this repo are not shown)"
             )
@@ -236,12 +248,12 @@ object RepoConfig:
                 case Some("404") => None // not in this repo - e.g. only on Maven Central
                 case status      => failed(s"HTTP ${status.getOrElse("?")}")
         for
-          username <- sys.env.get(usernameEnv)
-          password <- sys.env.get(passwordEnv)
+          username <- env(usernameEnv)
+          password <- env(passwordEnv)
           config   <- RepoConfig.curlLine("user", s"$username:$password")
           version  <- lookup(config)
         yield version
-    end versionLookup
+    end versionLookupWith
   end Artifactory
 
   object Artifactory:

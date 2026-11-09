@@ -15,7 +15,6 @@ object SbtCode:
   // password, also one with a `/`, or a url without `//`
   private val userInfo            = "^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@"
   private val userInfoMasked      = "$1***@"
-  private val userInfoRemoved     = "$1"
 
   /** A Scala string literal of `value` - quotes and backslashes escaped. */
   def literal(value: String): String =
@@ -41,47 +40,49 @@ object SbtCode:
     */
   def envUrlOrElse(env: Option[String], url: String): String =
     env
-      .map(e => s"${envUrl(e)}.getOrElse(${literal(url)})")
+      .map(e => s"""${envUrl(e)}.filterNot(_.contains("@")).getOrElse(${literal(url)})""")
       .getOrElse(literal(url))
 
-  /** As `envUrlOrElse`, but a block that prints a warning when the variable is not set - the url
-    * then is the one of the last `./helper.scala update` (maybe of another machine).
+  /** What the generated build takes from the value of a url variable - the runtime twin of
+    * `envUrlOrElse`: trimmed as `trimUrl`; not used if empty or with an `@` (user info - refused
+    * by the helper; sbt/coursier would log it with the password). Then the url of the update.
+    */
+  def envUrlValue(value: Option[String]): Option[String] =
+    value.map(trimUrl).filter(_.nonEmpty).filterNot(_.contains('@'))
+
+  /** As `envUrlOrElse`, but a block that prints a warning when the variable is not set, or not
+    * used for its `@` - the url then is the one of the last `./helper.scala update` (maybe of
+    * another machine).
     */
   def envUrlOrElseWarn(env: Option[String], url: String, indent: String): String =
     env
       .map: e =>
-        val warning = literal(s"[warn] $e is not set - the repo of the last ./helper.scala update: $url")
-        s"""${envUrl(e, warnUserInfo = true)}.getOrElse {
-           |$indent  println($warning)
-           |$indent  ${literal(url)}
+        val notSet  = literal(s"[warn] $e is not set - the repo of the last ./helper.scala update: $url")
+        val withAt  = literal(
+          s"[warn] $e has an `@` (user info) - not used, the repo of the last ./helper.scala update: $url" +
+            " - the credentials are in the ..._USERNAME / _PASSWORD variables: "
+        )
+        s"""${envUrl(e)} match {
+           |$indent  case Some(u) if u.contains("@") =>
+           |$indent    println($withAt + ${maskUserInfoExpr("u")})
+           |$indent    ${literal(url)}
+           |$indent  case Some(u) => u
+           |$indent  case None =>
+           |$indent    println($notSet)
+           |$indent    ${literal(url)}
            |$indent}""".stripMargin
       .getOrElse(literal(url))
 
   /** A url for a message - the user info masked: the part up to the last `@` becomes `***@`. */
   def maskUserInfo(url: String): String = url.replaceAll(userInfo, userInfoMasked)
 
-  /** A url without its user info - what the generated build does with a variable (`envUrl`). */
-  def removeUserInfo(url: String): String = url.replaceAll(userInfo, userInfoRemoved)
-
   /** `maskUserInfo` in the generated build - of the String expression `urlExpr`. */
   def maskUserInfoExpr(urlExpr: String): String =
     s"$urlExpr.replaceAll(${literal(userInfo)}, ${literal(userInfoMasked)})"
 
-  /** The url of an env variable in the generated build, an `Option[String]` (as `trimUrl`) -
-    * without user info: sbt/coursier would log it with the password (e.g. a resolver url it can
-    * not parse); the credentials are in the `..._USERNAME` / `_PASSWORD` variables. With
-    * `warnUserInfo` a removed user info gives a warning (masked).
-    */
-  private def envUrl(env: String, warnUserInfo: Boolean = false): String =
-    val warning =
-      if warnUserInfo then
-        val text = literal(
-          s"[warn] $env has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: "
-        )
-        s"""if (u.contains("@")) println($text + ${maskUserInfoExpr("u")}); """
-      else ""
-    s"sys.env.get(${literal(env)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")})).filter(_.nonEmpty)" +
-      s".map { u => ${warning}u.replaceAll(${literal(userInfo)}, ${literal(userInfoRemoved)}) }"
+  /** The url of an env variable in the generated build, an `Option[String]` (as `trimUrl`). */
+  private def envUrl(env: String): String =
+    s"sys.env.get(${literal(env)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")})).filter(_.nonEmpty)"
 
   /** The host of a url in the generated build (as `RepoConfig.hostOf`), an `Option[String]`. */
   def hostOf(uriExpr: String): String =

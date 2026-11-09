@@ -140,13 +140,16 @@ class ReposConfigTest extends FunSuite:
 
   test("the generated build reads the env variables - the values are the fallback"):
     val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
-    // the exact snippet: the regex in `replaceAll`, the warning when the variable is not set
-    assertEquals(
-      repos.repos.head.sbtContent.linesIterator.slice(1, 5).mkString("\n"),
-      """  lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {
-        |    println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY is not set - the repo of the last ./helper.scala update: https://bin.example.com/artifactory/my-releases")
-        |    "https://bin.example.com/artifactory/my-releases"
-        |  }""".stripMargin
+    // the url from the variable - with the warnings (the exact snippet: SbtCodeTest)
+    assert(
+      repos.repos.head.sbtContent.contains(
+        "  lazy val releaseRepoStr = " + SbtCode.envUrlOrElseWarn(
+          Some("MYCOMPANY_MVN_RELEASE_REPOSITORY"),
+          "https://bin.example.com/artifactory/my-releases",
+          "  "
+        )
+      ),
+      repos.repos.head.sbtContent
     )
     assert(
       repos.repos(1).sbtContent.contains(
@@ -158,7 +161,7 @@ class ReposConfigTest extends FunSuite:
       repos.credentials.head.sbtContent.linesIterator.take(9).mkString("\n"),
       """  // the host of the credentials - from MYCOMPANY_MVN_RELEASE_REPOSITORY
         |  lazy val mycompanyRepoHost: String = {
-        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse("https://bin.example.com")
+        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).filterNot(_.contains("@")).getOrElse("https://bin.example.com")
         |    scala.util.Try(java.net.URI.create(url)).toOption.flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll("^.*@|:[0-9]*$", "")))).filter(_.nonEmpty).getOrElse {
         |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
         |      "bin.example.com"
@@ -247,7 +250,7 @@ class ReposConfigTest extends FunSuite:
       RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
     assert(
       credentials.sbtContent.contains(
-        """val url = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse("https://repo\"host")"""
+        """val url = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).filterNot(_.contains("@")).getOrElse("https://repo\"host")"""
       ),
       credentials.sbtContent
     )
@@ -261,10 +264,7 @@ class ReposConfigTest extends FunSuite:
     val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
     assert(
       gitlab.sbtContent.contains(
-        """sys.env.get("GITLAB_REPO").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] GITLAB_REPO has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {
-          |      println("[warn] GITLAB_REPO is not set - the repo of the last ./helper.scala update: https://gitlab.example.com/api/v4/projects/1/packages/maven")
-          |      "https://gitlab.example.com/api/v4/projects/1/packages/maven"
-          |    }""".stripMargin
+        SbtCode.envUrlOrElseWarn(Some("GITLAB_REPO"), "https://gitlab.example.com/api/v4/projects/1/packages/maven", "    ")
       ),
       gitlab.sbtContent
     )
@@ -405,27 +405,32 @@ class ReposConfigTest extends FunSuite:
     assertEquals(SbtCode.maskUserInfo("u:s@host/r"), "***@host/r")
     assertEquals(SbtCode.maskUserInfo("https://host/r"), "https://host/r")
 
-  test("artifactoryFromEnv: a warning for the old env names of a name with other characters"):
-    val out = java.io.ByteArrayOutputStream()
-    val repos = Console.withOut(out):
-      ReposConfig.artifactoryFromEnv(
-        "acme-bank",
-        Map("ACME-BANK_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases").get
-      )
-    assertEquals(repos, ReposConfig.dummyRepos)
-    assert(
-      out.toString.contains(
-        "[warn] ACME-BANK_MVN_RELEASE_REPOSITORY is set, but not read any more - rename the ..._MVN_* variables to ACME_BANK_MVN_RELEASE_REPOSITORY etc."
-      ),
-      out.toString
+  test("artifactoryFromEnv: a warning for each old env name of a name with other characters"):
+    var warnings = Seq.empty[String]
+    val repos    = ReposConfig.artifactoryFromEnv(
+      "acme-bank",
+      Map(
+        "ACME-BANK_MVN_RELEASE_REPOSITORY"  -> "https://bin.example.com/artifactory/releases",
+        "ACME-BANK_MVN_REPOSITORY_USERNAME" -> "me",
+        "ACME-BANK_MVN_REPOSITORY_PASSWORD" -> "secret"
+      ).get,
+      warn = w => warnings :+= w
     )
-    // once per JVM - also if a company config calls it again
-    val again = java.io.ByteArrayOutputStream()
-    Console.withOut(again):
-      ReposConfig.artifactoryFromEnv(
-        "acme-bank",
-        Map("ACME-BANK_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases").get
+    assertEquals(repos, ReposConfig.dummyRepos)
+    assertEquals(
+      warnings,
+      Seq(
+        "[warn] ACME-BANK_MVN_RELEASE_REPOSITORY is set, but not read any more - rename it to ACME_BANK_MVN_RELEASE_REPOSITORY",
+        "[warn] ACME-BANK_MVN_REPOSITORY_USERNAME is set, but not read any more - rename it to ACME_BANK_MVN_REPOSITORY_USERNAME",
+        "[warn] ACME-BANK_MVN_REPOSITORY_PASSWORD is set, but not read any more - rename it to ACME_BANK_MVN_REPOSITORY_PASSWORD"
       )
-    assertEquals(again.toString, "")
+    )
+
+  test("warnOnce: a message once per JVM"):
+    val out = java.io.ByteArrayOutputStream()
+    Console.withOut(out):
+      ReposConfig.warnOnce("[warn] only once - ReposConfigTest")
+      ReposConfig.warnOnce("[warn] only once - ReposConfigTest")
+    assertEquals(out.toString, "[warn] only once - ReposConfigTest\n")
 
 end ReposConfigTest

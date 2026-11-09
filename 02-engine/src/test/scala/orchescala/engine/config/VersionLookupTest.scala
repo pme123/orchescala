@@ -3,7 +3,6 @@ package orchescala.engine.config
 import com.sun.net.httpserver.HttpServer
 import munit.FunSuite
 
-import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 
 /** `Artifactory.versionLookup` against a local stand-in of Artifactory's search API - curl as in
@@ -37,35 +36,50 @@ class VersionLookupTest extends FunSuite:
 
   override def afterAll(): Unit = server.stop(0)
 
-  // PATH and HOME are set on every machine - as user and password of the test
-  private def artifactory(port: Int = server.getAddress.getPort) =
-    RepoConfig.Artifactory("release", s"http://127.0.0.1:$port/artifactory", "releases", "PATH", "HOME")
+  // the lookup runs curl - without it there is nothing to test
+  private lazy val hasCurl =
+    scala.util.Try(os.proc("curl", "--version").call(check = false).exitCode == 0).getOrElse(false)
 
-  private def withOut[A](body: => A): (A, String) =
-    val out    = ByteArrayOutputStream()
-    val result = Console.withOut(out)(body)
-    result -> out.toString
+  private val credentials = Map("TEST_REPO_USER" -> "me", "TEST_REPO_PWD" -> """se"c\ret""").get
+
+  private def artifactory(port: Int = server.getAddress.getPort) =
+    RepoConfig.Artifactory("release", s"http://127.0.0.1:$port/artifactory", "releases", "TEST_REPO_USER", "TEST_REPO_PWD")
+
+  /** the lookup of a repo - and the warnings it gave */
+  private class Lookup(repo: RepoConfig.Artifactory):
+    var warnings: Seq[String] = Seq.empty
+    val lookup                = repo.versionLookupWith(credentials, w => warnings :+= w)
+
+  override def beforeEach(context: BeforeEach): Unit =
+    assume(hasCurl, "curl is not installed")
 
   test("a known package - its version"):
-    val repo = artifactory()
-    assertEquals(withOut(repo.versionLookup("known", "acme")), Some("1.2.3") -> "")
-    assertEquals(repo.versionLookup("with space", "acme"), Some("2.0.0"))
+    val repo = Lookup(artifactory())
+    assertEquals(repo.lookup("known", "acme"), Some("1.2.3"))
+    assertEquals(repo.lookup("with space", "acme"), Some("2.0.0"))
+    assertEquals(repo.warnings, Seq.empty)
 
   test("a package that is not in the repo (404) - None, no warning"):
-    assertEquals(withOut(artifactory().versionLookup("missing", "acme")), None -> "")
+    val repo = Lookup(artifactory())
+    assertEquals(repo.lookup("missing", "acme"), None)
+    assertEquals(repo.warnings, Seq.empty)
 
   test("another HTTP status - None, a warning once per repo"):
-    val repo              = artifactory()
-    val (first, warning)  = withOut(repo.versionLookup("broken", "acme"))
-    assertEquals(first, None)
-    assert(warning.contains("[warn] The version of acme:broken could not be looked up"), warning)
-    assert(warning.contains("HTTP 500"), warning)
-    assertEquals(withOut(repo.versionLookup("broken", "acme")), None -> "")
+    val repo = Lookup(artifactory())
+    assertEquals(repo.lookup("broken", "acme"), None)
+    assertEquals(repo.lookup("broken", "acme"), None)
+    assertEquals(repo.warnings.size, 1, repo.warnings)
+    assert(repo.warnings.head.contains("[warn] The version of acme:broken could not be looked up"), repo.warnings)
+    assert(repo.warnings.head.contains("HTTP 500"), repo.warnings)
 
   test("no server (curl fails) - None, a warning"):
     val closedPort = { val s = java.net.ServerSocket(0); val p = s.getLocalPort; s.close(); p }
-    val (result, warning) = withOut(artifactory(closedPort).versionLookup("known", "acme"))
-    assertEquals(result, None)
-    assert(warning.contains("could not be looked up") && warning.contains("curl 7"), warning)
+    val repo       = Lookup(artifactory(closedPort))
+    assertEquals(repo.lookup("known", "acme"), None)
+    assert(repo.warnings.exists(w => w.contains("could not be looked up") && w.contains("curl 7")), repo.warnings)
+
+  test("without the credentials variables - None, no request"):
+    val lookup = artifactory().versionLookupWith(_ => None, w => fail(s"no warning expected: $w"))
+    assertEquals(lookup("known", "acme"), None)
 
 end VersionLookupTest
