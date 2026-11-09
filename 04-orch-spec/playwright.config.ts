@@ -2,7 +2,8 @@
 // statically, without a studio. `npm run test:standalone` builds it to dist-standalone/ first.
 import { defineConfig, devices } from '@playwright/test';
 
-const port = 4173;
+// not 4173, the default of `vite preview` - another app there would be taken for this one
+const port = 4319;
 
 export default defineConfig({
   testDir: 'e2e',
@@ -16,6 +17,6 @@ export default defineConfig({
     // a static server and nothing else - no proxy, no /ai/, no /spec/
     command: `npx vite preview --outDir dist-standalone --base / --port ${port} --strictPort`,
     url: `http://localhost:${port}/`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });

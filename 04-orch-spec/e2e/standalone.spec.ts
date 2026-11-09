@@ -83,7 +83,10 @@ const savedPages = (page: Page) =>
 
 test('without a studio: folder, process and page work, no AI', async ({ page }) => {
   const w = watch(page);
+  const config = page.waitForResponse('**/ai/config');
   await openFolder(page);
+  // the checks for «no AI» below come after orch-spec read the answer - a static server has no studio
+  expect((await config).status()).toBe(404);
 
   await openProcess(page);
   await expect(page.locator(AI.process)).toHaveCount(0);
@@ -95,7 +98,7 @@ test('without a studio: folder, process and page work, no AI', async ({ page }) 
   await expect(page.locator(AI.header)).toHaveCount(0);
   expect(w.errors).toEqual([]);
   // asked once whether there is a studio - nothing else went to it
-  expect(w.studio.every((r) => r === 'GET /ai/config')).toBe(true);
+  expect(w.studio).toEqual(['GET /ai/config']);
 });
 
 test('a studio that does not answer does not hold orch-spec up', async ({ page }) => {
@@ -103,7 +106,9 @@ test('a studio that does not answer does not hold orch-spec up', async ({ page }
   test.setTimeout(10_000);
   // /ai/config never answers - the folder opens anyway
   await page.route('**/ai/config', () => { /* left pending */ });
+  const asked = page.waitForRequest('**/ai/config');
   await openFolder(page);
+  await asked;
   await openProcess(page);
   await expect(page.locator(AI.process)).toHaveCount(0);
 });
