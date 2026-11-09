@@ -133,7 +133,10 @@ the generated `project/Settings.scala`, which is committed.
 The generated build reads a variable the same way as the helper: spaces around and slashes at the
 end removed, an empty one counts as not set. Without the variable it takes the url of the last
 `./helper.scala update` - maybe of another machine - and prints a warning; a url without host gives
-a warning too, and the credentials keep the host of the update.
+a warning too, and the credentials keep the host of the update. User info in a variable
+(`https://user:password@...`) is removed before the url becomes a resolver, with a (masked)
+warning - otherwise sbt/coursier would log it with the password, e.g. for a url it can not parse.
+The credentials come from the `..._MVN_REPOSITORY_USERNAME` / `_PASSWORD` variables.
 
 The dependency repo gets its own resolver name `Artifactory Realm 2` (the name of the sbt
 resolver, not the auth realm) - sbt does not load from two resolvers of the same host with the same

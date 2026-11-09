@@ -143,7 +143,7 @@ class ReposConfigTest extends FunSuite:
     // the exact snippet: the regex in `replaceAll`, the warning when the variable is not set
     assertEquals(
       repos.repos.head.sbtContent.linesIterator.slice(1, 5).mkString("\n"),
-      """  lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {
+      """  lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {
         |    println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY is not set - the repo of the last ./helper.scala update: https://bin.example.com/artifactory/my-releases")
         |    "https://bin.example.com/artifactory/my-releases"
         |  }""".stripMargin
@@ -158,7 +158,7 @@ class ReposConfigTest extends FunSuite:
       repos.credentials.head.sbtContent.linesIterator.take(9).mkString("\n"),
       """  // the host of the credentials - from MYCOMPANY_MVN_RELEASE_REPOSITORY
         |  lazy val mycompanyRepoHost: String = {
-        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com")
+        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse("https://bin.example.com")
         |    scala.util.Try(java.net.URI.create(url)).toOption.flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll("^.*@|:[0-9]*$", "")))).filter(_.nonEmpty).getOrElse {
         |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
         |      "bin.example.com"
@@ -247,7 +247,7 @@ class ReposConfigTest extends FunSuite:
       RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
     assert(
       credentials.sbtContent.contains(
-        """val url = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://repo\"host")"""
+        """val url = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse("https://repo\"host")"""
       ),
       credentials.sbtContent
     )
@@ -261,7 +261,7 @@ class ReposConfigTest extends FunSuite:
     val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
     assert(
       gitlab.sbtContent.contains(
-        """sys.env.get("GITLAB_REPO").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {
+        """sys.env.get("GITLAB_REPO").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] GITLAB_REPO has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {
           |      println("[warn] GITLAB_REPO is not set - the repo of the last ./helper.scala update: https://gitlab.example.com/api/v4/projects/1/packages/maven")
           |      "https://gitlab.example.com/api/v4/projects/1/packages/maven"
           |    }""".stripMargin

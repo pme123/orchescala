@@ -15,6 +15,7 @@ object SbtCode:
   // password, also one with a `/`, or a url without `//`
   private val userInfo            = "^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@"
   private val userInfoMasked      = "$1***@"
+  private val userInfoRemoved     = "$1"
 
   /** A Scala string literal of `value` - quotes and backslashes escaped. */
   def literal(value: String): String =
@@ -50,7 +51,7 @@ object SbtCode:
     env
       .map: e =>
         val warning = literal(s"[warn] $e is not set - the repo of the last ./helper.scala update: $url")
-        s"""${envUrl(e)}.getOrElse {
+        s"""${envUrl(e, warnUserInfo = true)}.getOrElse {
            |$indent  println($warning)
            |$indent  ${literal(url)}
            |$indent}""".stripMargin
@@ -63,9 +64,21 @@ object SbtCode:
   def maskUserInfoExpr(urlExpr: String): String =
     s"$urlExpr.replaceAll(${literal(userInfo)}, ${literal(userInfoMasked)})"
 
-  /** The url of an env variable in the generated build, an `Option[String]` (as `trimUrl`). */
-  private def envUrl(env: String): String =
-    s"sys.env.get(${literal(env)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")})).filter(_.nonEmpty)"
+  /** The url of an env variable in the generated build, an `Option[String]` (as `trimUrl`) -
+    * without user info: sbt/coursier would log it with the password (e.g. a resolver url it can
+    * not parse); the credentials are in the `..._USERNAME` / `_PASSWORD` variables. With
+    * `warnUserInfo` a removed user info gives a warning (masked).
+    */
+  private def envUrl(env: String, warnUserInfo: Boolean = false): String =
+    val warning =
+      if warnUserInfo then
+        val text = literal(
+          s"[warn] $env has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: "
+        )
+        s"""if (u.contains("@")) println($text + ${maskUserInfoExpr("u")}); """
+      else ""
+    s"sys.env.get(${literal(env)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")})).filter(_.nonEmpty)" +
+      s".map { u => ${warning}u.replaceAll(${literal(userInfo)}, ${literal(userInfoRemoved)}) }"
 
   /** The host of a url in the generated build (as `RepoConfig.hostOf`), an `Option[String]`. */
   def hostOf(uriExpr: String): String =

@@ -109,13 +109,13 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(settings.contains("resolvers ++= Seq(releaseRepo, mavenRepo)"), settings)
       assert(
         settings.contains(
-          """lazy val releaseRepoStr = sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {"""
+          """lazy val releaseRepoStr = sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] DEMOCOMPANY_MVN_RELEASE_REPOSITORY has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {"""
         ),
         settings
       )
       assert(
         settings.contains(
-          """lazy val mavenRepoStr = sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {"""
+          """lazy val mavenRepoStr = sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {"""
         ),
         settings
       )

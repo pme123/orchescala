@@ -32,7 +32,7 @@ class SbtCodeTest extends FunSuite:
   test("envUrlOrElseWarn: a warning when the variable is not set"):
     assertEquals(
       SbtCode.envUrlOrElseWarn(Some("A_URL"), "https://x/r", "  "),
-      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse {
+      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => if (u.contains("@")) println("[warn] A_URL has user info - it is removed, the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")); u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse {
         |    println("[warn] A_URL is not set - the repo of the last ./helper.scala update: https://x/r")
         |    "https://x/r"
         |  }""".stripMargin
@@ -42,9 +42,18 @@ class SbtCodeTest extends FunSuite:
   test("envUrlOrElse: the url of the variable as the helper reads it (trimUrl)"):
     assertEquals(
       SbtCode.envUrlOrElse(Some("A_URL"), "https://x/r"),
-      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://x/r")"""
+      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).map { u => u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1") }.getOrElse("https://x/r")"""
     )
     assertEquals(SbtCode.envUrlOrElse(None, "https://x/r"), """"https://x/r"""")
     assertEquals(SbtCode.trimUrl(" https://x/r// "), "https://x/r")
+
+  test("the generated build removes user info of a variable - sbt/coursier would log the password"):
+    val withWarning = SbtCode.envUrlOrElseWarn(Some("A_URL"), "https://x/r", "  ")
+    assert(withWarning.contains("""u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1")"""), withWarning)
+    assert(withWarning.contains("""println("[warn] A_URL has user info - it is removed"""), withWarning)
+    // the warning masks it
+    assert(withWarning.contains(""" + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")"""), withWarning)
+    // the same removal without warning (e.g. for the host of the credentials)
+    assert(SbtCode.envUrlOrElse(Some("A_URL"), "https://x/r").contains("""u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1")"""))
 
 end SbtCodeTest
