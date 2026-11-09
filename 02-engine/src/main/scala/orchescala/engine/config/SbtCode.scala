@@ -60,6 +60,9 @@ object SbtCode:
   /** A url for a message - the user info masked: the part up to the last `@` becomes `***@`. */
   def maskUserInfo(url: String): String = url.replaceAll(userInfo, userInfoMasked)
 
+  /** A url without its user info - what the generated build does with a variable (`envUrl`). */
+  def removeUserInfo(url: String): String = url.replaceAll(userInfo, userInfoRemoved)
+
   /** `maskUserInfo` in the generated build - of the String expression `urlExpr`. */
   def maskUserInfoExpr(urlExpr: String): String =
     s"$urlExpr.replaceAll(${literal(userInfo)}, ${literal(userInfoMasked)})"

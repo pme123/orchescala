@@ -39,6 +39,9 @@ class ConfigCheckTest extends FunSuite:
   test("a configuration that can be read - no error"):
     assertEquals(ConfigCheck.error("config"), None)
     assertEquals(runOrExit("config"), ("", "", Seq.empty))
+    assert(ConfigCheck.orExit("config", _ => ()))
+    // with an exit that does not stop: false - the caller does not run the command
+    assert(!ConfigCheck.orExit(brokenLazyConfig, _ => ()))
 
   test("the message of an error in a lazy val"):
     assertEquals(
@@ -46,11 +49,19 @@ class ConfigCheckTest extends FunSuite:
       Some("ACME_MVN_RELEASE_REPOSITORY is no http(s) url: x")
     )
 
-  test("the message of an error while an object is initialised - also at the 2nd access"):
+  test("the message of an error while an object is initialised"):
+    // the 1st access: ExceptionInInitializerError with the cause - on every JDK
+    assertEquals(
+      ConfigCheck.error(BrokenTopLevelCompanyConfig.repos),
+      Some("ACME_MVN_RELEASE_REPOSITORY has no host: https:///x")
+    )
+
+  test("the message at a further access to the failed object (JDK 18+)"):
+    // JDK 18+ gives the cause of a NoClassDefFoundError as text - before it has none, then it is
+    // the safe branch (message + stack trace); in the helpers `orExit` is the 1st access
+    assume(Runtime.version.feature >= 18, "the replayed cause is JDK 18+")
     val expected = Some("ACME_MVN_RELEASE_REPOSITORY has no host: https:///x")
-    // 1st access: ExceptionInInitializerError with the cause
-    assertEquals(ConfigCheck.error(BrokenTopLevelCompanyConfig.repos), expected)
-    // 2nd access: NoClassDefFoundError - the cause only as text (JDK 18+)
+    val _        = ConfigCheck.error(BrokenTopLevelCompanyConfig.repos) // 1st access, if not yet
     assertEquals(ConfigCheck.error(BrokenTopLevelCompanyConfig.repos), expected)
     // and no stack trace - it is an invalid value
     val (out, err, exits) = runOrExit(BrokenTopLevelCompanyConfig.repos)

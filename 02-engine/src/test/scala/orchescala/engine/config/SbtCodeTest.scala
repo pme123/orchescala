@@ -56,4 +56,21 @@ class SbtCodeTest extends FunSuite:
     // the same removal without warning (e.g. for the host of the credentials)
     assert(SbtCode.envUrlOrElse(Some("A_URL"), "https://x/r").contains("""u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1")"""))
 
+  /** The generated code is only parsed in the tests - its regexes are the same constants as the
+    * helper's runtime functions, so these check what the generated build does with a variable.
+    */
+  test("what the generated build does with a url: trim, remove user info, the host"):
+    val cases = Seq(
+      // variable                                              -> (url of the resolver, host)
+      " https://bin.example.com/artifactory/releases// "       -> ("https://bin.example.com/artifactory/releases", "bin.example.com"),
+      "https://me:secret@bin.example.com/artifactory/releases" -> ("https://bin.example.com/artifactory/releases", "bin.example.com"),
+      "https://u:pa/ss@bin.example.com/artifactory/releases"   -> ("https://bin.example.com/artifactory/releases", "bin.example.com"),
+      "https://my_bin.example.com:8443/artifactory/releases"   -> ("https://my_bin.example.com:8443/artifactory/releases", "my_bin.example.com"),
+      "https://[::1]:8080/artifactory/releases"                -> ("https://[::1]:8080/artifactory/releases", "[::1]")
+    )
+    cases.foreach: (variable, expected) =>
+      val url = SbtCode.removeUserInfo(SbtCode.trimUrl(variable))
+      assertEquals(url -> RepoConfig.hostOf(java.net.URI.create(url)).get, expected, variable)
+    assertEquals(SbtCode.maskUserInfo("https://u:pa/ss@bin.example.com/r"), "https://***@bin.example.com/r")
+
 end SbtCodeTest

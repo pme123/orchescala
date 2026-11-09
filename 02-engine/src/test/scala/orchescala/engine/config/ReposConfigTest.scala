@@ -329,7 +329,7 @@ class ReposConfigTest extends FunSuite:
         Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "https://me:secret@bin.example.com/artifactory/releases").get
       )
     ).getMessage
-    assert(message.startsWith("MYCOMPANY_MVN_RELEASE_REPOSITORY must have no user info"), message)
+    assert(message.startsWith("MYCOMPANY_MVN_RELEASE_REPOSITORY must have no `@` (user info)"), message)
     assert(message.endsWith("https://***@bin.example.com/artifactory/releases"), message)
     assert(!message.contains("secret"), message)
     // also an invalid url with user info
@@ -360,7 +360,7 @@ class ReposConfigTest extends FunSuite:
     ).getMessage
     assertEquals(
       message,
-      "REPO_URL must have no user info - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables: https://***@bin.example.com/artifactory/releases"
+      "REPO_URL must have no `@` (user info) - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables: https://***@bin.example.com/artifactory/releases"
     )
     assert(!message.contains("pa/ss"), message)
 

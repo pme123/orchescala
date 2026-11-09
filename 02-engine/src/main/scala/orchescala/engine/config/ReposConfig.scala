@@ -198,6 +198,10 @@ object RepoConfig:
          |    .withCredentials(Credentials.of(sys.env("$usernameEnv"),
          |      sys.env("$passwordEnv")))""".stripMargin
 
+    // the lookup warns once per instance (a `copy` starts again) - e.g. wrong credentials would
+    // fail every lookup of the repo
+    private val lookupWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** looks up a package's latest version via Artifactory's search API - None if not found there
       * (e.g. a third-party dependency that only exists on Maven Central), so callers can fall
       * back. None (rather than throwing) if the credentials env vars are not set, or the lookup
@@ -205,14 +209,11 @@ object RepoConfig:
       * credentials go through stdin (`curl -K -`) - not visible in `ps`. Blocking (up to 15 s) -
       * for the helper; in a ZIO fiber wrap it in `ZIO.attemptBlocking`.
       */
-    private val lookupWarned = java.util.concurrent.atomic.AtomicBoolean(false)
-
     lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
         def enc(value: String)          = java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8)
         val url                         =
           s"$artifactoryApiUrl/api/search/latestVersion?g=${enc(org)}&a=${enc(project)}&repos=${enc(repo)}"
-        // once per repo - e.g. wrong credentials would fail every lookup
         def failed(reason: String)      =
           if lookupWarned.compareAndSet(false, true) then
             println(
@@ -285,7 +286,7 @@ object RepoConfig:
     // anywhere (not only in the user info URI finds) as `https://user:pa/ss@host/...` is one too
     if uri.getRawUserInfo != null || url.contains('@') then
       invalid(
-        "must have no user info - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables"
+        "must have no `@` (user info) - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables"
       )
     if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
       invalid("is no http(s) url")

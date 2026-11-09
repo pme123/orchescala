@@ -27,10 +27,12 @@ object ConfigCheck:
     failure(config).map(e => invalidValue(e).getOrElse(message(e)))
 
   /** Prints the error of the configuration (with the stack trace if it is no invalid value) and
-    * stops - nothing if it can be read.
+    * stops - nothing if it can be read. True if the configuration can be read - so a caller with
+    * an `exit` that does not stop (e.g. in-process) does not go on with a broken configuration.
     */
-  def orExit(config: => Any, exit: Int => Unit = code => sys.exit(code)): Unit =
-    failure(config).foreach: e =>
+  def orExit(config: => Any, exit: Int => Unit = code => sys.exit(code)): Boolean =
+    val error = failure(config)
+    error.foreach: e =>
       invalidValue(e) match
         case Some(msg) => // an invalid value - the message says it
           println(s"[error] The configuration of the helper could not be read: $msg")
@@ -38,6 +40,7 @@ object ConfigCheck:
           println(s"[error] The configuration of the helper could not be read: ${message(e)}")
           Console.err.println(stackTrace(e))
       exit(1)
+    error.isEmpty
 
   // the JDK's message for a class whose initialisation failed before (since JDK 8)
   private def failedObject(e: NoClassDefFoundError): Boolean =
