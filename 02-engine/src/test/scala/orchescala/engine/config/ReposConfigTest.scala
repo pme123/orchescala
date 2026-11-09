@@ -138,16 +138,12 @@ class ReposConfigTest extends FunSuite:
     assertEquals(onlyRelease.repos.map(_.name), Seq("release"))
     assertEquals(ReposConfig.artifactoryFromEnv("myCompany", _ => None), ReposConfig.dummyRepos)
 
-  test("the generated build reads the env variables - the values are the fallback"):
+  test("the generated build reads the env variables - nothing company-specific of the generation"):
     val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
-    // the url from the variable - with the warnings (the exact snippet: SbtCodeTest)
+    // the url from the variable (the exact snippet: SbtCodeTest)
     assert(
       repos.repos.head.sbtContent.contains(
-        "  lazy val releaseRepoStr = " + SbtCode.envUrlOrElseWarn(
-          Some("MYCOMPANY_MVN_RELEASE_REPOSITORY"),
-          "https://bin.example.com/artifactory/my-releases",
-          "  "
-        )
+        "  lazy val releaseRepoStr = " + SbtCode.envUrlRequired("MYCOMPANY_MVN_RELEASE_REPOSITORY", "  ")
       ),
       repos.repos.head.sbtContent
     )
@@ -157,17 +153,20 @@ class ReposConfigTest extends FunSuite:
       ),
       repos.repos(1).sbtContent
     )
+    // neither the url nor the host of the generation is written into the project's build
+    (repos.repos.map(_.sbtContent) ++ repos.credentials.map(_.sbtContent)).foreach: code =>
+      assert(!code.contains("bin.example.com") && !code.contains("my-releases"), code)
     assertEquals(
       repos.credentials.head.sbtContent.linesIterator.take(9).mkString("\n"),
       """  // the host of the credentials - from MYCOMPANY_MVN_RELEASE_REPOSITORY
         |  lazy val mycompanyRepoHost: String = {
-        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).filterNot(_.contains("@")).getOrElse("https://bin.example.com")
-        |    scala.util.Try(java.net.URI.create(url)).toOption.flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll("^.*@|:[0-9]*$", "")))).filter(_.nonEmpty).getOrElse {
-        |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
-        |      "bin.example.com"
+        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty) match {
+        |      case Some(u) if u.contains("@") => throw new IllegalArgumentException("MYCOMPANY_MVN_RELEASE_REPOSITORY must not contain an `@` - no user info: the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
+        |      case Some(u) => u
+        |      case None => throw new IllegalArgumentException("System Environment Variable MYCOMPANY_MVN_RELEASE_REPOSITORY is not set.")
         |    }
-        |  }
-        |  lazy val mycompanyCredentials: Credentials = (for {""".stripMargin
+        |    scala.util.Try(java.net.URI.create(url)).toOption.flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll("^.*@|:[0-9]*$", "")))).filter(_.nonEmpty).getOrElse(throw new IllegalArgumentException("MYCOMPANY_MVN_RELEASE_REPOSITORY has no host: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")))
+        |  }""".stripMargin
     )
     assert(
       repos.credentials.head.sbtContent.contains("""Credentials("Artifactory Realm", mycompanyRepoHost, user, pwd)"""),
@@ -239,35 +238,29 @@ class ReposConfigTest extends FunSuite:
     assertEquals(release.artifactoryApiUrl -> release.repo, "https://bin.example.com" -> "releases")
 
   test("the generated code escapes quotes and backslashes of the values"):
-    val repo = artifactory.copy(repo = """libs"release""", urlEnv = Some("REPO_URL"))
+    // without variable the configured values are written - escaped
+    val repo = artifactory.copy(repo = """libs"release""")
     assert(
       repo.sbtContent.contains(
-        """    "https://repo.example.com/artifactory/libs\"release""""
+        """lazy val releaseRepoStr = "https://repo.example.com/artifactory/libs\"release""""
       ),
       repo.sbtContent
     )
-    val credentials =
-      RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
-    assert(
-      credentials.sbtContent.contains(
-        """val url = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).filterNot(_.contains("@")).getOrElse("https://repo\"host")"""
-      ),
-      credentials.sbtContent
-    )
-    assert(credentials.sbtContent.contains("""      "repo\"host""""), credentials.sbtContent)
-    assert(
-      credentials.sbtContent.contains("""println("[warn] REPO_URL has no host - the credentials are for repo\"host: " + url."""),
-      credentials.sbtContent
-    )
+    val credentials = RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD")
+    assert(credentials.sbtContent.contains("""Credentials("Artifactory Realm", "repo\"host", user, pwd)"""), credentials.sbtContent)
+    // with a variable: its name is escaped
+    val withEnv = RepoCredentials.UserPassword("mine", "repo.example.com", "MY_USER", "MY_PWD", repoUrlEnv = Some("""REPO"URL"""))
+    assert(withEnv.sbtContent.contains("""sys.env.get("REPO\"URL")"""), withEnv.sbtContent)
 
   test("a GitLab repo with an env variable"):
     val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
     assert(
       gitlab.sbtContent.contains(
-        SbtCode.envUrlOrElseWarn(Some("GITLAB_REPO"), "https://gitlab.example.com/api/v4/projects/1/packages/maven", "    ")
+        SbtCode.envUrlRequired("GITLAB_REPO", "    ")
       ),
       gitlab.sbtContent
     )
+    assert(!gitlab.sbtContent.contains("gitlab.example.com"), gitlab.sbtContent)
     assert(RepoConfig.Gitlab("release", "https://x").sbtContent.contains("""    "https://x""""))
 
   test("artifactoryFromEnv: an empty variable counts as not set"):
@@ -392,12 +385,12 @@ class ReposConfigTest extends FunSuite:
     assertEquals(RepoConfig.hostOf(java.net.URI.create("https://my_bin.example.com:8443/a/r")), Some("my_bin.example.com"))
     assertEquals(RepoConfig.hostOf(java.net.URI.create("https://me@my_bin.example.com:8443/a/r")), Some("my_bin.example.com"))
 
-  test("the generated warning masks user info of the variable"):
+  test("the generated error for a url without host masks user info of the variable"):
     val credentials =
       RepoCredentials.UserPassword("mine", "bin.example.com", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
     assert(
       credentials.sbtContent.contains(
-        """println("[warn] REPO_URL has no host - the credentials are for bin.example.com: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))"""
+        """throw new IllegalArgumentException("REPO_URL has no host: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))"""
       ),
       credentials.sbtContent
     )

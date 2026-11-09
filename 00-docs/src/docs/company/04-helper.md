@@ -98,7 +98,8 @@ private lazy val companySbtConfig = SbtConfig(
 #### Repos and Docker from the env variables
 Instead of fixed values the generated `project/Settings.scala` can read the env variables of the
 company - the same ones the build of the `company-orchescala` project uses. So a project follows
-them without a new `./helper.scala update`; the values at the time of the update are only the fallback.
+them without a new `./helper.scala update`, and nothing company-specific (no url, no host) is
+written into the committed build: the variables are required, as the username and password.
 
 ```scala
 private lazy val companySbtConfig = SbtConfig(
@@ -127,17 +128,15 @@ if `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` is set (no silent dummy repo). A url th
 set but no `http(s)://<host>/.../<repo>` - with a query, a fragment or user info (`user:password@`)
 - fails with an error naming the variable (the password masked) - on purpose: the company config
 reads it, so every command of the helper stops (with the message, no stack trace), instead of
-publishing to or resolving from the dummy repo. User info is refused as the url is written into
-the generated `project/Settings.scala`, which is committed.
+publishing to or resolving from the dummy repo. The credentials belong in the
+`..._MVN_REPOSITORY_USERNAME` / `_PASSWORD` variables, not in a url.
 
 The generated build reads a variable the same way as the helper: spaces around and slashes at the
-end removed, an empty one counts as not set. Without the variable it takes the url of the last
-`./helper.scala update` - maybe of another machine - and prints a warning; a url without host gives
-a warning too, and the credentials keep the host of the update. A variable with an `@`
-(user info, `https://user:password@...` - refused by the helper) is not used: the build takes the
-url of the update, with a (masked) warning - the password never reaches a resolver, so
-sbt/coursier can not log it; and the url is not rewritten (an `@` in the path would give another
-host). The credentials come from the `..._MVN_REPOSITORY_USERNAME` / `_PASSWORD` variables.
+end removed, an empty one counts as not set. Not set, empty, with an `@` (user info, refused - the
+password never reaches a resolver, so sbt/coursier can not log it) or without host, sbt stops
+loading with a message naming the variable (the url masked) - as for a missing username or
+password. There is no fallback: the build has nothing of the `./helper.scala update` - neither
+url nor host - so it can not use the values of another machine.
 
 The dependency repo gets its own resolver name `Artifactory Realm 2` (the name of the sbt
 resolver, not the auth realm) - sbt does not load from two resolvers of the same host with the same
