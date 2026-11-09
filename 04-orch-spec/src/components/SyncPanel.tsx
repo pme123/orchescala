@@ -24,7 +24,7 @@ import { AlertTriangle, Database, FolderOpen, Loader2, MessageSquare, RefreshCw,
 import { allSteps, patternDiff, type MergeReport, type MergeStatus } from '../bpmn';
 import { commentTargets } from '../comments';
 import { mergeDomain, type DomainMergeReport } from '../domainMerge';
-import { enrichSpec, findSyncDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type DomainHit } from '../projectImport';
+import { enrichSpec, findSyncDomain, prepareInteractions, readProjectDir, readProjectZip, rememberOwnFolder, scanDomain, type DomainHit } from '../projectImport';
 import { STATUSES, STATUS_META, type Model, type ProcessSpec, type Status } from '../types';
 import { cls } from '../ui';
 import { patternDefs } from '../patterns';
@@ -118,14 +118,17 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     return () => { alive = false; };
   }, [processId, model]);
 
-  /** Supply the domain later from a chosen folder or ZIP. */
-  const domainFrom = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string) => {
+  /** Supply the domain later from a chosen folder or ZIP — a chosen folder with the process is remembered as its project folder. */
+  const domainFrom = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string, dir?: FileSystemDirectoryHandle) => {
     try {
       setBusy(`${source} wird gelesen …`);
       const domain = scanDomain(await read());
       if (!domain.some(t => t.processName === processId && t.owner)) {
         setError(`In ${source} gibt es kein Objekt mit \`val processName = "${processId}"\`.`);
-      } else { setError(''); setUnreadable([]); setHit({ domain, source }); picked.current = processId; }
+      } else {
+        if (dir && processId) await rememberOwnFolder(model, processId, dir);
+        setError(''); setUnreadable([]); setHit({ domain, source }); picked.current = processId;
+      }
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -135,7 +138,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   const pickDir = async () => {
     if (!('showDirectoryPicker' in window)) { setError('Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.'); return; }
     const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
-    if (dir) await domainFrom(() => readProjectDir(dir), `Ordner ${dir.name}`);
+    if (dir) await domainFrom(() => readProjectDir(dir), `Ordner ${dir.name}`, dir);
   };
 
   // The result — recomputed on every setting, nothing is stored

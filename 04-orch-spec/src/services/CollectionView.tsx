@@ -25,7 +25,8 @@ import {
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
 import { catalogProjects, knownProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
-import { findSyncDomainFor, readProjectDir, readProjectZip, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
+import { readSources } from '../projects';
+import { findSyncDomainFor, readProjectZip, rememberOwnFolder, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
 import { MethodChip } from './ui';
 import { headerVar } from './names';
@@ -82,6 +83,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [syncBusy, setSyncBusy] = useState('');
   /** the own project folder is remembered but not readable — the Abgleich asks for it instead of taking the catalog */
   const [syncBlocked, setSyncBlocked] = useState<string[] | null>(null);
+  // what reading the chosen folder or ZIP gave — shown in the dialog, not behind it
+  const [blockedNote, setBlockedNote] = useState<{ text: string; ok: boolean } | null>(null);
   // the part of the service in view — marked in the outline on the left
   const pane = useRef<HTMLDivElement>(null);
   const [activePart, setActivePart] = useState<ServicePart | null>(null);
@@ -162,39 +165,51 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
 
   // Abgleich with the catalog: what changes is shown first, nothing is deleted without asking
   // as the process sync: the own project folder first (it has the current state), the catalog otherwise
-  const syncFrom = (hit: DomainHit | null) => {
+  /** opens the preview of the changes — or gives the note why there is none */
+  const syncFrom = (hit: DomainHit | null): string | undefined => {
     const cur = latest.current;
-    if (!cur) return;
+    if (!cur) return undefined;
     const source = hit?.source ?? 'Katalog';
     const r = syncWithCatalog(cur, hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model);
-    if (!r) { setSyncNote(hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt'); return; }
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) { setSyncNote(`Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`}`); return; }
+    if (!r) return hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt';
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern`;
     setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}) });
+    return undefined;
   };
   const runSync = async () => {
     const cur = latest.current;
     if (!cur) return;
-    setSyncNote(''); setSyncBlocked(null); setSyncBusy('Domain wird gesucht …');
+    setSyncNote(''); setSyncBlocked(null); setBlockedNote(null); setSyncBusy('Domain wird gesucht …');
     try {
       const hit = await findSyncDomainFor(serviceProjectTarget(cur.project), model, setSyncBusy);
       if (hit && 'blocked' in hit) { setSyncBlocked(hit.unreadable); return; }
-      syncFrom(hit);
+      setSyncNote(syncFrom(hit) ?? '');
     } catch (e) {
       setSyncNote(e instanceof Error ? e.message : String(e));
     } finally { setSyncBusy(''); }
   };
-  /** the domain from a chosen folder or ZIP — when the remembered one is not readable */
-  const syncFromFiles = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string) => {
+  /**
+   * The domain from a chosen folder or ZIP — when the remembered one is not readable. A chosen
+   * folder that has the services is remembered as the project folder: the next Abgleich reads it.
+   * What it gives stays in the dialog until there is a preview.
+   */
+  const syncFromFiles = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string, dir?: FileSystemDirectoryHandle) => {
     const cur = latest.current;
     if (!cur) return;
+    setBlockedNote(null);
     setSyncBusy(`${source} wird gelesen …`);
     try {
       const domain = scanDomain(await read());
-      if (!serviceProjectTarget(cur.project).has(domain)) { setSyncNote(`In ${source} gibt es keine Services von ${cur.project}`); return; }
-      setSyncBlocked(null);
-      syncFrom({ domain, source });
+      if (!serviceProjectTarget(cur.project).has(domain)) {
+        setBlockedNote({ text: `In ${source} gibt es keine Services von ${cur.project} — den Ordner dieses Projekts wählen.`, ok: false });
+        return;
+      }
+      const remembered = dir ? await rememberOwnFolder(model, cur.project, dir) : false;
+      const note = syncFrom({ domain, source });
+      if (!note) { setSyncBlocked(null); return; }
+      setBlockedNote({ text: `${note}.${remembered ? ' Der Ordner ist gemerkt — der nächste Abgleich liest ihn direkt.' : ''}`, ok: true });
     } catch (e) {
-      if (!(e instanceof Error && e.name === 'AbortError')) setSyncNote(e instanceof Error ? e.message : String(e));
+      if (!(e instanceof Error && e.name === 'AbortError')) setBlockedNote({ text: e instanceof Error ? e.message : String(e), ok: false });
     } finally { setSyncBusy(''); }
   };
   const applySync = (r: CatalogSync) => {
@@ -245,11 +260,15 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       )}
 
       {syncBlocked && (
-        <SyncBlocked unreadable={syncBlocked} busy={!!syncBusy} isDark={isDark} onCancel={() => setSyncBlocked(null)}
+        <SyncBlocked unreadable={syncBlocked} busy={syncBusy} note={blockedNote} isDark={isDark}
+          onCancel={() => { if (blockedNote?.ok) setSyncNote(blockedNote.text); setSyncBlocked(null); setBlockedNote(null); }}
           onFolder={async () => {
-            if (!('showDirectoryPicker' in window)) { setSyncNote('Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.'); return; }
+            if (!('showDirectoryPicker' in window)) { setBlockedNote({ text: 'Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.', ok: false }); return; }
             const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
-            if (dir) await syncFromFiles(() => readProjectDir(dir), `Ordner ${dir.name}`);
+            if (!dir) return;
+            // as the remembered folder: with the count of the files read so far
+            const read = async () => { const files: Array<{ path: string; text: string }> = []; await readSources(dir, '', files, n => setSyncBusy(`Ordner ${dir.name}: ${n} Dateien gelesen …`)); return files; };
+            await syncFromFiles(read, `Ordner ${dir.name}`, dir);
           }}
           onZip={f => void syncFromFiles(async () => readProjectZip(new Uint8Array(await f.arrayBuffer())), f.name)} />
       )}
@@ -502,8 +521,9 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
 
 /** What the Abgleich with the catalog changes — before it applies. */
 /** The own project folder is remembered but not readable — as in the process sync: choose it, or a ZIP. */
-function SyncBlocked({ unreadable, busy, isDark, onCancel, onFolder, onZip }: {
-  unreadable: string[]; busy: boolean; isDark: boolean; onCancel: () => void; onFolder: () => void; onZip: (f: File) => void;
+function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip }: {
+  unreadable: string[]; busy: string; note: { text: string; ok: boolean } | null; isDark: boolean;
+  onCancel: () => void; onFolder: () => void; onZip: (f: File) => void;
 }) {
   const c = cls(isDark);
   const zip = useRef<HTMLInputElement>(null);
@@ -516,16 +536,22 @@ function SyncBlocked({ unreadable, busy, isDark, onCancel, onFolder, onZip }: {
           Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich den Zugriff je
           Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt — Projekt-Ordner oder ZIP wählen.
         </p>
+        {busy && <p className={`text-[11px] flex items-center gap-1.5 ${c.muted}`}><Loader2 size={11} className="animate-spin" /> {busy}</p>}
+        {!busy && note && (
+          <p className={`text-[11px] flex items-start gap-1.5 ${note.ok ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-rose-300' : 'text-rose-700')}`}>
+            {note.ok ? <Check size={11} className="mt-0.5 shrink-0" /> : <AlertTriangle size={11} className="mt-0.5 shrink-0" />} {note.text}
+          </p>
+        )}
         <div className="flex items-center gap-2">
-          <button onClick={onFolder} disabled={busy} className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
+          <button onClick={onFolder} disabled={!!busy} className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
             <FolderOpen size={12} /> Projekt-Ordner wählen
           </button>
           <input ref={zip} type="file" accept=".zip" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) onZip(f); e.target.value = ''; }} />
-          <button onClick={() => zip.current?.click()} disabled={busy} className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
+          <button onClick={() => zip.current?.click()} disabled={!!busy} className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded border disabled:opacity-40 ${c.btn}`}>
             <Upload size={12} /> ZIP wählen
           </button>
-          <button onClick={onCancel} className={`ml-auto text-[11px] px-3 py-1 rounded border ${c.btn}`}>Abbrechen</button>
+          <button onClick={onCancel} className={`ml-auto text-[11px] px-3 py-1 rounded border ${c.btn}`}>{note?.ok ? 'Schliessen' : 'Abbrechen'}</button>
         </div>
       </div>
     </div>
