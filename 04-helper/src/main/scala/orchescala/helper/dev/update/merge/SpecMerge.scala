@@ -11,9 +11,15 @@ import scala.util.{Failure, Success, Try}
   * implementation. Two steps: first check (`checkMerge` gives the plan, writes nothing), then
   * execute exactly the plan (`merge`). No output, no questions - the CLI prints the plan.
   *
-  * The base is the export of the spec before the change (`GitRev("HEAD")`: the spec is in the
-  * repository), so no copy of the last export is kept. Base, new and code are compared per file
-  * of the project:
+  * The Scala files of the export (the domain classes) are merged into the code by structure - the
+  * code is the basis, whatever the spec was before (`ScalaMerge`): what Orch Spec generates comes
+  * in, the own implementation stays, and what only the code has (classes, objects, cases of an
+  * enum - or a whole file of them next to the generated ones) is a `Removal`: it goes only when
+  * the developer says so (`merge` with `remove`). The process object is merged by structure too.
+  *
+  * For the other files the base is the export of the spec before the change (`GitRev("HEAD")`: the
+  * spec is in the repository), so no copy of the last export is kept. Base, new and code are
+  * compared per file of the project:
   *
   * | base -> new   | code                       | action                                   |
   * |---------------|----------------------------|------------------------------------------|
@@ -146,14 +152,14 @@ object SpecMerge:
       )
 
     val spec = specFiles.toSeq.flatMap(files => takeOver(project, files))
-    MergePlan(config.projectName, generated ++ registrations ++ spec, messages.result().distinct)
+    MergePlan(config.projectName, generated ++ orphans(project, newFiles.values.toSeq, rels.toSet) ++ registrations ++ spec, messages.result().distinct)
   end plan
 
   /** 2. Merge: exactly the plan - first all `codeHash` are checked: if a file changed since the
     * check, it aborts without writing a file (`MergeAborted`). If writing or deleting a file fails,
     * it stops there - `MergeIncomplete` tells what was done before.
     */
-  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict): MergeResult =
+  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Boolean = false): MergeResult =
     val changed = plan.files.filter(f => hashOf(project / os.RelPath(f.path)) != f.codeHash).map(_.path)
     if changed.nonEmpty then throw MergeAborted(changed)
     val written = Seq.newBuilder[String]
@@ -180,16 +186,27 @@ object SpecMerge:
         finally Try(os.remove(temp))
       end if
       written += f.path
-    def result = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict))
+    val removed = Seq.newBuilder[String]
+    def result  = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result())
+    def planned(f: PlannedFile): Unit = f.action match
+      case Action.create | Action.update | Action.merged       => write(f)
+      case Action.delete                                       =>
+        os.remove(project / os.RelPath(f.path))
+        deleted += f.path
+      case Action.conflict if onConflict == OnConflict.Markers => write(f)
+      case _                                                   => ()
     plan.files.foreach: f =>
       try
-        f.action match
-          case Action.create | Action.update | Action.merged => write(f)
-          case Action.delete                                 =>
+        f.removal.filter(_ => remove) match
+          // what only the code has - the developer said it goes
+          case Some(Removal(names, None))          =>
             os.remove(project / os.RelPath(f.path))
             deleted += f.path
-          case Action.conflict if onConflict == OnConflict.Markers => write(f)
-          case _                                             => ()
+            removed ++= names
+          case Some(Removal(names, Some(content))) =>
+            write(f.copy(content = Some(content), binary = false))
+            removed ++= names
+          case None                                => planned(f)
       catch case NonFatal(e) => throw MergeIncomplete(result, f.path, e)
     result
   end merge
@@ -207,8 +224,26 @@ object SpecMerge:
       code: Option[String],
       hash: Option[String]
   ): Option[PlannedFile] =
-    def file(action: Action, content: Option[String] = None, conflicts: Seq[Conflict] = Seq.empty, note: Option[String] = None) =
-      Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note))
+    def file(
+        action: Action,
+        content: Option[String] = None,
+        conflicts: Seq[Conflict] = Seq.empty,
+        note: Option[String] = None,
+        removal: Option[Removal] = None
+    ) =
+      Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note, removal = removal))
+    // a Scala file of the export: by structure into the code - the code is the basis
+    def intoCode(c: String, n: String) =
+      if same(c, n) then file(Action.unchanged)
+      else
+        val r       = ScalaMerge.merge(c, n)
+        val removal = Option.when(r.removable.nonEmpty)(Removal(r.removable, Some(r.without)))
+        if same(r.text, c) then file(Action.unchanged, note = Option.when(removal.isEmpty)("only the form differs"), removal = removal)
+        else file(Action.merged, Some(r.text), removal = removal)
+    def structural(f: GeneratedFile) = f.kind == FileKind.Export && rel.ext == "scala"
+    def processObject(n: GeneratedFile, c: String) =
+      val merged = n.structural.fold(c)(_(c))
+      if same(merged, c) then file(Action.unchanged) else file(Action.merged, Some(merged))
     // BPMN and DMN: the logic as text, the diagram (shapes, edges) entry by entry - see DiagramMerge
     def threeWay(b: String, c: String, n: String) =
       val diagram    = if isXml(rel) && b.nonEmpty then DiagramMerge.merge(b, c, n) else None
@@ -221,6 +256,12 @@ object SpecMerge:
       else file(Action.conflict, Some(r.text), r.conflicts, note)
     (base, neu, code) match
       case (None, None, _) | (Some(_), None, None) => None
+      case (_, Some(n), None) if structural(n)     => file(Action.create, Some(n.content))
+      case (_, Some(n), Some(c)) if structural(n)  => intoCode(c, n.content)
+      case (_, Some(n), Some(c)) if n.kind == FileKind.ProcessObject => processObject(n, c)
+      case (Some(b), None, Some(c)) if structural(b) =>
+        // Orch Spec no longer gives it - its classes go only when the developer says so
+        file(Action.unchanged, note = Some("not in orch-spec any more"), removal = Some(Removal(ScalaMerge.topLevel(c), None)))
       case (None, Some(n), None)        => file(Action.create, Some(n.content))
       case (Some(b), None, Some(c))     =>
         // the simulation follows the code - its process is gone: compared with the skeleton
@@ -236,9 +277,7 @@ object SpecMerge:
           n.kind match
             case FileKind.Simulation    => file(Action.update, Some(n.content))
             case FileKind.Scaffold      => file(Action.unchanged, note = Some("exists - created once, it stays"))
-            case FileKind.ProcessObject =>
-              val merged = n.structural.fold(c)(_(c))
-              if same(merged, c) then file(Action.unchanged) else file(Action.merged, Some(merged))
+            case FileKind.ProcessObject => processObject(n, c)
             case FileKind.Export        => threeWay("", c, n.content)
       case (Some(b), Some(n), Some(c))  =>
         if n.kind == FileKind.Simulation then
@@ -305,6 +344,24 @@ object SpecMerge:
         end if
     end match
   end register
+
+  /** The Scala files next to the domain classes of the export that Orch Spec does not know - in
+    * the own packages of an API or a process (`…/v1/`, `…/v1/schema/`), not in a shared level of
+    * the hierarchy; not a service or process object (another export may give it): the question
+    * whether they go.
+    */
+  private def orphans(project: os.Path, generated: Seq[GeneratedFile], planned: Set[os.RelPath]): Seq[PlannedFile] =
+    val dirs = generated.filter(f => f.kind == FileKind.Export && f.rel.ext == "scala").map(_.rel / os.up)
+      .filter(_.segments.exists(_.matches("v\\d+"))).distinct.sortBy(_.toString)
+    dirs.filter(d => os.isDir(project / d)).flatMap: dir =>
+      os.list(project / dir).filter(f => os.isFile(f) && f.ext == "scala").map(_.relativeTo(project))
+        .filterNot(planned).sortBy(_.toString).flatMap: rel =>
+          val code  = os.read(project / rel)
+          val names = ScalaMerge.topLevel(code)
+          Option.when(names.nonEmpty && !code.contains("topicName") && !code.contains("processName")):
+            PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
+              removal = Some(Removal(names, None)))
+  end orphans
 
   /** `spec/` as Orch Spec sent it - 1:1, without merge; what is no longer there is deleted. */
   private def takeOver(project: os.Path, files: Map[os.RelPath, Array[Byte]]): Seq[PlannedFile] =

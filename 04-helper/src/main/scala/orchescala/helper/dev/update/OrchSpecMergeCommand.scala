@@ -72,12 +72,15 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
       if !merge then true
-      else if !plan.hasChanges && !(markers && plan.hasConflicts) then
+      else if !plan.hasChanges && !(markers && plan.hasConflicts) && plan.removals.isEmpty then
         println("Nothing to merge.")
         true
       else if yes || confirm(plan, markers) then
+        // what only the code has goes only when asked - `--yes` deletes nothing
+        val remove = !yes && MergeReport.askRemoval(plan)
+        if yes && plan.removals.nonEmpty then println("--yes: what only the code has stays - run without --yes to be asked.")
         try
-          val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode)
+          val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove)
           println()
           MergeReport.printMerged(plan, result, markers)
           OrchSpecGenerator().linkDiagrams(project)

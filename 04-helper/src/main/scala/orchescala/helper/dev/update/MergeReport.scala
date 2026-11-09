@@ -10,9 +10,10 @@ object MergeReport:
   /** The plan before the merge (`--check`): per file what will happen, then the summary. */
   def printPlan(plan: MergePlan): Unit =
     println(s"Merge plan for ${plan.project}:")
-    plan.files.filterNot(_.action == Action.unchanged).foreach: f =>
-      println(planLine(f))
+    plan.files.filterNot(f => f.action == Action.unchanged && f.removal.isEmpty).foreach: f =>
+      if f.action != Action.unchanged then println(planLine(f))
       conflictLines(f).foreach(println)
+    printRemovals(plan)
     printNotes(plan)
     println(summary(plan))
 
@@ -24,6 +25,7 @@ object MergeReport:
         case Action.update    => println(colored(Console.GREEN, s"UPDATED from Orch Spec: ${f.path}"))
         case Action.merged    => println(colored(Console.GREEN, s"MERGED with Orch Spec: ${f.path}"))
         case Action.delete    => println(colored(Console.BLUE, s" - DELETED: ${f.path}"))
+        case Action.unchanged if result.deleted.contains(f.path) => ()
         case Action.unchanged => println(s"UNCHANGED: ${f.path}${f.note.fold("")(n => s" ($n)")}")
         case Action.conflict  =>
           val what =
@@ -31,9 +33,35 @@ object MergeReport:
             else "merge it manually, or delete it and run again"
           println(colored(Console.YELLOW, s"DIFFERS from Orch Spec: ${f.path}${f.note.fold("")(n => s" ($n)")} - $what."))
           conflictLines(f).foreach(println)
+    plan.removals.foreach: f =>
+      val names = f.removal.toSeq.flatMap(_.names).mkString(", ")
+      if f.removal.exists(_.names.forall(result.removed.contains)) then
+        println(colored(Console.BLUE, s" - REMOVED: ${f.path}${if result.deleted.contains(f.path) then "" else s" - $names"}"))
+      else println(colored(Console.YELLOW, s"ONLY IN THE CODE (kept): ${f.path} - $names"))
     printNotes(plan)
     println(summary(plan))
   end printMerged
+
+  /** What only the code has and Orch Spec does not know - before the question whether it goes. */
+  def printRemovals(plan: MergePlan): Unit =
+    if plan.removals.nonEmpty then
+      println(colored(Console.YELLOW, "Only in the code - Orch Spec does not know it (any more):"))
+      plan.removals.foreach: f =>
+        val r = f.removal.get
+        if r.content.isEmpty then println(colored(Console.YELLOW, s"  the file ${f.path} (${r.names.mkString(", ")})"))
+        else println(colored(Console.YELLOW, s"  ${r.names.mkString(", ")} in ${f.path}"))
+
+  /** Ask whether what only the code has goes - `ask` gets the question, the answer is yes or no. */
+  def askRemoval(plan: MergePlan, ask: String => Option[String] = readAnswer): Boolean =
+    plan.removals.nonEmpty && {
+      val n = plan.removals.flatMap(_.removal).map(_.names.size).sum
+      ask(s"\nDelete the $n class(es), object(s) and case(s) only the code has? [y/N] ")
+        .exists(a => Seq("y", "yes", "j", "ja").contains(a.trim.toLowerCase))
+    }
+
+  private def readAnswer(question: String): Option[String] =
+    print(question)
+    Option(scala.io.StdIn.readLine())
 
   /** The merge stopped at a file - what it did before, so the project is not left half merged
     * without a word.

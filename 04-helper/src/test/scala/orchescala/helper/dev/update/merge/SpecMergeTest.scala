@@ -73,10 +73,11 @@ class SpecMergeTest extends FunSuite:
       before: Seq[SpecEntry],
       after: Seq[SpecEntry],
       onConflict: OnConflict = OnConflict.KeepCode,
-      formatter: XmlFormatter = XmlFormatter.default
+      formatter: XmlFormatter = XmlFormatter.default,
+      remove: Boolean = false
   )(using DevConfig): (MergePlan, MergeResult) =
     val plan = SpecMerge.plan(project, before, after, formatter = formatter)
-    plan -> SpecMerge.merge(project, plan, onConflict)
+    plan -> SpecMerge.merge(project, plan, onConflict, remove)
 
   private def actionOf(plan: MergePlan, project: os.Path, name: String): Action =
     plan.files.find(_.path == path(project, name)).map(_.action).getOrElse(fail(s"$name not in the plan"))
@@ -136,12 +137,12 @@ class SpecMergeTest extends FunSuite:
       assertEquals(actionOf(plan, project, "CheckOrder.scala"), Action.unchanged)
       assert(os.read(file(project, "CheckOrder.scala")).contains("lazy val own = 1"))
 
-  test("Orch Spec changed, the developer not: the new one is taken"):
+  test("Orch Spec changed, the developer not: the new one is taken - merged into the code"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
       val changed   = editScala(order)(_.replace("ok = true", "ok = false"))
       val (plan, _) = run(project, Seq(order), Seq(changed))
-      assertEquals(actionOf(plan, project, "CheckOrder.scala"), Action.update)
+      assertEquals(actionOf(plan, project, "CheckOrder.scala"), Action.merged)
       assert(os.read(file(project, "CheckOrder.scala")).contains("ok = false"))
 
   test("both changed the same file in different places: merged"):
@@ -154,52 +155,66 @@ class SpecMergeTest extends FunSuite:
       val merged    = os.read(file(project, "CheckOrder.scala"))
       assert(merged.contains("ok = false") && merged.contains("lazy val own = 1"), merged)
 
-  test("both changed the same place: conflict - KeepCode leaves the file as it is"):
+  test("both changed the same member: the one of Orch Spec comes in - the code is the basis, nothing conflicts"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
-      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = true // as the developer wants it"))
-      val code           = os.read(file(project, "CheckOrder.scala"))
+      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = true // as the developer wants it")
+        .replace("end CheckOrder", "  lazy val own = 1\nend CheckOrder"))
       val changed        = editScala(order)(_.replace("ok = true", "ok = false"))
-      val (plan, result) = run(project, Seq(order), Seq(changed))
-      val conflict       = plan.files.find(_.path == path(project, "CheckOrder.scala")).get
-      assertEquals(conflict.action, Action.conflict)
-      assertEquals(conflict.conflicts.map(c => (c.code.trim, c.spec.trim)), Seq("ok = true // as the developer wants it" -> "ok = false"))
-      assertEquals(conflict.conflicts.head.line, code.linesIterator.indexWhere(_.contains("as the developer")) + 1)
-      assertEquals(os.read(file(project, "CheckOrder.scala")), code)
-      assertEquals(result.conflicts.map(_.path), Seq(conflict.path))
-
-  test("both changed the same place: conflict - Markers writes conflict markers like git merge"):
-    inProject: project =>
-      run(project, Seq.empty, Seq(order))
-      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = true // as the developer wants it"))
-      val changed        = editScala(order)(_.replace("ok = true", "ok = false"))
-      val (_, result)    = run(project, Seq(order), Seq(changed), OnConflict.Markers)
-      val marked         = os.read(file(project, "CheckOrder.scala"))
-      assert(marked.contains("<<<<<<< code\n      ok = true // as the developer wants it\n=======\n      ok = false\n>>>>>>> orch-spec"), marked)
+      val (plan, result) = run(project, Seq(order), Seq(changed), OnConflict.Markers)
+      assertEquals(plan.withAction(Action.conflict), Seq.empty)
+      assertEquals(actionOf(plan, project, "CheckOrder.scala"), Action.merged)
+      val merged         = os.read(file(project, "CheckOrder.scala"))
+      assert(merged.contains("ok = false") && !merged.contains("as the developer") && merged.contains("lazy val own = 1"), merged)
+      assert(!merged.contains("<<<<<<<"), merged)
       assert(result.written.contains(path(project, "CheckOrder.scala")))
 
-  test("removed in Orch Spec, the code unchanged: deleted - and its registration goes"):
+  test("a class only the code has: asked - it stays without a yes, goes with one"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
+      editFile(project, "CheckOrder.scala")(_ + "\ncase class Helper(x: Int)\n")
+      val (plan, kept) = run(project, Seq(order), Seq(order))
+      val checkOrder   = plan.files.find(_.path == path(project, "CheckOrder.scala")).get
+      assertEquals(checkOrder.removal.map(_.names), Some(Seq("Helper")))
+      assertEquals(kept.removed, Seq.empty)
+      assert(os.read(file(project, "CheckOrder.scala")).contains("case class Helper"))
+      val (_, gone)    = run(project, Seq(order), Seq(order), remove = true)
+      assertEquals(gone.removed, Seq("Helper"))
+      val code         = os.read(file(project, "CheckOrder.scala"))
+      assert(!code.contains("Helper") && code.endsWith("end CheckOrder\n"), code)
+
+  test("removed in Orch Spec: its file asked - it stays without a yes, its registration goes"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      editFile(project, "ApproveOrderUT.scala")(_.replace("end ApproveOrderUT", "  lazy val own = 1\nend ApproveOrderUT"))
       val removed   = withoutObject(order, "ApproveOrderUT")
       val approve   = path(project, "ApproveOrderUT.scala")
       val (plan, r) = run(project, Seq(order), Seq(removed))
-      assertEquals(plan.files.find(_.path == approve).map(_.action), Some(Action.delete))
-      assertEquals(r.deleted, Seq(approve))
-      assert(!os.exists(project / os.RelPath(approve)))
+      val file      = plan.files.find(_.path == approve).get
+      assertEquals(file.removal, Some(Removal(Seq("ApproveOrderUT"), None)))
+      assertEquals(r.deleted, Seq.empty)
+      assert(os.exists(project / os.RelPath(approve)))
       val api       = os.read(project / apiCreatorRel)
       assert(!api.contains("ApproveOrderUT.example"), api)
       assert(api.contains("CheckOrder.example"), api)
 
-  test("removed in Orch Spec, changed in the code: conflict"):
+  test("removed in Orch Spec: with a yes its file goes"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
-      editFile(project, "ApproveOrderUT.scala")(_.replace("end ApproveOrderUT", "  lazy val own = 1\nend ApproveOrderUT"))
-      val (plan, _) = run(project, Seq(order), Seq(withoutObject(order, "ApproveOrderUT")))
-      val approve   = plan.files.find(_.path == path(project, "ApproveOrderUT.scala")).get
-      assertEquals(approve.action, Action.conflict)
-      assertEquals(approve.note, Some("removed in orch-spec, changed in the code"))
-      assert(os.exists(file(project, "ApproveOrderUT.scala")))
+      val approve   = path(project, "ApproveOrderUT.scala")
+      val (_, r)    = run(project, Seq(order), Seq(withoutObject(order, "ApproveOrderUT")), remove = true)
+      assertEquals(r.deleted, Seq(approve))
+      assertEquals(r.removed, Seq("ApproveOrderUT"))
+      assert(!os.exists(project / os.RelPath(approve)))
+
+  test("a file next to the domain classes that Orch Spec does not know: asked - not a service or process object"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val dir     = file(project, "CheckOrder.scala") / os.up
+      os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n")
+      os.write(dir / "OtherTask.scala", "package acme.demo.domain\npackage order.v1\n\nobject OtherTask:\n  val topicName = \"x\"\n")
+      val plan    = SpecMerge.plan(project, Seq(order), Seq(order))
+      assertEquals(plan.removals.map(f => f.path -> f.removal.get.names), Seq((dir / "Old.scala").relativeTo(project).toString -> Seq("Old")))
 
   test("a new step (custom task): its object and worker created, the worker registered"):
     inProject: project =>
@@ -220,7 +235,7 @@ class SpecMergeTest extends FunSuite:
   test("a process removed as a whole: its files deleted, its blocks out of the registrations"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
-      val (plan, _) = run(project, Seq(order), Seq.empty)
+      val (plan, _) = run(project, Seq(order), Seq.empty, remove = true)
       assertEquals(plan.withAction(Action.conflict), Seq.empty)
       assert(os.walk(project).forall(_.last != "CheckOrder.scala"))
       assertEquals(os.read(project / workerAppRel), workerApp)
@@ -356,12 +371,13 @@ class SpecMergeTest extends FunSuite:
   test("the plan as JSON - read back the same"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
-      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = true // dev"))
+      editFile(project, "CheckOrder.scala")(_ + "\ncase class Helper(x: Int)\n")
       val plan = SpecMerge.plan(project, Seq(order), Seq(editScala(order)(_.replace("ok = true", "ok = false"))))
       val json = plan.toJsonString
       assertEquals(MergePlan.fromJson(json), plan)
       assert(json.contains("\"summary\""), json)
-      assert(json.contains("\"conflict\" : 1"), json)
+      assert(json.contains("\"merged\" : 1"), json)
+      assert(json.contains("\"removal\""), json)
 
   test("the process object without a base: the types of Orch Spec merged by structure, the rest stays"):
     inProject: project =>
@@ -375,13 +391,20 @@ class SpecMergeTest extends FunSuite:
       // a worker that exists stays without a base
       assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
 
-  test("processFromSpec orchspec: (one process, no base) - creates, then leaves what differs"):
+  test("processFromSpec orchspec: (one process, no base) - creates, then merges into the code; asks what only the code has"):
     inProject: project =>
       OrchSpecGenerator().createProcess(order.bpmn, order.scala, order.dmns)
       assert(os.read(file(project, "CheckOrder.scala")).contains("object CheckOrder"))
-      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = true // dev"))
-      OrchSpecGenerator().createProcess(order.bpmn, editScala(order)(_.replace("ok = true", "ok = false")).scala, order.dmns)
-      assert(os.read(file(project, "CheckOrder.scala")).contains("ok = true // dev"))
+      editFile(project, "CheckOrder.scala")(_.replace("end CheckOrder", "  lazy val own = 1\nend CheckOrder") + "\ncase class Helper(x: Int)\n")
+      val changed  = editScala(order)(_.replace("ok = true", "ok = false")).scala
+      val asked    = Seq.newBuilder[String]
+      OrchSpecGenerator(ask = q => { asked += q; Some("n") }).createProcess(order.bpmn, changed, order.dmns)
+      val kept     = os.read(file(project, "CheckOrder.scala"))
+      assert(kept.contains("ok = false") && kept.contains("lazy val own = 1") && kept.contains("case class Helper"), kept)
+      assertEquals(asked.result().size, 1)
+      OrchSpecGenerator(ask = _ => Some("y")).createProcess(order.bpmn, changed, order.dmns)
+      val removed  = os.read(file(project, "CheckOrder.scala"))
+      assert(!removed.contains("Helper") && removed.contains("lazy val own = 1"), removed)
       assert(os.read(project / workerAppRel).contains("orderWorkers"))
 
   /** A fake export: the spec folder carries its export as `export.json` - so no Node.js is needed. */
@@ -676,7 +699,7 @@ class SpecMergeTest extends FunSuite:
       run(project, Seq.empty, Seq(collection()))
       editFile(project, "GetClientWorker.scala")(_.replace("???", "Right(Out(name = \"x\"))"))
       val (plan, _) = run(project, Seq(collection()), Seq(collection(out = "name: String, etag: String")))
-      assertEquals(actionOf(plan, project, "GetClient.scala"), Action.update)
+      assertEquals(actionOf(plan, project, "GetClient.scala"), Action.merged)
       assertEquals(actionOf(plan, project, "GetClientWorker.scala"), Action.unchanged)
       assert(os.read(file(project, "GetClient.scala")).contains("etag: String"))
       assert(os.read(file(project, "GetClientWorker.scala")).contains("Right(Out(name = \"x\"))"))

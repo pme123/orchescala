@@ -27,11 +27,19 @@ enum Action:
 /** A conflict in a file: the line in the code, what the spec and what the code has there. */
 case class Conflict(line: Int, spec: String, code: String)
 
+/** What only the code has and Orch Spec does not know - its classes, objects and enum cases
+  * (`Out.Legacy`), or a whole file of them. It goes only when the developer says so.
+  * @param names   what goes - qualified by what it is in (`GetClient.Out.Legacy`)
+  * @param content the file without them - None: the file goes
+  */
+case class Removal(names: Seq[String], content: Option[String])
+
 /** One file of the plan.
   * @param codeHash hash of the file in the project at the check - None if it does not exist
   * @param content  what `merge` writes: the new content (create, update, merged) - for a conflict
   *                 the content with conflict markers (`OnConflict.Markers`)
   * @param note     why - e.g. «removed in orch-spec, changed in the code»
+  * @param removal  what only the code has - removed only when asked (`SpecMerge.merge` with `remove`)
   */
 case class PlannedFile(
     path: String,
@@ -42,7 +50,8 @@ case class PlannedFile(
     conflicts: Seq[Conflict] = Seq.empty,
     note: Option[String] = None,
     // `content` is base64 - a file of the spec that is no text (a logo of a theme)
-    binary: Boolean = false
+    binary: Boolean = false,
+    removal: Option[Removal] = None
 )
 
 /** What `merge` will do - decided by `checkMerge`, executed as it is (nothing is recomputed).
@@ -57,6 +66,9 @@ case class MergePlan(project: String, files: Seq[PlannedFile], notes: Seq[String
   def withAction(action: Action): Seq[PlannedFile] = files.filter(_.action == action)
 
   def hasConflicts: Boolean = files.exists(_.action == Action.conflict)
+
+  /** The files with what only the code has - the question whether it goes. */
+  def removals: Seq[PlannedFile] = files.filter(_.removal.nonEmpty)
 
   /** Something to write or delete - with `KeepCode` the conflicts stay as they are. */
   def hasChanges: Boolean = files.exists(f => !Seq(Action.unchanged, Action.conflict).contains(f.action))
@@ -81,6 +93,13 @@ object MergePlan:
       code <- c.get[String]("code")
     yield Conflict(line, spec, code)
 
+  given Encoder[Removal] = r => Json.obj(Seq("names" -> r.names.asJson) ++ r.content.map("content" -> _.asJson)*)
+  given Decoder[Removal] = c =>
+    for
+      names   <- c.get[Seq[String]]("names")
+      content <- c.get[Option[String]]("content")
+    yield Removal(names, content)
+
   given Encoder[PlannedFile] = f =>
     Json.obj(
       Seq("path" -> f.path.asJson, "owner" -> f.owner.asJson, "action" -> f.action.asJson) ++
@@ -88,6 +107,7 @@ object MergePlan:
         Option.when(f.conflicts.nonEmpty)("conflicts" -> f.conflicts.asJson) ++
         f.note.map("note" -> _.asJson) ++
         Option.when(f.binary)("encoding" -> "base64".asJson) ++
+        f.removal.map("removal" -> _.asJson) ++
         f.content.map("content" -> _.asJson)*
     )
   given Decoder[PlannedFile] = c =>
@@ -100,7 +120,8 @@ object MergePlan:
       conflicts <- c.get[Option[Seq[Conflict]]]("conflicts")
       note      <- c.get[Option[String]]("note")
       encoding  <- c.get[Option[String]]("encoding")
-    yield PlannedFile(path, owner, action, codeHash, content, conflicts.getOrElse(Seq.empty), note, encoding.contains("base64"))
+      removal   <- c.get[Option[Removal]]("removal")
+    yield PlannedFile(path, owner, action, codeHash, content, conflicts.getOrElse(Seq.empty), note, encoding.contains("base64"), removal)
 
   given Encoder[MergePlan] = p =>
     Json.obj(
@@ -129,7 +150,7 @@ enum OnConflict:
   case Markers
 
 /** What `merge` did. */
-case class MergeResult(written: Seq[String], deleted: Seq[String], conflicts: Seq[PlannedFile])
+case class MergeResult(written: Seq[String], deleted: Seq[String], conflicts: Seq[PlannedFile], removed: Seq[String] = Seq.empty)
 
 /** A file changed between the check and the merge - nothing was written; it needs a new check. */
 case class MergeAborted(changed: Seq[String])
