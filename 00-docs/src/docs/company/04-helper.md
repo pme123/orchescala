@@ -117,12 +117,14 @@ private lazy val companySbtConfig = SbtConfig(
 ```
 Without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
 (`eclipse-temurin:21-jre`) - the default of sbt-native-packager (`openjdk:8`) is no longer on Docker Hub.
-Without `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo; a url that is set but no
-`http(s)://<host>/.../<repo>` fails, naming the variable. The dependency repo gets its own
-resolver name (`Artifactory Realm 2`) - sbt does not load from two resolvers of the same host with
-the same name (_unauthorized_ / _forbidden_). On another host it gets its own credentials (the same
-user and password variables). The env names are upper case, other characters than letters and
-digits become `_` (`acme-bank` → `ACME_BANK_...`).
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo; a url that
+is set but no `http(s)://<host>/.../<repo>` fails, naming the variable. An empty variable counts as
+not set in the generated build as well. The dependency repo gets its own resolver name
+(`Artifactory Realm 2`) - sbt does not load from two resolvers of the same host with the same name
+(_unauthorized_ / _forbidden_) - and its own credentials (the same user and password variables,
+the host from its url), so it may move to another host without a new `./helper.scala update`.
+The env names are upper case, other characters than letters and digits become `_`
+(`acme-bank` → `ACME_BANK_...`).
 
 > [!NOTE]
 > Only the generated build reads the variables - the helper itself (e.g. the release check) uses
