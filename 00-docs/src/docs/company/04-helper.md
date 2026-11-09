@@ -95,6 +95,65 @@ private lazy val companySbtConfig = SbtConfig(
   publishSbtOptions = Seq("-J-Xmx3G")
 )
 ```
+#### Repos and Docker from the env variables
+Instead of fixed values the generated `project/Settings.scala` can read the env variables of the
+company - the same ones the build of the `company-orchescala` project uses. So a project follows
+them without a new `./helper.scala update`; the values at the time of the update are only the fallback.
+
+```scala
+private lazy val companySbtConfig = SbtConfig(
+  // {COMPANY}_MVN_RELEASE_REPOSITORY, {COMPANY}_MVN_DEPENDENCY_REPOSITORY (optional),
+  // {COMPANY}_MVN_REPOSITORY_USERNAME / _PASSWORD
+  reposConfig = ReposConfig.artifactoryFromEnv("mycompany"),
+  // {COMPANY}_DOCKER_REPOSITORY, {COMPANY}_DOCKER_BASE_IMAGE
+  dockerSettings = Some(SbtConfig.dockerSettingsFromEnv(
+    "mycompany",
+    // optional - without it: SbtConfig.defaultBaseImage (eclipse-temurin:21-jre)
+    defaultBaseImage = "registry.mycompany.com/openjdk-21-runtime:1.0.0",
+    // optional - only for a base image with its own entrypoint script
+    otherSettings = Seq("""dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")""")
+  ))
+)
+```
+> [!WARNING]
+> **Changed:** without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
+> (`eclipse-temurin:21-jre`) from the next `./helper.scala update` on - before, it was the default of
+> sbt-native-packager (`openjdk:8`), which is no longer on Docker Hub. The same for the gateway
+> without `dockerGatewaySettings`. To keep the defaults of sbt-native-packager:
+> `dockerSettings = Some("Seq()")` (and `dockerGatewaySettings`).
+
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo - an error,
+if `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` is set (no silent dummy repo). A url that is
+set but no `http(s)://<host>/.../<repo>` - with a query, a fragment or user info (`user:password@`)
+- fails with an error naming the variable (the password masked) - on purpose: the company config
+reads it, so every command of the helper stops (with the message, no stack trace), instead of
+publishing to or resolving from the dummy repo. User info is refused as the url is written into
+the generated `project/Settings.scala`, which is committed.
+
+The generated build reads a variable the same way as the helper: spaces around and slashes at the
+end removed, an empty one counts as not set. Without the variable it takes the url of the last
+`./helper.scala update` - maybe of another machine - and prints a warning; a url without host gives
+a warning too, and the credentials keep the host of the update. A variable with an `@`
+(user info, `https://user:password@...` - refused by the helper) is not used: the build takes the
+url of the update, with a (masked) warning - the password never reaches a resolver, so
+sbt/coursier can not log it; and the url is not rewritten (an `@` in the path would give another
+host). The credentials come from the `..._MVN_REPOSITORY_USERNAME` / `_PASSWORD` variables.
+
+The dependency repo gets its own resolver name `Artifactory Realm 2` (the name of the sbt
+resolver, not the auth realm) - sbt does not load from two resolvers of the same host with the same
+name (_unauthorized_ / _forbidden_). It also gets its own credentials (the same user and password
+variables, the host from its url), so it may move to another host without a new
+`./helper.scala update` - on the same host sbt keeps one of the two.
+
+The env names are upper case, other characters than letters and digits become `_`
+(`acme-bank` → `ACME_BANK_...`) - also in the build of the `company-orchescala` project, which used
+`ACME-BANK_...` before (a name a shell can not set). A host with `_` (no host for `java.net.URI`)
+is taken from the authority of the url.
+
+> [!NOTE]
+> Only the generated build reads the variables - the helper itself (e.g. the release check) uses
+> the urls of the config, with `artifactoryFromEnv` read from the same variables.
+
 > [!WARNING]
 > The default builds **every** image for `linux/amd64` - on an amd64 machine nothing changes, on
 > Apple Silicon the images are amd64 from the next `./helper.scala update` on (as OpenShift needs them).

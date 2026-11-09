@@ -9,22 +9,23 @@ import orchescala.helper.dev.publish.RepoCheck.{BuildNames, reportUploaded, veri
 import orchescala.helper.dev.publish.WorkingTree.*
 import orchescala.helper.dev.publish.{DockerCheck, ReleaseRun, SbtRuns}
 import orchescala.engine.config.RepoConfig
-import orchescala.helper.util.{DevConfig, PublishConfig}
+import orchescala.helper.util.{ConfigCheck, ConfigExit, DevConfig, PublishConfig}
 
 import scala.util.{Failure, Success, Try}
 
 // dev-company/company-orchescala/helper.scala
-trait DevCompanyOrchescalaHelper extends DocCreator:
+trait DevCompanyOrchescalaHelper extends DocCreator, ConfigExit:
   def engineConfig: EngineConfig
   def devConfig: DevConfig
 
   def runForCompany(command: String, arguments: String*): Unit =
-    registerPrivateRepoLookup()
     val args = arguments.toSeq
     println(s"Running for Company command: $command with args: $args")
     Try(Command.valueOf(command)) match
       case Success(cmd) =>
-        runCommand(cmd, args)
+        if ConfigCheck.orExit({ val _ = devConfig; val _ = engineConfig }, exitOnInvalidConfig) then
+          registerPrivateRepoLookup()
+          runCommand(cmd, args)
       case Failure(_) =>
         println(s"Command not found: $command")
         println("Available commands: " + Command.values.mkString(", "))
