@@ -249,6 +249,11 @@ code has it. A Scala file next to the domain classes that _Orch Spec_ does not k
 package of the API or process, `…/v1/`, `…/v1/schema/`; not a service or process object) and a
 file _Orch Spec_ no longer gives are asked the same way. `--yes` deletes nothing of it.
 
+The output is laid out like the one of a simulation: every file that changes with its changes as
+`git diff` shows them (the line, two lines around it - the code's lines red, _Orch Spec_'s green, a
+change of the form grey), then the files grouped by what happens to them and an `END` line with
+the numbers.
+
 For the other files - BPMN, DMN, workers, simulation - the base is the export of the spec in the
 last commit (`HEAD:spec`), the new one the export of `spec/` (or `--from`); both are made with
 _Orch Spec_'s own tool (needs Node.js). Per file of the project:

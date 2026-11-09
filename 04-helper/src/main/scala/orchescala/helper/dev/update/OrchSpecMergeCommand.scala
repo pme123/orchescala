@@ -67,7 +67,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         print(text)
       val plan = SpecMerge.checkMerge(project, before.fold(SpecSource.Empty)(SpecSource.Dir(_)), SpecSource.Dir(after))
       println()
-      MergeReport.printPlan(plan)
+      MergeReport.printPlan(plan, project)
       json.foreach: file =>
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
@@ -82,7 +82,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         try
           val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove)
           println()
-          MergeReport.printMerged(plan, result, markers)
+          MergeReport.printMerged(plan, result, project, markers = markers)
           OrchSpecGenerator().linkDiagrams(project)
           true
         catch

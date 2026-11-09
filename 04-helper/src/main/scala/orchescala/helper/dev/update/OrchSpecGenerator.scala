@@ -31,8 +31,7 @@ case class OrchSpecGenerator(
   def createProcess(bpmn: Option[String], scalaExport: String, dmns: Seq[(String, String)] = Seq.empty): Unit =
     val project = config.projectDir
     val plan    = SpecMerge.plan(project, Seq.empty, Seq(ProcessExport("orchspec", bpmn, scalaExport, dmns)), strict = true)
-    val result  = SpecMerge.merge(project, plan, OnConflict.KeepCode, askRemoval(plan))
-    MergeReport.printMerged(plan, result)
+    mergeAndPrint(project, plan)
     linkDiagrams(project)
   end createProcess
 
@@ -43,16 +42,19 @@ case class OrchSpecGenerator(
   def createServices(scalaExport: String): Unit =
     val project = config.projectDir
     val plan    = SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("orchspec", scalaExport)), strict = true)
-    val result  = SpecMerge.merge(project, plan, OnConflict.KeepCode, askRemoval(plan))
-    MergeReport.printMerged(plan, result)
+    mergeAndPrint(project, plan)
   end createServices
 
-  // what only the code has: shown and asked - it goes only on a yes
-  private def askRemoval(plan: MergePlan): Boolean =
-    plan.removals.nonEmpty && {
-      MergeReport.printRemovals(plan)
-      MergeReport.askRemoval(plan, ask)
-    }
+  // what only the code has: the plan with its changes first, then the question - it goes only on
+  // a yes; without it the changes are shown with what the merge did
+  private def mergeAndPrint(project: os.Path, plan: MergePlan): Unit =
+    if plan.removals.isEmpty then
+      val before = MergeReport.before(project, plan)
+      MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode), project, Some(before))
+    else
+      MergeReport.printPlan(plan, project)
+      val remove = MergeReport.askRemoval(plan, ask)
+      MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove), project)
 
   /** The worker app serves the diagrams in its docs - a project set up before its first BPMN has no link yet. */
   def linkDiagrams(project: os.Path): Unit =

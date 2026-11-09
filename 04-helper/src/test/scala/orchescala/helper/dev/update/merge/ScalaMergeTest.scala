@@ -211,4 +211,27 @@ class ScalaMergeTest extends FunSuite:
     assert(r.text.endsWith("end Client\n\ncase class Address(street: String)\n"), r.text)
     assertEquals(r.removable, Seq.empty)
 
+  test("the report: each change with the line of the code and two lines around it - near ones in one block"):
+    import orchescala.helper.dev.update.MergeReport
+    val code    = (1 to 12).map(i => s"  line$i").mkString("\n")
+    val neu     = code.replace("line3", "line3 changed").replace("  line11", "    line11")
+    val plain   = MergeReport.changes(code, neu).map(_.replaceAll("\u001b\\[[0-9;]*m", ""))
+    assertEquals(
+      plain,
+      Seq(
+        "    line 3:",
+        "        line1",
+        "        line2",
+        "    -   line3",
+        "    +   line3 changed",
+        "        line4",
+        "        line5",
+        "    line 11:",
+        "        line9",
+        "        line10",
+        "    ~     line11",
+        "        line12"
+      )
+    )
+
 end ScalaMergeTest
