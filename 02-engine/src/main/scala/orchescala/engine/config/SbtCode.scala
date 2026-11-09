@@ -31,47 +31,37 @@ object SbtCode:
     env.map(e => s"${envValue(e)}.getOrElse(${literal(value)})").getOrElse(literal(value))
 
   /** A url without spaces around and without the slashes at the end - the helper and the
-    * generated build (`envUrlOrElse`) read the url of a variable the same way.
+    * generated build (`envUrlRequired`) read the url of a variable the same way.
     */
   def trimUrl(url: String): String = url.trim.replaceAll(trailingSlashes, "")
 
-  /** The url of an env variable in the generated build (as `trimUrl`) with `url` as fallback - or
-    * only the literal without env variable.
+  /** The url of a repo in the generated build: with `urlEnv` read from the variable - nothing of
+    * the update (no company-specific fallback in the committed `project/Settings.scala`) - else
+    * the configured `url`.
     */
-  def envUrlOrElse(env: Option[String], url: String): String =
-    env
-      .map(e => s"""${envUrl(e)}.filterNot(_.contains("@")).getOrElse(${literal(url)})""")
-      .getOrElse(literal(url))
+  def urlValue(urlEnv: Option[String], url: String, indent: String): String =
+    urlEnv.map(envUrlRequired(_, indent)).getOrElse(literal(url))
 
   /** What the generated build takes from the value of a url variable - the runtime twin of
-    * `envUrlOrElse`: trimmed as `trimUrl`; not used if empty or with an `@` (user info - refused
-    * by the helper; sbt/coursier would log it with the password). Then the url of the update.
+    * `envUrlRequired`: trimmed as `trimUrl`; None (the build stops with a message) if empty or
+    * with an `@` (user info - refused by the helper; sbt/coursier would log it with the password).
     */
   def envUrlValue(value: Option[String]): Option[String] =
     value.map(trimUrl).filter(_.nonEmpty).filterNot(_.contains('@'))
 
-  /** As `envUrlOrElse`, but a block that prints a warning when the variable is not set, or not
-    * used for its `@` - the url then is the one of the last `./helper.scala update` (maybe of
-    * another machine).
+  /** The url of a variable in the generated build - required: not set, empty or with an `@`, the
+    * build stops with a message (the url masked) - as for a missing username / password.
     */
-  def envUrlOrElseWarn(env: Option[String], url: String, indent: String): String =
-    env
-      .map: e =>
-        val notSet  = literal(s"[warn] $e is not set - the repo of the last ./helper.scala update: $url")
-        val withAt  = literal(
-          s"[warn] $e has an `@` (user info) - not used, the repo of the last ./helper.scala update: $url" +
-            " - the credentials are in the ..._USERNAME / _PASSWORD variables: "
-        )
-        s"""${envUrl(e)} match {
-           |$indent  case Some(u) if u.contains("@") =>
-           |$indent    println($withAt + ${maskUserInfoExpr("u")})
-           |$indent    ${literal(url)}
-           |$indent  case Some(u) => u
-           |$indent  case None =>
-           |$indent    println($notSet)
-           |$indent    ${literal(url)}
-           |$indent}""".stripMargin
-      .getOrElse(literal(url))
+  def envUrlRequired(env: String, indent: String): String =
+    val notSet = literal(s"System Environment Variable $env is not set.")
+    val withAt = literal(
+      s"$env must not contain an `@` - no user info: the credentials are in the ..._USERNAME / _PASSWORD variables: "
+    )
+    s"""${envUrl(env)} match {
+       |$indent  case Some(u) if u.contains("@") => throw new IllegalArgumentException($withAt + ${maskUserInfoExpr("u")})
+       |$indent  case Some(u) => u
+       |$indent  case None => throw new IllegalArgumentException($notSet)
+       |$indent}""".stripMargin
 
   /** A url for a message - the user info masked: the part up to the last `@` becomes `***@`. */
   def maskUserInfo(url: String): String = url.replaceAll(userInfo, userInfoMasked)

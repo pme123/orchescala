@@ -29,27 +29,21 @@ class SbtCodeTest extends FunSuite:
   test("envValue: an empty variable counts as not set"):
     assertEquals(SbtCode.envValue("A_URL"), """sys.env.get("A_URL").map(_.trim).filter(_.nonEmpty)""")
 
-  test("envUrlOrElseWarn: a warning when the variable is not set or not used for its `@`"):
+  test("envUrlRequired: the url of the variable - not set, empty or with an `@` the build stops"):
     assertEquals(
-      SbtCode.envUrlOrElseWarn(Some("A_URL"), "https://x/r", "  "),
+      SbtCode.envUrlRequired("A_URL", "  "),
       """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty) match {
-        |    case Some(u) if u.contains("@") =>
-        |      println("[warn] A_URL has an `@` (user info) - not used, the repo of the last ./helper.scala update: https://x/r - the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
-        |      "https://x/r"
+        |    case Some(u) if u.contains("@") => throw new IllegalArgumentException("A_URL must not contain an `@` - no user info: the credentials are in the ..._USERNAME / _PASSWORD variables: " + u.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
         |    case Some(u) => u
-        |    case None =>
-        |      println("[warn] A_URL is not set - the repo of the last ./helper.scala update: https://x/r")
-        |      "https://x/r"
+        |    case None => throw new IllegalArgumentException("System Environment Variable A_URL is not set.")
         |  }""".stripMargin
     )
-    assertEquals(SbtCode.envUrlOrElseWarn(None, "https://x/r", "  "), """"https://x/r"""")
 
-  test("envUrlOrElse: the url of the variable as the helper reads it (trimUrl)"):
-    assertEquals(
-      SbtCode.envUrlOrElse(Some("A_URL"), "https://x/r"),
-      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).filterNot(_.contains("@")).getOrElse("https://x/r")"""
-    )
-    assertEquals(SbtCode.envUrlOrElse(None, "https://x/r"), """"https://x/r"""")
+  test("urlValue: from the variable - nothing of the update; without variable the configured url"):
+    val fromEnv = SbtCode.urlValue(Some("A_URL"), "https://bin.example.com/r", "  ")
+    assertEquals(fromEnv, SbtCode.envUrlRequired("A_URL", "  "))
+    assert(!fromEnv.contains("bin.example.com"), fromEnv)
+    assertEquals(SbtCode.urlValue(None, "https://bin.example.com/r", "  "), """"https://bin.example.com/r"""")
     assertEquals(SbtCode.trimUrl(" https://x/r// "), "https://x/r")
 
   /** The generated code is only parsed in the tests - `envUrlValue` is its runtime twin (the

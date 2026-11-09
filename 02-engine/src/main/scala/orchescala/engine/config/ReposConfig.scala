@@ -84,8 +84,8 @@ object ReposConfig:
     *   - `{COMPANY}_MVN_DEPENDENCY_REPOSITORY`: optional, the repo for the dependencies
     *   - `{COMPANY}_MVN_REPOSITORY_USERNAME` / `_PASSWORD`: the credentials - for both repos
     *
-    * The generated `project/Settings.scala` reads these variables as well - so a project's build
-    * follows them, the values of the generation are only the fallback.
+    * The generated `project/Settings.scala` reads these variables as well - required, nothing of
+    * the generation is written into it (no company-specific url or host in a project's build).
     *
     * Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or empty) it is the dummy repo - with
     * `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` set, an error (no silent dummy repo). A url that is set
@@ -162,15 +162,15 @@ object RepoConfig:
       repo: String,
       descr: String = "",
       realm: String = "gitlab",
-      // the env variable with the url - only the generated build reads it (`repo` is the
-      // fallback); the helper itself (release check) uses `repo`
+      // the env variable with the url - the generated build reads it (required, `repo` is not
+      // written into it); the helper itself (release check) uses `repo`
       urlEnv: Option[String] = None
   ) extends RepoConfig:
     lazy val repoUrl: String = repo
     lazy val sbtContent =
       s"""  // $descr
          |  lazy val ${name}RepoStr =
-         |    ${SbtCode.envUrlOrElseWarn(urlEnv, repo, "    ")}
+         |    ${SbtCode.urlValue(urlEnv, repo, "    ")}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
     lazy val ammoniteRepo = "/*NOT SUPPORTED*/"
@@ -185,8 +185,8 @@ object RepoConfig:
       descr: String = "",
       // the name of the sbt resolver - a second repo of the same host needs another one
       realm: String = "Artifactory Realm",
-      // the env variable with the url - only the generated build reads it (the url is the
-      // fallback); the helper itself (release check, version lookup) uses the url - with
+      // the env variable with the url - the generated build reads it (required, the url is not
+      // written into it); the helper itself (release check, version lookup) uses the url - with
       // `ReposConfig.artifactoryFromEnv` both come from the same variable
       urlEnv: Option[String] = None
   ) extends RepoConfig:
@@ -194,7 +194,7 @@ object RepoConfig:
 
     lazy val sbtContent =
       s""" // $descr
-         |  lazy val ${name}RepoStr = ${SbtCode.envUrlOrElseWarn(urlEnv, repoUrl, "  ")}
+         |  lazy val ${name}RepoStr = ${SbtCode.urlValue(urlEnv, repoUrl, "  ")}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
 
@@ -360,29 +360,23 @@ object RepoCredentials:
       usernameEnv: String,
       passwordEnv: String,
       realm: String = "Artifactory Realm",
-      // the env variable with the url of the repo - the generated build takes the host from it,
-      // `repoHost` is the fallback
+      // the env variable with the url of the repo - the generated build takes the host from it
+      // (required - `repoHost` is for the helper only)
       repoUrlEnv: Option[String] = None
   ) extends RepoCredentials:
     private lazy val hostVal = s"${name}RepoHost"
 
-    /** With `repoUrlEnv`: a `lazy val` with the host - of the url in the variable, the host of the
-      * generation without it; a malformed url gives a warning (no load error of sbt).
+    /** With `repoUrlEnv`: a `lazy val` with the host of the url in the variable - required, as the
+      * url of the repo (no host of the update in the committed `project/Settings.scala`).
       */
     private lazy val sbtHostVal: String =
       repoUrlEnv
         .map: env =>
-          val host    = SbtCode.literal(repoHost)
-          // without warning - the repo's `RepoStr` reads the same variable and warns for it
-          val url     = SbtCode.envUrlOrElse(Some(env), s"https://$repoHost")
-          val warning = SbtCode.literal(s"[warn] $env has no host - the credentials are for $repoHost: ")
+          val noHost = SbtCode.literal(s"$env has no host: ")
           s"""  // the host of the credentials - from $env
              |  lazy val $hostVal: String = {
-             |    val url = $url
-             |    ${SbtCode.hostOf("url")}.getOrElse {
-             |      println($warning + ${SbtCode.maskUserInfoExpr("url")})
-             |      $host
-             |    }
+             |    val url = ${SbtCode.envUrlRequired(env, "    ")}
+             |    ${SbtCode.hostOf("url")}.getOrElse(throw new IllegalArgumentException($noHost + ${SbtCode.maskUserInfoExpr("url")}))
              |  }
              |""".stripMargin
         .getOrElse("")

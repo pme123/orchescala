@@ -107,6 +107,8 @@ class SbtSettingsGeneratorTest extends FunSuite:
         settings
       )
       assert(settings.contains("resolvers ++= Seq(releaseRepo, mavenRepo)"), settings)
+      // nothing company-specific of the generation in the committed build - only the variables
+      assert(!settings.contains("bin.example.com"), settings)
       assert(
         settings.contains(
           """lazy val releaseRepoStr = sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty) match {"""
