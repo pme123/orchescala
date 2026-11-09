@@ -11,12 +11,14 @@ import java.net.InetSocketAddress
 class VersionLookupTest extends FunSuite:
 
   private var server: HttpServer = null
+  private val requests            = java.util.concurrent.atomic.AtomicInteger(0)
 
   override def beforeAll(): Unit =
     server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     server.createContext(
       "/artifactory/api/search/latestVersion",
       exchange =>
+        requests.incrementAndGet()
         val query           = exchange.getRequestURI.getRawQuery
         // the credentials of the curl config (stdin) arrive as basic auth
         val authenticated   = Option(exchange.getRequestHeaders.getFirst("Authorization")).exists(_.startsWith("Basic "))
@@ -64,11 +66,15 @@ class VersionLookupTest extends FunSuite:
     assertEquals(repo.lookup("missing", "acme"), None)
     assertEquals(repo.warnings, Seq.empty)
 
-  test("another HTTP status - None, a warning once per repo"):
-    val repo = Lookup(artifactory())
+  test("another HTTP status - None, a warning; the further lookups of the repo are skipped"):
+    val repo   = Lookup(artifactory())
     assertEquals(repo.lookup("broken", "acme"), None)
-    assertEquals(repo.lookup("broken", "acme"), None)
+    val before = requests.get
+    // skipped - each would block up to 15 s with the repo unreachable
+    assertEquals(repo.lookup("known", "acme"), None)
+    assertEquals(requests.get, before, "no request after the failure")
     assertEquals(repo.warnings.size, 1, repo.warnings)
+    assert(repo.warnings.head.contains("the further lookups in this repo are skipped"), repo.warnings)
     assert(repo.warnings.head.contains("[warn] The version of acme:broken could not be looked up"), repo.warnings)
     assert(repo.warnings.head.contains("HTTP 500"), repo.warnings)
 

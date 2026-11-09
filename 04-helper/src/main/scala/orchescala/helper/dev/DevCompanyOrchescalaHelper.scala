@@ -9,19 +9,14 @@ import orchescala.helper.dev.publish.RepoCheck.{BuildNames, reportUploaded, veri
 import orchescala.helper.dev.publish.WorkingTree.*
 import orchescala.helper.dev.publish.{DockerCheck, ReleaseRun, SbtRuns}
 import orchescala.engine.config.RepoConfig
-import orchescala.helper.util.{ConfigCheck, DevConfig, PublishConfig}
+import orchescala.helper.util.{ConfigCheck, ConfigExit, DevConfig, PublishConfig}
 
 import scala.util.{Failure, Success, Try}
 
 // dev-company/company-orchescala/helper.scala
-trait DevCompanyOrchescalaHelper extends DocCreator:
+trait DevCompanyOrchescalaHelper extends DocCreator, ConfigExit:
   def engineConfig: EngineConfig
   def devConfig: DevConfig
-
-  /** How the helper stops on an invalid configuration - override it to run it in-process (the
-    * command is not run then either).
-    */
-  protected def exitOnInvalidConfig(code: Int): Unit = sys.exit(code)
 
   def runForCompany(command: String, arguments: String*): Unit =
     val args = arguments.toSeq

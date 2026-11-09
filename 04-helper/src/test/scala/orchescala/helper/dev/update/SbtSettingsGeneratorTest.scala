@@ -165,6 +165,14 @@ class SbtSettingsGeneratorTest extends FunSuite:
 
   /** Parses the generated sbt code with the dialect of sbt (Scala 2.12) - a syntax error in a
     * template shows up here, not only in the build of a project.
+    *
+    * The semantics are not checked here (the sbt API is not on the test classpath) - after a
+    * change of a template, check them on a company project:
+    *   1. `./helper.scala update` in a project of the company (with the new helper)
+    *   2. `sbt "show worker/resolvers" "show worker/credentials" "show worker/dockerRepository"
+    *      "show worker/dockerBaseImage" worker/update` - with the `{COMPANY}_MVN_*` and
+    *      `{COMPANY}_DOCKER_*` variables set, unset, empty and with an `@`: the resolvers, the
+    *      host of the credentials and the warnings follow them, `update` loads from the repos.
     */
   private def assertParses(code: String, file: String): Unit =
     import scala.meta.*

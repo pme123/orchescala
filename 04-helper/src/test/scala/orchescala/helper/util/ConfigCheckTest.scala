@@ -58,7 +58,9 @@ class ConfigCheckTest extends FunSuite:
 
   test("the message at a further access to the failed object (JDK 18+)"):
     // JDK 18+ gives the cause of a NoClassDefFoundError as text - before it has none, then it is
-    // the safe branch (message + stack trace); in the helpers `orExit` is the 1st access
+    // the safe branch (message + stack trace); in the helpers `orExit` is the 1st access.
+    // Checked on JDK 21.0.12 (Temurin) and 25.0.2 - another wording also falls back to the
+    // stack trace.
     assume(Runtime.version.feature >= 18, "the replayed cause is JDK 18+")
     val expected = Some("ACME_MVN_RELEASE_REPOSITORY has no host: https:///x")
     val _        = ConfigCheck.error(BrokenTopLevelCompanyConfig.repos) // 1st access, if not yet

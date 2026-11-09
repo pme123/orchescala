@@ -200,13 +200,13 @@ object RepoConfig:
 
     lazy val ammoniteRepo: String =
       s"""  MavenRepository
-         |    .of(${SbtCode.envUrlOrElse(urlEnv, repoUrl)})
+         |    .of(${SbtCode.literal(repoUrl)})
          |    .withCredentials(Credentials.of(sys.env("$usernameEnv"),
          |      sys.env("$passwordEnv")))""".stripMargin
 
-    // the lookup warns once per instance (a `copy` starts again) - e.g. wrong credentials would
-    // fail every lookup of the repo
-    private val lookupWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+    // after a failure (no network, timeout, wrong credentials - not a 404) the further lookups of
+    // this instance are skipped (a `copy` starts again): each would block up to 15 s
+    private val lookupFailed = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** looks up a package's latest version via Artifactory's search API - None if not found there
       * (e.g. a third-party dependency that only exists on Maven Central), so callers can fall
@@ -227,10 +227,10 @@ object RepoConfig:
         val url                         =
           s"$artifactoryApiUrl/api/search/latestVersion?g=${enc(org)}&a=${enc(project)}&repos=${enc(repo)}"
         def failed(reason: String)      =
-          if lookupWarned.compareAndSet(false, true) then
+          if lookupFailed.compareAndSet(false, true) then
             warn(
               s"[warn] The version of $org:$project could not be looked up in $repoUrl - $reason" +
-                " (further failures of this repo are not shown)"
+                " (the further lookups in this repo are skipped)"
             )
           None
         def lookup(config: String)      =
@@ -248,6 +248,7 @@ object RepoConfig:
                 case Some("404") => None // not in this repo - e.g. only on Maven Central
                 case status      => failed(s"HTTP ${status.getOrElse("?")}")
         for
+          _        <- Option.unless(lookupFailed.get)(()) // skipped after a failure
           username <- env(usernameEnv)
           password <- env(passwordEnv)
           config   <- RepoConfig.curlLine("user", s"$username:$password")
@@ -298,7 +299,7 @@ object RepoConfig:
     // anywhere (not only in the user info URI finds) as `https://user:pa/ss@host/...` is one too
     if uri.getRawUserInfo != null || url.contains('@') then
       invalid(
-        "must have no `@` (user info) - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables"
+        "must not contain an `@` - no user info: the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables"
       )
     if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
       invalid("is no http(s) url")
@@ -372,6 +373,7 @@ object RepoCredentials:
       repoUrlEnv
         .map: env =>
           val host    = SbtCode.literal(repoHost)
+          // without warning - the repo's `RepoStr` reads the same variable and warns for it
           val url     = SbtCode.envUrlOrElse(Some(env), s"https://$repoHost")
           val warning = SbtCode.literal(s"[warn] $env has no host - the credentials are for $repoHost: ")
           s"""  // the host of the credentials - from $env

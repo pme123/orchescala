@@ -10,17 +10,13 @@ import orchescala.helper.dev.update.*
 
 import scala.util.{Failure, Success, Try}
 
-trait DevHelper:
+trait DevHelper extends ConfigExit:
   def apiConfig: ApiConfig
   def devConfig: DevConfig
 
   given DevConfig = devConfig
   given ApiConfig = apiConfig
 
-  /** How the helper stops on an invalid configuration - override it to run it in-process (the
-    * command is not run then either).
-    */
-  protected def exitOnInvalidConfig(code: Int): Unit = sys.exit(code)
 
   def run(command: String, arguments: String*): Unit =
     run(command, arguments.toSeq, runCommand)
