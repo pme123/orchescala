@@ -116,6 +116,8 @@ function inHierarchy(name: string, apis: ApiRef[], model: Model | null): DomainT
 }
 
 export interface Adopted {
+  /** the id of the collection's type that goes — what a choice keeps */
+  id: string;
   /** the name of the class of the collection — `Gender` (`NaturalPersonGender1` when renamed) */
   name: string;
   /** the class of the hierarchy has another name, but the same structure — `Gender1` */
@@ -194,7 +196,7 @@ const describedType = (t: TypeDef) => (t.fields ?? []).map(f => `${f.name}:${sai
  */
 function sameStructure(
   c: ServiceCollectionSpec, model: Model, users: Map<string, ApiRef[]>, apis: ApiRef[],
-  replace: Map<string, string>, adopted: Adopted[],
+  replace: Map<string, string>, adopted: Adopted[], keep: ReadonlySet<string>,
 ): void {
   const domain = (model.domainTypes ?? []).filter(d => !d.owner && (d.kind === 'case' || d.kind === 'enum'));
   // per package of the hierarchy: the classes by their structure
@@ -221,7 +223,7 @@ function sameStructure(
   for (let changed = true; changed;) {
     changed = false;
     for (const t of c.types) {
-      if (replace.has(t.id) || t.interactionId || !t.name?.trim()) continue;
+      if (replace.has(t.id) || keep.has(t.id) || t.interactionId || !t.name?.trim()) continue;
       const by = users.get(t.id) ?? apis;
       if (t.domainId && by.some(a => t.domainId!.startsWith(`${collectionPackage(a)}.`))) continue;
       const shape = typeShape(t, nameOf);
@@ -233,7 +235,7 @@ function sameStructure(
         const hits = all.length === 1 ? all : all.filter(d => described(d) === describedType(t));
         if (hits.length === 1) {
           replace.set(t.id, domainRef(hits[0].id));
-          adopted.push({ name: t.name, renamed: hits[0].name, from: hits[0].id });
+          adopted.push({ id: t.id, name: t.name, renamed: hits[0].name, from: hits[0].id });
           changed = true;
         }
         break;
@@ -247,15 +249,17 @@ function sameStructure(
  * `schema` of a level above an API that uses it) are taken from there: the type goes, every
  * use points to the class of the catalog. A type the project has in the API's own package
  * (its `domainId` there) stays — the project says where it lives.
+ * @param keep the ids of the types the user keeps as the collection's own — not taken over; a
+ *             type that would match only through one of them stays too
  */
-export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | null): { spec: ServiceCollectionSpec; adopted: Adopted[] } {
+export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | null, keep: ReadonlySet<string> = new Set()): { spec: ServiceCollectionSpec; adopted: Adopted[] } {
   if (!model?.domainTypes?.length) return { spec: c, adopted: [] };
   const users = usersOf(c);
   const apis = apisOf(c);
   const replace = new Map<string, string>();
   const adopted: Adopted[] = [];
   for (const t of c.types) {
-    if (t.interactionId || !t.name?.trim()) continue;
+    if (t.interactionId || !t.name?.trim() || keep.has(t.id)) continue;
     const by = users.get(t.id) ?? apis;
     // the project has it with its API — not a candidate
     if (t.domainId && by.some(a => t.domainId!.startsWith(`${collectionPackage(a)}.`))) continue;
@@ -264,9 +268,9 @@ export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | nul
     replace.set(t.id, domainRef(hit.id));
     // the same name, but other fields: taken all the same — the preview shows it to check
     const differs = hit.kind === 'alias' ? [] : differences(t, hit);
-    adopted.push({ name: t.name, from: hit.id, ...(differs.length ? { differs } : {}) });
+    adopted.push({ id: t.id, name: t.name, from: hit.id, ...(differs.length ? { differs } : {}) });
   }
-  sameStructure(c, model, users, apis, replace, adopted);
+  sameStructure(c, model, users, apis, replace, adopted, keep);
   if (!replace.size) return { spec: c, adopted };
   const map = (type: string) => replace.get(type) ?? type;
   const body = (b: BodyRef | undefined): BodyRef | undefined => (b ? { ...b, type: map(b.type) } : b);

@@ -360,8 +360,9 @@ const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
  * only the collection has stays: its mappings, further In/Out fields, query and headers of
  * an OpenAPI, status and description. Services of its APIs the collection lacks are added,
  * custom workers an older import took over are removed. `null`: the catalog does not know the project.
+ * @param keep the ids of the types the user keeps as the collection's own instead of the class of the hierarchy
  */
-export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null): CatalogSync | null {
+export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null, keep: ReadonlySet<string> = new Set()): CatalogSync | null {
   const project = catalogProjects(model).find(p => p.project === given.project);
   if (!project) return null;
   // an API is the same by its topics (the last part and the version) — where the project
@@ -498,7 +499,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
     return fromBase.size ? { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) } : s;
   });
   // own types the project has higher up in the hierarchy: taken from there
-  const h = adoptHierarchyTypes(spec, model);
+  const h = adoptHierarchyTypes(spec, model, keep);
   // types a service used before and none uses now: the domain moved them (to a `schema` higher up,
   // under another name) — they go; a type no service used before stays, the collection keeps it
   const usedBefore = usedTypes(c);

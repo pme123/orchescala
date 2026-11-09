@@ -19,7 +19,6 @@ import { projectOpenApis } from './projectOpenApis';
 import type { Model } from '../types';
 import { cls } from '../ui';
 import { API_NAME, apiName, apiOf, sameApi, serviceTopic } from './collection';
-import { adoptHierarchyTypes, type Adopted } from './hierarchy';
 import { readOpenApiFile, type OpenApiFile } from './openApiFile';
 import { addOperations, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
 import type { ServiceCollectionSpec } from './types';
@@ -43,7 +42,8 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   initial?: OpenApiFile;
   onClose: () => void;
   /** `adopted`: classes of the hierarchy the collection takes instead of its own (`Gender`) */
-  onApply: (next: ServiceCollectionSpec, added: string[], adopted: Adopted[]) => void;
+  /** the collection with the services — the types the hierarchy has are chosen after it (AdoptDialog) */
+  onApply: (next: ServiceCollectionSpec, added: string[]) => void;
 }) {
   const c = cls(isDark);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -252,15 +252,13 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
           <button disabled={!api || !picked.size || badApi}
             onClick={() => {
               const r = addOperations(spec, api!, [...picked], apiOfOp);
-              // a class the project has higher up in the hierarchy of an API is taken from there
-              const h = adoptHierarchyTypes(r.spec, model);
               const pathPrefix = prefix.trim().replace(/\/+$/, '');
               onApply({
-                ...h.spec,
-                source: { ...(h.spec.source ?? {}), file },
+                ...r.spec,
+                source: { ...(r.spec.source ?? {}), file },
                 ...(!spec.serviceLabel && api!.title ? { serviceLabel: api!.title } : {}),
                 ...(pathPrefix ? { pathPrefix } : {}),
-              }, r.added, h.adopted);
+              }, r.added);
             }}
             className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
             {picked.size || ''} übernehmen

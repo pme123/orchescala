@@ -26,6 +26,7 @@ import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
 import { catalogProjects, knownProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
 import { adoptHierarchyTypes, type Adopted } from './hierarchy';
+import { AdoptDialog, AdoptList } from './AdoptChoice';
 import { readSources } from '../projects';
 import { findSyncDomainFor, readProjectZip, rememberOwnFolder, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
@@ -79,7 +80,9 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   }, [spec?.slug, slug]);
   const [exportOpen, setExportOpen] = useState(false);
   /** the Abgleich to look at before it applies */
-  const [syncPreview, setSyncPreview] = useState<(CatalogSync & { source: string; note?: string }) | null>(null);
+  const [syncPreview, setSyncPreview] = useState<SyncShown | null>(null);
+  // the types the hierarchy has to choose — the collection before they are taken
+  const [adoptFrom, setAdoptFrom] = useState<{ base: ServiceCollectionSpec; intro?: string } | null>(null);
   /** while the domain is searched or read */
   const [syncBusy, setSyncBusy] = useState('');
   /** the own project folder is remembered but not readable — the Abgleich asks for it instead of taking the catalog */
@@ -171,10 +174,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     const cur = latest.current;
     if (!cur) return undefined;
     const source = hit?.source ?? 'Katalog';
-    const r = syncWithCatalog(cur, hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model);
+    const m = hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model;
+    const r = syncWithCatalog(cur, m);
     if (!r) return hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt';
     if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern`;
-    setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}) });
+    setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}), rerun: keep => syncWithCatalog(cur, m, keep) ?? r });
     return undefined;
   };
   const runSync = async () => {
@@ -273,14 +277,24 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
           }}
           onZip={f => void syncFromFiles(async () => readProjectZip(new Uint8Array(await f.arrayBuffer())), f.name)} />
       )}
-      {syncPreview && <SyncPreview sync={syncPreview} isDark={isDark} onCancel={() => setSyncPreview(null)} onApply={() => applySync(syncPreview)} />}
+      {syncPreview && <SyncPreview sync={syncPreview} isDark={isDark} onCancel={() => setSyncPreview(null)} onApply={applySync} />}
+      {adoptFrom && (
+        <AdoptDialog base={adoptFrom.base} model={model} isDark={isDark} intro={adoptFrom.intro} onCancel={() => setAdoptFrom(null)}
+          onApply={(next, adopted) => {
+            update(() => next);
+            setAdoptFrom(null);
+            if (selection.kind === 'type' && !next.types.some(t => t.id === selection.id)) setSelection({ kind: 'overview' });
+            setSyncNote(adopted.length ? adoptedNote(adopted) : 'Aus der Hierarchie: nichts übernommen — eigene Typen');
+          }} />
+      )}
       {exportOpen && <CollectionExport spec={spec} model={typeModel} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {importOpen && (
         <OpenApiImport spec={spec} model={model} isDark={isDark} initial={importFile} onClose={() => { setImportOpen(false); setImportFile(undefined); }}
-          onApply={(next, added, adopted) => {
+          onApply={(next, added) => {
             update(() => next);
             setImportOpen(false);
-            if (adopted.length) setSyncNote(adoptedNote(adopted));
+            // what the hierarchy has already: chosen before it is taken
+            if (adoptHierarchyTypes(next, model).adopted.length) setAdoptFrom({ base: next, intro: `${added.length} Service(s) importiert.` });
             const first = next.services.find(s => s.name === added[0]);
             if (first) setSelection({ kind: 'service', id: first.id });
           }} />
@@ -344,11 +358,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
                 <>
                   <button title={'Typen aus der Hierarchie übernehmen — eine Klasse gleichen Namens oder gleicher Struktur (Werte, Felder) im schema einer Ebene darüber oder der Domain'}
                     onClick={() => {
-                      const h = adoptHierarchyTypes(spec, model);
-                      if (!h.adopted.length) { setSyncNote('Aus der Hierarchie: kein Typ mit gleichem Namen oder gleicher Struktur'); return; }
-                      update(() => h.spec);
-                      if (selection.kind === 'type' && !h.spec.types.some(t => t.id === selection.id)) setSelection({ kind: 'overview' });
-                      setSyncNote(adoptedNote(h.adopted));
+                      if (!adoptHierarchyTypes(spec, model).adopted.length) { setSyncNote('Aus der Hierarchie: kein Typ mit gleichem Namen oder gleicher Struktur'); return; }
+                      setAdoptFrom({ base: spec });
                     }} className={`p-0.5 rounded ${c.hover}`}><Layers size={11} /></button>
                   <PasteTypeButton spec={processFrame(spec)} model={typeModel} isDark={isDark} onPaste={(types, id) => {
                     update(s => ({ ...s, types }));
@@ -571,16 +582,19 @@ function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip
   );
 }
 
-function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & { source: string; note?: string }; isDark: boolean; onCancel: () => void; onApply: () => void }) {
+/** The preview of an Abgleich — `rerun` gives it again with the types the user keeps as own. */
+type SyncShown = CatalogSync & { source: string; note?: string; rerun: (keep: ReadonlySet<string>) => CatalogSync };
+
+function SyncPreview({ sync: first, isDark, onCancel, onApply }: { sync: SyncShown; isDark: boolean; onCancel: () => void; onApply: (sync: CatalogSync) => void }) {
   const c = cls(isDark);
+  // the found types of the hierarchy: all checked — an unchecked one stays the collection's own
+  const [keep, setKeep] = useState<Set<string>>(new Set());
+  const sync = useMemo(() => (keep.size ? { ...first, ...first.rerun(keep) } : first), [first, keep]);
   const groups: [string, string[], string][] = [
     ['Neue Services', sync.added, isDark ? 'text-emerald-300' : 'text-emerald-700'],
     ['Aktualisiert', sync.updated, isDark ? 'text-sky-300' : 'text-sky-700'],
     ['Neue Typen der API', sync.addedTypes, isDark ? 'text-emerald-300' : 'text-emerald-700'],
     ['API-Paket aus dem Projekt', sync.renamedApis, isDark ? 'text-sky-300' : 'text-sky-700'],
-    ['Aus der Hierarchie übernommen — statt eigener Typen', sync.adopted.filter(a => !a.renamed).map(a => a.from), isDark ? 'text-sky-300' : 'text-sky-700'],
-    ['Aus der Hierarchie unter anderem Namen — gleiche Werte bzw. Felder', sync.adopted.filter(a => a.renamed).map(a => `${a.name} → ${a.from}`), isDark ? 'text-sky-300' : 'text-sky-700'],
-    ['Aus der Hierarchie, aber mit anderen Feldern — bitte prüfen', sync.adopted.filter(a => a.differs?.length).map(a => `${a.name} (${a.differs!.join(', ')})`), isDark ? 'text-amber-300' : 'text-amber-700'],
     ['API nicht eindeutig — gleiche Topics im Projekt, nicht umbenannt', sync.ambiguousApis, isDark ? 'text-amber-300' : 'text-amber-700'],
     ['Typen entfernt — kein Service braucht sie mehr, die Domain hat sie jetzt anderswo', sync.removedTypes, 'text-rose-500'],
     ['Entfernt — CustomWorker, kein REST-Service', sync.removed, 'text-rose-500'],
@@ -599,6 +613,7 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & 
               <div className={`text-[11px] font-mono ${c.text}`}>{names.join(', ')}</div>
             </div>
           ))}
+          {first.adopted.length > 0 && <AdoptList candidates={first.adopted} current={sync.adopted} keep={keep} onKeep={setKeep} isDark={isDark} />}
         </div>
         <p className={`text-[10px] ${c.muted}`}>
           Was die Domain kennt, gilt: Methode, Pfad, Bodies, die Felder von In und Out, die Typen der API. Was nur die Collection hat,
@@ -606,7 +621,7 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & 
         </p>
         <div className="flex justify-end gap-2">
           <button onClick={onCancel} className={`text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
-          <button onClick={onApply} autoFocus className={`text-[11px] px-3 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>Abgleichen</button>
+          <button onClick={() => onApply(sync)} autoFocus className={`text-[11px] px-3 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>Abgleichen</button>
         </div>
       </div>
     </div>

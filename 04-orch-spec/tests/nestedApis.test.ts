@@ -177,6 +177,15 @@ test('an OpenAPI import takes a class of another name with the same structure fr
   // two of the same structure on one level: none of them - the own type stays
   assert.ok(spec.types.some(t => t.name === 'PersonTwin'));
   assert.ok(!spec.types.some(t => ['NaturalPersonGender1', 'TypeDateWrapper2', 'NaturalPersonPartner'].includes(t.name)));
+
+  // unchecked in the choice: the enum stays the collection's own - and the class that matched only
+  // through it too; the wrapper is taken all the same
+  const gender = adopted.find(a => a.name === 'NaturalPersonGender1')!;
+  const kept = adoptHierarchyTypes(c, { version: 1, services: [], domainTypes } as never, new Set([gender.id]));
+  assert.deepEqual(kept.adopted.map(a => a.name), ['TypeDateWrapper2']);
+  assert.ok(['NaturalPersonGender1', 'NaturalPersonPartner'].every(n => kept.spec.types.some(t => t.name === n)));
+  const partner = kept.spec.types.find(t => t.name === 'NaturalPersonPartner')!;
+  assert.equal(partner.fields?.find(f => f.name === 'gender')?.type, gender.id);
 });
 
 const getPersons = `package acme.crm.domain
