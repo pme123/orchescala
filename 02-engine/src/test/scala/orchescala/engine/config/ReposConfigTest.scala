@@ -159,7 +159,7 @@ class ReposConfigTest extends FunSuite:
       """  // the host of the credentials - from MYCOMPANY_MVN_RELEASE_REPOSITORY
         |  lazy val mycompanyRepoHost: String = {
         |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com")
-        |    scala.util.Try(java.net.URI.create(url).getHost).toOption.flatMap(Option(_)).getOrElse {
+        |    scala.util.Try(java.net.URI.create(url)).toOption.flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll("^.*@|:[0-9]*$", "")))).filter(_.nonEmpty).getOrElse {
         |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url)
         |      "bin.example.com"
         |    }
@@ -341,5 +341,16 @@ class ReposConfigTest extends FunSuite:
   test("curlLine: escaped - none with a line break"):
     assertEquals(RepoConfig.curlLine("user", """me:p"w\d"""), Some("""user = "me:p\"w\\d""""))
     assertEquals(RepoConfig.curlLine("user", "me:secret\n"), None)
+
+  test("hostOf: also a host java.net.URI does not take as host (with _)"):
+    val uri = RepoConfig.repoUri("REPO_URL", "https://my_bin.example.com:8443/artifactory/releases")
+    assertEquals(uri.getHost, null)
+    assertEquals(RepoConfig.hostOf(uri), Some("my_bin.example.com"))
+    assertEquals(RepoConfig.hostOf(java.net.URI.create("https://bin.example.com/x")), Some("bin.example.com"))
+    val repos = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "https://my_bin.example.com/artifactory/releases").get
+    )
+    assertEquals(repos.credentials.head.repoHost, "my_bin.example.com")
 
 end ReposConfigTest

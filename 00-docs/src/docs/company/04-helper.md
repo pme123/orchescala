@@ -139,7 +139,9 @@ variables, the host from its url), so it may move to another host without a new
 `./helper.scala update` - on the same host sbt keeps one of the two.
 
 The env names are upper case, other characters than letters and digits become `_`
-(`acme-bank` → `ACME_BANK_...`).
+(`acme-bank` → `ACME_BANK_...`) - also in the build of the `company-orchescala` project, which used
+`ACME-BANK_...` before (a name a shell can not set). A host with `_` (no host for `java.net.URI`)
+is taken from the authority of the url.
 
 > [!NOTE]
 > Only the generated build reads the variables - the helper itself (e.g. the release check) uses

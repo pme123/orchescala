@@ -100,7 +100,7 @@ object ReposConfig:
     def artifactory(name: String, url: String, urlEnv: String, credentialsName: String, realm: String) =
       val credentials = RepoCredentials.UserPassword(
         credentialsName,
-        RepoConfig.repoUri(urlEnv, url).getHost,
+        RepoConfig.hostOf(RepoConfig.repoUri(urlEnv, url)).get, // repoUri checks the host
         envName("MVN_REPOSITORY_USERNAME"),
         envName("MVN_REPOSITORY_PASSWORD"),
         repoUrlEnv = Some(urlEnv)
@@ -182,28 +182,35 @@ object RepoConfig:
 
     /** looks up a package's latest version via Artifactory's search API - None if not found there
       * (e.g. a third-party dependency that only exists on Maven Central), so callers can fall
-      * back. None (rather than throwing) if the credentials env vars are not set, or curl fails
-      * (e.g. no network). The credentials go through stdin (`curl -K -`) - not visible in `ps`.
+      * back. None (rather than throwing) if the credentials env vars are not set, or the lookup
+      * fails - then with a warning (no network, timeout, an HTTP error other than 404). The
+      * credentials go through stdin (`curl -K -`) - not visible in `ps`.
       */
     lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
+        val url                         = s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo"
+        def failed(reason: String)      =
+          println(s"[warn] The version of $org:$project could not be looked up in $repoUrl - $reason")
+          None
+        def lookup(config: String)      =
+          scala.util.Try(
+            os.proc("curl", "--silent", "--show-error", "--max-time", "10", "--write-out", "\n%{http_code}", "-K", "-", url)
+              .call(stdin = config + "\n", check = false, stderr = os.Pipe, timeout = 15000)
+          ) match
+            case scala.util.Failure(e)                      => failed(s"curl: ${e.getMessage}")
+            case scala.util.Success(r) if r.exitCode != 0   => failed(s"curl ${r.exitCode}: ${r.err.text().trim}")
+            case scala.util.Success(r)                      =>
+              val lines = r.out.text().trim.linesIterator.toSeq
+              lines.lastOption match
+                case Some("200") =>
+                  Some(lines.init.mkString.trim).filter(_.matches("""\d+\.\d+\.\d+(-.+)?"""))
+                case Some("404") => None // not in this repo - e.g. only on Maven Central
+                case status      => failed(s"HTTP ${status.getOrElse("?")}")
         for
           username <- sys.env.get(usernameEnv)
           password <- sys.env.get(passwordEnv)
           config   <- RepoConfig.curlLine("user", s"$username:$password")
-          result   <- scala.util.Try(
-                        os.proc(
-                          "curl",
-                          "--silent",
-                          "--fail",
-                          "-K",
-                          "-",
-                          s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo"
-                        ).call(stdin = config + "\n", check = false)
-                      ).toOption
-          if result.exitCode == 0
-          version   = result.out.text().trim
-          if version.matches("""\d+\.\d+\.\d+(-.+)?""")
+          version  <- lookup(config)
         yield version
     end versionLookup
   end Artifactory
@@ -253,13 +260,21 @@ object RepoConfig:
       )
     if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
       invalid("is no http(s) url")
-    if Option(uri.getHost).forall(_.isEmpty) then invalid("has no host")
+    if hostOf(uri).isEmpty then invalid("has no host")
     if Option(uri.getPath).forall(_.stripPrefix("/").isEmpty) then
       invalid("has no repo in its path (https://<host>/artifactory/<repo>)")
     if uri.getRawQuery != null || uri.getRawFragment != null then
       invalid("must have no query or fragment")
     uri
   end repoUri
+
+  /** The host of a url - also one that `java.net.URI` does not accept as host (e.g. with `_`,
+    * then `getHost` is null): taken from the authority then.
+    */
+  def hostOf(uri: URI): Option[String] =
+    Option(uri.getHost)
+      .orElse(Option(uri.getRawAuthority).map(_.replaceAll(SbtCode.authorityToHost, "")))
+      .filter(_.nonEmpty)
 
   /** A line of a curl config (`curl -K -`) - None for a value with a line break (it would start
     * another option).
@@ -320,7 +335,7 @@ object RepoCredentials:
           s"""  // the host of the credentials - from $env
              |  lazy val $hostVal: String = {
              |    val url = $url
-             |    scala.util.Try(java.net.URI.create(url).getHost).toOption.flatMap(Option(_)).getOrElse {
+             |    ${SbtCode.hostOf("url")}.getOrElse {
              |      println($warning + url)
              |      $host
              |    }

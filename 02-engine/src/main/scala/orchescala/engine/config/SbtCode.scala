@@ -8,6 +8,9 @@ import java.util.Locale
 object SbtCode:
 
   private val trailingSlashes = "/+$"
+  // the host of an authority `user@host:port` - for a host that java.net.URI does not accept as
+  // one (e.g. with `_`, then `getHost` is null)
+  private[config] val authorityToHost = "^.*@|:[0-9]*$"
 
   /** A Scala string literal of `value` - quotes and backslashes escaped. */
   def literal(value: String): String =
@@ -33,9 +36,7 @@ object SbtCode:
     */
   def envUrlOrElse(env: Option[String], url: String): String =
     env
-      .map: e =>
-        val trimmed = s"sys.env.get(${literal(e)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")}))"
-        s"$trimmed.filter(_.nonEmpty).getOrElse(${literal(url)})"
+      .map(e => s"${envUrl(e)}.getOrElse(${literal(url)})")
       .getOrElse(literal(url))
 
   /** As `envUrlOrElse`, but a block that prints a warning when the variable is not set - the url
@@ -44,13 +45,22 @@ object SbtCode:
   def envUrlOrElseWarn(env: Option[String], url: String, indent: String): String =
     env
       .map: e =>
-        val trimmed = s"sys.env.get(${literal(e)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")}))"
         val warning = literal(s"[warn] $e is not set - the repo of the last ./helper.scala update: $url")
-        s"""$trimmed.filter(_.nonEmpty).getOrElse {
+        s"""${envUrl(e)}.getOrElse {
            |$indent  println($warning)
            |$indent  ${literal(url)}
            |$indent}""".stripMargin
       .getOrElse(literal(url))
+
+  /** The url of an env variable in the generated build, an `Option[String]` (as `trimUrl`). */
+  private def envUrl(env: String): String =
+    s"sys.env.get(${literal(env)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")})).filter(_.nonEmpty)"
+
+  /** The host of a url in the generated build (as `RepoConfig.hostOf`), an `Option[String]`. */
+  def hostOf(uriExpr: String): String =
+    s"scala.util.Try(java.net.URI.create($uriExpr)).toOption" +
+      s".flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll(${literal(authorityToHost)}, ${literal("")}))))" +
+      ".filter(_.nonEmpty)"
 
   /** The prefix of the env variables of a company: upper case (independent of the locale), every
     * character other than a letter or digit as `_` - e.g. `acme-bank` -> `ACME_BANK`.

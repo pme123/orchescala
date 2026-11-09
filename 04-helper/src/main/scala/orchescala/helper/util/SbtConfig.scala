@@ -29,7 +29,7 @@ object SbtConfig:
 
   /** The docker settings of a project, if the company sets none. */
   lazy val defaultDockerSettings: String =
-    s"Seq(dockerBaseImage := ${scalaString(defaultBaseImage)})"
+    s"Seq(dockerBaseImage := ${SbtCode.literal(defaultBaseImage)})"
 
   /** The docker settings (`dockerSettings` / `dockerGatewaySettings`) from the env variables of
     * the company - the generated build reads them, so the images follow them:
@@ -52,7 +52,7 @@ object SbtConfig:
     // takes the value before this setting; checked with `show worker/dockerRepository`, with and
     // without the variable (the generated build is not compiled by the tests)
     val repositoryFallback =
-      defaultRepository.map(r => s"Some(${scalaString(r)})").getOrElse("dockerRepository.value")
+      defaultRepository.map(r => s"Some(${SbtCode.literal(r)})").getOrElse("dockerRepository.value")
     val repository         =
       s"dockerRepository := ${SbtCode.envValue(repositoryEnv)}.orElse($repositoryFallback)"
     val baseImage          =
@@ -68,13 +68,10 @@ object SbtConfig:
   def dockerBuildSettings(options: Seq[String]): String =
     val setting =
       if options.isEmpty then ""
-      else s"\n    dockerBuildOptions ++= Seq(${options.map(scalaString).mkString(", ")})\n  "
+      else s"\n    dockerBuildOptions ++= Seq(${options.map(SbtCode.literal).mkString(", ")})\n  "
     // `Setting[_]`: sbt's build definition is Scala 2.12 - it has no `?`
     s"""  // the options of `docker build` (SbtConfig.dockerBuildOptions in CompanyDevConfig)
        |  lazy val dockerBuildSettings: Seq[Setting[_]] = Seq($setting)""".stripMargin
   end dockerBuildSettings
-
-  /** A Scala string literal of `value` - quotes and backslashes escaped. */
-  private def scalaString(value: String): String = SbtCode.literal(value)
 
 end SbtConfig

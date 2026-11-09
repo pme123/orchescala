@@ -247,7 +247,7 @@ lazy val helper = project
   .settings(unitTestSettings)
   .settings(
     autoImportSetting,
-    libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav, jgitDependency)
+    libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav, jgitDependency, scalametaTestDependency)
   ).dependsOn(api, simulation, orchDocClient) // orchDocClient: OrchDocApi.html for the projects' update
 
 lazy val engineC7 = project

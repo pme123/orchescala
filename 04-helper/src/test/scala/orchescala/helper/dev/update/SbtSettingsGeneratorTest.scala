@@ -163,4 +163,56 @@ class SbtSettingsGeneratorTest extends FunSuite:
         RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-$m"), "1.2.3").sorted
       )
 
+  /** Parses the generated sbt code with the dialect of sbt (Scala 2.12) - a syntax error in a
+    * template shows up here, not only in the build of a project.
+    */
+  private def assertParses(code: String, file: String): Unit =
+    import scala.meta.*
+    dialects.Sbt1(code).parse[Source] match
+      case Parsed.Success(_)   => ()
+      case error: Parsed.Error => fail(s"$file does not parse: $error\n$code")
+
+  test("the parse check finds a syntax error"):
+    import scala.meta.*
+    assert(dialects.Sbt1("object Settings { lazy val x = { }").parse[Source].isInstanceOf[Parsed.Error])
+
+  test("the generated build parses - the repos and the docker settings from the env variables"):
+    import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig}
+    val fromEnv = ReposConfig.artifactoryFromEnv(
+      "democompany",
+      Map(
+        "DEMOCOMPANY_MVN_RELEASE_REPOSITORY"    -> "https://bin.example.com/artifactory/releases",
+        "DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY" -> "https://deps.example.com/artifactory/virtual"
+      ).get
+    )
+    // and a GitLab repo with its token - the other templates
+    val repos   = fromEnv.copy(
+      credentials = fromEnv.credentials :+ RepoCredentials.PrivateToken("gitlab", "gitlab.example.com", "GITLAB_TOKEN"),
+      repos = fromEnv.repos :+ RepoConfig.Gitlab("gitlab", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
+    )
+    val docker  = SbtConfig.dockerSettingsFromEnv(
+      "democompany",
+      defaultRepository = Some("registry.example.com"),
+      otherSettings = Seq(
+        """dockerEntrypoint := Seq(
+          |      "/opt/sbin/entrypoint.sh",
+          |      s"${(Docker / defaultLinuxInstallLocation).value}/bin/${ProjectDef.name}-worker"
+          |    )""".stripMargin
+      )
+    )
+    inProject(SbtConfig(reposConfig = repos, dockerSettings = Some(docker))): projectDir =>
+      SbtGenerator().generate
+      SbtSettingsGenerator(isGateway = false).generate
+      assertParses(os.read(projectDir / "project" / "Settings.scala"), "project/Settings.scala")
+      assertParses(os.read(projectDir / "build.sbt"), "build.sbt")
+      SbtSettingsGenerator(isGateway = true).generate
+      assertParses(os.read(projectDir / "project" / "Settings.scala"), "project/Settings.scala (gateway)")
+
+  test("the generated build parses - the defaults"):
+    inProject(SbtConfig()): projectDir =>
+      SbtGenerator().generate
+      SbtSettingsGenerator(isGateway = false).generate
+      assertParses(os.read(projectDir / "project" / "Settings.scala"), "project/Settings.scala")
+      assertParses(os.read(projectDir / "build.sbt"), "build.sbt")
+
 end SbtSettingsGeneratorTest
