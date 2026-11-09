@@ -6,7 +6,7 @@
 //
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
-import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, FolderOpen, ListOrdered, Loader2, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, FolderOpen, Layers, ListOrdered, Loader2, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -25,6 +25,7 @@ import {
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
 import { catalogProjects, knownProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
+import { adoptHierarchyTypes, type Adopted } from './hierarchy';
 import { readSources } from '../projects';
 import { findSyncDomainFor, readProjectZip, rememberOwnFolder, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
@@ -279,7 +280,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
           onApply={(next, added, adopted) => {
             update(() => next);
             setImportOpen(false);
-            if (adopted.length) setSyncNote(`Aus der Hierarchie übernommen: ${adopted.map(a => a.from.split('.').slice(-2).join('.')).join(', ')}`);
+            if (adopted.length) setSyncNote(adoptedNote(adopted));
             const first = next.services.find(s => s.name === added[0]);
             if (first) setSelection({ kind: 'service', id: first.id });
           }} />
@@ -341,6 +342,14 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
               {/* as in the data model of a process: a class, a choice, a class from the clipboard */}
               {canEdit && (
                 <>
+                  <button title={'Typen aus der Hierarchie übernehmen — eine Klasse gleichen Namens oder gleicher Struktur (Werte, Felder) im schema einer Ebene darüber oder der Domain'}
+                    onClick={() => {
+                      const h = adoptHierarchyTypes(spec, model);
+                      if (!h.adopted.length) { setSyncNote('Aus der Hierarchie: kein Typ mit gleichem Namen oder gleicher Struktur'); return; }
+                      update(() => h.spec);
+                      if (selection.kind === 'type' && !h.spec.types.some(t => t.id === selection.id)) setSelection({ kind: 'overview' });
+                      setSyncNote(adoptedNote(h.adopted));
+                    }} className={`p-0.5 rounded ${c.hover}`}><Layers size={11} /></button>
                   <PasteTypeButton spec={processFrame(spec)} model={typeModel} isDark={isDark} onPaste={(types, id) => {
                     update(s => ({ ...s, types }));
                     setSelection({ kind: 'type', id });
@@ -519,6 +528,10 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   );
 }
 
+/** `Gender`, `NaturalPersonGender1 → Gender1` — what was taken from the hierarchy. */
+const adoptedNote = (adopted: Adopted[]) =>
+  `Aus der Hierarchie übernommen: ${adopted.map(a => `${a.renamed ? `${a.name} → ` : ''}${a.from.split('.').slice(-2).join('.')}`).join(', ')}`;
+
 /** What the Abgleich with the catalog changes — before it applies. */
 /** The own project folder is remembered but not readable — as in the process sync: choose it, or a ZIP. */
 function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip }: {
@@ -565,7 +578,8 @@ function SyncPreview({ sync, isDark, onCancel, onApply }: { sync: CatalogSync & 
     ['Aktualisiert', sync.updated, isDark ? 'text-sky-300' : 'text-sky-700'],
     ['Neue Typen der API', sync.addedTypes, isDark ? 'text-emerald-300' : 'text-emerald-700'],
     ['API-Paket aus dem Projekt', sync.renamedApis, isDark ? 'text-sky-300' : 'text-sky-700'],
-    ['Aus der Hierarchie übernommen — statt eigener Typen', sync.adopted.map(a => a.from), isDark ? 'text-sky-300' : 'text-sky-700'],
+    ['Aus der Hierarchie übernommen — statt eigener Typen', sync.adopted.filter(a => !a.renamed).map(a => a.from), isDark ? 'text-sky-300' : 'text-sky-700'],
+    ['Aus der Hierarchie unter anderem Namen — gleiche Werte bzw. Felder', sync.adopted.filter(a => a.renamed).map(a => `${a.name} → ${a.from}`), isDark ? 'text-sky-300' : 'text-sky-700'],
     ['Aus der Hierarchie, aber mit anderen Feldern — bitte prüfen', sync.adopted.filter(a => a.differs?.length).map(a => `${a.name} (${a.differs!.join(', ')})`), isDark ? 'text-amber-300' : 'text-amber-700'],
     ['API nicht eindeutig — gleiche Topics im Projekt, nicht umbenannt', sync.ambiguousApis, isDark ? 'text-amber-300' : 'text-amber-700'],
     ['Typen entfernt — kein Service braucht sie mehr, die Domain hat sie jetzt anderswo', sync.removedTypes, 'text-rose-500'],

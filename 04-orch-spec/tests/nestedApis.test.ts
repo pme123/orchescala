@@ -24,8 +24,8 @@ test('a nested API: the package follows the hierarchy, trait and topic keep the 
   assert.equal(domainDir(nested), '01-domain/src/main/scala/acme/crm/domain/clientMaster/multipleNaturalPersons/v1');
   assert.equal(collectionTrait(nested), 'MultipleNaturalPersonsV1');
   assert.equal(serviceTopic(nested, { name: 'GetX' }), 'acme-crm-multipleNaturalPersonsV1.GetX');
-  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'a.b.c' }), ['acme.crm.domain.a.b.schema', 'acme.crm.domain.a.schema']);
-  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'client' }), []);
+  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'a.b.c' }), ['acme.crm.domain.a.b.schema', 'acme.crm.domain.a.schema', 'acme.crm.domain.schema']);
+  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'client' }), ['acme.crm.domain.schema']);
   assert.deepEqual(commonParents([{ api: 'a.b.x' }, { api: 'a.b.y' }, { api: 'a.c' }]), ['a']);
 });
 
@@ -102,6 +102,81 @@ test('an OpenAPI import takes a class of the same name higher up in the hierarch
   // without a hierarchy nothing changes
   const flat = { ...twoApis(), services: twoApis().services.map(s => ({ ...s, api: 'client' })) };
   assert.deepEqual(adoptHierarchyTypes(flat, model).adopted, []);
+});
+
+/** the project's classes higher up: under other names than the OpenAPI gives them */
+const sharedOther = `package acme.crm.domain
+package clientMaster.schema
+
+enum Gender1:
+  case male, female
+
+enum Sex:
+  case female, male, other
+
+case class PartnerOfPerson(
+    gender: Option[Gender1],
+    name: Option[String]
+)
+`;
+const rootSchema = `package acme.crm.domain
+package schema
+
+case class TypeDateWrapper(
+    @description("An ISO 8601 date")
+    value: Option[String]
+)
+
+case class TypeBigDecimalWrapper(
+    @description("A BigDecimal as text")
+    value: Option[String]
+)
+`;
+const twin = `package acme.crm.domain
+package clientMaster.schema
+
+enum Twin1:
+  case a, b
+enum Twin2:
+  case b, a
+`;
+
+test('an OpenAPI import takes a class of another name with the same structure from the hierarchy — up to the schema of the domain', () => {
+  const docOther = {
+    openapi: '3.0.1', info: { title: 'Client Master', version: '1' },
+    paths: {
+      '/naturalPersons': { get: { operationId: 'getNaturalPersons', responses: { 200: { description: 'ok', content: { 'application/json': { schema: { $ref: '#/components/schemas/NaturalPerson' } } } } } } },
+    },
+    components: {
+      schemas: {
+        NaturalPerson: { type: 'object', properties: { partner: { $ref: '#/components/schemas/NaturalPersonPartner' }, born: { $ref: '#/components/schemas/TypeDateWrapper2' }, twin: { $ref: '#/components/schemas/PersonTwin' } } },
+        NaturalPersonPartner: { type: 'object', properties: { name: { type: 'string' }, gender: { $ref: '#/components/schemas/NaturalPersonGender1' } } },
+        NaturalPersonGender1: { type: 'string', enum: ['female', 'male'] },
+        TypeDateWrapper2: { type: 'object', properties: { value: { type: 'string', description: 'An ISO 8601 date' } } },
+        PersonTwin: { type: 'string', enum: ['a', 'b'] },
+      },
+    },
+  };
+  const c0 = newCollection({ title: 'Client Master', project: 'acme-crm', api: 'clientMaster.naturalPersons', apiVersion: 1 });
+  const api = readApi(docOther);
+  const c = addOperations(c0, api, api.operations.map(o => o.key), () => ({ api: 'clientMaster.naturalPersons', apiVersion: 1 })).spec;
+  const domainTypes = [
+    ...scanScala(sharedOther, 'clientMaster/schema/Shared.scala'),
+    ...scanScala(rootSchema, 'schema/TypeDateWrapper.scala'),
+    ...scanScala(twin, 'clientMaster/schema/Twin.scala'),
+  ];
+  const { spec, adopted } = adoptHierarchyTypes(c, { version: 1, services: [], domainTypes } as never);
+  const renamed = Object.fromEntries(adopted.map(a => [a.name, a.renamed]));
+  // the enum by its values (not `Sex`: another value), the class that uses it after it, the wrapper
+  // from the top - of the two of its structure the one whose field says the same
+  assert.deepEqual(renamed, { NaturalPersonGender1: 'Gender1', TypeDateWrapper2: 'TypeDateWrapper', NaturalPersonPartner: 'PartnerOfPerson' });
+  assert.equal(adopted.find(a => a.name === 'TypeDateWrapper2')?.from, 'acme.crm.domain.schema.TypeDateWrapper');
+  const person = spec.types.find(t => t.name === 'NaturalPerson')!;
+  assert.equal(person.fields?.find(f => f.name === 'partner')?.type, 'dom:acme.crm.domain.clientMaster.schema.PartnerOfPerson');
+  assert.equal(person.fields?.find(f => f.name === 'born')?.type, 'dom:acme.crm.domain.schema.TypeDateWrapper');
+  // two of the same structure on one level: none of them - the own type stays
+  assert.ok(spec.types.some(t => t.name === 'PersonTwin'));
+  assert.ok(!spec.types.some(t => ['NaturalPersonGender1', 'TypeDateWrapper2', 'NaturalPersonPartner'].includes(t.name)));
 });
 
 const getPersons = `package acme.crm.domain
@@ -267,8 +342,10 @@ test('the Abgleich: a project in camelCase, a class moved up the hierarchy under
   assert.ok(r, 'the catalog knows the project');
   const out = r.spec.types.find(t => t.id === 't-out')!;
   assert.equal(out.fields!.find(f => f.name === 'kind')!.type, 'dom:acme.coreBanking.domain.clientMaster.schema.ClientKind');
-  // the old enum no service needs any more goes; the type nobody used before stays
-  assert.deepEqual(r.removedTypes, ['MultipleNaturalPersonsClientKind']);
+  // the old enum goes: it has the values of the class moved up - taken from there under its name;
+  // the type nobody used before stays
+  assert.deepEqual(r.adopted.map(a => [a.name, a.renamed]), [['MultipleNaturalPersonsClientKind', 'ClientKind']]);
+  assert.deepEqual(r.removedTypes, []);
   assert.ok(!r.spec.types.some(t => t.id === 'e-old'));
   assert.ok(r.spec.types.some(t => t.id === 't-spare'));
 });

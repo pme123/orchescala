@@ -11,9 +11,12 @@
 //   its first API, as before.
 // · An import (OpenAPI, from the catalog, the Abgleich) takes a class of the same
 //   name the project has higher up in the hierarchy as the collection's own: the
-//   type of the collection goes, its uses point into the catalog.
-import { domainRef } from '../serviceTypes.ts';
-import type { DomainType, Model, TypeDef } from '../types.ts';
+//   type of the collection goes, its uses point into the catalog. A class of another
+//   name counts as well when it has exactly the same structure — the same values of a
+//   simple enum, the same fields with the same types — and is the only one of its level.
+//   The top of the hierarchy is the `schema` of the domain (`acme.crm.domain.schema`).
+import { domainRef, parseDomainRef } from '../serviceTypes.ts';
+import type { DomainType, Field, Model, TypeDef } from '../types.ts';
 import { apiOf, apiParents, apisOf, collectionPackage, hierarchySchemaPackages, sameApi, type ApiRef } from './collection.ts';
 import type { BodyRef, CollectionService, ServiceCollectionSpec } from './types.ts';
 
@@ -113,8 +116,10 @@ function inHierarchy(name: string, apis: ApiRef[], model: Model | null): DomainT
 }
 
 export interface Adopted {
-  /** the name of the class — `Gender` */
+  /** the name of the class of the collection — `Gender` (`NaturalPersonGender1` when renamed) */
   name: string;
+  /** the class of the hierarchy has another name, but the same structure — `Gender1` */
+  renamed?: string;
   /** where it lives now — `acme.crm.domain.clientMaster.schema.Gender` */
   from: string;
   /**
@@ -139,6 +144,104 @@ function differences(t: TypeDef, d: DomainType): string[] {
   ]);
 }
 
+// ── the same structure under another name ──────────────────────────────────
+
+// `acme.crm.domain.schema.Gender1` → `Gender1`, without blanks — the types are compared by their names
+const bare = (type: string) => type.replace(/\s+/g, '').replace(/\b[a-z]\w*\./g, '');
+
+/** The structure of a class of the domain: the values of a simple enum, the fields of a case class. */
+function domainShape(d: DomainType): string | undefined {
+  if (d.kind === 'enum') {
+    const values = d.values?.length ? d.values : (d.cases ?? []).map(x => x.name);
+    if ((d.cases ?? []).some(x => x.fields?.length) || d.fields?.length || values.length < 2) return undefined;
+    return `enum ${[...values].sort().join(',')}`;
+  }
+  if (d.kind === 'case' && d.fields?.length) return `case ${d.fields.map(f => `${f.name}:${bare(f.type)}`).sort().join(',')}`;
+  return undefined;
+}
+
+/** The same for a type of the collection — the types of its fields by the names they will have. */
+function typeShape(t: TypeDef, nameOf: (type: string) => string): string | undefined {
+  if (t.kind === 'enum') {
+    const values = (t.values ?? []).filter(v => v.name);
+    if (values.some(v => v.fields?.length) || t.fields?.length || values.length < 2) return undefined;
+    return `enum ${values.map(v => v.name).sort().join(',')}`;
+  }
+  if (!t.fields?.length) return undefined;
+  const expr = (f: Field) => {
+    let x = nameOf(f.type) + (f.enumCase ? `.${f.enumCase}` : '') + (f.constraint ? `:|${f.constraint}` : '');
+    if (f.map) x = `Map[String,${x}]`;
+    if (f.collection) x = `Seq[${x}]`;
+    if (f.optional) x = `Option[${x}]`;
+    return bare(x);
+  };
+  return `case ${t.fields.map(f => `${f.name}:${expr(f)}`).sort().join(',')}`;
+}
+
+// the descriptions of the fields — what tells two classes of the same structure apart
+// (`TypeDateWrapper` and `TypeBigDecimalWrapper`: both `value: Option[String]`)
+const said = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ').trim();
+const described = (d: DomainType) => (d.fields ?? []).map(f => `${f.name}:${said(f.description)}`).sort().join('|');
+const describedType = (t: TypeDef) => (t.fields ?? []).map(f => `${f.name}:${said(f.description)}`).sort().join('|');
+
+/**
+ * The types of the collection the hierarchy has under another name with exactly the same
+ * structure: taken from there like one of the same name. Only one such class on the nearest level
+ * with one counts — of two of the same structure there the one whose fields have the same
+ * descriptions; otherwise the type stays. A type whose fields
+ * point to a type taken over is compared with the name it gets: the simple enums first, then the
+ * classes that use them.
+ */
+function sameStructure(
+  c: ServiceCollectionSpec, model: Model, users: Map<string, ApiRef[]>, apis: ApiRef[],
+  replace: Map<string, string>, adopted: Adopted[],
+): void {
+  const domain = (model.domainTypes ?? []).filter(d => !d.owner && (d.kind === 'case' || d.kind === 'enum'));
+  // per package of the hierarchy: the classes by their structure
+  const shapes = new Map<string, Map<string, DomainType[]>>();
+  const byShape = (pkg: string) => {
+    let m = shapes.get(pkg);
+    if (!m) {
+      m = new Map();
+      for (const d of domain.filter(x => x.pkg === pkg)) {
+        const s = domainShape(d);
+        if (s) m.set(s, [...(m.get(s) ?? []), d]);
+      }
+      shapes.set(pkg, m);
+    }
+    return m;
+  };
+  const nameOf = (type: string): string => {
+    const ref = parseDomainRef(type);
+    if (ref) return ref.split('.').pop() ?? ref;
+    const adoptedRef = replace.get(type);
+    if (adoptedRef) return (parseDomainRef(adoptedRef) ?? adoptedRef).split('.').pop() ?? type;
+    return c.types.find(t => t.id === type)?.name ?? type;
+  };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const t of c.types) {
+      if (replace.has(t.id) || t.interactionId || !t.name?.trim()) continue;
+      const by = users.get(t.id) ?? apis;
+      if (t.domainId && by.some(a => t.domainId!.startsWith(`${collectionPackage(a)}.`))) continue;
+      const shape = typeShape(t, nameOf);
+      if (!shape) continue;
+      for (const pkg of [...new Set(by.flatMap(a => hierarchySchemaPackages(a)))]) {
+        const all  = byShape(pkg).get(shape) ?? [];
+        if (!all.length) continue;
+        // several of the same structure: the one whose fields say the same
+        const hits = all.length === 1 ? all : all.filter(d => described(d) === describedType(t));
+        if (hits.length === 1) {
+          replace.set(t.id, domainRef(hits[0].id));
+          adopted.push({ name: t.name, renamed: hits[0].name, from: hits[0].id });
+          changed = true;
+        }
+        break;
+      }
+    }
+  }
+}
+
 /**
  * The types of the collection the project has higher up in the hierarchy (same name, in the
  * `schema` of a level above an API that uses it) are taken from there: the type goes, every
@@ -154,7 +257,6 @@ export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | nul
   for (const t of c.types) {
     if (t.interactionId || !t.name?.trim()) continue;
     const by = users.get(t.id) ?? apis;
-    if (!by.some(a => apiParents(a.api).length)) continue;
     // the project has it with its API — not a candidate
     if (t.domainId && by.some(a => t.domainId!.startsWith(`${collectionPackage(a)}.`))) continue;
     const hit = inHierarchy(t.name, by, model);
@@ -164,6 +266,7 @@ export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | nul
     const differs = hit.kind === 'alias' ? [] : differences(t, hit);
     adopted.push({ name: t.name, from: hit.id, ...(differs.length ? { differs } : {}) });
   }
+  sameStructure(c, model, users, apis, replace, adopted);
   if (!replace.size) return { spec: c, adopted };
   const map = (type: string) => replace.get(type) ?? type;
   const body = (b: BodyRef | undefined): BodyRef | undefined => (b ? { ...b, type: map(b.type) } : b);

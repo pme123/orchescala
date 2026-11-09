@@ -60,12 +60,13 @@ export const apiParents = (api: string): string[] => api.split('.').slice(0, -1)
 
 /**
  * The packages of shared classes for an API, nearest first:
- * `acme.crm.domain.clientMaster.schema` — and the `schema` of each level above.
+ * `acme.crm.domain.clientMaster.schema` — the `schema` of each level above — and the one of the
+ * domain itself, `acme.crm.domain.schema` (for an API without levels the only one).
  */
 export function hierarchySchemaPackages(c: Pick<ServiceCollectionSpec, 'project' | 'api'>): string[] {
   const stem = [...c.project.split('-').filter(Boolean), 'domain'];
   const parents = apiParents(c.api);
-  return parents.map((_, i) => [...stem, ...parents.slice(0, parents.length - i), 'schema'].join('.'));
+  return [...parents.map((_, i) => [...stem, ...parents.slice(0, parents.length - i), 'schema'].join('.')), [...stem, 'schema'].join('.')];
 }
 
 /** `acme.crm.domain.client.v1` — nested: `acme.crm.domain.clientMaster.multipleNaturalPersons.v1` */

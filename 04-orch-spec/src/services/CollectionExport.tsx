@@ -25,7 +25,8 @@ export default function CollectionExport({ spec, model, isDark, onClose }: {
       command={() => collectionHelperCommand(spec, model)}
       description={<>
         Je Service ein ServiceTask in <span className="font-mono">01-domain</span> und ein ServiceWorker in <span className="font-mono">03-worker</span>,
-        dazu der Super-Trait und die Typen der API. Der Helper legt an, was fehlt, vergleicht Bestehendes (überschreibt nie) und
+        dazu der Super-Trait und die Typen der API. Der Helper legt an, was fehlt, mergt die Domain-Klassen in den bestehenden Code
+        (die eigene Implementation bleibt, was nur im Code steht, wird gefragt), lässt bestehende Worker stehen und
         registriert die Worker in der WorkerApp und die Services in der API-Doku.
       </>} />
   );
