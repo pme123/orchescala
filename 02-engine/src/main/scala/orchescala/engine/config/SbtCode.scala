@@ -11,15 +11,32 @@ object SbtCode:
   def literal(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
-  /** The value of an env variable in the generated build, an `Option[String]` - an empty one
-    * counts as not set (e.g. a variable that is defined but empty on a pipeline).
+  /** The value of an env variable in the generated build, an `Option[String]` - trimmed, an empty
+    * one counts as not set (e.g. a variable that is defined but empty on a pipeline).
     */
   def envValue(env: String): String =
-    s"sys.env.get(${literal(env)}).filter(_.trim.nonEmpty)"
+    s"sys.env.get(${literal(env)}).map(_.trim).filter(_.nonEmpty)"
 
   /** The env variable with `value` as fallback - or only the literal without env variable. */
   def envOrElse(env: Option[String], value: String): String =
     env.map(e => s"${envValue(e)}.getOrElse(${literal(value)})").getOrElse(literal(value))
+
+  /** A url without spaces around and without the slashes at the end - the helper and the
+    * generated build (`envUrlOrElse`) read the url of a variable the same way.
+    */
+  def trimUrl(url: String): String = url.trim.replaceAll(trailingSlashes, "")
+
+  /** The url of an env variable in the generated build (as `trimUrl`) with `url` as fallback - or
+    * only the literal without env variable.
+    */
+  def envUrlOrElse(env: Option[String], url: String): String =
+    env
+      .map: e =>
+        val trimmed = s"sys.env.get(${literal(e)}).map(_.trim.replaceAll(${literal(trailingSlashes)}, ${literal("")}))"
+        s"$trimmed.filter(_.nonEmpty).getOrElse(${literal(url)})"
+      .getOrElse(literal(url))
+
+  private val trailingSlashes = "/+$"
 
   /** The prefix of the env variables of a company: upper case (independent of the locale), every
     * character other than a letter or digit as `_` - e.g. `acme-bank` -> `ACME_BANK`.

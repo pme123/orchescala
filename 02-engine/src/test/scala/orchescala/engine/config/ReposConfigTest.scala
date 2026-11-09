@@ -142,7 +142,7 @@ class ReposConfigTest extends FunSuite:
     val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
     assert(
       repos.repos.head.sbtContent.contains(
-        """lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com/artifactory/my-releases")"""
+        """lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com/artifactory/my-releases")"""
       ),
       repos.repos.head.sbtContent
     )
@@ -152,10 +152,20 @@ class ReposConfigTest extends FunSuite:
       ),
       repos.repos(1).sbtContent
     )
+    assertEquals(
+      repos.credentials.head.sbtContent.linesIterator.take(9).mkString("\n"),
+      """  // the host of the credentials - from MYCOMPANY_MVN_RELEASE_REPOSITORY
+        |  lazy val mycompanyRepoHost: String = {
+        |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com")
+        |    scala.util.Try(java.net.URI.create(url).getHost).toOption.flatMap(Option(_)).getOrElse {
+        |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url)
+        |      "bin.example.com"
+        |    }
+        |  }
+        |  lazy val mycompanyCredentials: Credentials = (for {""".stripMargin
+    )
     assert(
-      repos.credentials.head.sbtContent.contains(
-        """Credentials("Artifactory Realm", scala.util.Try(java.net.URI.create(sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com")).getHost).toOption.flatMap(Option(_)).getOrElse("bin.example.com"), user, pwd)"""
-      ),
+      repos.credentials.head.sbtContent.contains("""Credentials("Artifactory Realm", mycompanyRepoHost, user, pwd)"""),
       repos.credentials.head.sbtContent
     )
 
@@ -227,7 +237,7 @@ class ReposConfigTest extends FunSuite:
     val repo = artifactory.copy(repo = """libs"release""", urlEnv = Some("REPO_URL"))
     assert(
       repo.sbtContent.contains(
-        """lazy val releaseRepoStr = sys.env.get("REPO_URL").filter(_.trim.nonEmpty).getOrElse("https://repo.example.com/artifactory/libs\"release")"""
+        """lazy val releaseRepoStr = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://repo.example.com/artifactory/libs\"release")"""
       ),
       repo.sbtContent
     )
@@ -235,8 +245,13 @@ class ReposConfigTest extends FunSuite:
       RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
     assert(
       credentials.sbtContent.contains(
-        """scala.util.Try(java.net.URI.create(sys.env.get("REPO_URL").filter(_.trim.nonEmpty).getOrElse("https://repo\"host")).getHost).toOption.flatMap(Option(_)).getOrElse("repo\"host")"""
+        """val url = sys.env.get("REPO_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://repo\"host")"""
       ),
+      credentials.sbtContent
+    )
+    assert(credentials.sbtContent.contains("""      "repo\"host""""), credentials.sbtContent)
+    assert(
+      credentials.sbtContent.contains("""println("[warn] REPO_URL has no host - the credentials are for repo\"host: " + url)"""),
       credentials.sbtContent
     )
 
@@ -244,7 +259,7 @@ class ReposConfigTest extends FunSuite:
     val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
     assert(
       gitlab.sbtContent.contains(
-        """sys.env.get("GITLAB_REPO").filter(_.trim.nonEmpty).getOrElse("https://gitlab.example.com/api/v4/projects/1/packages/maven")"""
+        """sys.env.get("GITLAB_REPO").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://gitlab.example.com/api/v4/projects/1/packages/maven")"""
       ),
       gitlab.sbtContent
     )
@@ -276,5 +291,30 @@ class ReposConfigTest extends FunSuite:
       Map("3M_BANK_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases").get
     )
     assertEquals(repos.sbtCredentials, "repo3mbankCredentials")
+
+  test("artifactoryFromEnv: spaces around the url are removed - as in the generated build"):
+    val repos   = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "  https://bin.example.com/artifactory/releases/  ").get
+    )
+    val release = repos.repos.head.asInstanceOf[RepoConfig.Artifactory]
+    assertEquals(release.artifactoryApiUrl -> release.repo, "https://bin.example.com/artifactory" -> "releases")
+    assertEquals(repos.credentials.head.repoHost, "bin.example.com")
+    assertEquals(
+      SbtCode.trimUrl("  https://bin.example.com/artifactory/releases/  "),
+      "https://bin.example.com/artifactory/releases"
+    )
+
+  test("repoUri: a url with a query or fragment is refused - also with a slash before it"):
+    def failure(url: String) =
+      intercept[IllegalArgumentException](RepoConfig.repoUri("REPO_URL", url)).getMessage
+    assertEquals(
+      failure("https://bin.example.com/artifactory/releases/?x=1"),
+      "REPO_URL must have no query or fragment: https://bin.example.com/artifactory/releases/?x=1"
+    )
+    assertEquals(
+      failure("https://bin.example.com/artifactory/releases#top"),
+      "REPO_URL must have no query or fragment: https://bin.example.com/artifactory/releases#top"
+    )
 
 end ReposConfigTest

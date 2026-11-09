@@ -9,7 +9,7 @@ class SbtCodeTest extends FunSuite:
     assertEquals(SbtCode.literal("""a"b\c"""), """"a\"b\\c"""")
 
   test("envOrElse: the env variable with the value as fallback - or the value"):
-    assertEquals(SbtCode.envOrElse(Some("A_URL"), "https://x"), """sys.env.get("A_URL").filter(_.trim.nonEmpty).getOrElse("https://x")""")
+    assertEquals(SbtCode.envOrElse(Some("A_URL"), "https://x"), """sys.env.get("A_URL").map(_.trim).filter(_.nonEmpty).getOrElse("https://x")""")
     assertEquals(SbtCode.envOrElse(None, """https://x/"y""""), """"https://x/\"y\""""")
 
   test("the env names of a company: upper case, other characters as _"):
@@ -27,6 +27,14 @@ class SbtCodeTest extends FunSuite:
     assertEquals(SbtCode.identifier("--"), "repo")
 
   test("envValue: an empty variable counts as not set"):
-    assertEquals(SbtCode.envValue("A_URL"), """sys.env.get("A_URL").filter(_.trim.nonEmpty)""")
+    assertEquals(SbtCode.envValue("A_URL"), """sys.env.get("A_URL").map(_.trim).filter(_.nonEmpty)""")
+
+  test("envUrlOrElse: the url of the variable as the helper reads it (trimUrl)"):
+    assertEquals(
+      SbtCode.envUrlOrElse(Some("A_URL"), "https://x/r"),
+      """sys.env.get("A_URL").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://x/r")"""
+    )
+    assertEquals(SbtCode.envUrlOrElse(None, "https://x/r"), """"https://x/r"""")
+    assertEquals(SbtCode.trimUrl(" https://x/r// "), "https://x/r")
 
 end SbtCodeTest

@@ -83,7 +83,8 @@ object ReposConfig:
     *
     * Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or empty) it is the dummy repo. A url that is set
     * but no `http(s)://<host>/.../<repo>` fails with an `IllegalArgumentException` naming the
-    * variable.
+    * variable - deliberately: it is read when the company config is built, so every command of
+    * the helper stops, instead of publishing to or resolving from the dummy repo.
     */
   def artifactoryFromEnv(
       companyName: String,
@@ -143,7 +144,7 @@ object RepoConfig:
     lazy val sbtContent =
       s"""  // $descr
          |  lazy val ${name}RepoStr =
-         |    ${SbtCode.envOrElse(urlEnv, repo)}
+         |    ${SbtCode.envUrlOrElse(urlEnv, repo)}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
     lazy val ammoniteRepo = "/*NOT SUPPORTED*/"
@@ -167,13 +168,13 @@ object RepoConfig:
 
     lazy val sbtContent =
       s""" // $descr
-         |  lazy val ${name}RepoStr = ${SbtCode.envOrElse(urlEnv, repoUrl)}
+         |  lazy val ${name}RepoStr = ${SbtCode.envUrlOrElse(urlEnv, repoUrl)}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
 
     lazy val ammoniteRepo: String =
       s"""  MavenRepository
-         |    .of(${SbtCode.envOrElse(urlEnv, repoUrl)})
+         |    .of(${SbtCode.envUrlOrElse(urlEnv, repoUrl)})
          |    .withCredentials(Credentials.of(sys.env("$usernameEnv"),
          |      sys.env("$passwordEnv")))""".stripMargin
 
@@ -210,13 +211,13 @@ object RepoConfig:
         urlEnv: String,
         realm: String = "Artifactory Realm"
     ): Artifactory =
-      repoUri(urlEnv, url)
-      val trimmed = trimUrl(url)
-      val idx     = trimmed.lastIndexOf('/')
+      // repoUri guarantees a segment in the path and no query or fragment - the last one is the repo
+      val uri  = repoUri(urlEnv, url)
+      val repo = uri.getRawPath.split('/').last
       Artifactory(
         name,
-        trimmed.take(idx),
-        trimmed.drop(idx + 1),
+        SbtCode.trimUrl(url).stripSuffix(s"/$repo"),
+        repo,
         credentials.usernameEnv,
         credentials.passwordEnv,
         realm = realm,
@@ -226,23 +227,23 @@ object RepoConfig:
   end Artifactory
 
   /** The url of a repo (`urlEnv`): `http(s)://<host>/<path>` with at least one segment in the
-    * path (the repo) - otherwise an `IllegalArgumentException` that names the variable.
+    * path (the repo) and no query or fragment - otherwise an `IllegalArgumentException` that
+    * names the variable. Spaces around and slashes at the end are removed (`SbtCode.trimUrl`).
     */
   def repoUri(urlEnv: String, url: String): URI =
     def invalid(reason: String) =
       throw IllegalArgumentException(s"$urlEnv $reason: $url")
-    val uri = scala.util.Try(URI.create(trimUrl(url)))
+    val uri = scala.util.Try(URI.create(SbtCode.trimUrl(url)))
       .getOrElse(invalid("is no valid url"))
     if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
       invalid("is no http(s) url")
     if Option(uri.getHost).forall(_.isEmpty) then invalid("has no host")
     if Option(uri.getPath).forall(_.stripPrefix("/").isEmpty) then
       invalid("has no repo in its path (https://<host>/artifactory/<repo>)")
+    if uri.getRawQuery != null || uri.getRawFragment != null then
+      invalid("must have no query or fragment")
     uri
   end repoUri
-
-  /** The url without spaces around and without the slashes at the end. */
-  private def trimUrl(url: String): String = url.trim.replaceAll("/+$", "")
 
 end RepoConfig
 
@@ -282,16 +283,33 @@ object RepoCredentials:
       // `repoHost` is the fallback
       repoUrlEnv: Option[String] = None
   ) extends RepoCredentials:
-    private lazy val sbtHost: String =
-      val fallback = SbtCode.literal(repoHost)
+    private lazy val hostVal = s"${name}RepoHost"
+
+    /** With `repoUrlEnv`: a `lazy val` with the host - of the url in the variable, the host of the
+      * generation without it; a malformed url gives a warning (no load error of sbt).
+      */
+    private lazy val sbtHostVal: String =
       repoUrlEnv
         .map: env =>
-          val url = SbtCode.envOrElse(Some(env), s"https://$repoHost")
-          // a malformed url in the variable: the host of the generation - no load error of sbt
-          s"scala.util.Try(java.net.URI.create($url).getHost).toOption.flatMap(Option(_)).getOrElse($fallback)"
-        .getOrElse(fallback)
+          val host    = SbtCode.literal(repoHost)
+          val url     = SbtCode.envUrlOrElse(Some(env), s"https://$repoHost")
+          val warning = SbtCode.literal(s"[warn] $env has no host - the credentials are for $repoHost: ")
+          s"""  // the host of the credentials - from $env
+             |  lazy val $hostVal: String = {
+             |    val url = $url
+             |    scala.util.Try(java.net.URI.create(url).getHost).toOption.flatMap(Option(_)).getOrElse {
+             |      println($warning + url)
+             |      $host
+             |    }
+             |  }
+             |""".stripMargin
+        .getOrElse("")
+
+    private lazy val sbtHost: String =
+      if repoUrlEnv.nonEmpty then hostVal else SbtCode.literal(repoHost)
+
     lazy val sbtContent: String =
-      s"""  lazy val ${name}Credentials: Credentials = (for {
+      s"""$sbtHostVal  lazy val ${name}Credentials: Credentials = (for {
          |    user <- sys.env.get("$usernameEnv")
          |    pwd <- sys.env.get("$passwordEnv")
          |  } yield Credentials("$realm", $sbtHost, user, pwd))

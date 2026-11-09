@@ -64,8 +64,8 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(
         settings.contains(
           """lazy val dockerSettings = Seq(
-            |    dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").filter(_.trim.nonEmpty).orElse(dockerRepository.value),
-            |    dockerBaseImage := sys.env.get("DEMOCOMPANY_DOCKER_BASE_IMAGE").filter(_.trim.nonEmpty).getOrElse("eclipse-temurin:21-jre"),
+            |    dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").map(_.trim).filter(_.nonEmpty).orElse(dockerRepository.value),
+            |    dockerBaseImage := sys.env.get("DEMOCOMPANY_DOCKER_BASE_IMAGE").map(_.trim).filter(_.nonEmpty).getOrElse("eclipse-temurin:21-jre"),
             |    dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")
             |  )""".stripMargin
         ),
@@ -76,7 +76,7 @@ class SbtSettingsGeneratorTest extends FunSuite:
     val docker = SbtConfig.dockerSettingsFromEnv("democompany", defaultRepository = Some("registry.example.com"))
     assert(
       docker.contains(
-        """dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").filter(_.trim.nonEmpty).orElse(Some("registry.example.com"))"""
+        """dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").map(_.trim).filter(_.nonEmpty).orElse(Some("registry.example.com"))"""
       ),
       docker
     )
@@ -99,13 +99,13 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(settings.contains("resolvers ++= Seq(releaseRepo, mavenRepo)"), settings)
       assert(
         settings.contains(
-          """sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com/artifactory/releases")"""
+          """sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com/artifactory/releases")"""
         ),
         settings
       )
       assert(
         settings.contains(
-          """sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com/artifactory/virtual")"""
+          """sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com/artifactory/virtual")"""
         ),
         settings
       )

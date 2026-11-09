@@ -115,11 +115,17 @@ private lazy val companySbtConfig = SbtConfig(
   ))
 )
 ```
-Without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
-(`eclipse-temurin:21-jre`) - the default of sbt-native-packager (`openjdk:8`) is no longer on Docker Hub.
-Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo; a url that
-is set but no `http(s)://<host>/.../<repo>` fails, naming the variable. An empty variable counts as
-not set in the generated build as well. The dependency repo gets its own resolver name
+> [!WARNING]
+> **Changed:** without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
+> (`eclipse-temurin:21-jre`) from the next `./helper.scala update` on - before, it was the default of
+> sbt-native-packager (`openjdk:8`), which is no longer on Docker Hub.
+
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo. A url that is
+set but no `http(s)://<host>/.../<repo>` (or with a query or fragment) fails with an error naming the
+variable - on purpose: the company config reads it, so every command of the helper stops, instead
+of publishing to or resolving from the dummy repo. The generated build reads a variable the same
+way as the helper: spaces around and slashes at the end removed, an empty one counts as not set;
+a url without host gives a warning when sbt loads, and the credentials keep the host of the update. The dependency repo gets its own resolver name
 (`Artifactory Realm 2`) - sbt does not load from two resolvers of the same host with the same name
 (_unauthorized_ / _forbidden_) - and its own credentials (the same user and password variables,
 the host from its url), so it may move to another host without a new `./helper.scala update`.
