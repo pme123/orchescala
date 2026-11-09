@@ -1,6 +1,6 @@
 package orchescala.helper.dev.update
 
-import orchescala.engine.config.{RepoConfig, RepoCredentials}
+import orchescala.engine.config.{RepoConfig, RepoCredentials, SbtCode}
 import orchescala.helper.util.PipelineConfig
 
 case class GenericFileGenerator()(using config: DevConfig):
@@ -140,9 +140,9 @@ case class GenericFileGenerator()(using config: DevConfig):
 
   def gitLabPipeline(pipelineConfig: PipelineConfig) =
     val mvnUserEnv     = pipelineConfig.companyMVNUserEnv
-      .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_USERNAME")
+      .getOrElse(SbtCode.companyEnvName(config.companyName, "MVN_REPOSITORY_USERNAME"))
     val mvnPasswordEnv = pipelineConfig.companyMVNPasswordEnv
-      .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_PASSWORD")
+      .getOrElse(SbtCode.companyEnvName(config.companyName, "MVN_REPOSITORY_PASSWORD"))
 
     // route coursier (cs) through the company repos - Maven Central only as fallback -
     // to avoid its HTTP 429 rate limiting on shared CI egress IPs

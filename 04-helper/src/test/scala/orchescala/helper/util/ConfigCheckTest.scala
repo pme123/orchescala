@@ -4,6 +4,13 @@ import munit.FunSuite
 
 import java.io.ByteArrayOutputStream
 
+/** A company config as a top-level object - its initialisation fails: the 1st access throws an
+  * `ExceptionInInitializerError`, every further one a `NoClassDefFoundError` (a nested object
+  * would throw the `IllegalArgumentException` itself each time).
+  */
+object BrokenTopLevelCompanyConfig:
+  val repos: String = throw IllegalArgumentException("ACME_MVN_RELEASE_REPOSITORY has no host: https:///x")
+
 /** An invalid configuration must reach the user as its message - not as an
   * `ExceptionInInitializerError`; a bug in it with its stack trace.
   */
@@ -40,12 +47,22 @@ class ConfigCheckTest extends FunSuite:
     )
 
   test("the message of an error while an object is initialised - also at the 2nd access"):
+    val expected = Some("ACME_MVN_RELEASE_REPOSITORY has no host: https:///x")
+    // 1st access: ExceptionInInitializerError with the cause
+    assertEquals(ConfigCheck.error(BrokenTopLevelCompanyConfig.repos), expected)
+    // 2nd access: NoClassDefFoundError - the cause only as text (JDK 18+)
+    assertEquals(ConfigCheck.error(BrokenTopLevelCompanyConfig.repos), expected)
+    // and no stack trace - it is an invalid value
+    val (out, err, exits) = runOrExit(BrokenTopLevelCompanyConfig.repos)
+    assert(out.contains("has no host: https:///x"), out)
+    assertEquals(err, "")
+    assertEquals(exits, Seq(1))
+
+  test("a nested object throws the error itself each time"):
     assertEquals(
       ConfigCheck.error(BrokenCompanyConfig.repos),
       Some("ACME_MVN_RELEASE_REPOSITORY has no host: https:///x")
     )
-    // the 2nd access throws NoClassDefFoundError - with the cause on current JDKs
-    assert(ConfigCheck.error(BrokenCompanyConfig.repos).nonEmpty)
 
   test("orExit: an invalid value - the message, no stack trace, exit 1"):
     val (out, err, exits) = runOrExit(brokenLazyConfig)

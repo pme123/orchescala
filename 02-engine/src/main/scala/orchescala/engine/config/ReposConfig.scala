@@ -184,7 +184,8 @@ object RepoConfig:
       * (e.g. a third-party dependency that only exists on Maven Central), so callers can fall
       * back. None (rather than throwing) if the credentials env vars are not set, or the lookup
       * fails - then with a warning (no network, timeout, an HTTP error other than 404). The
-      * credentials go through stdin (`curl -K -`) - not visible in `ps`.
+      * credentials go through stdin (`curl -K -`) - not visible in `ps`. Blocking (up to 15 s) -
+      * for the helper; in a ZIO fiber wrap it in `ZIO.attemptBlocking`.
       */
     lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
@@ -243,20 +244,22 @@ object RepoConfig:
 
   /** The url of a repo (`urlEnv`): `http(s)://<host>/<path>` with at least one segment in the
     * path (the repo) and no query or fragment - otherwise an `IllegalArgumentException` that
-    * names the variable. No user info (`user:password@`): the url is written into the generated
+    * names the variable. No user info (`user:password@` - no `@` at all): the url is written into the generated
     * `project/Settings.scala`. Spaces around and slashes at the end are removed (`SbtCode.trimUrl`).
     */
   def repoUri(urlEnv: String, url: String): URI =
-    // the url in the message without user info - it may have a password
-    def invalid(reason: String, shown: String = url) =
-      throw IllegalArgumentException(s"$urlEnv $reason: $shown")
+    // the url in a message: up to the last `@` masked - user info may have a password, also one
+    // with a `/` that java.net.URI takes as the start of the path
+    val shownUrl = url.replaceAll("//.*@", "//***@")
+    def invalid(reason: String) =
+      throw IllegalArgumentException(s"$urlEnv $reason: $shownUrl")
     val uri = scala.util.Try(URI.create(SbtCode.trimUrl(url)))
-      .getOrElse(invalid("is no valid url", url.replaceAll("//[^/@]*@", "//***@")))
-    // the url is written into the generated project/Settings.scala - which is committed
-    if uri.getRawUserInfo != null then
+      .getOrElse(invalid("is no valid url"))
+    // the url is written into the generated project/Settings.scala - which is committed; an `@`
+    // anywhere (not only in the user info URI finds) as `https://user:pa/ss@host/...` is one too
+    if uri.getRawUserInfo != null || url.contains('@') then
       invalid(
-        "must have no user info - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables",
-        url.replace(uri.getRawUserInfo + "@", "***@")
+        "must have no user info - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables"
       )
     if !Option(uri.getScheme).exists(s => s == "http" || s == "https") then
       invalid("is no http(s) url")

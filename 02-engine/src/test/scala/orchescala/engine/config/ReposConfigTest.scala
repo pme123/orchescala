@@ -353,4 +353,15 @@ class ReposConfigTest extends FunSuite:
     )
     assertEquals(repos.credentials.head.repoHost, "my_bin.example.com")
 
+  test("repoUri: a password with a `/` is refused too - and not in the message"):
+    // java.net.URI takes `/ss@host/...` as the path, the host would be `u:pa`
+    val message = intercept[IllegalArgumentException](
+      RepoConfig.repoUri("REPO_URL", "https://u:pa/ss@bin.example.com/artifactory/releases")
+    ).getMessage
+    assertEquals(
+      message,
+      "REPO_URL must have no user info - the credentials are in the ..._MVN_REPOSITORY_USERNAME / _PASSWORD variables: https://***@bin.example.com/artifactory/releases"
+    )
+    assert(!message.contains("pa/ss"), message)
+
 end ReposConfigTest

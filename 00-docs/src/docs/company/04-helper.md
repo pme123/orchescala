@@ -118,7 +118,9 @@ private lazy val companySbtConfig = SbtConfig(
 > [!WARNING]
 > **Changed:** without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
 > (`eclipse-temurin:21-jre`) from the next `./helper.scala update` on - before, it was the default of
-> sbt-native-packager (`openjdk:8`), which is no longer on Docker Hub.
+> sbt-native-packager (`openjdk:8`), which is no longer on Docker Hub. The same for the gateway
+> without `dockerGatewaySettings`. To keep the defaults of sbt-native-packager:
+> `dockerSettings = Some("Seq()")` (and `dockerGatewaySettings`).
 
 Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo. A url that is
 set but no `http(s)://<host>/.../<repo>` - with a query, a fragment or user info (`user:password@`)

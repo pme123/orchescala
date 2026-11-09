@@ -23,23 +23,39 @@ object ConfigCheck:
 
   /** The message of the error the configuration throws - None if it can be read. */
   def error(config: => Any): Option[String] =
-    failure(config).map(message)
+    failure(config).map(e => invalidValue(e).getOrElse(message(e)))
 
   /** Prints the error of the configuration (with the stack trace if it is no invalid value) and
     * stops - nothing if it can be read.
     */
   def orExit(config: => Any, exit: Int => Unit = code => sys.exit(code)): Unit =
     failure(config).foreach: e =>
-      println(s"[error] The configuration of the helper could not be read: ${message(e)}")
-      e match
-        case _: IllegalArgumentException => // an invalid value - the message says it
-        case other                       => Console.err.println(stackTrace(other))
+      invalidValue(e) match
+        case Some(msg) => // an invalid value - the message says it
+          println(s"[error] The configuration of the helper could not be read: $msg")
+        case None      =>
+          println(s"[error] The configuration of the helper could not be read: ${message(e)}")
+          Console.err.println(stackTrace(e))
       exit(1)
 
   private def cause(t: Throwable): Throwable = t match
     case e: (ExceptionInInitializerError | NoClassDefFoundError) if e.getCause != null =>
       cause(e.getCause)
     case e                                                                              => e
+
+  /** The message of an invalid value: an `IllegalArgumentException` - also the copy of one, that
+    * a 2nd access to a failed object gives on a JDK 18+ (`NoClassDefFoundError` with an
+    * `ExceptionInInitializerError` that has only the text: `Exception <class>: <message> [in
+    * thread "..."]`).
+    */
+  private def invalidValue(t: Throwable): Option[String] = t match
+    case e: IllegalArgumentException    => Some(message(e))
+    case e: ExceptionInInitializerError =>
+      Option(e.getMessage).collect:
+        case Replayed("java.lang.IllegalArgumentException", msg) => msg
+    case _                              => None
+
+  private val Replayed = """(?s)Exception (\S+?): (.*) \[in thread ".*"\]""".r
 
   private def message(t: Throwable): String =
     Option(t.getMessage).getOrElse(t.toString)
