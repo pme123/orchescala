@@ -108,11 +108,15 @@ private lazy val companySbtConfig = SbtConfig(
   // {COMPANY}_DOCKER_REPOSITORY, {COMPANY}_DOCKER_BASE_IMAGE
   dockerSettings = Some(SbtConfig.dockerSettingsFromEnv(
     "mycompany",
-    defaultBaseImage = Some("eclipse-temurin:21-jre"),
+    // optional - without it: SbtConfig.defaultBaseImage (eclipse-temurin:21-jre)
+    defaultBaseImage = "registry.mycompany.com/openjdk-21-runtime:1.0.0",
+    // optional - only for a base image with its own entrypoint script
     otherSettings = Seq("""dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")""")
   ))
 )
 ```
+Without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
+(`eclipse-temurin:21-jre`) - the default of sbt-native-packager (`openjdk:8`) is no longer on Docker Hub.
 Without `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo; a url that is set but no
 `http(s)://<host>/.../<repo>` fails, naming the variable. The dependency repo gets its own
 resolver name (`Artifactory Realm 2`) - sbt does not load from two resolvers of the same host with

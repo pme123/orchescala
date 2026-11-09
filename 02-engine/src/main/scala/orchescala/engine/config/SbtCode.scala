@@ -11,9 +11,15 @@ object SbtCode:
   def literal(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
-  /** `sys.env.getOrElse("<env>", "<value>")` - or only the literal without env variable. */
+  /** The value of an env variable in the generated build, an `Option[String]` - an empty one
+    * counts as not set (e.g. a variable that is defined but empty on a pipeline).
+    */
+  def envValue(env: String): String =
+    s"sys.env.get(${literal(env)}).filter(_.trim.nonEmpty)"
+
+  /** The env variable with `value` as fallback - or only the literal without env variable. */
   def envOrElse(env: Option[String], value: String): String =
-    env.map(e => s"sys.env.getOrElse(${literal(e)}, ${literal(value)})").getOrElse(literal(value))
+    env.map(e => s"${envValue(e)}.getOrElse(${literal(value)})").getOrElse(literal(value))
 
   /** The prefix of the env variables of a company: upper case (independent of the locale), every
     * character other than a letter or digit as `_` - e.g. `acme-bank` -> `ACME_BANK`.
@@ -25,8 +31,11 @@ object SbtCode:
   def companyEnvName(companyName: String, suffix: String): String =
     s"${companyEnvPrefix(companyName)}_$suffix"
 
-  /** A name usable in a Scala identifier: lower case, only letters and digits. */
+  /** The start of a Scala identifier: lower case, only letters and digits - prefixed with `repo`
+    * if that is empty or starts with a digit (`3m` -> `repo3m`).
+    */
   def identifier(name: String): String =
-    name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "")
+    val id = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "")
+    if id.isEmpty || id.head.isDigit then s"repo$id" else id
 
 end SbtCode

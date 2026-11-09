@@ -108,15 +108,25 @@ class ReposConfigTest extends FunSuite:
         )
       )
     )
+    // own credentials for the dependency repo - also on the same host, so it may move
     assertEquals(
       repos.credentials,
-      Seq(RepoCredentials.UserPassword(
-        "mycompany",
-        "bin.example.com",
-        "MYCOMPANY_MVN_REPOSITORY_USERNAME",
-        "MYCOMPANY_MVN_REPOSITORY_PASSWORD",
-        repoUrlEnv = Some("MYCOMPANY_MVN_RELEASE_REPOSITORY")
-      ))
+      Seq(
+        RepoCredentials.UserPassword(
+          "mycompany",
+          "bin.example.com",
+          "MYCOMPANY_MVN_REPOSITORY_USERNAME",
+          "MYCOMPANY_MVN_REPOSITORY_PASSWORD",
+          repoUrlEnv = Some("MYCOMPANY_MVN_RELEASE_REPOSITORY")
+        ),
+        RepoCredentials.UserPassword(
+          "mycompanyDependency",
+          "bin.example.com",
+          "MYCOMPANY_MVN_REPOSITORY_USERNAME",
+          "MYCOMPANY_MVN_REPOSITORY_PASSWORD",
+          repoUrlEnv = Some("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY")
+        )
+      )
     )
     assertEquals(repos.releaseRepo.map(_.repoUrl), Some("https://bin.example.com/artifactory/my-releases"))
 
@@ -132,7 +142,7 @@ class ReposConfigTest extends FunSuite:
     val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
     assert(
       repos.repos.head.sbtContent.contains(
-        """lazy val releaseRepoStr = sys.env.getOrElse("MYCOMPANY_MVN_RELEASE_REPOSITORY", "https://bin.example.com/artifactory/my-releases")"""
+        """lazy val releaseRepoStr = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com/artifactory/my-releases")"""
       ),
       repos.repos.head.sbtContent
     )
@@ -144,7 +154,7 @@ class ReposConfigTest extends FunSuite:
     )
     assert(
       repos.credentials.head.sbtContent.contains(
-        """Credentials("Artifactory Realm", Option(java.net.URI.create(sys.env.getOrElse("MYCOMPANY_MVN_RELEASE_REPOSITORY", "https://bin.example.com")).getHost).getOrElse("bin.example.com"), user, pwd)"""
+        """Credentials("Artifactory Realm", scala.util.Try(java.net.URI.create(sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com")).getHost).toOption.flatMap(Option(_)).getOrElse("bin.example.com"), user, pwd)"""
       ),
       repos.credentials.head.sbtContent
     )
@@ -217,7 +227,7 @@ class ReposConfigTest extends FunSuite:
     val repo = artifactory.copy(repo = """libs"release""", urlEnv = Some("REPO_URL"))
     assert(
       repo.sbtContent.contains(
-        """lazy val releaseRepoStr = sys.env.getOrElse("REPO_URL", "https://repo.example.com/artifactory/libs\"release")"""
+        """lazy val releaseRepoStr = sys.env.get("REPO_URL").filter(_.trim.nonEmpty).getOrElse("https://repo.example.com/artifactory/libs\"release")"""
       ),
       repo.sbtContent
     )
@@ -225,7 +235,7 @@ class ReposConfigTest extends FunSuite:
       RepoCredentials.UserPassword("mine", """repo"host""", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
     assert(
       credentials.sbtContent.contains(
-        """Option(java.net.URI.create(sys.env.getOrElse("REPO_URL", "https://repo\"host")).getHost).getOrElse("repo\"host")"""
+        """scala.util.Try(java.net.URI.create(sys.env.get("REPO_URL").filter(_.trim.nonEmpty).getOrElse("https://repo\"host")).getHost).toOption.flatMap(Option(_)).getOrElse("repo\"host")"""
       ),
       credentials.sbtContent
     )
@@ -234,10 +244,37 @@ class ReposConfigTest extends FunSuite:
     val gitlab = RepoConfig.Gitlab("release", "https://gitlab.example.com/api/v4/projects/1/packages/maven", urlEnv = Some("GITLAB_REPO"))
     assert(
       gitlab.sbtContent.contains(
-        """sys.env.getOrElse("GITLAB_REPO", "https://gitlab.example.com/api/v4/projects/1/packages/maven")"""
+        """sys.env.get("GITLAB_REPO").filter(_.trim.nonEmpty).getOrElse("https://gitlab.example.com/api/v4/projects/1/packages/maven")"""
       ),
       gitlab.sbtContent
     )
     assert(RepoConfig.Gitlab("release", "https://x").sbtContent.contains("""    "https://x""""))
+
+  test("artifactoryFromEnv: an empty variable counts as not set"):
+    assertEquals(
+      ReposConfig.artifactoryFromEnv("myCompany", Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "  ").get),
+      ReposConfig.dummyRepos
+    )
+    val noDependency = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      companyEnv.updated("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY", "").get
+    )
+    assertEquals(noDependency.repos.map(_.name), Seq("release"))
+    assertEquals(noDependency.credentials.map(_.name), Seq("mycompany"))
+
+  test("artifactoryFromEnv: all slashes at the end are removed"):
+    val repos   = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      Map("MYCOMPANY_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases//").get
+    )
+    val release = repos.repos.head.asInstanceOf[RepoConfig.Artifactory]
+    assertEquals(release.artifactoryApiUrl -> release.repo, "https://bin.example.com/artifactory" -> "releases")
+
+  test("artifactoryFromEnv: a company name that is no identifier"):
+    val repos = ReposConfig.artifactoryFromEnv(
+      "3m-bank",
+      Map("3M_BANK_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases").get
+    )
+    assertEquals(repos.sbtCredentials, "repo3mbankCredentials")
 
 end ReposConfigTest

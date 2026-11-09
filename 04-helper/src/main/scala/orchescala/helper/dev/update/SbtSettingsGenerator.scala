@@ -164,7 +164,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
     val companySettings =
       (if isGateway then config.sbtConfig.dockerGatewaySettings
        else config.sbtConfig.dockerSettings)
-        .getOrElse("Seq()")
+        .getOrElse(SbtConfig.defaultDockerSettings)
     s"""${SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)}
        |  lazy val dockerSettings = $companySettings""".stripMargin
   end sbtDocker

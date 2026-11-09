@@ -22,32 +22,41 @@ object SbtConfig:
   /** `docker build --platform linux/amd64` - the image OpenShift runs, built on any machine. */
   val amd64: Seq[String] = Seq("--platform", "linux/amd64")
 
+  /** The base image of the docker images, if the company sets none. The default of
+    * sbt-native-packager (`openjdk:8`) is no longer on Docker Hub - and Scala 3 needs Java 17+.
+    */
+  val defaultBaseImage: String = "eclipse-temurin:21-jre"
+
+  /** The docker settings of a project, if the company sets none. */
+  lazy val defaultDockerSettings: String =
+    s"Seq(dockerBaseImage := ${scalaString(defaultBaseImage)})"
+
   /** The docker settings (`dockerSettings` / `dockerGatewaySettings`) from the env variables of
     * the company - the generated build reads them, so the images follow them:
     *   - `{COMPANY}_DOCKER_REPOSITORY`: the registry the images are pushed to
     *   - `{COMPANY}_DOCKER_BASE_IMAGE`: the base image
     *
-    * Without a variable the default here is taken, without that the one of sbt-native-packager.
-    * `otherSettings` are added as they are, e.g. a `dockerEntrypoint := Seq(...)`.
+    * Without a variable the default here is taken (repository: without one, the one of
+    * sbt-native-packager). `otherSettings` are added as they are, e.g. a
+    * `dockerEntrypoint := Seq(...)` of a base image with its own entrypoint script.
     */
   def dockerSettingsFromEnv(
       companyName: String,
       defaultRepository: Option[String] = None,
-      defaultBaseImage: Option[String] = None,
+      defaultBaseImage: String = SbtConfig.defaultBaseImage,
       otherSettings: Seq[String] = Seq.empty
   ): String =
-    val repositoryEnv = SbtCode.companyEnvName(companyName, "DOCKER_REPOSITORY")
-    val baseImageEnv  = SbtCode.companyEnvName(companyName, "DOCKER_BASE_IMAGE")
-    // `key := f(key.value)` takes the value before this setting (the one of sbt-native-packager) -
-    // checked with `show worker/dockerRepository` / `dockerBaseImage`, with and without variables
-    val repository    =
-      s"""dockerRepository := sys.env.get(${scalaString(repositoryEnv)})${
-          defaultRepository.map(r => s".orElse(Some(${scalaString(r)}))").getOrElse(".orElse(dockerRepository.value)")
-        }"""
-    val baseImage     =
-      s"""dockerBaseImage := sys.env.getOrElse(${scalaString(baseImageEnv)}, ${
-          defaultBaseImage.map(scalaString).getOrElse("dockerBaseImage.value")
-        })"""
+    val repositoryEnv      = SbtCode.companyEnvName(companyName, "DOCKER_REPOSITORY")
+    val baseImageEnv       = SbtCode.companyEnvName(companyName, "DOCKER_BASE_IMAGE")
+    // without variable and default: the repository of sbt-native-packager - `key := f(key.value)`
+    // takes the value before this setting; checked with `show worker/dockerRepository`, with and
+    // without the variable (the generated build is not compiled by the tests)
+    val repositoryFallback =
+      defaultRepository.map(r => s"Some(${scalaString(r)})").getOrElse("dockerRepository.value")
+    val repository         =
+      s"dockerRepository := ${SbtCode.envValue(repositoryEnv)}.orElse($repositoryFallback)"
+    val baseImage          =
+      s"dockerBaseImage := ${SbtCode.envOrElse(Some(baseImageEnv), defaultBaseImage)}"
     (Seq(repository, baseImage) ++ otherSettings)
       .mkString("Seq(\n    ", ",\n    ", "\n  )")
   end dockerSettingsFromEnv

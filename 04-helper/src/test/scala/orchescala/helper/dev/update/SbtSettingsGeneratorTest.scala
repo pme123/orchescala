@@ -47,12 +47,15 @@ class SbtSettingsGeneratorTest extends FunSuite:
       SbtSettingsGenerator(isGateway = false).generate
       val settings = os.read(projectDir / "project" / "Settings.scala")
       assert(settings.contains("lazy val dockerBuildSettings: Seq[Setting[_]] = Seq()"), settings)
-      assert(settings.contains("lazy val dockerSettings = Seq()"), settings)
+      // not the default of sbt-native-packager (`openjdk:8`) - it is no longer on Docker Hub
+      assert(
+        settings.contains("""lazy val dockerSettings = Seq(dockerBaseImage := "eclipse-temurin:21-jre")"""),
+        settings
+      )
 
   test("Settings.scala: the docker settings from the env variables of the company"):
     val docker = SbtConfig.dockerSettingsFromEnv(
       "democompany",
-      defaultBaseImage = Some("eclipse-temurin:21-jre"),
       otherSettings = Seq("""dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")""")
     )
     inProject(SbtConfig(dockerSettings = Some(docker))): projectDir =>
@@ -61,13 +64,22 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assert(
         settings.contains(
           """lazy val dockerSettings = Seq(
-            |    dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").orElse(dockerRepository.value),
-            |    dockerBaseImage := sys.env.getOrElse("DEMOCOMPANY_DOCKER_BASE_IMAGE", "eclipse-temurin:21-jre"),
+            |    dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").filter(_.trim.nonEmpty).orElse(dockerRepository.value),
+            |    dockerBaseImage := sys.env.get("DEMOCOMPANY_DOCKER_BASE_IMAGE").filter(_.trim.nonEmpty).getOrElse("eclipse-temurin:21-jre"),
             |    dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")
             |  )""".stripMargin
         ),
         settings
       )
+
+  test("Settings.scala: the docker repository with a default of the company"):
+    val docker = SbtConfig.dockerSettingsFromEnv("democompany", defaultRepository = Some("registry.example.com"))
+    assert(
+      docker.contains(
+        """dockerRepository := sys.env.get("DEMOCOMPANY_DOCKER_REPOSITORY").filter(_.trim.nonEmpty).orElse(Some("registry.example.com"))"""
+      ),
+      docker
+    )
 
   test("Settings.scala: the repos from the env variables of the company"):
     val repos = orchescala.engine.config.ReposConfig.artifactoryFromEnv(
@@ -80,17 +92,20 @@ class SbtSettingsGeneratorTest extends FunSuite:
     inProject(SbtConfig(reposConfig = repos)): projectDir =>
       SbtSettingsGenerator(isGateway = false).generate
       val settings = os.read(projectDir / "project" / "Settings.scala")
-      assert(settings.contains("credentials ++= Seq(democompanyCredentials)"), settings)
+      assert(
+        settings.contains("credentials ++= Seq(democompanyCredentials, democompanyDependencyCredentials)"),
+        settings
+      )
       assert(settings.contains("resolvers ++= Seq(releaseRepo, mavenRepo)"), settings)
       assert(
         settings.contains(
-          """sys.env.getOrElse("DEMOCOMPANY_MVN_RELEASE_REPOSITORY", "https://bin.example.com/artifactory/releases")"""
+          """sys.env.get("DEMOCOMPANY_MVN_RELEASE_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com/artifactory/releases")"""
         ),
         settings
       )
       assert(
         settings.contains(
-          """sys.env.getOrElse("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY", "https://bin.example.com/artifactory/virtual")"""
+          """sys.env.get("DEMOCOMPANY_MVN_DEPENDENCY_REPOSITORY").filter(_.trim.nonEmpty).getOrElse("https://bin.example.com/artifactory/virtual")"""
         ),
         settings
       )
