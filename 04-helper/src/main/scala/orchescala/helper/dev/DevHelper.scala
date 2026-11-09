@@ -32,7 +32,7 @@ trait DevHelper:
   ): Unit =
     val args = arguments.toSeq
     println(s"Running command: $command with args: $args")
-    ConfigCheck.orExit({ devConfig; apiConfig }, exit)
+    ConfigCheck.orExit({ val _ = devConfig; val _ = apiConfig }, exit)
     Try(Command.valueOf(command)) match
       case Success(cmd) =>
         commandFunc(cmd, args)

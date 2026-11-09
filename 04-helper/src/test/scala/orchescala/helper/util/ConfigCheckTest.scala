@@ -80,4 +80,14 @@ class ConfigCheckTest extends FunSuite:
     assert(err.contains("ConfigCheckTest"), err)
     assertEquals(exits, Seq(1))
 
+  test("a class missing on the classpath is no configuration error - it is thrown"):
+    // the message of a missing class is its name - not "Could not initialize class ..."
+    // (munit's intercept does not catch a LinkageError)
+    val thrown =
+      try
+        ConfigCheck.error(throw NoClassDefFoundError("acme/orchescala/Missing"))
+        None
+      catch case e: NoClassDefFoundError => Some(e.getMessage)
+    assertEquals(thrown, Some("acme/orchescala/Missing"))
+
 end ConfigCheckTest

@@ -419,5 +419,13 @@ class ReposConfigTest extends FunSuite:
       ),
       out.toString
     )
+    // once per JVM - also if a company config calls it again
+    val again = java.io.ByteArrayOutputStream()
+    Console.withOut(again):
+      ReposConfig.artifactoryFromEnv(
+        "acme-bank",
+        Map("ACME-BANK_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases").get
+      )
+    assertEquals(again.toString, "")
 
 end ReposConfigTest

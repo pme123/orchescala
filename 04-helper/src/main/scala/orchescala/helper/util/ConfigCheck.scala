@@ -17,9 +17,10 @@ object ConfigCheck:
       config
       None
     catch
-      case e: ExceptionInInitializerError => Some(cause(e))
-      case e: NoClassDefFoundError        => Some(cause(e)) // a 2nd access to a failed object
-      case NonFatal(e)                    => Some(cause(e))
+      case e: ExceptionInInitializerError                   => Some(cause(e))
+      // only a 2nd access to a failed object - not a class missing on the classpath
+      case e: NoClassDefFoundError if failedObject(e)       => Some(cause(e))
+      case NonFatal(e)                                      => Some(cause(e))
 
   /** The message of the error the configuration throws - None if it can be read. */
   def error(config: => Any): Option[String] =
@@ -37,6 +38,10 @@ object ConfigCheck:
           println(s"[error] The configuration of the helper could not be read: ${message(e)}")
           Console.err.println(stackTrace(e))
       exit(1)
+
+  // the JDK's message for a class whose initialisation failed before (since JDK 8)
+  private def failedObject(e: NoClassDefFoundError): Boolean =
+    Option(e.getMessage).exists(_.startsWith("Could not initialize class"))
 
   private def cause(t: Throwable): Throwable = t match
     case e: (ExceptionInInitializerError | NoClassDefFoundError) if e.getCause != null =>

@@ -72,6 +72,8 @@ object ReposConfig:
     ))
   )
 
+  private val warnedOldEnvNames = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
   /** The Artifactory repos of a company from its env variables - the same as the build of the
     * `company-orchescala` project uses:
     *   - `{COMPANY}_MVN_RELEASE_REPOSITORY`: `https://<host>/artifactory/<repo>` (the release repo)
@@ -85,7 +87,9 @@ object ReposConfig:
     * `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` set, an error (no silent dummy repo). A url that is set
     * but no `http(s)://<host>/.../<repo>` fails with an `IllegalArgumentException` naming the
     * variable - deliberately: it is read when the company config is built, so every command of
-    * the helper stops, instead of publishing to or resolving from the dummy repo.
+    * the helper stops, instead of publishing to or resolving from the dummy repo. Keep the result
+    * in a `lazy val` (as the generated company config does) - it reads the variables each call;
+    * its warning for old env names comes once per JVM.
     */
   def artifactoryFromEnv(
       companyName: String,
@@ -111,7 +115,9 @@ object ReposConfig:
     // the names before: `{companyName.toUpperCase}_` - for a name with other characters than
     // letters and digits (`acme-bank`: `ACME-BANK_`) they are not read any more
     val oldReleaseEnv = s"${companyName.toUpperCase(java.util.Locale.ROOT)}_MVN_RELEASE_REPOSITORY"
-    if oldReleaseEnv != releaseEnv && read(releaseEnv).isEmpty && read(oldReleaseEnv).nonEmpty then
+    if oldReleaseEnv != releaseEnv && read(releaseEnv).isEmpty && read(oldReleaseEnv).nonEmpty &&
+      warnedOldEnvNames.add(oldReleaseEnv) // once - also if a company config calls it again (a `def`)
+    then
       println(s"[warn] $oldReleaseEnv is set, but not read any more - rename the ..._MVN_* variables to $releaseEnv etc.")
 
     read(releaseEnv) match

@@ -22,7 +22,7 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
   protected def exit(code: Int): Unit = sys.exit(code)
 
   def runForCompany(command: String, arguments: String*): Unit =
-    ConfigCheck.orExit({ devConfig; engineConfig }, exit)
+    ConfigCheck.orExit({ val _ = devConfig; val _ = engineConfig }, exit)
     registerPrivateRepoLookup()
     val args = arguments.toSeq
     println(s"Running for Company command: $command with args: $args")
