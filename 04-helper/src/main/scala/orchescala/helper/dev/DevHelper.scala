@@ -17,6 +17,9 @@ trait DevHelper:
   given DevConfig = devConfig
   given ApiConfig = apiConfig
 
+  /** How the helper stops on an invalid configuration - override it to run it in-process. */
+  protected def exit(code: Int): Unit = sys.exit(code)
+
   def run(command: String, arguments: String*): Unit =
     run(command, arguments.toSeq, runCommand)
   end run
@@ -29,7 +32,7 @@ trait DevHelper:
   ): Unit =
     val args = arguments.toSeq
     println(s"Running command: $command with args: $args")
-    ConfigCheck.orExit { devConfig; apiConfig }
+    ConfigCheck.orExit({ devConfig; apiConfig }, exit)
     Try(Command.valueOf(command)) match
       case Success(cmd) =>
         commandFunc(cmd, args)

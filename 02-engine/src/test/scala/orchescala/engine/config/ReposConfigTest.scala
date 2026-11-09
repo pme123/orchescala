@@ -364,4 +364,32 @@ class ReposConfigTest extends FunSuite:
     )
     assert(!message.contains("pa/ss"), message)
 
+  test("repoUri: user info without `//` - masked in the message"):
+    val message = intercept[IllegalArgumentException](
+      RepoConfig.repoUri("REPO_URL", "user:secret@bin.example.com/artifactory/releases")
+    ).getMessage
+    assert(message.endsWith(": ***@bin.example.com/artifactory/releases"), message)
+    assert(!message.contains("secret"), message)
+    val withScheme = intercept[IllegalArgumentException](
+      RepoConfig.repoUri("REPO_URL", "https://u:s@cr@t@bin.example.com/artifactory/releases")
+    ).getMessage
+    assert(withScheme.endsWith(": https://***@bin.example.com/artifactory/releases"), withScheme)
+
+  test("artifactoryFromEnv: a dependency repo without release repo is an error - no silent dummy"):
+    val message = intercept[IllegalArgumentException](
+      ReposConfig.artifactoryFromEnv(
+        "myCompany",
+        Map("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY" -> "https://bin.example.com/artifactory/virtual").get
+      )
+    ).getMessage
+    assertEquals(
+      message,
+      "MYCOMPANY_MVN_DEPENDENCY_REPOSITORY is set, but MYCOMPANY_MVN_RELEASE_REPOSITORY is not - set both (or none for the dummy repo)."
+    )
+
+  test("hostOf: IPv6 and a host with _ and port"):
+    assertEquals(RepoConfig.hostOf(java.net.URI.create("https://[::1]:8080/artifactory/releases")), Some("[::1]"))
+    assertEquals(RepoConfig.hostOf(java.net.URI.create("https://my_bin.example.com:8443/a/r")), Some("my_bin.example.com"))
+    assertEquals(RepoConfig.hostOf(java.net.URI.create("https://me@my_bin.example.com:8443/a/r")), Some("my_bin.example.com"))
+
 end ReposConfigTest

@@ -81,7 +81,8 @@ object ReposConfig:
     * The generated `project/Settings.scala` reads these variables as well - so a project's build
     * follows them, the values of the generation are only the fallback.
     *
-    * Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or empty) it is the dummy repo. A url that is set
+    * Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or empty) it is the dummy repo - with
+    * `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` set, an error (no silent dummy repo). A url that is set
     * but no `http(s)://<host>/.../<repo>` fails with an `IllegalArgumentException` naming the
     * variable - deliberately: it is read when the company config is built, so every command of
     * the helper stops, instead of publishing to or resolving from the dummy repo.
@@ -108,6 +109,11 @@ object ReposConfig:
       RepoConfig.Artifactory.fromUrl(name, url, credentials, urlEnv, realm) -> credentials
 
     read(releaseEnv) match
+      case None if read(dependencyEnv).nonEmpty =>
+        // not silently the dummy repo - as for an invalid url
+        throw IllegalArgumentException(
+          s"$dependencyEnv is set, but $releaseEnv is not - set both (or none for the dummy repo)."
+        )
       case None             => dummyRepos
       case Some(releaseUrl) =>
         val release    = artifactory("release", releaseUrl, releaseEnv, credentialsName, "Artifactory Realm")
@@ -189,7 +195,9 @@ object RepoConfig:
       */
     lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
-        val url                         = s"$artifactoryApiUrl/api/search/latestVersion?g=$org&a=$project&repos=$repo"
+        def enc(value: String)          = java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8)
+        val url                         =
+          s"$artifactoryApiUrl/api/search/latestVersion?g=${enc(org)}&a=${enc(project)}&repos=${enc(repo)}"
         def failed(reason: String)      =
           println(s"[warn] The version of $org:$project could not be looked up in $repoUrl - $reason")
           None
@@ -248,9 +256,10 @@ object RepoConfig:
     * `project/Settings.scala`. Spaces around and slashes at the end are removed (`SbtCode.trimUrl`).
     */
   def repoUri(urlEnv: String, url: String): URI =
-    // the url in a message: up to the last `@` masked - user info may have a password, also one
-    // with a `/` that java.net.URI takes as the start of the path
-    val shownUrl = url.replaceAll("//.*@", "//***@")
+    // the url in a message: everything up to the last `@` masked (after the scheme, if there is
+    // one) - user info may have a password, also one with a `/` that java.net.URI takes as the
+    // start of the path, or a url without `//`
+    val shownUrl = url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")
     def invalid(reason: String) =
       throw IllegalArgumentException(s"$urlEnv $reason: $shownUrl")
     val uri = scala.util.Try(URI.create(SbtCode.trimUrl(url)))

@@ -18,8 +18,11 @@ trait DevCompanyOrchescalaHelper extends DocCreator:
   def engineConfig: EngineConfig
   def devConfig: DevConfig
 
+  /** How the helper stops on an invalid configuration - override it to run it in-process. */
+  protected def exit(code: Int): Unit = sys.exit(code)
+
   def runForCompany(command: String, arguments: String*): Unit =
-    ConfigCheck.orExit { devConfig; engineConfig }
+    ConfigCheck.orExit({ devConfig; engineConfig }, exit)
     registerPrivateRepoLookup()
     val args = arguments.toSeq
     println(s"Running for Company command: $command with args: $args")

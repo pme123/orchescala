@@ -122,7 +122,8 @@ private lazy val companySbtConfig = SbtConfig(
 > without `dockerGatewaySettings`. To keep the defaults of sbt-native-packager:
 > `dockerSettings = Some("Seq()")` (and `dockerGatewaySettings`).
 
-Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo. A url that is
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo - an error,
+if `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` is set (no silent dummy repo). A url that is
 set but no `http(s)://<host>/.../<repo>` - with a query, a fragment or user info (`user:password@`)
 - fails with an error naming the variable (the password masked) - on purpose: the company config
 reads it, so every command of the helper stops (with the message, no stack trace), instead of
