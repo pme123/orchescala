@@ -138,6 +138,12 @@ loading with a message naming the variable (the url masked) - as for a missing u
 password. There is no fallback: the build has nothing of the `./helper.scala update` - neither
 url nor host - so it can not use the values of another machine.
 
+The generated `.gitlab-ci.yml` does the same: coursier gets the repos as
+`$ACME_MVN_RELEASE_REPOSITORY|$ACME_MVN_DEPENDENCY_REPOSITORY` (GitLab expands them), and the job
+reads the host of each repo url for `COURSIER_CREDENTIALS`. So define the
+`{COMPANY}_MVN_RELEASE_REPOSITORY` / `_DEPENDENCY_REPOSITORY` variables as GitLab CI/CD
+variables (of the group or the project) - the pipeline sets only the username and password.
+
 The dependency repo gets its own resolver name `Artifactory Realm 2` (the name of the sbt
 resolver, not the auth realm) - sbt does not load from two resolvers of the same host with the same
 name (_unauthorized_ / _forbidden_). It also gets its own credentials (the same user and password
