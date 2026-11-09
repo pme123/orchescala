@@ -529,6 +529,49 @@ class SpecMergeTest extends FunSuite:
     assertEquals(conflict.conflicts, Seq(Conflict(2, "X", "B")))
     assertEquals(conflict.text, "a\n<<<<<<< code\nB\n=======\nX\n>>>>>>> orch-spec\nc\nd\ne\n")
 
+  test("ThreeWay - the form is no change: indentation and imports the code has in another form"):
+    val code =
+      """package a
+        |
+        |import a.schema.{Gender, Kind}
+        |import b.*
+        |
+        |case class X(
+        |                gender: Gender,
+        |                kind: Kind
+        |)
+        |""".stripMargin
+    val spec =
+      """package a
+        |
+        |import a.schema.Gender
+        |import a.schema.Kind
+        |import b.Date
+        |
+        |case class X(
+        |    gender: Gender,
+        |    kind: Kind
+        |)
+        |""".stripMargin
+    // a first export (no base): only the form differs - the code stays as it is
+    val same = ThreeWay.merge("", code, spec, ignoreForm = true)
+    assert(same.clean, same.conflicts)
+    assertEquals(same.text, code)
+    // an import the code does not have is a change
+    val other = ThreeWay.merge("", code, spec.replace("import b.Date", "import c.Date"), ignoreForm = true)
+    assert(!other.clean)
+    // without ignoreForm (BPMN, DMN) the form counts
+    assert(!ThreeWay.merge("", code, spec).clean)
+    assert(!other.clean)
+
+  test("ThreeWay.diff - like git diff: the code's lines, the spec's, the form"):
+    import ThreeWay.DiffLine.*
+    assertEquals(
+      ThreeWay.diff("a\n  b\nc\nd", "a\n    b\nC\nd"),
+      Seq(Same("a"), Form("    b"), Code("c"), Spec("C"), Same("d"))
+    )
+    assertEquals(ThreeWay.diff("", "x"), Seq(Spec("x")))
+
   // ── services ──────────────────────────────────────────────────────────────────────────
 
   private def scalaFiles(files: (String, String)*): String =

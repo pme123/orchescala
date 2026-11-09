@@ -54,14 +54,25 @@ object MergeReport:
       case Action.delete   => colored(Console.RED, text)
       case _               => text
 
+  /** grey - `Console` has none */
+  private val Grey = "\u001b[90m"
+
   // the conflicts with their lines - a registration to add by hand as its snippet
   private def conflictLines(f: PlannedFile): Seq[String] =
     f.conflicts.flatMap: c =>
       if c.line == 0 then Seq(s"    add by hand:", c.spec.linesIterator.map(l => s"      $l").mkString("\n"))
-      else
-        Seq(s"    line ${c.line}:") ++
-          Option.when(c.code.nonEmpty)(c.code.linesIterator.map(l => s"      code      | $l").mkString("\n")) ++
-          Option.when(c.spec.nonEmpty)(c.spec.linesIterator.map(l => s"      orch-spec | $l").mkString("\n"))
+      else s"    line ${c.line} ${colored(Console.RED, "- code")} ${colored(Console.GREEN, "+ orch-spec")} ${colored(Grey, "~ only the form")}:" +: diffLines(c)
+
+  /** The lines of a conflict as `git diff` shows them: the code's red, the spec's green, a
+    * change of the form (indentation) grey.
+    */
+  private[update] def diffLines(c: Conflict): Seq[String] =
+    import ThreeWay.DiffLine
+    ThreeWay.diff(c.code, c.spec).map:
+      case DiffLine.Same(l) => s"      $l"
+      case DiffLine.Form(l) => colored(Grey, s"    ~ $l")
+      case DiffLine.Code(l) => colored(Console.RED, s"    - $l")
+      case DiffLine.Spec(l) => colored(Console.GREEN, s"    + $l")
 
   private def printNotes(plan: MergePlan): Unit =
     plan.notes.foreach(n => println(colored(Console.YELLOW, n)))
