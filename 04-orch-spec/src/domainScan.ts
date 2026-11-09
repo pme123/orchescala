@@ -595,6 +595,8 @@ export function scanScala(source: string, path = ''): DomainType[] {
       const cases: Array<{ name: string; fields?: DomainField[] }> = [];
       /** `def clientKey: Long` in the body — a field shared by all cases */
       const common: DomainField[] = [];
+      /** the annotations before a `def` (`@description("…")`, over several lines too) */
+      let annotations = '';
       for (let j = i + 1; j < lines.length; j++) {
         // without a comment at the end (`case ACTIVE // - running`) — otherwise the case is not recognized;
         // without an annotation before it (`@description("…") case A(` or `) case A(` after a long one)
@@ -602,8 +604,32 @@ export function scanScala(source: string, path = ''): DomainType[] {
           .replace(/^(\s*)(?:\)\s*|@\w+(?:\((?:[^()"]|"(?:[^"\\]|\\.)*")*\))?\s*)+(?=case\b)/, '$1');
         if (!l.trim()) continue;
         if (l.search(/\S/) <= indent) break;
-        const cd = /^\s*def\s+([a-z]\w*)\s*:\s*([^=]+?)\s*$/.exec(l);
-        if (cd) { common.push({ name: cd[1], type: cd[2] }); continue; }
+        // an annotation on lines of its own: kept for the `def` after it
+        if (/^\s*@\w+/.test(l) && !ANNOTATED_MEMBER.test(l)) {
+          const state = { triple: false };
+          let depth = balance(l, 0, state);
+          let text = l;
+          let k = j;
+          // up to the bracket that closes it — `) case A(` / `) def x: T` is the member: read below
+          while (depth > 0 && k + 1 < lines.length && !CLOSES_BEFORE_MEMBER.test(lines[k + 1])) {
+            k++;
+            text += '\n' + lines[k];
+            depth = balance(lines[k], depth, state);
+          }
+          annotations += depth > 0 ? `${text})\n` : `${text}\n`;
+          j = k;
+          continue;
+        }
+        const cd = /^\s*(?:\)\s*)?((?:@\w+(?:\((?:[^()"]|"(?:[^"\\]|\\.)*")*\))?\s*)*)def\s+([a-z]\w*)\s*:\s*([^=]+?)\s*$/.exec(l);
+        if (cd) {
+          // with its annotations read as a parameter: the description as in a case
+          const annotated = annotations + cd[1];
+          annotations = '';
+          const field = annotated.trim() ? parseParams(`${annotated} ${cd[2]}: ${cd[3]}`)[0] : undefined;
+          common.push(field?.name === cd[2] ? field : { name: cd[2], type: cd[3] });
+          continue;
+        }
+        annotations = '';
         const many = ENUM_CASES.exec(l);
         if (many) { values.push(...splitParams(many[1]).map(v => v.trim()).filter(Boolean)); continue; }
         const one = ENUM_CASE.exec(l);
@@ -697,6 +723,12 @@ export function scanScala(source: string, path = ''): DomainType[] {
  * field the call does not name has its default as example — otherwise
  * the call would not compile. The first `example` per class wins.
  */
+/** The bracket of an annotation closed on the line of the member — `) case A(` or `) def x: T`. */
+const CLOSES_BEFORE_MEMBER = /^\s*\)\s*(?:case|def)\b/;
+
+/** An annotation followed by the member on the same line — `@description("…") def x: T` or `… case A(`. */
+const ANNOTATED_MEMBER = /^\s*(?:@\w+(?:\((?:[^()"]|"(?:[^"\\]|\\.)*")*\))?\s*)+(?:def|case)\b/;
+
 function applyExample(types: DomainType[], owner: string | null, ctor: string, args: string[]) {
   const byName = (name: string): DomainType | null =>
     (owner ? types.find(t => t.name === `${owner}.${name}`) : undefined) ?? types.find(t => t.name === name) ?? null;

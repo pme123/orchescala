@@ -272,3 +272,62 @@ test('the Abgleich: a project in camelCase, a class moved up the hierarchy under
   assert.ok(!r.spec.types.some(t => t.id === 'e-old'));
   assert.ok(r.spec.types.some(t => t.id === 't-spare'));
 });
+
+const readPersons = `package acme.coreBanking.domain
+package clientMaster.multipleNaturalPersons.v1
+
+object ReadPersons extends MultipleNaturalPersonsV1:
+
+  final val topicName = "acme-coreBanking-multipleNaturalPersonsV1.ReadPersons"
+  val path = "POST: /persons"
+
+  type ServiceIn = In
+  type ServiceOut = Out
+
+  enum In:
+    @description("If set, read from the source.")
+    def fromSource: Option[Boolean]
+
+    case Standard(
+        fromSource: Option[Boolean],
+        keys: Option[Seq[String]]
+    )
+    case ClientKey(
+        fromSource: Option[Boolean],
+        key: String
+    )
+  end In
+
+  enum Out:
+    case Standard(
+        persons: Seq[String]
+    )
+    case ClientKey(
+        person: String
+    )
+  end Out
+end ReadPersons
+`;
+
+test('the Abgleich: In and Out with cases — the description of a shared def, the cases of an Out without one', () => {
+  const domainTypes = scanScala(readPersons, 'ReadPersons.scala');
+  const inDom = domainTypes.find(t => t.name === 'ReadPersons.In')!;
+  assert.equal(inDom.fields?.[0].description, 'If set, read from the source.');
+  const model = {
+    version: 1, domainTypes,
+    services: [{ id: 'acme-coreBanking-multipleNaturalPersonsV1.ReadPersons', name: 'ReadPersons', kind: 'service', topic: 'acme-coreBanking-multipleNaturalPersonsV1.ReadPersons', outputs: [{ name: 'persons' }, { name: 'person' }] }],
+  } as never;
+  const fresh = collectionFromCatalog(catalogProjects(model)[0], catalogProjects(model)[0].apis, model);
+  const out = fresh.types.find(t => t.id === fresh.services[0].outTypeId)!;
+  assert.equal(out.kind, 'enum');
+  assert.deepEqual(out.values?.map(v => [v.name, v.fields?.map(f => f.name)]), [['Standard', ['persons']], ['ClientKey', ['person']]]);
+  assert.equal(out.fields?.length ?? 0, 0);
+  // the Abgleich again: the cases stay, the shared field gets its description
+  const withoutDescr = { ...fresh, types: fresh.types.map(t => (t.fields ? { ...t, fields: t.fields.map(f => ({ ...f, description: undefined })) } : t)) };
+  const r = syncWithCatalog(withoutDescr, model)!;
+  const out2 = r.spec.types.find(t => t.id === r.spec.services[0].outTypeId)!;
+  assert.deepEqual(out2.values?.map(v => [v.name, v.fields?.map(f => f.name)]), [['Standard', ['persons']], ['ClientKey', ['person']]]);
+  assert.equal(out2.fields?.length ?? 0, 0);
+  const in2 = r.spec.types.find(t => t.id === r.spec.services[0].inTypeId)!;
+  assert.equal(in2.fields?.find(f => f.name === 'fromSource')?.description, 'If set, read from the source.');
+});

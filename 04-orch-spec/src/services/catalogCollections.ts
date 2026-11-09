@@ -191,7 +191,8 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
       extra.push(t);
       return t;
     }
-    if (!dom?.fields?.length) {
+    // an enum with cases (`case Standard(…)`, `case ClientKey(…)`) has no fields of its own
+    if (!dom?.fields?.length && !dom?.cases?.length) {
       const t = memberFromEntry(svc, which, serviceId);
       extra.push(t);
       return t;
@@ -435,7 +436,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
         return { ...df, ...(old ? { id: old.id } : {}), type: mapType(df.type) };
       });
       const extra = (cur.fields ?? []).filter(x => !domFields.some(d => d.name === x.name));
-      types.set(cur.id, { ...cur, fields: [...domFields, ...extra] });
+      types.set(cur.id, { ...cur, fields: [...domFields, ...extra], ...(dom.kind === 'enum' ? { kind: 'enum', values: syncCases(cur, dom, mapType) } : {}) });
     }
     // the request: path parameters from the domain (with the value the collection gave), query and headers stay
     const params = f.path
@@ -510,6 +511,27 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
     removedTypes: orphans.map(t => t.name),
     renamedApis, ambiguousApis, adopted: h.adopted,
   };
+}
+
+/**
+ * The cases of an In or Out that is an enum: those of the domain with their fields (the ids and
+ * the description the collection gave them), then the fields and cases only the collection has.
+ */
+function syncCases(cur: TypeDef, dom: TypeDef, map: (type: string) => string): NonNullable<TypeDef['values']> {
+  const shared = new Set((dom.fields ?? []).map(f => f.name));
+  const fromDomain = (dom.values ?? []).map(dv => {
+    const old = cur.values?.find(v => v.name === dv.name);
+    const fields = (dv.fields ?? []).map(df => {
+      const o = old?.fields?.find(x => x.name === df.name);
+      return { ...df, ...(o ? { id: o.id } : {}), type: map(df.type) };
+    });
+    const extra = (old?.fields ?? []).filter(x => !shared.has(x.name) && !fields.some(d => d.name === x.name));
+    const all = [...fields, ...extra];
+    const { fields: _, ...rest } = { ...old, ...dv };
+    return { ...rest, ...(old?.description && !dv.description ? { description: old.description } : {}), ...(all.length ? { fields: all } : {}) };
+  });
+  const own = (cur.values ?? []).filter(v => !fromDomain.some(d => d.name === v.name));
+  return [...fromDomain, ...own];
 }
 
 /** The ids of the types the services of a collection use — In, Out, bodies, parameters and what they reach. */
