@@ -71,6 +71,48 @@ object ReposConfig:
       "???"
     ))
   )
+
+  /** The env variable `{COMPANY}_{suffix}`, e.g. `MYCOMPANY_MVN_RELEASE_REPOSITORY`. */
+  def envName(companyName: String, suffix: String): String =
+    s"${companyName.toUpperCase}_$suffix"
+
+  /** The Artifactory repos of a company from its env variables - the same as the build of the
+    * `company-orchescala` project uses:
+    *   - `{COMPANY}_MVN_RELEASE_REPOSITORY`: `https://<host>/artifactory/<repo>` (the release repo)
+    *   - `{COMPANY}_MVN_DEPENDENCY_REPOSITORY`: optional, the repo for the dependencies
+    *   - `{COMPANY}_MVN_REPOSITORY_USERNAME` / `_PASSWORD`: the credentials
+    *
+    * The generated `project/Settings.scala` reads these variables as well - so a project's build
+    * follows them, the values of the generation are only the fallback. Without
+    * `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo.
+    */
+  def artifactoryFromEnv(
+      companyName: String,
+      env: String => Option[String] = sys.env.get
+  ): ReposConfig =
+    val releaseEnv    = envName(companyName, "MVN_RELEASE_REPOSITORY")
+    val dependencyEnv = envName(companyName, "MVN_DEPENDENCY_REPOSITORY")
+    env(releaseEnv)
+      .map: releaseUrl =>
+        val credentials = RepoCredentials.UserPassword(
+          companyName.toLowerCase,
+          scala.util.Try(URI.create(releaseUrl).getHost).toOption.flatMap(Option(_))
+            .getOrElse(throw IllegalArgumentException(s"$releaseEnv has no host: $releaseUrl")),
+          envName(companyName, "MVN_REPOSITORY_USERNAME"),
+          envName(companyName, "MVN_REPOSITORY_PASSWORD"),
+          repoUrlEnv = Some(releaseEnv)
+        )
+        val dependencyRepo = env(dependencyEnv).map: url =>
+          // sbt needs another name for the second resolver of the same host - with the same
+          // name the artifacts are not loaded (unauthorized / forbidden)
+          RepoConfig.Artifactory.fromUrl("maven", url, credentials, dependencyEnv, "Artifactory Realm 2")
+        ReposConfig(
+          Seq(credentials),
+          RepoConfig.Artifactory.fromUrl("release", releaseUrl, credentials, releaseEnv) +:
+            dependencyRepo.toSeq
+        )
+      .getOrElse(dummyRepos)
+  end artifactoryFromEnv
 end ReposConfig
 
 sealed trait RepoConfig:
@@ -85,13 +127,15 @@ object RepoConfig:
       name: String,
       repo: String,
       descr: String = "",
-      realm: String = "gitlab"
+      realm: String = "gitlab",
+      // the env variable with the url - the generated build reads it, `repo` is the fallback
+      urlEnv: Option[String] = None
   ) extends RepoConfig:
     lazy val repoUrl: String = repo
     lazy val sbtContent =
       s"""  // $descr
          |  lazy val ${name}RepoStr =
-         |    "$repo"
+         |    ${RepoConfig.sbtValue(repo, urlEnv)}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
     lazy val ammoniteRepo = "/*NOT SUPPORTED*/"
@@ -104,19 +148,22 @@ object RepoConfig:
       usernameEnv: String,
       passwordEnv: String,
       descr: String = "",
-      realm: String = "Artifactory Realm"
+      // the name of the sbt resolver - a second repo of the same host needs another one
+      realm: String = "Artifactory Realm",
+      // the env variable with the url - the generated build reads it, the url is the fallback
+      urlEnv: Option[String] = None
   ) extends RepoConfig:
     lazy val repoUrl: String = s"$artifactoryApiUrl/$repo"
 
     lazy val sbtContent =
       s""" // $descr
-         |  lazy val ${name}RepoStr = "$artifactoryApiUrl/$repo"
+         |  lazy val ${name}RepoStr = ${RepoConfig.sbtValue(repoUrl, urlEnv)}
          |  lazy val ${name}Repo: MavenRepository = "$realm" at ${name}RepoStr
          |""".stripMargin
 
     lazy val ammoniteRepo: String =
       s"""  MavenRepository
-         |    .of("$artifactoryApiUrl/$repo")
+         |    .of(${RepoConfig.sbtValue(repoUrl, urlEnv)})
          |    .withCredentials(Credentials.of(sys.env("$usernameEnv"),
          |      sys.env("$passwordEnv")))""".stripMargin
 
@@ -141,6 +188,33 @@ object RepoConfig:
         yield version
     end versionLookup
   end Artifactory
+
+  object Artifactory:
+    /** An Artifactory repo from its url `https://<host>/artifactory/<repo>`. */
+    def fromUrl(
+        name: String,
+        url: String,
+        credentials: RepoCredentials.UserPassword,
+        urlEnv: String,
+        realm: String = "Artifactory Realm"
+    ): Artifactory =
+      val trimmed = url.stripSuffix("/")
+      val idx     = trimmed.lastIndexOf('/')
+      Artifactory(
+        name,
+        trimmed.take(idx),
+        trimmed.drop(idx + 1),
+        credentials.usernameEnv,
+        credentials.passwordEnv,
+        realm = realm,
+        urlEnv = Some(urlEnv)
+      )
+    end fromUrl
+  end Artifactory
+
+  /** A string of the generated build: the env variable with the value as fallback, or the value. */
+  private[config] def sbtValue(value: String, env: Option[String]): String =
+    env.map(e => s"""sys.env.getOrElse("$e", "$value")""").getOrElse(s""""$value"""")
 
 end RepoConfig
 
@@ -175,13 +249,21 @@ object RepoCredentials:
       repoHost: String,
       usernameEnv: String,
       passwordEnv: String,
-      realm: String = "Artifactory Realm"
+      realm: String = "Artifactory Realm",
+      // the env variable with the url of the repo - the generated build takes the host from it,
+      // `repoHost` is the fallback
+      repoUrlEnv: Option[String] = None
   ) extends RepoCredentials:
+    private lazy val sbtHost: String =
+      repoUrlEnv
+        .map: env =>
+          s"""Option(java.net.URI.create(sys.env.getOrElse("$env", "https://$repoHost")).getHost).getOrElse("$repoHost")"""
+        .getOrElse(s""""$repoHost"""")
     lazy val sbtContent: String =
       s"""  lazy val ${name}Credentials: Credentials = (for {
          |    user <- sys.env.get("$usernameEnv")
          |    pwd <- sys.env.get("$passwordEnv")
-         |  } yield Credentials("$realm", "$repoHost", user, pwd))
+         |  } yield Credentials("$realm", $sbtHost, user, pwd))
          |    .getOrElse(throw new IllegalArgumentException(
          |      "System Environment Variables $usernameEnv and/ or $passwordEnv are not set."
          |    ))

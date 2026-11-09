@@ -22,6 +22,34 @@ object SbtConfig:
   /** `docker build --platform linux/amd64` - the image OpenShift runs, built on any machine. */
   val amd64: Seq[String] = Seq("--platform", "linux/amd64")
 
+  /** The docker settings (`dockerSettings` / `dockerGatewaySettings`) from the env variables of
+    * the company - the generated build reads them, so the images follow them:
+    *   - `{COMPANY}_DOCKER_REPOSITORY`: the registry the images are pushed to
+    *   - `{COMPANY}_DOCKER_BASE_IMAGE`: the base image
+    *
+    * Without a variable the default here is taken, without that the one of sbt-native-packager.
+    * `otherSettings` are added as they are, e.g. a `dockerEntrypoint := Seq(...)`.
+    */
+  def dockerSettingsFromEnv(
+      companyName: String,
+      defaultRepository: Option[String] = None,
+      defaultBaseImage: Option[String] = None,
+      otherSettings: Seq[String] = Seq.empty
+  ): String =
+    val repositoryEnv = s"${companyName.toUpperCase}_DOCKER_REPOSITORY"
+    val baseImageEnv  = s"${companyName.toUpperCase}_DOCKER_BASE_IMAGE"
+    val repository    =
+      s"""dockerRepository := sys.env.get("$repositoryEnv")${
+          defaultRepository.map(r => s".orElse(Some(${scalaString(r)}))").getOrElse(".orElse(dockerRepository.value)")
+        }"""
+    val baseImage     =
+      s"""dockerBaseImage := sys.env.getOrElse("$baseImageEnv", ${
+          defaultBaseImage.map(scalaString).getOrElse("dockerBaseImage.value")
+        })"""
+    (Seq(repository, baseImage) ++ otherSettings)
+      .mkString("Seq(\n    ", ",\n    ", "\n  )")
+  end dockerSettingsFromEnv
+
   /** The sbt setting of the docker build options - its own `dockerBuildSettings` in
     * `Settings.scala`, next to the `dockerSettings` of the company (which stay as they are).
     * `build.sbt` adds both to the docker modules, so `./helper.scala update` keeps the options.

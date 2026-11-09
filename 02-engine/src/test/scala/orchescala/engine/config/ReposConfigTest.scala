@@ -79,4 +79,83 @@ class ReposConfigTest extends FunSuite:
     )
     assert(repos.releaseRepoCurlConfig(_ => None).isLeft)
 
+  private val companyEnv = Map(
+    "MYCOMPANY_MVN_RELEASE_REPOSITORY"    -> "https://bin.example.com/artifactory/my-releases/",
+    "MYCOMPANY_MVN_DEPENDENCY_REPOSITORY" -> "https://bin.example.com/artifactory/my-virtual"
+  )
+
+  test("artifactoryFromEnv: the repos and credentials from the env variables of the company"):
+    val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
+    assertEquals(
+      repos.repos,
+      Seq(
+        RepoConfig.Artifactory(
+          "release",
+          "https://bin.example.com/artifactory",
+          "my-releases",
+          "MYCOMPANY_MVN_REPOSITORY_USERNAME",
+          "MYCOMPANY_MVN_REPOSITORY_PASSWORD",
+          urlEnv = Some("MYCOMPANY_MVN_RELEASE_REPOSITORY")
+        ),
+        RepoConfig.Artifactory(
+          "maven",
+          "https://bin.example.com/artifactory",
+          "my-virtual",
+          "MYCOMPANY_MVN_REPOSITORY_USERNAME",
+          "MYCOMPANY_MVN_REPOSITORY_PASSWORD",
+          realm = "Artifactory Realm 2",
+          urlEnv = Some("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY")
+        )
+      )
+    )
+    assertEquals(
+      repos.credentials,
+      Seq(RepoCredentials.UserPassword(
+        "mycompany",
+        "bin.example.com",
+        "MYCOMPANY_MVN_REPOSITORY_USERNAME",
+        "MYCOMPANY_MVN_REPOSITORY_PASSWORD",
+        repoUrlEnv = Some("MYCOMPANY_MVN_RELEASE_REPOSITORY")
+      ))
+    )
+    assertEquals(repos.releaseRepo.map(_.repoUrl), Some("https://bin.example.com/artifactory/my-releases"))
+
+  test("artifactoryFromEnv: the dependency repo is optional, without release repo it is the dummy"):
+    val onlyRelease = ReposConfig.artifactoryFromEnv(
+      "myCompany",
+      companyEnv.removed("MYCOMPANY_MVN_DEPENDENCY_REPOSITORY").get
+    )
+    assertEquals(onlyRelease.repos.map(_.name), Seq("release"))
+    assertEquals(ReposConfig.artifactoryFromEnv("myCompany", _ => None), ReposConfig.dummyRepos)
+
+  test("the generated build reads the env variables - the values are the fallback"):
+    val repos = ReposConfig.artifactoryFromEnv("myCompany", companyEnv.get)
+    assert(
+      repos.repos.head.sbtContent.contains(
+        """lazy val releaseRepoStr = sys.env.getOrElse("MYCOMPANY_MVN_RELEASE_REPOSITORY", "https://bin.example.com/artifactory/my-releases")"""
+      ),
+      repos.repos.head.sbtContent
+    )
+    assert(
+      repos.repos(1).sbtContent.contains(
+        """lazy val mavenRepo: MavenRepository = "Artifactory Realm 2" at mavenRepoStr"""
+      ),
+      repos.repos(1).sbtContent
+    )
+    assert(
+      repos.credentials.head.sbtContent.contains(
+        """Credentials("Artifactory Realm", Option(java.net.URI.create(sys.env.getOrElse("MYCOMPANY_MVN_RELEASE_REPOSITORY", "https://bin.example.com")).getHost).getOrElse("bin.example.com"), user, pwd)"""
+      ),
+      repos.credentials.head.sbtContent
+    )
+
+  test("without env variable the generated build has the values - as before"):
+    assert(artifactory.sbtContent.contains(
+      """lazy val releaseRepoStr = "https://repo.example.com/artifactory/libs-release""""
+    ))
+    val credentials = RepoCredentials.UserPassword("mine", "repo.example.com", "MY_USER", "MY_PWD")
+    assert(credentials.sbtContent.contains(
+      """Credentials("Artifactory Realm", "repo.example.com", user, pwd)"""
+    ))
+
 end ReposConfigTest

@@ -95,6 +95,28 @@ private lazy val companySbtConfig = SbtConfig(
   publishSbtOptions = Seq("-J-Xmx3G")
 )
 ```
+#### Repos and Docker from the env variables
+Instead of fixed values the generated `project/Settings.scala` can read the env variables of the
+company - the same ones the build of the `company-orchescala` project uses. So a project follows
+them without a new `./helper.scala update`; the values at the time of the update are only the fallback.
+
+```scala
+private lazy val companySbtConfig = SbtConfig(
+  // {COMPANY}_MVN_RELEASE_REPOSITORY, {COMPANY}_MVN_DEPENDENCY_REPOSITORY (optional),
+  // {COMPANY}_MVN_REPOSITORY_USERNAME / _PASSWORD
+  reposConfig = ReposConfig.artifactoryFromEnv("mycompany"),
+  // {COMPANY}_DOCKER_REPOSITORY, {COMPANY}_DOCKER_BASE_IMAGE
+  dockerSettings = Some(SbtConfig.dockerSettingsFromEnv(
+    "mycompany",
+    defaultBaseImage = Some("eclipse-temurin:21-jre"),
+    otherSettings = Seq("""dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")""")
+  ))
+)
+```
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` it is the dummy repo. The dependency repo gets its own
+resolver name (`Artifactory Realm 2`) - sbt does not load from two resolvers of the same host with
+the same name (_unauthorized_ / _forbidden_).
+
 > [!WARNING]
 > The default builds **every** image for `linux/amd64` - on an amd64 machine nothing changes, on
 > Apple Silicon the images are amd64 from the next `./helper.scala update` on (as OpenShift needs them).
