@@ -11,6 +11,10 @@ object SbtCode:
   // the host of an authority `user@host:port` - for a host that java.net.URI does not accept as
   // one (e.g. with `_`, then `getHost` is null)
   private[config] val authorityToHost = "^.*@|:[0-9]*$"
+  // everything up to the last `@` (after the scheme, if there is one) - user info may have a
+  // password, also one with a `/`, or a url without `//`
+  private val userInfo            = "^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@"
+  private val userInfoMasked      = "$1***@"
 
   /** A Scala string literal of `value` - quotes and backslashes escaped. */
   def literal(value: String): String =
@@ -51,6 +55,13 @@ object SbtCode:
            |$indent  ${literal(url)}
            |$indent}""".stripMargin
       .getOrElse(literal(url))
+
+  /** A url for a message - the user info masked: the part up to the last `@` becomes `***@`. */
+  def maskUserInfo(url: String): String = url.replaceAll(userInfo, userInfoMasked)
+
+  /** `maskUserInfo` in the generated build - of the String expression `urlExpr`. */
+  def maskUserInfoExpr(urlExpr: String): String =
+    s"$urlExpr.replaceAll(${literal(userInfo)}, ${literal(userInfoMasked)})"
 
   /** The url of an env variable in the generated build, an `Option[String]` (as `trimUrl`). */
   private def envUrl(env: String): String =

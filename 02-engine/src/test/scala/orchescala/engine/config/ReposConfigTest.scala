@@ -160,7 +160,7 @@ class ReposConfigTest extends FunSuite:
         |  lazy val mycompanyRepoHost: String = {
         |    val url = sys.env.get("MYCOMPANY_MVN_RELEASE_REPOSITORY").map(_.trim.replaceAll("/+$", "")).filter(_.nonEmpty).getOrElse("https://bin.example.com")
         |    scala.util.Try(java.net.URI.create(url)).toOption.flatMap(u => Option(u.getHost).orElse(Option(u.getRawAuthority).map(_.replaceAll("^.*@|:[0-9]*$", "")))).filter(_.nonEmpty).getOrElse {
-        |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url)
+        |      println("[warn] MYCOMPANY_MVN_RELEASE_REPOSITORY has no host - the credentials are for bin.example.com: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))
         |      "bin.example.com"
         |    }
         |  }
@@ -253,7 +253,7 @@ class ReposConfigTest extends FunSuite:
     )
     assert(credentials.sbtContent.contains("""      "repo\"host""""), credentials.sbtContent)
     assert(
-      credentials.sbtContent.contains("""println("[warn] REPO_URL has no host - the credentials are for repo\"host: " + url)"""),
+      credentials.sbtContent.contains("""println("[warn] REPO_URL has no host - the credentials are for repo\"host: " + url."""),
       credentials.sbtContent
     )
 
@@ -391,5 +391,33 @@ class ReposConfigTest extends FunSuite:
     assertEquals(RepoConfig.hostOf(java.net.URI.create("https://[::1]:8080/artifactory/releases")), Some("[::1]"))
     assertEquals(RepoConfig.hostOf(java.net.URI.create("https://my_bin.example.com:8443/a/r")), Some("my_bin.example.com"))
     assertEquals(RepoConfig.hostOf(java.net.URI.create("https://me@my_bin.example.com:8443/a/r")), Some("my_bin.example.com"))
+
+  test("the generated warning masks user info of the variable"):
+    val credentials =
+      RepoCredentials.UserPassword("mine", "bin.example.com", "MY_USER", "MY_PWD", repoUrlEnv = Some("REPO_URL"))
+    assert(
+      credentials.sbtContent.contains(
+        """println("[warn] REPO_URL has no host - the credentials are for bin.example.com: " + url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@"))"""
+      ),
+      credentials.sbtContent
+    )
+    assertEquals(SbtCode.maskUserInfo("https://u:pa/ss@host/r"), "https://***@host/r")
+    assertEquals(SbtCode.maskUserInfo("u:s@host/r"), "***@host/r")
+    assertEquals(SbtCode.maskUserInfo("https://host/r"), "https://host/r")
+
+  test("artifactoryFromEnv: a warning for the old env names of a name with other characters"):
+    val out = java.io.ByteArrayOutputStream()
+    val repos = Console.withOut(out):
+      ReposConfig.artifactoryFromEnv(
+        "acme-bank",
+        Map("ACME-BANK_MVN_RELEASE_REPOSITORY" -> "https://bin.example.com/artifactory/releases").get
+      )
+    assertEquals(repos, ReposConfig.dummyRepos)
+    assert(
+      out.toString.contains(
+        "[warn] ACME-BANK_MVN_RELEASE_REPOSITORY is set, but not read any more - rename the ..._MVN_* variables to ACME_BANK_MVN_RELEASE_REPOSITORY etc."
+      ),
+      out.toString
+    )
 
 end ReposConfigTest

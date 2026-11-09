@@ -108,6 +108,12 @@ object ReposConfig:
       )
       RepoConfig.Artifactory.fromUrl(name, url, credentials, urlEnv, realm) -> credentials
 
+    // the names before: `{companyName.toUpperCase}_` - for a name with other characters than
+    // letters and digits (`acme-bank`: `ACME-BANK_`) they are not read any more
+    val oldReleaseEnv = s"${companyName.toUpperCase(java.util.Locale.ROOT)}_MVN_RELEASE_REPOSITORY"
+    if oldReleaseEnv != releaseEnv && read(releaseEnv).isEmpty && read(oldReleaseEnv).nonEmpty then
+      println(s"[warn] $oldReleaseEnv is set, but not read any more - rename the ..._MVN_* variables to $releaseEnv etc.")
+
     read(releaseEnv) match
       case None if read(dependencyEnv).nonEmpty =>
         // not silently the dummy repo - as for an invalid url
@@ -193,13 +199,20 @@ object RepoConfig:
       * credentials go through stdin (`curl -K -`) - not visible in `ps`. Blocking (up to 15 s) -
       * for the helper; in a ZIO fiber wrap it in `ZIO.attemptBlocking`.
       */
+    private val lookupWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+
     lazy val versionLookup: (String, String) => Option[String] =
       (project: String, org: String) =>
         def enc(value: String)          = java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8)
         val url                         =
           s"$artifactoryApiUrl/api/search/latestVersion?g=${enc(org)}&a=${enc(project)}&repos=${enc(repo)}"
+        // once per repo - e.g. wrong credentials would fail every lookup
         def failed(reason: String)      =
-          println(s"[warn] The version of $org:$project could not be looked up in $repoUrl - $reason")
+          if lookupWarned.compareAndSet(false, true) then
+            println(
+              s"[warn] The version of $org:$project could not be looked up in $repoUrl - $reason" +
+                " (further failures of this repo are not shown)"
+            )
           None
         def lookup(config: String)      =
           scala.util.Try(
@@ -256,10 +269,8 @@ object RepoConfig:
     * `project/Settings.scala`. Spaces around and slashes at the end are removed (`SbtCode.trimUrl`).
     */
   def repoUri(urlEnv: String, url: String): URI =
-    // the url in a message: everything up to the last `@` masked (after the scheme, if there is
-    // one) - user info may have a password, also one with a `/` that java.net.URI takes as the
-    // start of the path, or a url without `//`
-    val shownUrl = url.replaceAll("^([a-zA-Z][a-zA-Z0-9+.-]*://)?.*@", "$1***@")
+    // the url in a message: the user info masked - it may have a password
+    val shownUrl = SbtCode.maskUserInfo(url)
     def invalid(reason: String) =
       throw IllegalArgumentException(s"$urlEnv $reason: $shownUrl")
     val uri = scala.util.Try(URI.create(SbtCode.trimUrl(url)))
@@ -348,7 +359,7 @@ object RepoCredentials:
              |  lazy val $hostVal: String = {
              |    val url = $url
              |    ${SbtCode.hostOf("url")}.getOrElse {
-             |      println($warning + url)
+             |      println($warning + ${SbtCode.maskUserInfoExpr("url")})
              |      $host
              |    }
              |  }
