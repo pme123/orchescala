@@ -48,6 +48,7 @@ object Dependencies {
   // --- Implementations
   // 04-helper
   val sardineWebDavVersion  = "5.13"
+  val scalametaVersion      = "4.17.4" // the tests parse the generated sbt code
   // 04-worker-c7spring
   // -> worker
   val camundaVersion        = "7.24.0" // external task client
@@ -90,6 +91,7 @@ object Dependencies {
   lazy val coursierDependency = "io.get-coursier" % "interface" % coursierVersion
   // the 3-way merge of the helper's merge from Orch Spec (MergeAlgorithm, MergeFormatter)
   lazy val jgitDependency     = "org.eclipse.jgit" % "org.eclipse.jgit" % jgitVersion
+  lazy val scalametaTestDependency = "org.scalameta" %% "scalameta" % scalametaVersion % Test
   lazy val scaffeineDependency = // token caching
     "com.github.blemale" %% "scaffeine" % scaffeineV // caching
 

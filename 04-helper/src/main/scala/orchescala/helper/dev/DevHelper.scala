@@ -10,12 +10,13 @@ import orchescala.helper.dev.update.*
 
 import scala.util.{Failure, Success, Try}
 
-trait DevHelper:
+trait DevHelper extends ConfigExit:
   def apiConfig: ApiConfig
   def devConfig: DevConfig
 
   given DevConfig = devConfig
   given ApiConfig = apiConfig
+
 
   def run(command: String, arguments: String*): Unit =
     run(command, arguments.toSeq, runCommand)
@@ -31,7 +32,8 @@ trait DevHelper:
     println(s"Running command: $command with args: $args")
     Try(Command.valueOf(command)) match
       case Success(cmd) =>
-        commandFunc(cmd, args)
+        if ConfigCheck.orExit({ val _ = devConfig; val _ = apiConfig }, exitOnInvalidConfig) then
+          commandFunc(cmd, args)
       case Failure(_)   =>
         println(s"Command not found: $command")
         println("Available commands: " + availableCommands.mkString(", "))

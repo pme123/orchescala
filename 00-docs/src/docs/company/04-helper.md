@@ -95,6 +95,70 @@ private lazy val companySbtConfig = SbtConfig(
   publishSbtOptions = Seq("-J-Xmx3G")
 )
 ```
+#### Repos and Docker from the env variables
+Instead of fixed values the generated `project/Settings.scala` can read the env variables of the
+company - the same ones the build of the `company-orchescala` project uses. So a project follows
+them without a new `./helper.scala update`, and nothing company-specific (no url, no host) is
+written into the committed build: the variables are required, as the username and password.
+
+```scala
+private lazy val companySbtConfig = SbtConfig(
+  // {COMPANY}_MVN_RELEASE_REPOSITORY, {COMPANY}_MVN_DEPENDENCY_REPOSITORY (optional),
+  // {COMPANY}_MVN_REPOSITORY_USERNAME / _PASSWORD
+  reposConfig = ReposConfig.artifactoryFromEnv("mycompany"),
+  // {COMPANY}_DOCKER_REPOSITORY, {COMPANY}_DOCKER_BASE_IMAGE
+  dockerSettings = Some(SbtConfig.dockerSettingsFromEnv(
+    "mycompany",
+    // optional - without it: SbtConfig.defaultBaseImage (eclipse-temurin:21-jre)
+    defaultBaseImage = "registry.mycompany.com/openjdk-21-runtime:1.0.0",
+    // optional - only for a base image with its own entrypoint script
+    otherSettings = Seq("""dockerEntrypoint := Seq("/opt/sbin/entrypoint.sh")""")
+  ))
+)
+```
+> [!WARNING]
+> **Changed:** without `dockerSettings` the images are built on `SbtConfig.defaultBaseImage`
+> (`eclipse-temurin:21-jre`) from the next `./helper.scala update` on - before, it was the default of
+> sbt-native-packager (`openjdk:8`), which is no longer on Docker Hub. The same for the gateway
+> without `dockerGatewaySettings`. To keep the defaults of sbt-native-packager:
+> `dockerSettings = Some("Seq()")` (and `dockerGatewaySettings`).
+
+Without `{COMPANY}_MVN_RELEASE_REPOSITORY` (or with an empty one) it is the dummy repo - an error,
+if `{COMPANY}_MVN_DEPENDENCY_REPOSITORY` is set (no silent dummy repo). A url that is
+set but no `http(s)://<host>/.../<repo>` - with a query, a fragment or user info (`user:password@`)
+- fails with an error naming the variable (the password masked) - on purpose: the company config
+reads it, so every command of the helper stops (with the message, no stack trace), instead of
+publishing to or resolving from the dummy repo. The credentials belong in the
+`..._MVN_REPOSITORY_USERNAME` / `_PASSWORD` variables, not in a url.
+
+The generated build reads a variable the same way as the helper: spaces around and slashes at the
+end removed, an empty one counts as not set. Not set, empty, with an `@` (user info, refused - the
+password never reaches a resolver, so sbt/coursier can not log it) or without host, sbt stops
+loading with a message naming the variable (the url masked) - as for a missing username or
+password. There is no fallback: the build has nothing of the `./helper.scala update` - neither
+url nor host - so it can not use the values of another machine.
+
+The generated `.gitlab-ci.yml` does the same: coursier gets the repos as
+`$ACME_MVN_RELEASE_REPOSITORY|$ACME_MVN_DEPENDENCY_REPOSITORY` (GitLab expands them), and the job
+reads the host of each repo url for `COURSIER_CREDENTIALS`. So define the
+`{COMPANY}_MVN_RELEASE_REPOSITORY` / `_DEPENDENCY_REPOSITORY` variables as GitLab CI/CD
+variables (of the group or the project) - the pipeline sets only the username and password.
+
+The dependency repo gets its own resolver name `Artifactory Realm 2` (the name of the sbt
+resolver, not the auth realm) - sbt does not load from two resolvers of the same host with the same
+name (_unauthorized_ / _forbidden_). It also gets its own credentials (the same user and password
+variables, the host from its url), so it may move to another host without a new
+`./helper.scala update` - on the same host sbt keeps one of the two.
+
+The env names are upper case, other characters than letters and digits become `_`
+(`acme-bank` → `ACME_BANK_...`) - also in the build of the `company-orchescala` project, which used
+`ACME-BANK_...` before (a name a shell can not set). A host with `_` (no host for `java.net.URI`)
+is taken from the authority of the url.
+
+> [!NOTE]
+> Only the generated build reads the variables - the helper itself (e.g. the release check) uses
+> the urls of the config, with `artifactoryFromEnv` read from the same variables.
+
 > [!WARNING]
 > The default builds **every** image for `linux/amd64` - on an amd64 machine nothing changes, on
 > Apple Silicon the images are amd64 from the next `./helper.scala update` on (as OpenShift needs them).
