@@ -102,9 +102,8 @@ test('without a studio: folder, process and page work, no AI', async ({ page }) 
 });
 
 test('a studio that does not answer does not hold orch-spec up', async ({ page }) => {
-  // the other tests take about two seconds - waiting for the studio shows as a timeout here
-  test.setTimeout(10_000);
-  // /ai/config never answers - the folder opens anyway
+  // /ai/config never answers - the folder opens and the process shows while it is still pending.
+  // An orch-spec that waits for the studio never gets there and fails on the test's timeout.
   await page.route('**/ai/config', () => { /* left pending */ });
   const asked = page.waitForRequest('**/ai/config');
   await openFolder(page);
