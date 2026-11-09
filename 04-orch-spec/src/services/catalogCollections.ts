@@ -26,12 +26,12 @@ import { catalogObject, domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
 import { knownPrefixes } from '../stepIds';
-import { adoptHierarchyTypes, type Adopted } from './hierarchy';
+import { adoptHierarchyTypes, typesOf, type Adopted } from './hierarchy';
 import { API_NAME, apiKey, apiLeaf, apiOf, apisOf, renameApi, topicPrefix, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, workerPackage, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
-const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
+const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][A-Za-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
 
 export interface CatalogApi extends ApiRef {
   /** `acme-crm-clientV1` */
@@ -337,6 +337,8 @@ export interface CatalogSync {
   removed: string[];
   /** types of the API new in the collection */
   addedTypes: string[];
+  /** types of the collection no service uses any more after the Abgleich — the domain has them elsewhere now */
+  removedTypes: string[];
   /** APIs the project has in a hierarchy — `multipleNaturalPersons v1 → clientMaster.multipleNaturalPersons` */
   renamedApis: string[];
   /** APIs whose topics several APIs of the project have — not renamed: `persons v1: clientMaster.persons, other.persons` */
@@ -380,7 +382,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   const apis = project.apis.filter(a => apisOf(c).some(x => sameApi(x, a)));
   // nothing to compare with — but say which API is not clear
   if (!apis.length) return ambiguousApis.length
-    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], renamedApis: [], ambiguousApis, adopted: [] }
+    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], removedTypes: [], renamedApis: [], ambiguousApis, adopted: [] }
     : null;
   const fresh = collectionFromCatalog(project, apis, model, c.title);
   const keyOf = (s: CollectionService) => serviceTopic(apiOf(c, s), s);
@@ -496,7 +498,25 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   });
   // own types the project has higher up in the hierarchy: taken from there
   const h = adoptHierarchyTypes(spec, model);
-  return { spec: h.spec, added: added.map(s => s.name), updated, removed, addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)), renamedApis, ambiguousApis, adopted: h.adopted };
+  // types a service used before and none uses now: the domain moved them (to a `schema` higher up,
+  // under another name) — they go; a type no service used before stays, the collection keeps it
+  const usedBefore = usedTypes(c);
+  const usedNow = usedTypes(h.spec);
+  const orphans = h.spec.types.filter(t => !t.interactionId && usedBefore.has(t.id) && !usedNow.has(t.id));
+  const result = orphans.length ? { ...h.spec, types: h.spec.types.filter(t => !orphans.includes(t)) } : h.spec;
+  return {
+    spec: result, added: added.map(s => s.name), updated, removed,
+    addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)),
+    removedTypes: orphans.map(t => t.name),
+    renamedApis, ambiguousApis, adopted: h.adopted,
+  };
+}
+
+/** The ids of the types the services of a collection use — In, Out, bodies, parameters and what they reach. */
+function usedTypes(c: ServiceCollectionSpec): Set<string> {
+  const out = new Set<string>();
+  for (const s of c.services) for (const id of typesOf(s, c.types)) out.add(id);
+  return out;
 }
 
 /**

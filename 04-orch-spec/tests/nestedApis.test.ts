@@ -216,3 +216,59 @@ test('two APIs with the same last level: the catalog marks them, the Abgleich do
   };
   assert.ok(serviceIssues(both, both.services[0]).some(i => /Topic «acme-crm-multipleNaturalPersonsV1» hat auch die API «other\.multipleNaturalPersons»/.test(i)));
 });
+
+const getClients = `package acme.coreBanking.domain
+package clientMaster.multipleNaturalPersons.v1
+
+import acme.coreBanking.domain.clientMaster.schema.ClientKind
+
+object GetClients extends MultipleNaturalPersonsV1:
+
+  final val topicName = "acme-coreBanking-multipleNaturalPersonsV1.GetClients"
+  val path = "GET: /clients"
+
+  type ServiceIn = NoInput
+  type ServiceOut = Out
+
+  case class In(
+      key: Long
+  )
+  case class Out(
+      kind: ClientKind
+  )
+end GetClients
+`;
+
+const clientKind = `package acme.coreBanking.domain.clientMaster.schema
+
+enum ClientKind:
+  case Person, Company
+`;
+
+test('the Abgleich: a project in camelCase, a class moved up the hierarchy under another name', () => {
+  const model = {
+    version: 1,
+    domainTypes: [...scanScala(getClients, 'GetClients.scala'), ...scanScala(clientKind, 'clientMaster/schema/ClientKind.scala')],
+    services: [{ id: 'acme-coreBanking-multipleNaturalPersonsV1.GetClients', name: 'GetClients', kind: 'service', topic: 'acme-coreBanking-multipleNaturalPersonsV1.GetClients' }],
+  } as never;
+  assert.deepEqual(catalogProjects(model).map(p => p.project), ['acme-coreBanking']);
+  // the collection from the OpenAPI: its own enum under the old name — and a type no service uses
+  const c0 = newCollection({ title: 'Clients', project: 'acme-coreBanking', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1 });
+  const old = { id: 'e-old', name: 'MultipleNaturalPersonsClientKind', kind: 'enum' as const, values: [{ id: 'v1', name: 'Person' }, { id: 'v2', name: 'Company' }] };
+  const spare = { id: 't-spare', name: 'Spare', kind: 'case' as const, fields: [{ id: 'f9', name: 'x', type: 'String' }] };
+  const inType = { id: 't-in', name: 'In', kind: 'case' as const, interactionId: 's1', fields: [{ id: 'f1', name: 'key', type: 'Long' }] };
+  const outType = { id: 't-out', name: 'Out', kind: 'case' as const, interactionId: 's1', fields: [{ id: 'f2', name: 'kind', type: 'e-old' }] };
+  const c: ServiceCollectionSpec = {
+    ...c0,
+    types: [old, spare, inType, outType],
+    services: [{ id: 's1', name: 'GetClients', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/clients', params: [], serviceOut: { type: 't-out' }, inTypeId: 't-in', outTypeId: 't-out' }],
+  };
+  const r = syncWithCatalog(c, model)!;
+  assert.ok(r, 'the catalog knows the project');
+  const out = r.spec.types.find(t => t.id === 't-out')!;
+  assert.equal(out.fields!.find(f => f.name === 'kind')!.type, 'dom:acme.coreBanking.domain.clientMaster.schema.ClientKind');
+  // the old enum no service needs any more goes; the type nobody used before stays
+  assert.deepEqual(r.removedTypes, ['MultipleNaturalPersonsClientKind']);
+  assert.ok(!r.spec.types.some(t => t.id === 'e-old'));
+  assert.ok(r.spec.types.some(t => t.id === 't-spare'));
+});
