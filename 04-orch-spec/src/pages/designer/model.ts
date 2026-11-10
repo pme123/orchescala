@@ -345,8 +345,11 @@ function titleOf(b: Component): string | undefined {
   }
 }
 
-/** The text that names a building block - '' if it has none. */
-export const blockTitle = (b: Component) => titleOf(b) ?? '';
+/** The text that names a building block - '' if it has none (or a hand-edited page has no text there). */
+export const blockTitle = (b: Component) => {
+  const title: unknown = titleOf(b);
+  return typeof title === 'string' ? title : '';
+};
 
 const TYPE_NAME: Record<Component['type'], string> = {
   heading: 'Überschrift', text: 'Text', choice: 'Auswahl', pick: 'Auswahl aus Liste', fields: 'Eingabefelder',
@@ -356,7 +359,9 @@ const TYPE_NAME: Record<Component['type'], string> = {
 /** A building block in words: «Button «Buchen»» - for the differences, the comments, the change log. */
 export const blockName = (b: Component) => {
   const title = blockTitle(b);
-  return title ? `${TYPE_NAME[b.type]} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : TYPE_NAME[b.type];
+  // a type orch-spec does not know (a hand-edited page): its name as it is
+  const kind: string = TYPE_NAME[b.type] ?? (typeof b.type === 'string' ? b.type : '');
+  return title ? `${kind} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : kind;
 };
 
 /** What a change of type of the building block loses - for the warning in the menu; null if there is nothing of its own.
