@@ -66,7 +66,7 @@ jobs:
         # E28: the studio becomes a TypeScript server - orch-spec must keep working without it at every
         # step. The built app (as orch-doc ships it), served statically: a local folder, a process, a
         # new page, no AI, no request to the studio besides GET /ai/config (04-orch-spec/e2e). Needs
-        # orchSpecCore.js and node_modules - both from the step above.
+        # node_modules - from the step above.
         working-directory: 04-orch-spec
         run: npx playwright install --with-deps chromium && npm run test:standalone
       - name: Keep the trace of a failed run without a server
@@ -92,7 +92,7 @@ jobs:
         # instead of being skipped when there is no Docker. helper/test runs the merge from Orch Spec
         # with Node.js and Orch Spec's tools (04-orch-doc/bundle/orch-doc-tools, built above by
         # bundleDocClient) - on CI it fails instead of being skipped when they are missing
-        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test; worker/test; gateway/test; orchSpecCoreJVM/test; orchSpecCoreJS/test; orchStudio/test; persistencePostgres/test; helper/test"
+        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test; worker/test; gateway/test; orchStudio/test; persistencePostgres/test; helper/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
       - name: Check the company project templates

@@ -9,8 +9,8 @@ import zio.http.*
   * object StudioServerApp extends StudioServer:
   *   lazy val config = StudioConfig().withEnv()
   * }}}
-  * It serves the documentation apps (see [[SiteRoutes]]), the services on a specification (see
-  * [[SpecRoutes]]) and the AI of orch-spec (see [[AiRoutes]]); more REST of the studio comes later.
+  * It serves the documentation apps (see [[SiteRoutes]]) and the AI of orch-spec (see [[AiRoutes]]);
+  * more REST of the studio comes later.
   */
 abstract class StudioServer extends ZIOAppDefault:
 
@@ -20,7 +20,7 @@ abstract class StudioServer extends ZIOAppDefault:
   def companyRoutes: Routes[Any, Response] = Routes.empty
 
   private def routesOf(settings: StudioConfig, ai: AiRoutes): Routes[Any, Response] =
-    companyRoutes ++ SpecRoutes.routes ++ ai.routes ++ SiteRoutes(settings.site).routes
+    companyRoutes ++ ai.routes ++ SiteRoutes(settings.site).routes
 
   def run: ZIO[Any, Throwable, Unit] =
     // the settings come from the environment (withEnv) - a wrong one ends the start with one line
@@ -66,7 +66,7 @@ object StudioServer:
     config.disableRequestStreaming(maxBody)
 
   /** The largest body of a service of the studio - the requests of the AI. */
-  val maxBody: Int = math.max(SpecRoutes.maxBody, AiRoutes.maxBody)
+  val maxBody: Int = AiRoutes.maxBody
 
 /** Without a company: `sbt orchStudio/run`, the documentation from `STUDIO_SITE_DIR`. */
 object LocalStudioServerApp extends StudioServer:

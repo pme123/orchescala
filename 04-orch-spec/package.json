@@ -7,10 +7,6 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "core": "node -e \"require('fs').existsSync('src/core/orchSpecCore.js') || (console.error('src/core/orchSpecCore.js is missing - in the root of Orchescala: sbt orchSpecCoreJS/linkToOrchSpec'), process.exit(1))\"",
-    "predev": "npm run core --silent",
-    "prebuild": "npm run core --silent",
-    "pretest": "npm run core --silent",
     "dev": "vite --port=3002",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

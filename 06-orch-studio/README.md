@@ -10,7 +10,6 @@ this module is the library; the company builds its studio from it in `<company>-
 | `/site/spec/` | orch-spec | the jar; `catalog.generated.json` from the company's documentation |
 | `/site/ops/` | orch-ops | the jar |
 | `/`, `/spec`, `/ops` | redirect there | – |
-| `POST /spec/pages/diff` | differences of two pages: `{before, after}` → `PageChange[]` | `orchescala-orch-spec-core` - the same code as orch-spec in the browser (Scala.js) |
 | `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
 | `POST /ai/<task>/v1/messages` | a request of orch-spec's agent for `<task>` (e.g. `uiCreator`), with the skill applied and sent on to the Claude API with the studio's key and workspace; a task without a skill is refused (403), a tool that is not in the skill too (400) | `STUDIO_AI_*`, the skills |
 
