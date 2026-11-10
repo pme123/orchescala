@@ -360,6 +360,10 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   if (foreign && model?.services?.length && !service) {
     errors.push(`Service «${step.serviceId ?? step.topic}» steht nicht im Katalog.`);
   }
+  // from the folder (a collection, an orchestration, a process) - usable, but the release still has to bring it
+  if (service?.unreleased) {
+    warnings.push(`«${service.name}» ist noch nicht released – aus dem Ordner, noch nicht im Katalog.`);
+  }
 
   // ── Multi-instance: results and parallel instances ──────────────────────
   const mi = step.multiInstance;

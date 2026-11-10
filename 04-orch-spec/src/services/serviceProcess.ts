@@ -18,7 +18,6 @@ import { nowIsoWithTimezone, slugify, uid } from '../util';
 import { catalogProjects, collectionFromCatalog, withProjectDomain } from './catalogCollections';
 import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, serviceMembers, servicesByTopic, type ServiceRef } from './orchestration';
 import { collectionFiles } from './scalaCollection';
-import { orchestrationFiles } from './scalaOrchestration';
 import { ALL_VARIANTS } from '../variants';
 import type { OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
 
@@ -188,43 +187,6 @@ export function orchestrationTargets(collections: ServiceCollectionSpec[], model
 /** The collections behind the services — what the export needs for packages and types. */
 export const collectionsOf = (refs: Map<string, ServiceRef>): ServiceCollectionSpec[] =>
   [...new Set([...refs.values()].map(r => r.collection))];
-
-/** The domain of an orchestration - per process (a new object with every change) and model. */
-const orchDomainCache = new WeakMap<ServiceProcess, { model: Model | null; types: DomainType[] }>();
-
-/**
- * The catalog with the classes the other orchestrations of the folder export (but `except`) -
- * their `In`, `Out` and own types, read from their Scala, as the project will have them. So
- * an orchestrator can use a class another one defines (`Client` of `GetClientClientKey`).
- * Only added: what the catalog already knows stays as it is.
- */
-export function withOrchestrationTypes(model: Model | null, specs: ProcessSpec[], collections: ServiceCollectionSpec[], except?: string): Model | null {
-  const others = specs.filter((x): x is ServiceProcess => isServiceProcess(x) && x.slug !== except);
-  if (!others.length) return model;
-  let all: ServiceCollectionSpec[] | null = null;
-  const known = new Set((model?.domainTypes ?? []).map(d => d.id));
-  const added: DomainType[] = [];
-  for (const spec of others) {
-    let hit = orchDomainCache.get(spec);
-    if (!hit || hit.model !== model) {
-      let types: DomainType[] = [];
-      try {
-        all ??= collectionsOf(callableServices(collections, model));
-        types = orchestrationFiles(asOrchestration(spec), all, model)
-          .filter(f => f.path.startsWith('01-domain/'))
-          .flatMap(f => scanScala(f.content, f.path));
-      } catch (e) { console.warn(`Orchestrierung «${spec.title || spec.slug}»: ihre Klassen sind nicht im Domain - der Scala-Code lässt sich nicht erzeugen.`, e); }
-      hit = { model, types };
-      orchDomainCache.set(spec, hit);
-    }
-    for (const d of hit.types) {
-      if (known.has(d.id)) continue;
-      known.add(d.id);
-      added.push(d);
-    }
-  }
-  return added.length ? { ...(model ?? { version: 1, services: [] }), domainTypes: [...(model?.domainTypes ?? []), ...added] } : model;
-}
 
 // ── the process for the generator ───────────────────────────────────────────
 

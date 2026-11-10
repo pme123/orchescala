@@ -30,7 +30,8 @@ import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolI
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon, useStoredWidth } from '../ui';
 import { nowIsoWithTimezone } from '../util';
-import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
+import { bpmnReport, diffPages, domainReport, entryOf, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
+import { withTaskButton, type TaskPageDraft } from '../pages/taskLinks';
 import { findProjectDmns, saveProjectDmns, withDmnFiles } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
@@ -49,7 +50,8 @@ import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements 
 import { collectDiagram, overlayPasted } from '../copyPaste';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
-import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, withCollectionTypes, withCollections, withOrchestrationTypes, type ServiceProcess } from '../services/serviceProcess';
+import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, type ServiceProcess } from '../services/serviceProcess';
+import { useFolderModel } from '../useFolderModel';
 
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
@@ -78,6 +80,8 @@ interface Props {
   focusStepId?: string;
   /** to a page of the app (from a user task) */
   onOpenPage?: (pageSlug: string) => void;
+  /** a new page for a user task - the pages with the dialog «Neu» filled in */
+  onNewPage?: (draft: TaskPageDraft) => void;
 }
 
 /** Explain the Entra search once per session, not on every «@». */
@@ -155,8 +159,8 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
   }
 };
 
-export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage }: Props) {
-  const { isDark, model: storeModel, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
+export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage, onNewPage }: Props) {
+  const { isDark, model: storeModel, specs, pages, savePage, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
   // ── AI mode (E19, E23, stage B): only with a skill for the task in the studio - processCreator, or serviceOrchestrator
@@ -185,17 +189,13 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { services } = useServices();
   const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
   const serviceMode = !!spec?.service;
-  // the types the data model lists - a service orchestrator has no InitIn and no InConfig
-  const modelTypes = (spec?.types ?? []).filter(t => !serviceMode || (!t.initIn && !t.inConfig)).length;
   const aiOn = aiFor(aiConfig, serviceMode ? 'serviceOrchestrator' : 'processCreator');
   // without the AI of the studio the draft is gone too
   // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
   useEffect(() => { if (!aiOn || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiOn, mayEdit]);
-  // otherwise their classes — a type can refer to them (a copied class to its original)
-  // in service mode also the classes of the other orchestrations - one can use a class another defines
-  const model = useMemo(() => (serviceMode
-    ? withOrchestrationTypes(withCollections(storeModel, collections), specs.map(x => x.data), collections, slug)
-    : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections, specs, slug]);
+  // the folder as a whole: the catalog with the folder's collections (services and classes), its service
+  // orchestrations and its other processes - a step can call them before they are released (folderCatalog)
+  const model = useFolderModel(slug);
   const [serviceExportOpen, setServiceExportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -1059,6 +1059,22 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   const selectedStep = selected ? shownById.get(selected) ?? null : null;
 
+  // An existing page completes a user task: a button «Abschliessen» at its end - saved like a change in the
+  // page designer, with an entry in the page's change log
+  const attachPage = async (pageSlug: string, taskKey: string, out: string[]) => {
+    const item = pages.find(p => p.slug === pageSlug);
+    if (!item) return;
+    const next = withTaskButton(item.data, taskKey, out);
+    if (next === item.data) return;
+    const entry = entryOf(diffPages(item.data, next), { source: 'manual', note: `Schliesst den Benutzer-Task «${taskKey}» ab (aus dem Prozess «${spec.title || slug}»)` }, author);
+    const r = await savePage(pageSlug, next, item.version, entry ? [entry] : []);
+    setNotice(r.status === 'saved'
+      ? { tone: 'info', message: `Die Seite «${item.data.title || pageSlug}» schliesst jetzt «${taskKey}» ab – mit einem Button «Abschliessen» am Ende.` }
+      : r.status === 'conflict'
+        ? { tone: 'warn', message: `Die Seite «${item.data.title || pageSlug}» wurde inzwischen geändert – nichts überschrieben. Nochmals wählen, sobald sie neu geladen ist.` }
+        : { tone: 'warn', message: `Die Seite «${item.data.title || pageSlug}» konnte nicht gespeichert werden: ${r.message}` });
+  };
+
   // Claude's draft accepted: the way of a change in the diagram (commitPlan) - with the source «KI» in the
   // change log and the requests of the RE as note. Undo once, as long as nothing else changed.
   // Refused when the process changed since the draft began (reloaded, synced) - the draft would overwrite that.
@@ -1097,7 +1113,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                 ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
                 : c.btn}`}>
             <Icon size={12} /> {label}
-            {id === 'model' && !!modelTypes && <span className="opacity-60">{modelTypes}</span>}
+            {id === 'model' && !!spec.types?.length && <span className="opacity-60">{spec.types.length}</span>}
           </button>
         ))}
 
@@ -1432,6 +1448,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
               <StepDetail step={selectedStep} spec={shownSpec ?? spec}
                 isDark={isDark} canEdit={canEdit} model={model}
                 onPatch={patchStep} onSyncId={syncStepId} onClose={() => setSelected(null)} onGoto={setSelected} onOpenPage={onOpenPage}
+                onNewPage={onNewPage} onAttachPage={mayEdit ? attachPage : undefined}
                 projectPrefixes={projectPrefixes} onRenameProject={renameProject}
                 onSpecChange={next => {
                   if (next.timeToLive !== spec.timeToLive) {

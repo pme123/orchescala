@@ -39,3 +39,42 @@ export function taskStepText(key: string, steps: TaskStep[]): string {
     : '';
   return `${first.step} – im Prozess «${first.process}»${more}`;
 }
+
+// ---------------------------------------------------------------- a page for a user task
+
+/** A new page for a user task - what the dialog «Neu» starts with: title and path from the step, with
+  * a login, the fields of its Out and a button that completes it; with the AI a description for Claude. */
+export type TaskPageDraft = { title: string; path: string; describe: string; page: Page };
+
+/** The button that completes the task - its input every field of the Out (`{{field}}`). */
+const completeButton = (taskKey: string, out: string[]): Page['body'][number] => ({
+  type: 'button', label: 'Abschliessen', validate: true,
+  actions: [{ do: 'completeTask', taskKey, taskId: '{{task.taskId}}', input: Object.fromEntries(out.map((f) => [f, `{{${f}}}`])) }],
+});
+
+const kebab = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+
+/** The draft of a page for the user task `key` (its step `name`, in the process `process`); `out`: the fields
+  * of its Out, `paths`: those of the other pages - the path gets a number if it is taken. */
+export function taskPageDraft(task: { key: string; name: string; process: string }, out: string[], paths: string[]): TaskPageDraft {
+  const title = task.name || task.key;
+  const base = `tasks/${kebab(task.key) || 'task'}`;
+  const path = [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${base}-${n}`)].find((p) => !paths.includes(p)) ?? `${base}-${paths.length + 1}`;
+  const body: Page['body'] = [
+    { type: 'heading', text: title },
+    ...(out.length ? [{ type: 'fields' as const, fields: out.map((f) => ({ bind: f, label: f })) }] : []),
+    completeButton(task.key, out),
+  ];
+  return {
+    title, path,
+    describe: `Eine Seite für den Benutzer-Task «${title}» im Prozess «${task.process}»: ${out.length ? `die Felder ${out.map((f) => `«${f}»`).join(', ')} erfassen` : 'den Task bestätigen'} und den Task mit «Abschliessen» abschliessen.`,
+    page: { path, title, access: { roles: [] }, state: {}, body },
+  };
+}
+
+/** The page with a button that completes the user task `key` at its end - the page as it is if it
+  * completes it already. */
+export function withTaskButton(page: Page, taskKey: string, out: string[]): Page {
+  if (userTasksOfPage(page).includes(taskKey)) return page;
+  return { ...page, body: [...(Array.isArray(page.body) ? page.body : []), completeButton(taskKey, out)] };
+}

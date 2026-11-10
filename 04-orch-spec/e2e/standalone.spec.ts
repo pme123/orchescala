@@ -157,3 +157,40 @@ test('while Claude works on a draft, the process stays as it is - editing again 
   await expect(page.getByText('Claude arbeitet')).toBeHidden();
   await expect(title).toBeEnabled();
 });
+
+/** A page of the folder as saved - its JSON. */
+const savedPage = (page: Page, slug: string) =>
+  page.evaluate(async (s) => {
+    const root = await navigator.storage.getDirectory();
+    const file = await (await (await root.getDirectoryHandle('pages')).getFileHandle(`${s}.json`)).getFile();
+    return JSON.parse(await file.text()) as { title: string; path: string; body: { type: string; actions?: { do: string; taskKey?: string }[] }[] };
+  }, slug);
+const completes = (p: Awaited<ReturnType<typeof savedPage>>) =>
+  p.body.flatMap((b) => b.actions ?? []).filter((a) => a.do === 'completeTask').map((a) => a.taskKey);
+
+test('a user task gets its page: a new one from the dialog «Neu» filled in, or one that is there', async ({ page }) => {
+  const w = watch(page);
+  await openFolder(page);
+  // one page that is there - without the task
+  await createPage(page);
+  await expect.poll(() => savedPages(page)).toContain('termin.json');
+
+  await page.getByRole('button', { name: 'Prozesse', exact: true }).first().click();
+  await openProcess(page);
+  await page.getByText('approve order').first().click();
+
+  // an existing page: it gets a button «Abschliessen» for the task
+  await page.getByTitle(/Eine bestehende Seite schliesst «ApproveOrderUT» ab/).selectOption({ label: 'Termin buchen' });
+  await expect(page.getByText(/schliesst jetzt «ApproveOrderUT» ab/)).toBeVisible();
+  expect(completes(await savedPage(page, 'termin'))).toEqual(['ApproveOrderUT']);
+
+  // a new page: the dialog «Neu» with the title of the step and a path for the task
+  await page.getByRole('button', { name: 'Seite anlegen' }).click();
+  await expect(page.getByPlaceholder('Termin buchen')).toHaveValue('approve order');
+  await expect(page.getByPlaceholder('appointments/book')).toHaveValue('tasks/approve-order-ut');
+  await page.getByRole('button', { name: 'Anlegen' }).click();
+  await expect.poll(() => savedPages(page)).toContain('approve-order-ut.json');
+  const created = await savedPage(page, 'approve-order-ut');
+  expect([created.title, created.body.map((b) => b.type), completes(created)]).toEqual(['approve order', ['heading', 'fields', 'button'], ['ApproveOrderUT']]);
+  expect(w.errors).toEqual([]);
+});
