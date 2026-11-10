@@ -206,10 +206,30 @@ function convertTo(x: string, fromId: string | undefined, toId: string | undefin
 /** The arguments of a FEEL call, split at the commas outside brackets and texts. */
 function callArgs(body: string, fn: string): string[] | null {
   const m = new RegExp(`^${fn}\\s*\\(([\\s\\S]*)\\)$`).exec(body.trim());
-  if (!m) return null;
+  return m ? splitTop(m[1]) : null;
+}
+
+/** The elements of a FEEL list `[a, b]` - null if it is none. */
+function listArgs(body: string): string[] | null {
+  const t = body.trim();
+  if (!t.startsWith('[') || !t.endsWith(']')) return null;
+  // `[a] ++ [b]` is no one list - the first bracket must close at the end
+  let depth = 0, text = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '"') text = !text;
+    if (text) continue;
+    if ('([{'.includes(ch)) depth++;
+    if (')]}'.includes(ch) && --depth === 0 && i < t.length - 1) return null;
+  }
+  return splitTop(t.slice(1, -1));
+}
+
+/** Split at the commas outside brackets and texts - null if the brackets do not close. */
+function splitTop(text0: string): string[] | null {
   const args: string[] = [];
   let depth = 0, text = false, cur = '';
-  for (const ch of m[1]) {
+  for (const ch of text0) {
     if (ch === '"') text = !text;
     if (!text && '([{'.includes(ch)) depth++;
     if (!text && ')]}'.includes(ch)) depth--;
@@ -221,6 +241,16 @@ function callArgs(body: string, fn: string): string[] | null {
 }
 
 /**
+ * The parts of a list the field gets: `concatenate(a, b)`, `flatten([a, b])` - and, for a field
+ * that is a list of classes, `[a, b]` too (lists in it are meant as their elements).
+ */
+function listParts(body: string): string[] | null {
+  const flat = callArgs(body, 'flatten');
+  if (flat?.length === 1) return listArgs(flat[0]);
+  return callArgs(body, 'concatenate') ?? listArgs(body);
+}
+
+/**
  * The FEEL of a script task in Scala, for the field it fills: `concatenate(a, b)` of lists
  * (each element into the type of the field, the case it fits), one class into that type,
  * otherwise as a mapping (feelScala.ts).
@@ -228,14 +258,14 @@ function callArgs(body: string, fn: string): string[] | null {
 function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, ctx: Ctx, where: string): { scala: string; concat?: string[]; cases: string[] } {
   const cases: string[] = [];
   const wrap = (v: string) => (target.optional ? `Some(${v})` : v);
-  const args = callArgs(body, 'concatenate');
-  if (args && target.collection && args.every(a => scope.has(a))) {
+  const args = target.collection ? listParts(body) : null;
+  if (args?.length && args.every(a => scope.has(a))) {
     const parts = args.map(a => {
       const v = scope.get(a)!;
       const list = !v.collection ? (v.optional ? `${v.scala}.toSeq` : `Seq(${v.scala})`) : v.optional ? `${v.scala}.getOrElse(Seq.empty)` : v.scala;
       const c = convertTo('x', v.type, target.type, ctx, where);
       if (!c) return list;
-      cases.push(c.to);
+      if (!cases.includes(c.to)) cases.push(c.to);
       return `${list}.map(x =>\n${indent(c.scala, '  ')}\n)`;
     });
     return { scala: wrap(parts.join(' ++\n')), concat: args, cases };
