@@ -4,7 +4,7 @@
 //   - `index.json`, `<company>/…`, `spec/catalog.generated.json`   the company's documentation
 // A file is taken from the first source that has it - see siteOf for the order.
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 
 /** Where files of the site come from. `rel` is relative to the site root (`spec/index.html`), already
   * checked by resolve: no `..`, no empty segments. */
@@ -14,7 +14,8 @@ export type Resolved = { kind: 'file'; rel: string; bytes: Buffer } | { kind: 'r
 
 const inside = (root: string, path: string) => {
   const r = relative(root, path);
-  return r !== '' && !r.startsWith('..') && !r.startsWith(sep) && !r.includes(`${sep}..${sep}`);
+  // `..` as a segment leaves the root - a name that starts with dots (`..foo`) does not
+  return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r);
 };
 
 /** A folder, e.g. the company's assembled site `00-docs/site`. A symbolic link that leads out of the

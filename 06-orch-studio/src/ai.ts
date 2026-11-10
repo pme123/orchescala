@@ -79,11 +79,15 @@ export function requestBody(bytes: Uint8Array, ai: AiConfig, skill: Skill): Json
   if (obj.stream === true) return 'the studio does not stream (stream: true)';
   const system = systemOf(obj.system);
   if (typeof system === 'string') return system;
+  // a list of tools or none - anything else would pass the check below unseen
+  if (obj.tools !== undefined && obj.tools !== null && !Array.isArray(obj.tools)) return 'the tools are no list';
   const tools = Array.isArray(obj.tools) ? obj.tools : [];
   const names = tools.map((t) => (isObject(t) && typeof t.name === 'string' ? t.name : undefined));
   const foreign = names.filter((n) => n === undefined || !skill.tools.includes(n)).map((n) => n ?? '(without name)');
   if (foreign.length) return `the tools ${foreign.map((n) => `«${n}»`).join(', ')} are not in the skill ${skillLabel(skill)}`;
 
+  if (obj.max_tokens !== undefined && obj.max_tokens !== null && !(Number.isInteger(obj.max_tokens) && (obj.max_tokens as number) > 0))
+    return `max_tokens is no whole number above 0: ${JSON.stringify(obj.max_tokens)}`;
   const limit = Math.min(skill.maxTokens ?? MAX_TOKENS, MAX_TOKENS);
   const tokens = Number.isInteger(obj.max_tokens) ? Math.min(obj.max_tokens as number, limit) : limit;
   // no breakpoint of its own: the next block (the catalog) caches it along

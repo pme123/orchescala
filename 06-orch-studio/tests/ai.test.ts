@@ -298,6 +298,15 @@ test('a line «## …» in a code fence or a comment belongs to the instructions
   assert.equal((parseSkill('uiCreator', 'anthropic', text) as Skill).instructions, 'Before.\n```md\n## Heading of an example\n```\n\nAfter.');
 });
 
+test('tools that are no list, max_tokens not above 0 - 400, not forwarded unchecked', () => {
+  assert.equal(bodyOf('{"tools":{"name":"remove_block"}}'), 'the tools are no list');
+  assert.equal(bodyOf('{"tools":"remove_block"}'), 'the tools are no list');
+  assert.equal(typeof bodyOf('{"tools":null}'), 'object');
+  assert.match(bodyOf('{"max_tokens":0}') as string, /max_tokens is no whole number above 0: 0/);
+  assert.match(bodyOf('{"max_tokens":-5}') as string, /above 0/);
+  assert.match(bodyOf('{"max_tokens":"100"}') as string, /above 0/);
+});
+
 test('stream: true - 400, the studio answers with one JSON', () => {
   assert.match(bodyOf(body.replace('"max_tokens":100000,', '"max_tokens":100000,"stream":true,')) as string, /does not stream/);
   assert.equal(typeof bodyOf(body.replace('"max_tokens":100000,', '"stream":false,"max_tokens":100000,')), 'object');

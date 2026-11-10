@@ -154,6 +154,9 @@ test("a symbolic link out of the company's folder is not served", () => {
     assert.equal(folder.read('democompany/inside.json')?.toString('utf8'), '{}');
     // a folder is no file
     assert.equal(folder.read('democompany'), undefined);
+    // a name that starts with dots is a name, not a way out
+    write(dir, '..notes.md', 'dots');
+    assert.equal(folder.read('..notes.md')?.toString('utf8'), 'dots');
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
