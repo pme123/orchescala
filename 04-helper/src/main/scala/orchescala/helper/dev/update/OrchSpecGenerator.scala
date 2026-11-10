@@ -20,7 +20,7 @@ import orchescala.helper.dev.update.merge.{MergePlan, OnConflict, ProcessExport,
   * The decision is the plan of the merge from Orch Spec without a base (`merge.SpecMerge`): the
   * library decides and writes, only this command prints.
   */
-case class OrchSpecGenerator(
+final class OrchSpecGenerator(
     /** the question whether what only the code has goes - the console by default */
     ask: String => Option[String] = MergeReport.readAnswer
 )(using config: DevConfig):

@@ -90,18 +90,28 @@ object MergeReport:
         val r = f.removal.get
         println(colored(Console.YELLOW, s"  ${what(f, r)}"))
 
-  /** Ask whether what only the code has goes - `ask` gets the question, the answer is yes or no.
-    * The files and what goes of them are listed before (`printPlan`); the question names them again.
+  /** Ask whether what only the code has goes - `ask` gets each question. The files and what goes of
+    * them are listed before (`printPlan`); the question names them again. Of several files: all
+    * (`y`), none (`N`) or each on its own (`e`).
+    * @return the paths of the files whose removal applies (`SpecMerge.merge`)
     */
-  def askRemoval(plan: MergePlan, ask: String => Option[String] = readAnswer): Boolean =
-    plan.removals.nonEmpty && {
-      val removals = plan.removals.flatMap(f => f.removal.map(f -> _))
-      val n        = removals.map(_._2.names.size).sum
-      val whole    = removals.count(_._2.content.isEmpty)
-      val files    = removals.map((f, r) => s"  ${what(f, r)}").mkString("\n")
-      val asWhole  = if whole == 0 then "" else s", $whole of the ${removals.size} file(s) as a whole"
-      isYes(ask(s"\n$files\nDelete these $n class(es), object(s) and case(s) only the code has$asWhole? [y/N] "))
-    }
+  def askRemoval(plan: MergePlan, ask: String => Option[String] = readAnswer): Set[String] =
+    val removals = plan.removals.flatMap(f => f.removal.map(f -> _))
+    if removals.isEmpty then Set.empty
+    else
+      val n       = removals.map(_._2.names.size).sum
+      val whole   = removals.count(_._2.content.isEmpty)
+      val files   = removals.map((f, r) => s"  ${what(f, r)}").mkString("\n")
+      val asWhole = if whole == 0 then "" else s", $whole of the ${removals.size} file(s) as a whole"
+      val several = removals.size > 1
+      val answer  = ask(s"\n$files\nDelete these $n class(es), object(s) and case(s) only the code has$asWhole? ${if several then "[y = all / e = each / N = none]" else "[y/N]"} ")
+      val all     = removals.map(_._1.path).toSet
+      if isYes(answer) then all
+      else if several && answer.exists(_.trim.toLowerCase == "e") then
+        removals.collect { case (f, r) if isYes(ask(s"Delete ${what(f, r)}? [y/N] ")) => f.path }.toSet
+      else Set.empty
+    end if
+  end askRemoval
 
   /** The question on the console - its answer; None at the end of the input (no console, a closed
     * stdin): that is a no.

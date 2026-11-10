@@ -247,7 +247,10 @@ enum, the members - each with its doc comment and annotations):
 What differs only in its form (indentation, line breaks, the imports in another form) stays as the
 code has it. A Scala file next to the domain classes that _Orch Spec_ does not know (in the
 package of the API or process, `…/v1/`, `…/v1/schema/`; not a service or process object) and a
-file _Orch Spec_ no longer gives are asked the same way. `--yes` deletes nothing of it.
+file _Orch Spec_ no longer gives are asked the same way: only their classes and objects go - the
+file only when nothing else is in it (an extension or a `def` of your own stays). The question
+lists every file and what goes of it; of several files you answer `y` (all), `e` (each on its own)
+or `N` (none). `--yes` deletes nothing of it.
 
 The output is laid out like the one of a simulation: every file that changes with its changes as
 `git diff` shows them (the line, two lines around it - the code's lines red, _Orch Spec_'s green, a

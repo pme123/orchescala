@@ -86,12 +86,66 @@ object ScalaMerge:
   private val ExtStart   = """extension\b\s*(.*?):?""".r
   private val ImportLine = """import\s+(.+)""".r
   private val ExportLine = """export\s+(.+)""".r
-  private val Annotation = """@\w+(?:\([^()]*\))?\s+(.*)""".r
+  // `@description("…") def x` - the definition behind annotations on its line; an annotation
+  // whose arguments do not end on the line is one alone
+  private def definition(trimmed: String): String =
+    if !trimmed.startsWith("@") then trimmed
+    else
+      val name = trimmed.drop(1).takeWhile(ch => ch.isLetterOrDigit || ch == '_' || ch == '.')
+      val rest = trimmed.drop(1 + name.length)
+      val next = if rest.startsWith("(") then argumentsEnd(rest).map(rest.drop) else Some(rest)
+      next match
+        case Some(r) if name.nonEmpty && r.nonEmpty && r.head.isWhitespace && r.trim.nonEmpty => definition(r.trim)
+        case _                                                                               => trimmed
 
-  // `@description("…") def x` - the definition behind annotations on its line
-  private def definition(trimmed: String): String = trimmed match
-    case Annotation(rest) => definition(rest)
-    case other            => other
+  // the index after the `)` closing the `(` at 0 - outside strings; None when it is not on the line
+  private def argumentsEnd(s: String): Option[Int] =
+    @annotation.tailrec
+    def go(i: Int, depth: Int, inString: Boolean): Option[Int] =
+      if i >= s.length then None
+      else
+        val ch = s(i)
+        if inString then
+          if ch == '\\' then go(i + 2, depth, true) else go(i + 1, depth, ch != '"')
+        else if ch == '"' then go(i + 1, depth, true)
+        else if ch == '(' then go(i + 1, depth + 1, false)
+        else if ch == ')' then (if depth == 1 then Some(i + 1) else go(i + 1, depth - 1, false))
+        else go(i + 1, depth, false)
+    go(0, 0, false)
+
+  /** Per line: does it start inside a `"""` string or a block comment? Such a line is no definition. */
+  private def continued(lines: Seq[String]): IndexedSeq[Boolean] =
+    enum In:
+      case Code, Text, Comment
+    // the state at the end of a line from the one at its start - (state, depth of nested comments)
+    def scan(l: String, start: (In, Int)): (In, Int) =
+      @annotation.tailrec
+      def go(i: Int, in: In, depth: Int): (In, Int) =
+        if i >= l.length then (in, depth)
+        else
+          in match
+            case In.Text    => if l.startsWith("\"\"\"", i) then go(i + 3, In.Code, 0) else go(i + 1, in, depth)
+            case In.Comment =>
+              if l.startsWith("*/", i) then (if depth == 1 then go(i + 2, In.Code, 0) else go(i + 2, in, depth - 1))
+              else if l.startsWith("/*", i) then go(i + 2, in, depth + 1)
+              else go(i + 1, in, depth)
+            case In.Code    =>
+              if l.startsWith("//", i) then (in, depth)
+              else if l.startsWith("/*", i) then go(i + 2, In.Comment, 1)
+              else if l.startsWith("\"\"\"", i) then go(i + 3, In.Text, 0)
+              else if l(i) == '"' then go(stringEnd(l, i + 1), in, depth)
+              else if l(i) == '\'' && i + 2 < l.length && l(i + 2) == '\'' then go(i + 3, in, depth)
+              else go(i + 1, in, depth)
+      go(0, start._1, start._2)
+    lines.scanLeft((In.Code, 0))((state, l) => scan(l, state)).init.map(_._1 != In.Code).toIndexedSeq
+
+  // the index after the `"` closing a string that starts before `from`
+  @annotation.tailrec
+  private def stringEnd(l: String, from: Int): Int =
+    if from >= l.length then l.length
+    else if l(from) == '\\' then stringEnd(l, from + 2)
+    else if l(from) == '"' then from + 1
+    else stringEnd(l, from + 1)
 
   private def start(trimmed: String): Option[(Kind, String, String)] =
     definition(trimmed) match
@@ -125,9 +179,10 @@ object ScalaMerge:
         val last = (end - 1 to at by -1).find(j => !lines(j).isBlank).getOrElse(at)
         out += Part(kind, name, key, first, at, last + 1)
       current = None
+    val inside  = continued(lines)
     for i <- from until until do
       val l = lines(i)
-      if !l.isBlank && indentOf(l) == level then
+      if !l.isBlank && !inside(i) && indentOf(l) == level then
         val t = l.trim
         start(t) match
           case Some((kind, name, key)) =>
@@ -145,10 +200,11 @@ object ScalaMerge:
             else pending = -1 // a line of the current part (`)`, `extends …`)
     close(if pending >= 0 then pending else until)
     // the same key twice (overloaded `def`s): numbered
-    val all = out.result()
-    all.zipWithIndex.map: (p, i) =>
-      val n = all.take(i).count(_.key == p.key)
-      if n == 0 then p else p.copy(key = s"${p.key}#$n")
+    out.result().foldLeft((Vector.empty[Part], Map.empty[String, Int])): (acc, p) =>
+      val (done, seen) = acc
+      val n            = seen.getOrElse(p.key, 0)
+      (done :+ (if n == 0 then p else p.copy(key = s"${p.key}#$n")), seen.updated(p.key, n + 1))
+    ._1
   end parts
 
   /** The lines that close a head: `:` at the end, outside the parameters. */

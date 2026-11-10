@@ -77,7 +77,7 @@ class SpecMergeTest extends FunSuite:
       remove: Boolean = false
   )(using DevConfig): (MergePlan, MergeResult) =
     val plan = SpecMerge.plan(project, before, after, formatter = formatter)
-    plan -> SpecMerge.merge(project, plan, onConflict, remove)
+    plan -> SpecMerge.merge(project, plan, onConflict, if remove then plan.removals.map(_.path).toSet else Set.empty)
 
   private def actionOf(plan: MergePlan, project: os.Path, name: String): Action =
     plan.files.find(_.path == path(project, name)).map(_.action).getOrElse(fail(s"$name not in the plan"))
@@ -245,7 +245,7 @@ class SpecMergeTest extends FunSuite:
       val planned = PlannedFile(rel.toString, Owner.generated, Action.conflict, hash, None, removal = Some(Removal(Seq("Old"), Some("gone"))))
       val plan    = MergePlan("demo-order", Seq(planned))
       for onConflict <- Seq(OnConflict.KeepCode, OnConflict.Markers) do
-        val result = SpecMerge.merge(project, plan, onConflict, remove = true)
+        val result = SpecMerge.merge(project, plan, onConflict, remove = Set(rel.toString))
         assertEquals(os.read(project / rel), before, onConflict)
         assertEquals(result.removed, Seq.empty, onConflict)
 

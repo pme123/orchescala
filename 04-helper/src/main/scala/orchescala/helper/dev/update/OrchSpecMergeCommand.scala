@@ -76,7 +76,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         true
       else if yes || confirm(plan, markers) then
         // what only the code has goes only when asked - `--yes` deletes nothing
-        val remove = !yes && MergeReport.askRemoval(plan)
+        val remove = if yes then Set.empty[String] else MergeReport.askRemoval(plan)
         if yes && plan.removals.nonEmpty then
           println(Console.YELLOW + s"--yes deletes nothing: ${plan.removals.size} file(s) with what only the code has stay as they are - run without --yes to be asked." + Console.RESET)
         try

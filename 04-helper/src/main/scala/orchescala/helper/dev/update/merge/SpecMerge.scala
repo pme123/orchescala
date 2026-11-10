@@ -159,7 +159,10 @@ object SpecMerge:
     * check, it aborts without writing a file (`MergeAborted`). If writing or deleting a file fails,
     * it stops there - `MergeIncomplete` tells what was done before.
     */
-  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Boolean = false): MergeResult =
+  /** @param remove the files whose removal applies - what only the code has goes there (the
+    *               developer said so, `MergeReport.askRemoval`); elsewhere it stays
+    */
+  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Set[String] = Set.empty): MergeResult =
     val changed = plan.files.filter(f => hashOf(project / os.RelPath(f.path)) != f.codeHash).map(_.path)
     if changed.nonEmpty then throw MergeAborted(changed)
     val written = Seq.newBuilder[String]
@@ -198,7 +201,7 @@ object SpecMerge:
     plan.files.foreach: f =>
       try
         // only on a file that is merged or stays - a conflict is never written over by it
-        f.removal.filter(_ => remove && Seq(Action.unchanged, Action.merged).contains(f.action)) match
+        f.removal.filter(_ => remove(f.path) && Seq(Action.unchanged, Action.merged).contains(f.action)) match
           // what only the code has - the developer said it goes
           case Some(Removal(names, None))          =>
             os.remove(project / os.RelPath(f.path))
@@ -366,12 +369,13 @@ object SpecMerge:
     dirs.filter(d => os.isDir(project / d)).flatMap: dir =>
       os.list(project / dir).filter(f => os.isFile(f) && f.ext == "scala").map(_.relativeTo(project))
         .filterNot(planned).sortBy(_.toString).flatMap: rel =>
-          val code = os.read(project / rel)
-          if ownObject.findFirstIn(code).isDefined then None
-          else
-            orphaned(code).map: r =>
-              PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
-                removal = Some(r))
+          // a file that cannot be read (not UTF-8) is not asked - and does not stop the plan
+          Try(os.read(project / rel)).toOption.flatMap: code =>
+            if ownObject.findFirstIn(code).isDefined then None
+            else
+              orphaned(code).map: r =>
+                PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
+                  removal = Some(r))
   end orphans
 
   /** `spec/` as Orch Spec sent it - 1:1, without merge; what is no longer there is deleted. */
