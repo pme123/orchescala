@@ -61,6 +61,8 @@ interface Ctx {
   domain: DomainType[];
   /** the implementations of the script tasks - each a method of the worker, with a test */
   scripts: ScriptMethod[];
+  /** what the script tasks set, with the type the export derived - for the Out at the end */
+  scriptVars: Map<string, OrchVar>;
 }
 
 /** The implementation of a script task as a method of the worker. */
@@ -514,7 +516,10 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       if (task?.script?.trim()) {
         const c = scriptCall(s, task, known, ctx);
         lines.push(c.line);
-        if (c.produced) known = [...known.filter(k => k.name !== c.produced!.name), c.produced];
+        if (c.produced) {
+          known = [...known.filter(k => k.name !== c.produced!.name), c.produced];
+          ctx.scriptVars.set(c.produced.name, c.produced);
+        }
       }
       for (const a of task?.assignments ?? []) {
         if (!a.name.trim()) continue;
@@ -592,10 +597,13 @@ function outValue(o: ServiceOrchestrationSpec, vars: OrchVar[], ctx: Ctx, pre: s
   if (o.noOut) return 'NoOutput()';
   const out = o.types.find(t => t.id === o.outTypeId);
   const sv = scalaVars(vars);
-  // per field its value — `expressionOf` empty: the variable of the same name, if there is one
+  // per field its value — `expressionOf` empty: the variable of the same name, if there is one,
+  // otherwise the one variable of its type - of several the one a script sets (`clients` ← `allClients: Seq[Client]`)
   const mapFields = (fields: Field[], expressionOf: (f: Field) => string, steps: string[]) =>
     fields.filter(f => isFinished(f, ctx.idx)).map((f: Field) => {
-      const expr = expressionOf(f).trim() || (sv.has(f.name) ? `= ${f.name}` : '');
+      const all = vars.filter(v => v.type === f.type && !!v.collection === !!f.collection);
+      const byType = all.length > 1 ? all.filter(v => v.source === 'Script') : all;
+      const expr = expressionOf(f).trim() || (sv.has(f.name) ? `= ${f.name}` : byType.length === 1 ? `= ${byType[0].name}` : '');
       if (!expr) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: kein Mapping`)}`;
       const v = forTarget(feelToScala(expr, sv, ctx.types, f), !!f.optional);
       if (!v.needed) return `${scalaName(f.name)} = ${v.scala}`;
@@ -636,7 +644,9 @@ function outValue(o: ServiceOrchestrationSpec, vars: OrchVar[], ctx: Ctx, pre: s
 function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   const steps = flowOf(o).steps;
   const body = forLines(steps, inVars(o), ctx);
-  const known = [...inVars(o), ...producedBy(steps, o, ctx.services)];
+  // a script's result with the type the export derived (producedBy only knows the declared one)
+  const known = [...inVars(o), ...producedBy(steps, o, ctx.services)]
+    .map(v => (ctx.scriptVars.has(v.name) ? { ...ctx.scriptVars.get(v.name)!, ...(v.optional ? { optional: true } : {}) } : v));
   const pre: string[] = [];
   const out = outValue(o, known, ctx, pre);
   const lines = startWithGenerator([...body, ...pre]);
@@ -834,7 +844,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const domEnums = domainEnums(model);
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
-    sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [],
+    sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
   };
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {

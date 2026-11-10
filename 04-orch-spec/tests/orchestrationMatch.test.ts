@@ -217,3 +217,13 @@ test('a script result that is no field of the Out: the type the step names - wit
   // lists of different types: no type to derive - text, the compiler says it
   assert.match(method(scripted('= concatenate(persons, companys)', 'allClients')) ?? '', /\): String =$/);
 });
+
+test('a field of the Out without a mapping: the variable of the same name - otherwise the one of its type', () => {
+  const o = scripted('= concatenate(persons, companys)', 'allClients');
+  o.tasks.ReadP = { ...o.tasks.ReadP, outputs: [{ name: 'persons', expression: '= persons', mapTo: 'client' }] };
+  o.tasks.ReadC = { ...o.tasks.ReadC, outputs: [{ name: 'companys', expression: '= companys', mapTo: 'client' }] };
+  o.outMappings = undefined;
+  const w = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  // allClients: derived Seq[Client] - the only one of the type of `clients`
+  assert.match(w, /yield Out\(\n\s+clients = allClients\n\s+\)/, w);
+});
