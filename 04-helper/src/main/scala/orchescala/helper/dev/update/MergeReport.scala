@@ -104,7 +104,7 @@ object MergeReport:
       val files   = removals.map((f, r) => s"  ${what(f, r)}").mkString("\n")
       val asWhole = if whole == 0 then "" else s", $whole of the ${removals.size} file(s) as a whole"
       val several = removals.size > 1
-      val answer  = ask(s"\n$files\nDelete these $n class(es), object(s) and case(s) only the code has$asWhole? ${if several then "[y = all / e = each / N = none]" else "[y/N]"} ")
+      val answer  = ask(s"\nOnly in the code - Orch Spec does not know it:\n$files\nDelete these $n class(es), object(s) and case(s) only the code has$asWhole? ${if several then "[y = all / e = each / N = none]" else "[y/N]"} ")
       val all     = removals.map(_._1.path).toSet
       if isYes(answer) then all
       else if several && answer.exists(_.trim.toLowerCase == "e") then
