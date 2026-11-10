@@ -15,7 +15,13 @@ export type AiConfig = {
   model: string;
   /** the Claude API - another one for a gateway of the company (or a test) */
   baseUrl: string;
+  /** `server`: orch-spec runs the loop of the agent on the studio (`POST /ai/<task>/turn`, with the
+    * limits of the skill); without it in the browser, each request through the studio (E28, step 5) */
+  agent?: 'server';
 };
+
+/** Where the loop of the agent runs - `STUDIO_AI_AGENT`. */
+export const AGENTS = ['browser', 'server'] as const;
 
 export type StudioConfig = {
   port: number;
@@ -57,7 +63,8 @@ export function apiUrl(baseUrl: string): URL | string {
   *   - `STUDIO_AI_ANTHROPIC_API_KEY` the key (the switch)
   *   - `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` only if the API asks for it
   *   - `STUDIO_AI_MODEL` default DEFAULT_MODEL
-  *   - `STUDIO_AI_ANTHROPIC_URL` default ANTHROPIC_URL - one that is no http(s) URL ends the start */
+  *   - `STUDIO_AI_ANTHROPIC_URL` default ANTHROPIC_URL - one that is no http(s) URL ends the start
+  *   - `STUDIO_AI_AGENT` `browser` (default) or `server` - where the loop of the agent runs */
 export function aiFromEnv(env: Env): AiConfig | undefined {
   const get = (name: string) => env[name]?.trim() || undefined;
   const apiKey = get('STUDIO_AI_ANTHROPIC_API_KEY');
@@ -66,7 +73,9 @@ export function aiFromEnv(env: Env): AiConfig | undefined {
   const url = apiUrl(baseUrl);
   if (typeof url === 'string') throw new Error(url);
   const workspaceId = get('STUDIO_AI_ANTHROPIC_WORKSPACE_ID');
-  return { apiKey, ...(workspaceId ? { workspaceId } : {}), model: get('STUDIO_AI_MODEL') ?? DEFAULT_MODEL, baseUrl };
+  const agent = get('STUDIO_AI_AGENT') ?? 'browser';
+  if (!(AGENTS as readonly string[]).includes(agent)) throw new Error(`STUDIO_AI_AGENT is «${agent}» - only ${AGENTS.join(' or ')}`);
+  return { apiKey, ...(workspaceId ? { workspaceId } : {}), model: get('STUDIO_AI_MODEL') ?? DEFAULT_MODEL, baseUrl, ...(agent === 'server' ? { agent: 'server' as const } : {}) };
 }
 
 /** The settings from the environment: `STUDIO_PORT`, `STUDIO_HOST`, `STUDIO_APPS_DIR`, `STUDIO_SITE_DIR`,
@@ -105,4 +114,4 @@ export function configFromEnv(env: Env = process.env, cwd = process.cwd()): Stud
 
 /** The AI for the log - never the key. */
 export const describeAi = (ai: AiConfig) =>
-  `anthropic, ${ai.model}${ai.workspaceId ? `, workspace ${ai.workspaceId}` : ''}, ${ai.baseUrl}`;
+  `anthropic, ${ai.model}${ai.workspaceId ? `, workspace ${ai.workspaceId}` : ''}, ${ai.baseUrl}, the agent in the ${ai.agent ?? 'browser'}`;

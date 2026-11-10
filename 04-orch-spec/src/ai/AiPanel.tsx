@@ -38,6 +38,7 @@ export function AiPanel({ isDark, slug, page, pages, app, targets, draft, onDraf
     <AiChat<PageDraft> isDark={isDark} task="uiCreator" draft={draft} onDraft={onDraft} onBusy={onBusy} initialPrompt={initialPrompt} onInitialPrompt={onInitialPrompt}
       system={() => pageSystem(specSource, targets, all, app)}
       kit={pageToolKit({ targets, others: all })}
+      context={{ targets, others: all }}
       start={() => startDraft(slug, page)}
       changed={draftChanged}
       openPoints={(d) => d.openPoints}

@@ -13,6 +13,7 @@ the folders of orch-spec and orch-ops, its skills and the key of the AI. It buil
 | `/`, `/spec`, `/ops` | redirect there | – |
 | `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
 | `POST /ai/<task>/v1/messages` | a request of orch-spec's agent for `<task>` (e.g. `uiCreator`), with the skill applied and sent on to the Claude API with the studio's key and workspace; a task without a skill is refused (403), a tool that is not in the skill too (400) | `STUDIO_AI_*`, the skills |
+| `POST /ai/<task>/turn` | a whole turn of the agent on the studio, for `uiCreator`, `processCreator` and `serviceOrchestrator`: orch-spec sends the request of the RE, the draft and the context of the tools; the studio runs the loop of orch-spec's core with the tools of the task and the `limits` of the skill, each request as above. The answer: one JSON per line (`application/x-ndjson`) - the events as they come, then the result. orch-spec uses it with `STUDIO_AI_AGENT=server` | `STUDIO_AI_*`, the skills, orch-spec's core |
 
 **Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceOrchestrator`, `serviceRegistration`, `serviceCreator`)
 is offered only with a skill for it and its provider: `<skills>/<task>/<provider>/SKILL.md` - its
@@ -30,12 +31,26 @@ What the studio applies of a skill, per request:
 | `request.max_tokens`, `thinking`, `effort`, `fallbacks` | the same settings - those of the browser do not count; `max_tokens` at most 32000 |
 | `tools` | the only tools a request may offer - another one is refused (400) |
 
-The log has one line per request: skill, model, status, time and tokens - no content. At most 8
-requests go to the API at the same time; one waits at most 10 minutes (a request with thinking can
-take that long), including its wait for a turn.
+And per turn on the studio (`POST /ai/<task>/turn`):
 
-Later: the agent on the server with the limits of the skill (`limits`: steps, corrections, costs),
-with the logic of orch-spec from `04-orch-spec/src/core`, the buttons of orch-spec and the runner.
+| From the skill | In the turn |
+|---|---|
+| `limits.steps_per_turn` | the most requests to the model per request of the RE - without it 24 |
+| `limits.corrections_per_turn` | how often the draft goes back to the model with its errors - without it 2 |
+| `limits.usd_per_turn` | the most a turn may cost (prices of Claude Opus 5.5) - checked before each request; without it no limit |
+| `limits.usd_per_person_day` | read, applied with the login |
+
+The log has one line per request: skill, model, status, time and tokens - no content - and one per
+turn on the studio: how it stopped, time, requests and costs. At most 8 requests go to the API at the
+same time; one waits at most 10 minutes (a request with thinking can take that long), including its
+wait for a turn. The browser goes away (or the RE stops): the turn ends, and its request to the API.
+
+**orch-spec's core:** the loop of the agent and its tools come from `04-orch-spec/src/core`, the same
+code orch-spec runs in the browser - bundled for the studio with `npm run core` (to
+`core/orch-spec-core.mjs`, not in Git; `core/orch-spec-core.d.mts` holds the types the studio uses).
+`npm run lint`, `npm test` and the image need it.
+
+Later: the AI per person (`usd_per_person_day`), the buttons of orch-spec and the runner.
 
 - **Who wins:** first files in memory (the folders of orch-spec and orch-ops, `spec/folder.json`,
   `ops/folder.json`), then the apps - the version the studio is built with, also when the company's
@@ -52,6 +67,7 @@ From the root of Orchescala, after the apps are built:
 
 ```bash
 sbt orchDocClient/bundleDocClient                                  # 04-orch-doc/bundle/orch-doc-site
+npm --prefix 06-orch-studio run core                               # 06-orch-studio/core/orch-spec-core.mjs
 docker build -f 06-orch-studio/Dockerfile -t orch-studio:local .
 ```
 
@@ -77,6 +93,7 @@ docker run -p 127.0.0.1:8881:8880 \
 | `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` | – | only if the API asks for it (a key without a workspace) |
 | `STUDIO_AI_MODEL` | `claude-opus-5-5` | the model of a skill that names none - whatever orch-spec sends |
 | `STUDIO_AI_ANTHROPIC_URL` | `https://api.anthropic.com` | e.g. a gateway of the company |
+| `STUDIO_AI_AGENT` | `browser` | `server`: orch-spec runs the loop of the agent on the studio (`POST /ai/<task>/turn`), with the limits of the skill - until it runs stable, the browser's is the default |
 
 A wrong setting - also a folder of the company that is set but not there, or a port that is taken -
 ends the start with one line that names it. `docker stop` ends the studio at once (SIGTERM).

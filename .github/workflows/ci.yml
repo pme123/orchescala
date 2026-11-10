@@ -68,9 +68,10 @@ jobs:
         working-directory: 04-orch-spec
         run: npm run check:core
       - name: Orch Studio
-        # E28: the studio is a TypeScript server on Node (06-orch-studio) - its types and tests
+        # E28: the studio is a TypeScript server on Node (06-orch-studio) - its types and tests, with
+        # orch-spec's core bundled for it (npm run core - the loop of the agent on the studio, step 5)
         working-directory: 06-orch-studio
-        run: npm ci && npm run lint && npm test
+        run: npm ci && npm run core && npm run lint && npm test
       - name: Orch Spec without a server
         # E28: the studio becomes a TypeScript server - orch-spec must keep working without it at every
         # step. The built app (as orch-doc ships it), served statically: a local folder, a process, a

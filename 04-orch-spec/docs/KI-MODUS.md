@@ -153,12 +153,21 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 ## Technik
 
-- **Ablauf über das Studio:** Die Agent-Schleife läuft noch im Browser, mit dem
-  TypeScript-SDK von Anthropic. Dessen Basis-URL ist die Adresse der Aufgabe
-  im Studio (`/ai/uiCreator`); das Studio wendet den Skill an, setzt Key und
-  Workspace und gibt die Antwort unverändert zurück, auch Fehler der API.
-  Später läuft der ganze Skill im Studio, samt Schleife und Grenzen; dann
-  ändert sich nur `send` in `src/ai/client.ts`.
+- **Ablauf über das Studio:** Wo die Agent-Schleife läuft, sagt das Studio
+  (`STUDIO_AI_AGENT`, in `GET /ai/config` als `agent`):
+  - **im Browser** (Vorgabe): mit dem TypeScript-SDK von Anthropic. Dessen
+    Basis-URL ist die Adresse der Aufgabe im Studio (`/ai/uiCreator`); das Studio
+    wendet den Skill an, setzt Key und Workspace und gibt die Antwort unverändert
+    zurück, auch Fehler der API.
+  - **im Studio** (`agent: server`, E28 Schritt 5): orch-spec schickt Wunsch,
+    Entwurf und Kontext an `POST /ai/<Aufgabe>/turn`. Das Studio führt dieselbe
+    Schleife aus (`src/ai/turn.ts` im Kern, mit den Werkzeugen der Aufgabe) und
+    hält dabei die Grenzen des Skills ein (`limits`: Anfragen, Korrekturen, Kosten
+    pro Wunsch). Die Ereignisse kommen laufend, eine JSON-Zeile je Ereignis, am
+    Ende der Entwurf. Derselbe Wunsch gibt denselben Entwurf wie im Browser.
+    Hält der RE an, endet der Zug auch im Studio; was dort schon geschah, fällt
+    weg, und der Entwurf bleibt, wie er war.
+  Die Schleife im Browser bleibt, bis die im Studio stabil läuft.
 - **Anfrage:** wie im Skill – heute bei allen drei `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
@@ -169,7 +178,9 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
   (Breakpoint 2) und das wachsende Gespräch (automatisch).
 - **Agent-Schleife** (`src/ai/agent.ts`):
   - Claude ruft Werkzeuge auf, bis es fertig ist, höchstens 24 Anfragen pro
-    Wunsch.
+    Wunsch (im Studio: `limits.steps_per_turn` des Skills; dazu
+    `limits.usd_per_turn` – erreicht ein Wunsch die Kosten, hält die Schleife
+    vor der nächsten Anfrage an).
   - Danach prüft die App den Entwurf. Fehler, die erst der Entwurf gebracht hat,
     gehen als neue Nachricht an Claude zurück, höchstens zweimal.
   - Das Gespräch wird nur verlängert, nie umgeschrieben.
@@ -178,7 +189,8 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 |---|---|
 | `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, die Aufgaben mit Skill, `useAiFor` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
-| `src/ai/client.ts` | `send` mit dem SDK über das Studio, Fehlertexte |
+| `src/ai/client.ts` | `send` mit dem SDK über das Studio, der Zug im Studio (`turnOnStudio`), Fehlertexte |
+| `src/ai/turn.ts` | der Zug im Studio: die Aufgaben mit Zug, ihre Werkzeuge, die Anfrage, die Zeilen der Antwort (im Kern – dasselbe für orch-spec und Studio) |
 | `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen sind in den Skills des Studios) |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
 | `src/ai/bpmnEdit.ts` | Schritt, Entscheid, Fehlerpfad im BPMN einfügen, entfernen, umbenennen – samt Layout |
@@ -187,8 +199,9 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 | `src/ai/cost.ts` | Tokens und Kosten je Änderung |
 | `src/ai/AiChat.tsx`, `AiPanel.tsx`, `ProcessAiPanel.tsx` | der Chat, für Seiten und Prozesse |
 
-Tests: `tests/aiPages.test.ts` und `tests/aiProcess.test.ts`. Sie laufen ohne
-Netz, Claude ist darin gemockt. Geprüft werden die Werkzeuge, Übernehmen und
+Tests: `tests/aiPages.test.ts`, `tests/aiProcess.test.ts` und `tests/aiTurn.test.ts`
+(der Zug im Studio: derselbe Entwurf wie im Browser, die Grenzen, der Client). Sie
+laufen ohne Netz, Claude ist darin gemockt. Geprüft werden die Werkzeuge, Übernehmen und
 Verwerfen, die Selbstkorrektur, der Schalter über das Studio, die Kosten und die
 Unterschiede.
 

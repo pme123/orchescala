@@ -4,4 +4,5 @@
 !06-orch-studio/package-lock.json
 !06-orch-studio/src
 !06-orch-studio/skills
+!06-orch-studio/core/orch-spec-core.mjs
 !04-orch-doc/bundle/orch-doc-site
