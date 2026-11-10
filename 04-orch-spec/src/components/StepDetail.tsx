@@ -695,7 +695,13 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           onChange={timer => onPatch(step.id, { timer })} />
       )}
 
-      {!ofPattern && <>
+      {/* Script task of a service orchestration: its implementation in FEEL - a method of the worker */}
+      {step.kind === 'script' && spec.service && !ofPattern && (
+        <ScriptSection step={step} spec={spec} isDark={isDark} canEdit={canEdit} variables={variables}
+          onPatch={patch => onPatch(step.id, patch)} />
+      )}
+
+      {!ofPattern && !(step.kind === 'script' && spec.service) && <>
       <InteractionClasses step={step} spec={spec} isDark={isDark} canEdit={canEdit} entry={service} model={model}
         onSpecChange={onSpecChange} onEditType={onEditType} />
 
@@ -2007,6 +2013,59 @@ function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: Exp
  * there is something in it — and the person's choice is remembered per section.
  * If something is added (the counter goes up), it opens.
  */
+/**
+ * The implementation of a script task in FEEL: one expression and the variable its value goes
+ * into. In a service orchestration the export makes it a method of the worker, with a test.
+ */
+function ScriptSection({ step, spec, isDark, canEdit, variables, onPatch }: {
+  step: Step; spec: ProcessSpec; isDark: boolean; canEdit: boolean; variables: VarNode[] | null;
+  onPatch: (patch: Partial<Step>) => void;
+}) {
+  const c = cls(isDark);
+  const err = isDark ? 'text-rose-400' : 'text-rose-600';
+  const warn = isDark ? 'text-amber-400' : 'text-amber-600';
+  const value = step.script ?? '';
+  const issues: FeelIssue[] = value.trim()
+    ? (isFeel(value) ? checkFeel(value, variables).issues : [{ level: 'error', text: 'Mit «=» beginnen - die Implementierung ist ein FEEL-Ausdruck.' }])
+    : [];
+  // the fields of the Out - the result usually is one of them
+  const out = (spec.types ?? []).find(t => t.processOut);
+  const outFields = (out?.fields ?? []).map(f => f.name).filter(Boolean);
+  const listId = `script-result-${step.id}`;
+  return (
+    <Section id="script" label="Implementierung (FEEL)" isDark={isDark} count={value.trim() ? 1 : 0}
+      comment={sub(stepTarget(step.id), 'script')}
+      hint={!value.trim() ? <span className={`text-[9px] ${c.muted}`}>ein Ausdruck und sein Ergebnis</span> : undefined}>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className={`${c.muted} w-24 flex-shrink-0`}>Ergebnis</span>
+          <input value={step.resultVariable ?? ''} disabled={!canEdit} list={listId}
+            onChange={e => onPatch({ resultVariable: e.target.value.trim() || undefined })}
+            title="Die Variable, die den Wert bekommt - meist ein Feld des Out (dann hat sie dessen Typ)"
+            placeholder="Variable, z. B. clients"
+            className={`flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input} ${!step.resultVariable?.trim() && value.trim() ? (isDark ? 'border-rose-500/60' : 'border-rose-400') : ''}`} />
+          <datalist id={listId}>{outFields.map(n => <option key={n} value={n} />)}</datalist>
+        </div>
+        <FeelInput value={value} disabled={!canEdit} isDark={isDark} variables={variables} multiline
+          onChange={v => onPatch({ script: v || undefined })}
+          placeholder="= concatenate(organisations, naturalPersons)"
+          title={'Was der Schritt berechnet - ein FEEL-Ausdruck über die Variablen davor.\n'
+            + 'Im Export eine Methode des Workers (Scala) mit eigenem Test: concatenate(…) von Listen, '
+            + 'eine Klasse in den Typ des Ergebnisses (der passende Fall), sonst wie ein Mapping.'} />
+        {!step.resultVariable?.trim() && value.trim() && (
+          <p className={`text-[10px] flex items-start gap-1 ${err}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Die Ergebnis-Variable fehlt.</span></p>
+        )}
+        {issues.map((it, k) => (
+          <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+          </p>
+        ))}
+        <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers, mit Test.</p>
+      </div>
+    </Section>
+  );
+}
+
 function Section({ id, label, count, isDark, action, hint, children, comment, openFor }: {
   id: string; label: string; count?: number; isDark: boolean;
   action?: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode;

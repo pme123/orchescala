@@ -507,6 +507,9 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
 
+  // A script task with an implementation (FEEL) writes its value into its `resultVariable`
+  for (const s of allSteps(spec.steps)) { const n = scriptResult(s); if (n) add(n); }
+
   // A multi-instance with collected results writes the list after it — its entries typed by
   // what the instance knows. Only for the overview: the steps know it only after the
   // multi-instance (variablesByStep), so it is no process variable from the start.
@@ -1006,7 +1009,15 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   if (s.kind === 'rule' && s.resultVariable && !(spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name))) {
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
+  const script = scriptResult(s);
+  if (script) add(script);
   return out;
+}
+
+/** The variable a script task with an implementation (FEEL) sets - its type is the one of its value. */
+function scriptResult(s: Step): VarNode | null {
+  const name = s.kind === 'script' && s.script?.trim() ? s.resultVariable?.trim() : undefined;
+  return name ? { name, type: 'any', label: '?', source: `Ergebnis von ${s.name || s.id}` } : null;
 }
 
 /** What the step and the steps inside it write — inside a multi-instance they stay in the instance */
@@ -1024,6 +1035,7 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
+    if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) names.add(s.resultVariable.trim());
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
   }

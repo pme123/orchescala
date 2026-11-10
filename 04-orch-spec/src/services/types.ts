@@ -177,6 +177,9 @@ export interface OrchTask {
   outputs?: Mapping[];
   /** script task: assignments — `name` gets the value of the FEEL `expression` */
   assignments?: Mapping[];
+  /** script task: its implementation in FEEL - a method of the worker; its value goes into `resultVariable` */
+  script?: string;
+  resultVariable?: string;
   [key: string]: unknown;
 }
 

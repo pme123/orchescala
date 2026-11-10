@@ -177,10 +177,12 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
     if (s.kind === 'service' && task?.service) {
       const ref = services.get(task.service);
       const outType = ref ? serviceMembers(ref).out : undefined;
-      if (task.outputs) out.push(...outputVars(task.outputs, ref && !ref.service.noOut ? outType : undefined));
+      if (task.outputs) out.push(...outputVars(task.outputs, ref && !ref.service.noOut ? outType : undefined, task.outCase ?? task.inCase));
       else if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
     } else if (s.kind === 'script') {
       for (const a of task?.assignments ?? []) if (a.name.trim()) out.push({ name: a.name.trim(), scala: a.name.trim(), type: 'String', source: 'Script' });
+      const result = task?.script?.trim() ? scriptResultVar(o, task.resultVariable) : null;
+      if (result) out.push(result);
     } else if (s.kind === 'gateway') {
       const inner = (s.branches ?? []).flatMap(b => producedBy(b.steps, o, services));
       const exclusive = s.gatewayType === 'exclusive';
@@ -190,11 +192,32 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
   return out;
 }
 
+/**
+ * The variable the implementation of a script task sets - typed by the field of the
+ * orchestration's Out of its name (`clients: Seq[Client]`), otherwise text.
+ */
+export function scriptResultVar(o: ServiceOrchestrationSpec, name: string | undefined): OrchVar | null {
+  const n = name?.trim();
+  if (!n) return null;
+  const out = o.noOut ? undefined : o.types.find(t => t.id === o.outTypeId);
+  const f = out?.kind === 'enum' ? undefined : (out?.fields ?? []).find(x => x.name === n);
+  return {
+    name: n, scala: n, type: f?.type ?? 'String', source: 'Script',
+    ...(f?.collection ? { collection: true } : {}), ...(f?.optional ? { optional: true } : {}),
+  };
+}
+
+/** The fields of an Out: of an ADT the shared ones and those of the case it reads. */
+const outFieldsOf = (outType: TypeDef | undefined, outCase?: string): Field[] =>
+  outType?.kind === 'enum'
+    ? [...(outType.fields ?? []), ...((outType.values ?? []).find(v => v.name === outCase)?.fields ?? [])]
+    : (outType?.fields ?? []);
+
 /** The variables a service task sets as a process describes it: per enabled output, typed by the `Out` field it reads. */
-export function outputVars(outputs: Mapping[], outType: TypeDef | undefined): OrchVar[] {
+export function outputVars(outputs: Mapping[], outType: TypeDef | undefined, outCase?: string): OrchVar[] {
   return outputs.filter(m => !m.disabled && m.name.trim()).map(m => {
     const read = /^=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(m.expression.trim())?.[1];
-    const f = read ? (outType?.fields ?? []).find(x => x.name === read) : undefined;
+    const f = read ? outFieldsOf(outType, outCase).find(x => x.name === read) : undefined;
     const name = m.name.trim();
     return {
       name, scala: name, type: f?.type ?? 'String', source: 'Service' as const,
@@ -268,7 +291,8 @@ export function orchestrationIssues(o: ServiceOrchestrationSpec, services: Map<s
       if (!task?.service) out.push(`«${s.name || s.id}»: kein Service gewählt.`);
       else if (!services.has(task.service)) out.push(`«${s.name || s.id}»: den Service ${task.service} gibt es in keiner Collection.`);
     }
-    if (s.kind === 'script' && !(task?.assignments ?? []).some(a => a.name.trim())) out.push(`«${s.name || s.id}»: keine Zuweisung.`);
+    if (s.kind === 'script' && !task?.script?.trim() && !(task?.assignments ?? []).some(a => a.name.trim())) out.push(`«${s.name || s.id}»: keine Implementierung (FEEL).`);
+    if (s.kind === 'script' && task?.script?.trim() && !task.resultVariable?.trim()) out.push(`«${s.name || s.id}»: keine Ergebnis-Variable für die Implementierung.`);
     if (s.kind === 'gateway' && s.gatewayType === 'exclusive') {
       const fallback = elseBranch(o, s);
       for (const b of s.branches ?? []) {

@@ -7,7 +7,9 @@
 //
 // The flow becomes one `for` in `runWorkZIO`:
 //   service task   getClient <- runGetClient(GetClient.In(…))   (a `protected def` per service - a test overrides it)
-//   script task    total = …                        (FEEL → Scala, see feelScala.ts)
+//   script task    clients <- ZIO.attempt(mergeClients(…))   (its FEEL as a method of the worker - with a test;
+//                                                     `concatenate` of lists, a class into the case it fits)
+//                  total = …                        (an assignment: FEEL → Scala, see feelScala.ts)
 //   parallel       each branch forked, then joined  (as in «Advanced Custom Workers»)
 //   exclusive      kind match { case Kind.A => … }  (one variable against values - else if … then …;
 //                                                     what a branch produces is an Option afterwards)
@@ -16,18 +18,19 @@
 // type the Out defines - `Client.Person(…)` field by field. The test of the worker runs each branch
 // with the services answering their examples.
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
-import { caseIdent, caseName, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
+import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { Field, Mapping, Model, Step, TypeDef } from '../types';
+import type { DomainField, DomainType, Field, Mapping, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala.ts';
 import {
-  allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, serviceMembers, servicePackages,
+  allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
 } from './orchestration.ts';
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
+import { camelName } from './names.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -53,6 +56,24 @@ interface Ctx {
   conversions: Map<string, { field: string; optional: boolean; to: string }[]>;
   /** for the test: the exclusive gateways that became a match - per branch what decides it */
   gateways: { variable: string; branches: { label: string; pattern: string; steps: Step[] }[] }[];
+  collections: ServiceCollectionSpec[];
+  /** the classes of the catalog - a script converts into one (`Client` of another orchestration) */
+  domain: DomainType[];
+  /** the implementations of the script tasks - each a method of the worker, with a test */
+  scripts: ScriptMethod[];
+}
+
+/** The implementation of a script task as a method of the worker. */
+interface ScriptMethod {
+  step: string;
+  method: string;
+  description?: string;
+  params: Field[];
+  result: Field;
+  body: string;
+  /** what the test checks: the lists it concatenates, the cases it converts into */
+  concat?: string[];
+  cases: string[];
 }
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
@@ -133,6 +154,185 @@ function converted(c: NonNullable<ReturnType<typeof conversionOf>>, ctx: Ctx, pr
   const name = c.caseOf ? `${c.to.name}.${caseIdent(c.caseOf)}` : c.to.name;
   const value = args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name;
   return c.field.optional ? `Some(${value})` : value;
+}
+
+// ── script tasks: their FEEL as a method of the worker ─────────────────────
+
+/** `Option[Seq[Person]]` → type `Person`, optional, collection */
+function shapeOf(expr: string): Pick<Field, 'type' | 'optional' | 'collection'> {
+  let type = expr.trim();
+  const optional = /^Option\[/.test(type);
+  if (optional) type = type.slice('Option['.length, -1).trim();
+  const collection = /^(Seq|List|Vector|Set)\[/.test(type);
+  if (collection) type = type.slice(type.indexOf('[') + 1, -1).trim();
+  return { type, ...(optional ? { optional: true } : {}), ...(collection ? { collection: true } : {}) };
+}
+
+/** A class of the catalog (`dom:…`) as a type - its fields and cases, enough to convert into it. */
+function typeOf(id: string, ctx: Ctx): TypeDef | undefined {
+  const own = ctx.types.find(t => t.id === id);
+  if (own) return own;
+  const d = ctx.domain.find(x => domainRef(x.id) === id);
+  if (!d || (d.kind !== 'case' && d.kind !== 'enum')) return undefined;
+  const field = (f: DomainField): Field => ({ id: `${d.id}.${f.name}`, name: f.name, ...shapeOf(f.type) });
+  return {
+    id, name: d.name, kind: d.kind, fields: (d.fields ?? []).map(field),
+    ...(d.kind === 'enum' ? { values: (d.cases ?? []).map(c => ({ name: c.name, fields: (c.fields ?? []).map(field) })) } : {}),
+  };
+}
+
+/** `x` of a class into the type `toId` - the case it fits, field by field (`Client.Company(…)`). */
+function convertTo(x: string, fromId: string | undefined, toId: string | undefined, ctx: Ctx, where: string): { scala: string; to: string } | null {
+  if (!fromId || !toId || fromId === toId) return null;
+  const to = typeOf(toId, ctx);
+  const from = typeOf(fromId, ctx);
+  if (!to || !from?.fields?.length || (to.kind !== 'enum' && to.kind !== 'case')) return null;
+  const caseOf = to.kind === 'enum' ? fittingCase(to, from) : undefined;
+  if (to.kind === 'enum' && !caseOf) return null;
+  const sub = new Map<string, ScalaVar>(from.fields.filter(f => f.name).map(f =>
+    [f.name, { scala: `${x}.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection }]));
+  const fields = caseOf ? caseFields(to, caseOf) : (to.fields ?? []).filter(f => f.name);
+  const args = fields.filter(f => isFinished(f, ctx.idx)).map(f => {
+    if (!sub.has(f.name)) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: nicht in ${from.name}`)}`;
+    const v = forTarget(feelToScala(`= ${f.name}`, sub, ctx.types, f), !!f.optional);
+    // a required value the class may lack: the method fails with its name - runWorkZIO reports it
+    const value = v.needed ? `${v.scala}.getOrElse(throw IllegalArgumentException(${JSON.stringify(`${where}: ${from.name}.${f.name} fehlt`)}))` : v.scala;
+    return `${scalaName(f.name)} = ${value}`;
+  });
+  const name = caseOf ? `${to.name}.${caseIdent(caseOf)}` : to.name;
+  return { scala: args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name, to: name };
+}
+
+/** The arguments of a FEEL call, split at the commas outside brackets and texts. */
+function callArgs(body: string, fn: string): string[] | null {
+  const m = new RegExp(`^${fn}\\s*\\(([\\s\\S]*)\\)$`).exec(body.trim());
+  if (!m) return null;
+  const args: string[] = [];
+  let depth = 0, text = false, cur = '';
+  for (const ch of m[1]) {
+    if (ch === '"') text = !text;
+    if (!text && '([{'.includes(ch)) depth++;
+    if (!text && ')]}'.includes(ch)) depth--;
+    if (depth < 0) return null;
+    if (!text && !depth && ch === ',') { args.push(cur.trim()); cur = ''; } else cur += ch;
+  }
+  if (cur.trim()) args.push(cur.trim());
+  return depth === 0 && !text ? args : null;
+}
+
+/**
+ * The FEEL of a script task in Scala, for the field it fills: `concatenate(a, b)` of lists
+ * (each element into the type of the field, the case it fits), one class into that type,
+ * otherwise as a mapping (feelScala.ts).
+ */
+function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, ctx: Ctx, where: string): { scala: string; concat?: string[]; cases: string[] } {
+  const cases: string[] = [];
+  const wrap = (v: string) => (target.optional ? `Some(${v})` : v);
+  const args = callArgs(body, 'concatenate');
+  if (args && target.collection && args.every(a => scope.has(a))) {
+    const parts = args.map(a => {
+      const v = scope.get(a)!;
+      const list = !v.collection ? (v.optional ? `${v.scala}.toSeq` : `Seq(${v.scala})`) : v.optional ? `${v.scala}.getOrElse(Seq.empty)` : v.scala;
+      const c = convertTo('x', v.type, target.type, ctx, where);
+      if (!c) return list;
+      cases.push(c.to);
+      return `${list}.map(x =>\n${indent(c.scala, '  ')}\n)`;
+    });
+    return { scala: wrap(parts.join(' ++\n')), concat: args, cases };
+  }
+  const name = /^[A-Za-z_]\w*$/.test(body.trim()) ? scope.get(body.trim()) : undefined;
+  if (name && !name.collection && !target.collection) {
+    const c = convertTo('x', name.type, target.type, ctx, where);
+    if (c) {
+      cases.push(c.to);
+      if (name.optional && target.optional) return { scala: `${name.scala}.map(x =>\n${indent(c.scala, '  ')}\n)`, cases };
+      if (!name.optional) return { scala: wrap(`{\n  val x = ${name.scala}\n${indent(c.scala, '  ')}\n}`), cases };
+    }
+  }
+  const v = forTarget(feelToScala(`= ${body}`, scope, ctx.types, target), !!target.optional);
+  return { scala: v.needed ? `${v.scala}.getOrElse(throw IllegalArgumentException(${JSON.stringify(`${where}: ${target.name} fehlt`)}))` : v.scala, cases };
+}
+
+/** The variables a FEEL expression reads - of those known, in the order it names them. */
+function readVars(body: string, known: OrchVar[]): OrchVar[] {
+  const code = body.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  const names = [...code.matchAll(/(?<![\w.])([A-Za-z_]\w*)/g)].map(m => m[1]);
+  const seen = new Set<string>();
+  return names.flatMap(n => {
+    const v = known.find(k => k.name === n);
+    return v && !seen.has(n) && (seen.add(n), true) ? [v] : [];
+  });
+}
+
+/** A script task with an implementation: its method - and the line of the `for` that calls it. */
+function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar | null } {
+  const where = s.name || s.id;
+  const produced = scriptResultVar(ctx.o, task.resultVariable);
+  if (!produced) return { line: `// TODO «${where}»: die Implementierung hat keine Ergebnis-Variable`, produced: null };
+  const body = (task.script ?? '').trim().replace(/^=\s*/, '');
+  const reads = readVars(body, known);
+  const params: Field[] = reads.map(v => ({
+    id: `p-${v.name}`, name: v.name, type: v.type, ...(v.optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}),
+  }));
+  const result: Field = {
+    id: `r-${produced.name}`, name: produced.name, type: produced.type,
+    ...(produced.optional ? { optional: true } : {}), ...(produced.collection ? { collection: true } : {}),
+  };
+  const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
+  const t = scriptScala(body, scope, result, ctx, where);
+  const used = new Set(ctx.scripts.map(x => x.method));
+  let method = camelName((s.name || s.id).replace(/Task$/, ''));
+  for (let i = 2; used.has(method); i++) method = `${camelName(s.name || s.id)}${i}`;
+  ctx.scripts.push({
+    step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
+    params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
+  });
+  const call = `${method}(${reads.map(v => v.scala).join(', ')})`;
+  return {
+    line: `${scalaIdent(produced.name)} <- ZIO.attempt(${call}).mapError(e => CustomError(s${JSON.stringify(`${where}: `).slice(0, -1)}\${e.getMessage}"))`,
+    produced: { ...produced, scala: scalaIdent(produced.name) },
+  };
+}
+
+/** The method of a script task in the worker. */
+function scriptMethod(m: ScriptMethod, idx: TypeIndex): string {
+  const params = m.params.map(f => `${scalaIdent(f.name)}: ${fieldType(f, idx)}`).join(', ');
+  const doc = [`  /** ${m.step}${m.description ? ` - ${m.description.split('\n')[0]}` : ''} - a test calls it with examples */`];
+  return [...doc, `  def ${m.method}(${params}): ${fieldType(m.result, idx)} =`, indent(m.body, '    ')].join('\n');
+}
+
+/** Per script method a test: with the examples of what it reads - the lists all in it, each in its case. */
+function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
+  const vals = m.params.map(f => `    val ${scalaIdent(f.name)} = ${exampleValue({ ...f, example: undefined }, idx)}`);
+  const call = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
+  const list = (f: Field) => (!f.collection ? (f.optional ? `${scalaIdent(f.name)}.size` : '1') : f.optional ? `${scalaIdent(f.name)}.getOrElse(Seq.empty).size` : `${scalaIdent(f.name)}.size`);
+  const got = m.result.optional ? 'result.getOrElse(Seq.empty)' : 'result';
+  const checks = m.concat
+    ? [
+      `    assertEquals(${got}.size, ${m.concat.map(n => list(m.params.find(f => f.name === n)!)).join(' + ')})`,
+      ...m.cases.map(c => `    assert(${got}.exists(_.isInstanceOf[${c}]), result)`),
+    ]
+    : m.cases.length
+      ? m.cases.map(c => `    assert(${m.result.optional ? `result.exists(_.isInstanceOf[${c}])` : `result.isInstanceOf[${c}]`}, result)`)
+      : [`    // TODO ${m.step}: das erwartete Ergebnis prüfen`, '    assert(result != null)'];
+  return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
+}
+
+/** The imports of the types the methods of the script tasks name - the schema of their collection. */
+function scriptImports(ctx: Ctx): string[] {
+  const out = new Set<string>();
+  for (const m of ctx.scripts) {
+    for (const f of [...m.params, m.result]) {
+      const dom = ctx.idx.domainOf(f.type);
+      if (dom) { out.add(`import ${dom.importPath}`); continue; }
+      if (ctx.o.types.some(t => t.id === f.type && !t.interactionId)) continue;
+      for (const c of ctx.collections) {
+        const t = c.types.find(x => x.id === f.type);
+        if (t && !t.interactionId) out.add(`import ${schemaPackageOf(c, t.id) ?? `${typeHome(c, t.id)}.schema`}.*`);
+      }
+    }
+  }
+  return [...out].sort();
 }
 
 /** An exclusive gateway whose conditions each compare one variable with a value - the values. */
@@ -238,6 +438,11 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       }
       if (s.errors?.length) lines.push(`// TODO Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
     } else if (s.kind === 'script') {
+      if (task?.script?.trim()) {
+        const c = scriptCall(s, task, known, ctx);
+        lines.push(c.line);
+        if (c.produced) known = [...known.filter(k => k.name !== c.produced!.name), c.produced];
+      }
       for (const a of task?.assignments ?? []) {
         if (!a.name.trim()) continue;
         const t = feelToScala(a.expression, scalaVars(known), ctx.types);
@@ -378,6 +583,7 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       `      .mapError(e => CustomError(s"${name}: \${e.errorMsg}"))`,
     ].join('\n');
   });
+  const scripts = ctx.scripts.map(m => scriptMethod(m, ctx.idx));
   return `${workerPackageClause(api)}
 
 ${imports.join('\n')}
@@ -389,7 +595,7 @@ class ${o.name}Worker
 
   override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
 ${run.join('\n')}
-${calls.length ? `\n${calls.join('\n\n')}\n` : ''}
+${scripts.length ? `\n${scripts.join('\n\n')}\n` : ''}${calls.length ? `\n${calls.join('\n\n')}\n` : ''}
 end ${o.name}Worker
 `;
 }
@@ -411,6 +617,7 @@ function workerImports(o: ServiceOrchestrationSpec, ctx: Ctx, code: string, work
   for (const e of ctx.domEnums) {
     if (!own.has(e.name) && new RegExp(`\\b${e.name}\\.`).test(code)) imports.add(`import ${e.id.replace(/^dom:/, '')}`);
   }
+  for (const i of scriptImports(ctx)) imports.add(i);
   return [...imports];
 }
 
@@ -464,6 +671,7 @@ function workerTest(o: ServiceOrchestrationSpec, ctx: Ctx): string {
     }
   }
   if (!ctx.gateways.length) tests.push(['  test("runWorkZIO"):', `    val result = run(Mocked(), ${inEx})`, '    assert(result.isRight, result)'].join('\n'));
+  for (const m of ctx.scripts) tests.push(scriptTest(m, ctx.idx));
   const imports = [
     'import zio.*', 'import orchescala.domain.*', 'import orchescala.worker.*',
     ...workerImports(o, ctx, tests.join('\n'), false).filter(i => i !== 'import zio.ZIO'),
@@ -553,7 +761,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const domEnums = domainEnums(model);
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
-    sources: new Map(), conversions: new Map(), gateways: [],
+    sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [],
   };
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {

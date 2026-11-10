@@ -135,3 +135,45 @@ test('matchOf: a text compares by its values, an optional one in Some - with a d
   assert.equal(fittingCase(client, caseType('m', 'MultipleNaturalPerson2', [f('firstName', 'String'), f('firstNamePartner', 'String')])), 'MultiplePersons');
   assert.equal(fittingCase(client, caseType('x', 'Other', [f('zip', 'String')])), undefined);
 });
+
+// A script task with an implementation in FEEL: a method of the worker - the lists concatenated,
+// each element in the case of the Out's type it fits - called in the `for`, with a test of its own.
+const scripted = (script: string, resultVariable = 'clients'): ServiceOrchestrationSpec => {
+  const o = orchestration({});
+  o.types.find(x => x.id === o.outTypeId)!.fields = [{ ...f('clients', 'client', false), collection: true }];
+  return {
+    ...o,
+    bpmn: `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="x">
+  <bpmn:process id="acme-crm-clientV1-GetClient" isExecutable="false">
+    <bpmn:startEvent id="Start" />${task('ReadP')}${task('ReadC')}<bpmn:scriptTask id="MergeClientsTask" name="Merge Clients" /><bpmn:endEvent id="End" />
+    ${flow('f1', 'Start', 'ReadP')}${flow('f2', 'ReadP', 'ReadC')}${flow('f3', 'ReadC', 'MergeClientsTask')}${flow('f4', 'MergeClientsTask', 'End')}
+  </bpmn:process>
+</bpmn:definitions>`,
+    tasks: {
+      ReadP: { service: 'acme-crm-partyV1.ReadPerson', inCase: 'Standard', outputs: [{ name: 'persons', expression: '= persons' }] },
+      ReadC: { service: 'acme-crm-partyV1.ReadCompany', inCase: 'Standard', outputs: [{ name: 'companys', expression: '= companys' }] },
+      MergeClientsTask: { script, resultVariable },
+    },
+    conditions: {},
+    outMappings: [{ name: 'clients', expression: '= clients' }],
+  };
+};
+
+test('a script task in FEEL: a method of the worker - concatenate of lists, each element in the case it fits', () => {
+  const fs = orchestrationFiles(scripted('= concatenate(persons, companys)'), [collection()], model);
+  const w = fs.find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(w, /clients <- ZIO\.attempt\(mergeClients\(persons, companys\)\)\.mapError\(e => CustomError\(s"Merge Clients: \$\{e\.getMessage\}"\)\)/, w);
+  assert.match(w, /def mergeClients\(persons: Option\[Seq\[Person3\]\], companys: Option\[Seq\[Company3\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\)\.map\(x =>\n\s+Client\.Person\(\n\s+clientKey = x\.clientKey,\n\s+firstName = x\.firstName\n\s+\)\n\s+\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\.map\(x =>\n\s+Client\.Company\(/, w);
+  assert.match(w, /yield Out\(\n\s+clients = clients\n\s+\)/);
+  const t = fs.find(x => x.path.endsWith('/GetClientWorkerTest.scala'))!.content;
+  assert.match(t, /test\("mergeClients"\):\n\s+val persons = Some\(Seq\(Person3\.example\)\)\n\s+val companys = Some\(Seq\(Company3\.example\)\)\n\s+val result = Mocked\(\)\.mergeClients\(persons, companys\)\n\s+assertEquals\(result\.size, persons\.getOrElse\(Seq\.empty\)\.size \+ companys\.getOrElse\(Seq\.empty\)\.size\)\n\s+assert\(result\.exists\(_\.isInstanceOf\[Client\.Person\]\), result\)\n\s+assert\(result\.exists\(_\.isInstanceOf\[Client\.Company\]\), result\)/, t);
+});
+
+test('a script task in FEEL: another expression as a mapping; without a result variable a TODO', () => {
+  const w = orchestrationFiles(scripted('= count(persons)'), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(w, /def mergeClients\(persons: Option\[Seq\[Person3\]\]\): Seq\[Client\] =\n\s+\?\?\? \/\* TODO/, w);
+  const none = orchestrationFiles(scripted('= concatenate(persons, companys)', ''), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(none, /\/\/ TODO «Merge Clients»: die Implementierung hat keine Ergebnis-Variable/);
+  assert.doesNotMatch(none, /def mergeClients/);
+});

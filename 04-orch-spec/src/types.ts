@@ -184,8 +184,15 @@ export interface Step {
   /**
    * Decision (DMN): which process variable the result goes into
    * (`camunda:resultVariable` or `zeebe:calledDecision resultVariable`) …
+   * Script task: the variable the value of its `script` goes into.
    */
   resultVariable?: string;
+  /**
+   * Script task: its implementation in FEEL - one expression, its value goes into
+   * `resultVariable` (as `zeebe:script`). In a service orchestration it becomes a method of
+   * the worker in Scala, with a test of its own.
+   */
+  script?: string;
   /**
    * … and in which shape (`camunda:mapDecisionResult`): a value
    * (`singleEntry`), an object (`singleResult`), a list of values
