@@ -1,7 +1,7 @@
 package orchescala.helper.dev.update
 
 import orchescala.domain.BpmnProcessType
-import orchescala.helper.dev.update.merge.{MergePlan, OnConflict, ProcessExport, ServicesExport, SpecMerge}
+import orchescala.helper.dev.update.merge.{MergeAborted, MergeIncomplete, MergePlan, OnConflict, ProcessExport, ServicesExport, SpecMerge}
 
 /** Creates a process from the exports of Orch Spec:
   *   - the BPMN export - the process id gives the names (process, version, object); without it the
@@ -47,14 +47,20 @@ final class OrchSpecGenerator(
 
   // what only the code has: the plan with its changes first, then the question - it goes only on
   // a yes; without it the changes are shown with what the merge did
+  // a file changed while asked (nothing written) or one that could not be written (what was done
+  // before stays): said, as `processFromSpec --merge` says it
   private def mergeAndPrint(project: os.Path, plan: MergePlan): Unit =
-    if plan.removals.isEmpty then
-      val before = MergeReport.before(project, plan)
-      MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode), project, Some(before))
-    else
-      MergeReport.printPlan(plan, project)
-      val remove = MergeReport.askRemoval(plan, ask)
-      MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove), project)
+    try
+      if plan.removals.isEmpty then
+        val before = MergeReport.before(project, plan)
+        MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode), project, Some(before))
+      else
+        MergeReport.printPlan(plan, project)
+        val remove = MergeReport.askRemoval(plan, ask)
+        MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove), project)
+    catch
+      case e: MergeAborted    => println(MergeReport.colored(Console.YELLOW, s"${e.getMessage} - run it again."))
+      case e: MergeIncomplete => MergeReport.printIncomplete(e)
 
   /** The worker app serves the diagrams in its docs - a project set up before its first BPMN has no link yet. */
   def linkDiagrams(project: os.Path): Unit =

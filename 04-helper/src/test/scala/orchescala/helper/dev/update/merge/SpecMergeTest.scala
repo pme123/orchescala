@@ -442,6 +442,15 @@ class SpecMergeTest extends FunSuite:
       val removed  = os.read(file(project, "CheckOrder.scala"))
       assert(!removed.contains("Helper") && removed.contains("lazy val own = 1"), removed)
       assert(os.read(project / workerAppRel).contains("orderWorkers"))
+      // a file changed while asked: nothing written, said - no exception
+      editFile(project, "CheckOrder.scala")(_ + "\ncase class Helper2(x: Int)\n")
+      val again    = editScala(order)(_.replace("ok = false", "ok = true")).scala
+      OrchSpecGenerator(ask = _ =>
+        editFile(project, "CheckOrder.scala")(_.replace("lazy val own = 1", "lazy val own = 2"))
+        Some("y")
+      ).createProcess(order.bpmn, again, order.dmns)
+      val untouched = os.read(file(project, "CheckOrder.scala"))
+      assert(untouched.contains("lazy val own = 2") && untouched.contains("Helper2") && untouched.contains("ok = false"), untouched)
 
   /** A fake export: the spec folder carries its export as `export.json` - so no Node.js is needed. */
   private object FileExporter extends SpecExporter:
