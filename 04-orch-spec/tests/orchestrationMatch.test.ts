@@ -275,3 +275,24 @@ test('an escaped quote in a FEEL text is no end of it - the lists are split righ
   const text = orchestrationFiles(scripted('= concatenate("a\\", b", companys)'), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
   assert.match(text.split('def mergeClients')[1], /\?\?\? \/\* TODO/);
 });
+
+test('the test of a branch: the value as the deciding field has it; without a source it is ignored, not passing', () => {
+  // an optional field of the In decides: Some(true) - and the default, the match is not exhaustive
+  const fromIn = orchestrationFiles(orchestration({ Person: '= readFromFcs = true', Company: '= readFromFcs = false' }), [collection()], model);
+  const w = fromIn.find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(w, /in\.readFromFcs match\n\s+case Some\(true\) =>[\s\S]*case Some\(false\) =>[\s\S]*case _ =>/, w);
+  const t = fromIn.find(x => x.path.endsWith('/GetClientWorkerTest.scala'))!.content;
+  assert.match(t, /val result = run\(worker, In\.example\.copy\(readFromFcs = Some\(true\)\)\)/, t);
+  // a value no field of a service gives as it is: the test says where to set it - and is ignored
+  const o = orchestration({ Person: '= kind = "Person"', Company: '= kind = "Company"' });
+  o.tasks.Kind = { ...o.tasks.Kind, outputs: [{ name: 'kind', expression: '= if true then kind else kind' }] };
+  const u = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorkerTest.scala'))!.content;
+  assert.match(u, /test\("runWorkZIO Person"\.ignore\):\n\s+\/\/ TODO kind = "Person" - set it where it comes from, then remove \.ignore/, u);
+});
+
+test('an enum value no branch covers: the match gets case _ - no MatchError', () => {
+  const three = { ...model, domainTypes: scanScala('package acme.crm.domain\npackage schema\n\nenum Kind:\n  case Person, Company, Other\n', 'schema/Kind.scala') } as Model;
+  const w = orchestrationFiles(orchestration({ Person: '= kind = "Person"', Company: '= kind = "Company"' }), [collection()], three)
+    .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(w, /case Kind\.Company =>[\s\S]*\n\s+case _ =>\n\s+ZIO\.succeed\(None\)/, w);
+});

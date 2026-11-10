@@ -59,11 +59,11 @@ interface Ctx {
   /** the simple enums of the domain, as types of the FEEL translation (`dom:…`) - for their imports */
   domEnums: TypeDef[];
   /** for the test: a variable set from a field of a service's Out - `clientMainType` ← GetPartner….clientMainType */
-  sources: Map<string, { service: string; field: string; outCase?: string }>;
+  sources: Map<string, { service: string; field: string; optional: boolean; outCase?: string }>;
   /** for the test: per service task the variables of the Out it converts - `client` → `Client.Person` */
   conversions: Map<string, { field: string; optional: boolean; to: string }[]>;
   /** for the test: the exclusive gateways that became a match - per branch what decides it */
-  gateways: { variable: string; branches: { label: string; pattern: string; steps: Step[] }[] }[];
+  gateways: { variable: string; branches: { label: string; pattern: string; value: string; steps: Step[] }[] }[];
   collections: ServiceCollectionSpec[];
   /** the classes of the catalog - a script converts into one (`Client` of another orchestration) */
   domain: DomainType[];
@@ -431,7 +431,7 @@ function scriptImports(ctx: Ctx): string[] {
 }
 
 /** An exclusive gateway whose conditions each compare one variable with a value - the values. */
-export function matchOf(conditions: (string | undefined)[], vars: Map<string, ScalaVar>, types: TypeDef[]): { variable: ScalaVar; name: string; patterns: string[]; exhaustive: boolean } | null {
+export function matchOf(conditions: (string | undefined)[], vars: Map<string, ScalaVar>, types: TypeDef[]): { variable: ScalaVar; name: string; patterns: string[]; values: string[]; exhaustive: boolean } | null {
   const parsed = conditions.map(c => /^=?\s*([A-Za-z_]\w*)\s*=\s*("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|true|false)\s*$/.exec((c ?? '').trim()));
   if (!parsed.length || parsed.some(p => !p) || new Set(parsed.map(p => p![1])).size !== 1) return null;
   const name = parsed[0]![1];
@@ -458,6 +458,8 @@ export function matchOf(conditions: (string | undefined)[], vars: Map<string, Sc
   return {
     variable, name,
     patterns: variable.optional ? patterns.map(p => `Some(${p})`) : patterns,
+    // the values themselves - a test sets them in a field that has its own optionality
+    values: patterns,
     exhaustive: all && !variable.optional,
   };
 }
@@ -536,7 +538,7 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
           }
           // what the test sets and checks
           const field = /^=\s*([A-Za-z_]\w*)\s*$/.exec(m.expression.trim())?.[1];
-          if (field && outFields.has(field)) ctx.sources.set(m.name.trim(), { service: name, field, ...(outCase ? { outCase } : {}) });
+          if (field && outFields.has(field)) ctx.sources.set(m.name.trim(), { service: name, field, optional: !!outFields.get(field)!.optional, ...(outCase ? { outCase } : {}) });
           if (c) {
             const to = c.caseOf ? `${c.to.name}.${caseIdent(c.caseOf)}` : c.to.name;
             ctx.conversions.set(s.id, [...(ctx.conversions.get(s.id) ?? []), { field: c.field.name, optional: !!c.field.optional, to }]);
@@ -588,7 +590,7 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       const els = fallback ? some(fallback) : none;
       // one variable against values: a match - its cases as the type has them
       const m = conditional.length ? matchOf(conditional.map(b => conditionOf(ctx.o, b)), scalaVars(known), ctx.types) : null;
-      if (m) ctx.gateways.push({ variable: m.name, branches: conditional.map((b, i) => ({ label: b.label || m.patterns[i], pattern: m.patterns[i], steps: b.steps })) });
+      if (m) ctx.gateways.push({ variable: m.name, branches: conditional.map((b, i) => ({ label: b.label || m.patterns[i], pattern: m.patterns[i], value: m.values[i], steps: b.steps })) });
       const expr = m
         ? [`${m.variable.scala} match`,
           ...cases.map((c, i) => `  case ${m.patterns[i]} =>\n${indent(c.body, '    ')}`),
@@ -768,17 +770,21 @@ function workerTest(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   for (const g of ctx.gateways) {
     const source = ctx.sources.get(g.variable);
     const ref = source ? refs.find(r => r.service.name === source.service) : undefined;
-    const fromIn = !source && inVars(o).find(v => v.name === g.variable && v.scala === `in.${scalaName(v.name)}`);
+    const fromIn = source ? undefined : inVars(o).find(v => v.name === g.variable && v.scala === `in.${scalaName(v.name)}`);
+    // the value of the branch as the field that decides it has it - `Some(…)` only for an optional one
+    const valueFor = (b: (typeof g.branches)[number], optional: boolean) => (optional ? `Some(${b.value})` : b.value);
     for (const b of g.branches) {
       const expect = flat(b.steps).flatMap(st => ctx.conversions.get(st.id) ?? []);
       const checks = expect.map(e => e.optional ? `out.${scalaName(e.field)}.exists(_.isInstanceOf[${e.to}])` : `out.${scalaName(e.field)}.isInstanceOf[${e.to}]`);
       const decided = ref && source
-        ? [`    val worker = new Mocked:`, override(ref, `${answer(ref)}.copy(${scalaName(source.field)} = ${b.pattern})`, '      ')]
+        ? [`    val worker = new Mocked:`, override(ref, `${answer(ref)}.copy(${scalaName(source.field)} = ${valueFor(b, source.optional)})`, '      ')]
         : ['    val worker = Mocked()'];
-      const input = fromIn ? `${inEx}.copy(${scalaName(g.variable)} = ${b.pattern})` : inEx;
+      const input = fromIn ? `${inEx}.copy(${scalaName(g.variable)} = ${valueFor(b, !!fromIn.optional)})` : inEx;
+      // where the value comes from is unknown: the test is ignored until it is set - it must not pass by chance
+      const undecided = !ref && !fromIn;
       tests.push([
-        `  test(${JSON.stringify(`runWorkZIO ${b.label}`)}):`,
-        ...(ref || fromIn ? [] : [`    // TODO ${g.variable} = ${b.pattern} - where it comes from, set it`]),
+        `  test(${JSON.stringify(`runWorkZIO ${b.label}`)}${undecided ? '.ignore' : ''}):`,
+        ...(undecided ? [`    // TODO ${g.variable} = ${b.pattern} - set it where it comes from, then remove .ignore`] : []),
         ...decided,
         `    val result = run(worker, ${input})`,
         checks.length ? `    assert(result.exists(out => ${checks.join(' && ')}), result)` : '    assert(result.isRight, result)',
