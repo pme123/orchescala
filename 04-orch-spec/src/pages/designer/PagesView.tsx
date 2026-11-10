@@ -1,4 +1,5 @@
 // The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
+import { useFolderModel } from '../../useFolderModel';
 import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, MessageSquare, Plus, Settings2, Trash2 } from 'lucide-react';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../../components/SpecList';
 import { useMemo, useState } from 'react';
@@ -34,7 +35,8 @@ export default function PagesView({ onOpen, onOpenTask }: {
   const [creating, setCreating] = useState(false);
   const [appOpen, setAppOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : null), [model, specs]);
+  const folderModel = useFolderModel();
+  const targets = useMemo(() => (folderModel ? targetsOf(folderModel, specs.map((s) => s.data)) : null), [folderModel, specs]);
   // search, epics and the groups per project - the same head as the list of processes (SpecList.tsx)
   const list = useSpecList(pages, pageEntry, model);
   const { groups } = list;

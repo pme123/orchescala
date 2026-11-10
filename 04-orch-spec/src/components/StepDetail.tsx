@@ -1406,6 +1406,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
         {canEdit && <ChevronDown size={12} className={c.muted} />}
       </button>
       {current?.description && <p className={`text-[10px] mt-1 ${c.muted}`}>{current.description.split('\n')[0]}</p>}
+      {current?.unreleased && <p className="text-[10px] mt-1 text-amber-600">Noch nicht released – aus dem Ordner, kommt mit dem nächsten Release in den Katalog.</p>}
 
       {open && (
         <div className={`mt-1 rounded border ${c.border2} ${c.panelStrong}`}>
@@ -1420,7 +1421,9 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
             {hits.map(s => (
               <button key={s.id} onClick={() => apply(s)}
                 className={`w-full text-left px-2 py-1.5 border-b last:border-b-0 ${c.border} ${c.hover}`}>
-                <div className={`text-[11px] truncate ${c.text}`}>{s.name}</div>
+                <div className={`text-[11px] truncate ${c.text}`}>{s.name}
+                  {s.unreleased && <span title="Aus dem Ordner – wählbar, kommt mit dem nächsten Release in den Katalog" className="ml-1.5 text-[9px] text-amber-600">noch nicht released</span>}
+                </div>
                 <div className={`text-[9px] font-mono truncate ${c.muted}`}>{s.id}</div>
                 <div className={`text-[9px] ${c.muted}`}>
                   {(s.inputs?.length ?? 0)} Eingaben · {(s.outputs?.length ?? 0)} Ausgaben
@@ -1428,7 +1431,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
                 </div>
               </button>
             ))}
-            {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden. Katalog im Admin befüllen.</div>}
+            {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden – weder im Katalog noch im Ordner.</div>}
           </div>
         </div>
       )}

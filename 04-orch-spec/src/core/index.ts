@@ -28,6 +28,7 @@ export { flatten, targetsOf, withIds, type PField, type Targets } from '../pages
 export type { App, Component, Page } from '../pages/runtime/spec';
 export { newCollection } from '../services/collection';
 export { newServiceProcess, orchestrationTargets, withCollections } from '../services/serviceProcess';
+export { domainOfSpec, folderCatalog, type Folder } from '../folderCatalog';
 export type { CollectionService, ServiceCollectionSpec } from '../services/types';
 
 // XML in Node

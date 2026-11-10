@@ -173,7 +173,7 @@ test('tools - read the draft and other pages (read only), check, report an open 
   const check = runPageTool('check_page', {}, withCall.draft, ctx);
   // the same findings as the designer: public page without «public», unknown service
   assert.match(check.content, /error \[2\]: Button «Buchen»: auf einer öffentlichen Seite/);
-  assert.match(check.content, /warning \[2\]: .*kennt der Katalog nicht/);
+  assert.match(check.content, /warning \[2\]: .*gibt es weder im Ordner noch im Katalog/);
 });
 
 test('newErrors - only the errors the draft brought, not those the page already had', () => {
