@@ -9,7 +9,8 @@ import { cls } from '../ui';
 import { runTurn, type AgentEvent, type Stop } from './agent';
 import { claudeSender, errorText } from './client';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
-import { useAiConfig, type AiTask } from './config';
+import type { AiTask } from './config';
+import { useAiConfig } from './useAiConfig';
 import type { ToolKit } from './toolkit';
 
 type Entry =

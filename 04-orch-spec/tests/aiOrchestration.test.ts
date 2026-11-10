@@ -3,19 +3,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { orchestrationSystem, processPrompt, processSystem } from '../src/ai/context';
-import { aiFor, parseConfig } from '../src/ai/config';
-import { processDiff } from '../src/ai/diff';
-import { callableTopics, newProcessErrors, processModelText, processToolKit, runProcessTool, startProcessDraft, type ProcessContext, type ProcessDraft } from '../src/ai/processTools';
-import { newCollection } from '../src/services/collection';
-import { newServiceProcess, orchestrationTargets, withCollections } from '../src/services/serviceProcess';
-import { checkTypes } from '../src/scala';
-import type { CollectionService, ServiceCollectionSpec } from '../src/services/types';
-import type { Model, TypeDef } from '../src/types';
+// through the entry of the core (src/core), as the studio uses it - XML from linkedom
+import {
+  aiFor, callableTopics, checkTypes, installNodeDom, newCollection, newProcessErrors, newServiceProcess, orchestrationSystem,
+  orchestrationTargets, parseConfig, processDiff, processModelText, processPrompt, processSystem, processToolKit, runProcessTool,
+  startProcessDraft, withCollections,
+  type CollectionService, type Model, type ProcessContext, type ProcessDraft, type ServiceCollectionSpec, type TypeDef,
+} from '../src/core';
 
-const g = globalThis as unknown as { DOMParser: unknown; XMLSerializer: unknown };
-g.DOMParser ??= DOMParser;
-g.XMLSerializer ??= class { serializeToString(doc: { toString(): string }) { return doc.toString(); } };
+installNodeDom(DOMParser);
 
 const t = (id: string, name: string, fields: Array<[string, string, boolean?]>, interactionId?: string): TypeDef =>
   ({ id, name, kind: 'case', ...(interactionId ? { interactionId } : {}), fields: fields.map(([n, type, optional]) => ({ id: `${id}-${n}`, name: n, type, ...(optional ? { optional: true } : {}) })) });

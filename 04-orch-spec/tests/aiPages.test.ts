@@ -5,16 +5,16 @@ import { test } from 'node:test';
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import Anthropic from '@anthropic-ai/sdk';
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import { runTurn, withPrompt, type AgentEvent, type AgentRequest, type Send } from '../src/ai/agent';
+// the logic through the entry of the core (src/core), as the studio uses it; the browser parts
+// (the client of the studio, the stored key) from their modules
+import {
+  addUsage, AI_OFF, aiFor, anyAi, changedKeys, CONFIG_PATH, costUsd, dataModelText, draftChanged, flatten, loadConfig, newErrors,
+  NO_USAGE, outlineOf, pageDiff, pageSystem, pageToolKit, parseConfig, runPageTool, runTurn, startDraft, targetsOf, usageLine,
+  usageOf, withIds, withPrompt,
+  type AgentEvent, type AgentRequest, type Model, type Page, type PageContext, type Send,
+} from '../src/core';
 import { errorText, studioBaseUrl } from '../src/ai/client';
-import { dataModelText, pageSystem } from '../src/ai/context';
-import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost';
-import { changedKeys, pageDiff } from '../src/ai/diff';
-import { AI_OFF, aiFor, anyAi, CONFIG_PATH, forgetBrowserKey, loadConfig, OLD_BROWSER_KEYS, parseConfig } from '../src/ai/config';
-import { draftChanged, newErrors, outlineOf, pageToolKit, runPageTool, startDraft, type PageContext } from '../src/ai/pageTools';
-import { flatten, targetsOf, withIds } from '../src/pages/designer/model';
-import type { Page } from '../src/pages/runtime/spec';
-import type { Model } from '../src/types';
+import { forgetBrowserKey, OLD_BROWSER_KEYS } from '../src/ai/useAiConfig';
 
 const pkg = 'acme.shop.domain';
 const model = {

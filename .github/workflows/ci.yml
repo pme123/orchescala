@@ -62,6 +62,11 @@ jobs:
         # 04-orch-doc/bundle - packaged into orchescala-orch-doc, which helper and gateway
         # ship. Same reason for an own step as above.
         run: sbt orchDocClient/bundleDocClient
+      - name: The boundary of Orch Spec's core
+        # E28: src/core is orch-spec's logic without UI - the studio runs it in Node. It must reach no
+        # React, no component and nothing of the browser, and load in Node (04-orch-spec/tests/checkCore.ts).
+        working-directory: 04-orch-spec
+        run: npm run check:core
       - name: Orch Spec without a server
         # E28: the studio becomes a TypeScript server - orch-spec must keep working without it at every
         # step. The built app (as orch-doc ships it), served statically: a local folder, a process, a

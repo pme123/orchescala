@@ -2,7 +2,7 @@
 import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, MessageSquare, Plus, Settings2, Trash2 } from 'lucide-react';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../../components/SpecList';
 import { useMemo, useState } from 'react';
-import { useAiFor } from '../../ai/config';
+import { useAiFor } from '../../ai/useAiConfig';
 import { usePermissions } from '../../auth';
 import { useConfirm } from '../../components/Confirm';
 import { useStore, type PageListItem } from '../../store';
