@@ -143,7 +143,10 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
   // also without the right to edit (another role after a new login): the chat panel is gone, so is the draft
   useEffect(() => { if (!aiOn || !canEdit) { setDraft(null); setAiOpen(false); } }, [aiOn, canEdit]);
   const shown = draft?.page ?? page;
-  const editable = canEdit && !draft;
+  // while Claude works on a draft (before it is there) the page stays as it is too - an edit would make
+  // the draft refuse to be taken over
+  const [aiBusy, setAiBusy] = useState(false);
+  const editable = canEdit && !draft && !aiBusy;
 
   // ---- save: one second after the last change and on leaving - one write after the
   // other (the next needs the version of the previous one), a failed one stays pending
@@ -675,12 +678,12 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
             width={sideW} onWidth={setSideW} overlay={false} />
         )}
         {aiOn && canEdit && (
-          <div style={{ width: sideW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+          <div style={{ width: sideW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || draft || aiBusy) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <PanelWidthHandle isDark={isDark} width={sideW} min={320} max={800} onWidth={setSideW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
             <AiPanel isDark={isDark} slug={slug} page={page} app={pagesApp?.data} targets={targets}
               pages={pages.map((p) => ({ slug: p.slug, page: p.slug === slug ? page : p.data }))}
-              draft={draft} onDraft={setDraft} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
+              draft={draft} onDraft={setDraft} onBusy={setAiBusy} onSelect={(key) => { setSelected(key); setLeft('outline'); }}
               onAccept={(next, requests) => {
                 // the work before by hand, then Claude's draft - an entry of its own in the log
                 cutAudit(latest.current);
@@ -694,7 +697,7 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
           </div>
         )}
         {/* Properties */}
-        <div style={{ width: sideW }} className={`relative flex-shrink-0 flex ${(aiOn && canEdit && (aiOpen || draft)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
+        <div style={{ width: sideW }} className={`relative flex-shrink-0 flex ${(aiOn && canEdit && (aiOpen || draft || aiBusy)) || commentsOpen || auditOpen ? 'hidden' : ''}`}>
           <PanelWidthHandle isDark={isDark} width={sideW} min={320} max={800} onWidth={setSideW} />
         <div className={`flex-1 min-w-0 border-l overflow-y-auto ${c.border} ${c.panel}`}>
           {block && selected !== null ? (

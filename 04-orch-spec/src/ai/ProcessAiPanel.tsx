@@ -12,7 +12,7 @@ import { orchestrationSystem, processPrompt, processSystem } from './context';
 import { processDiff, TYPE_CHANGE } from './diff';
 import { processDraftChanged, processToolKit, startProcessDraft, type ProcessDraft } from './processTools';
 
-export function ProcessAiPanel({ isDark, spec, xml, model, specs, serviceMode = false, collections = [], draft, onDraft, onAccept, undo, onSelect }: {
+export function ProcessAiPanel({ isDark, spec, xml, model, specs, serviceMode = false, collections = [], draft, onDraft, onBusy, onAccept, undo, onSelect }: {
   isDark: boolean;
   /** the process as it is saved (without the draft) */
   spec: ProcessSpec;
@@ -26,6 +26,8 @@ export function ProcessAiPanel({ isDark, spec, xml, model, specs, serviceMode = 
   collections?: ServiceCollectionSpec[];
   draft: ProcessDraft | null;
   onDraft: (d: ProcessDraft | null) => void;
+  /** Claude works on the draft - the view is read only meanwhile */
+  onBusy: (busy: boolean) => void;
   onAccept: (d: ProcessDraft, requests: string[]) => Promise<AcceptOutcome>;
   undo: { label: string; run: () => AcceptOutcome | Promise<AcceptOutcome> } | null;
   onSelect: (id: string) => void;
@@ -36,7 +38,7 @@ export function ProcessAiPanel({ isDark, spec, xml, model, specs, serviceMode = 
   // all workers of the domain - also those of the processes (targetsOf without specs keeps them)
   const targets = useMemo(() => ({ ...(model ? targetsOf(model, []) : { services: [], messages: [], userTasks: [] }), processes: model ? targetsOf(model, specs).processes : [] }), [model, specs]);
   return (
-    <AiChat<ProcessDraft> isDark={isDark} task={serviceMode ? 'serviceOrchestrator' : 'processCreator'} draft={draft} onDraft={onDraft}
+    <AiChat<ProcessDraft> isDark={isDark} task={serviceMode ? 'serviceOrchestrator' : 'processCreator'} draft={draft} onDraft={onDraft} onBusy={onBusy}
       system={() => (serviceMode ? orchestrationSystem(services) : processSystem({ ...targets, messages: [], userTasks: [] }))}
       kit={processToolKit({ model, serviceMode, services })}
       start={() => startProcessDraft(spec, xml)}

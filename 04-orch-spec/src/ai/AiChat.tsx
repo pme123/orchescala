@@ -62,6 +62,9 @@ export type AiChatProps<D> = {
   initialPrompt?: string;
   /** the request from outside was started - the parent drops it, so a later mount does not send it again */
   onInitialPrompt?: () => void;
+  /** a turn runs (true) or is over (false) - the designer does not let the RE edit meanwhile, the draft
+    * would be based on a state that is gone when it comes */
+  onBusy?: (busy: boolean) => void;
 };
 
 export function AiChat<D>(p: AiChatProps<D>) {
@@ -96,6 +99,11 @@ export function AiChat<D>(p: AiChatProps<D>) {
   const add = (...e: Entry[]) => setEntries((list) => [...list, ...e]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [entries, busy]);
+  // the designer locks editing while a turn runs - and frees it when the chat goes away mid-turn
+  useEffect(() => {
+    p.onBusy?.(busy);
+    return () => { if (busy) p.onBusy?.(false); };
+  }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   // leaving the designer or the AI switched off stops a running request
   // (in dev, StrictMode mounts twice: the request from outside is then started again on the second mount)
   useEffect(() => () => { turn.current++; abort.current?.abort(); abort.current = null; started.current = false; }, []);
@@ -288,7 +296,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
         })}
         {busy && (
           <div className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
-            <Loader2 size={11} className="animate-spin" /> Claude arbeitet …{live && <span>{usageLine(live)}</span>}
+            <Loader2 size={11} className="animate-spin" /> Claude arbeitet … – bearbeiten geht wieder, wenn Claude fertig ist{live && <span>{usageLine(live)}</span>}
           </div>
         )}
         <div ref={end} />

@@ -167,7 +167,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const [aiOpen, setAiOpen] = useState(false);
   /** the state before the last accepted draft - for undo, as long as nothing else changed */
   const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedSpec: ProcessSpec | null; acceptedXml: string } | null>(null);
-  const canEdit = mayEdit && !aiDraft;
+  // while Claude works on a draft (before it is there) the process stays as it is too - an edit, or a
+  // heal of the view after loading, would make the draft refuse to be taken over
+  const [aiBusy, setAiBusy] = useState(false);
+  const canEdit = mayEdit && !aiDraft && !aiBusy;
   const author = useAuthor();
   const authorRef = useRef(author);
   authorRef.current = author;
@@ -1452,11 +1455,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
         )}
         {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
         {aiOn && mayEdit && (
-          <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+          <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft || aiBusy) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <PanelWidthHandle isDark={isDark} width={aiW} min={320} max={800} onWidth={setAiW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
               <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)} serviceMode={serviceMode} collections={collections}
-                draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
+                draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }} onBusy={setAiBusy}
                 onAccept={acceptAi}
                 undo={aiUndoable ? { label: 'Den Stand vor der letzten KI-Änderung wiederherstellen', run: undoAi } : null}
                 onSelect={setSelected} />

@@ -91,12 +91,13 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Rückgängig (⌘Z), automatisch gespeichert. Der **Verlauf** der Seite verzeichnet
   ihn mit der eigenen Quelle **KI (Claude)**, die Wünsche des RE stehen als Notiz
   dabei. **Verwerfen** lässt die Seite wie vorher.
-- Solange ein Entwurf offen ist, ist die Seite schreibgeschützt.
+- Solange Claude arbeitet und solange ein Entwurf offen ist, ist die Seite
+  schreibgeschützt.
 - Wurde Claude nicht fertig (Schrittgrenze, Antwort abgeschnitten, angehalten,
   Fehler), steht ein Hinweis über dem Entwurf und der Button heisst **Trotzdem
   übernehmen**: Der Entwurf kann halb fertig sein.
-- Hat sich die Seite oder der Prozess seit Beginn des Entwurfs geändert (neu
-  geladen, abgeglichen), wird **Übernehmen** abgelehnt: Der Entwurf würde diese
+- Hat sich die Seite oder der Prozess trotzdem seit Beginn des Entwurfs geändert
+  (neu geladen, abgeglichen), wird **Übernehmen** abgelehnt: Der Entwurf würde diese
   Änderung überschreiben. Verwerfen und Claude nochmals fragen.
 - Im selben Gespräch lässt sich weiter am Entwurf arbeiten («noch etwas
   kürzer»). **Neues Gespräch** (Symbol oben im Chat) beginnt von vorn.
@@ -106,7 +107,8 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
 **Prozesse (Stufe B).** Einen Prozess öffnen und in der Werkzeugleiste auf
 **Claude** klicken.
 - Der Entwurf erscheint im **Diagramm** und im **Ablauf**, beide
-  schreibgeschützt, bis du übernimmst oder verwirfst.
+  schreibgeschützt, bis du übernimmst oder verwirfst. Schon während Claude
+  arbeitet, bleibt der Prozess so, wie er ist.
 - Die Struktur ändert Claude im BPMN, denn der Ablauf wird aus dem Diagramm
   abgeleitet. Neue Elemente kommen an ihren Platz, was danach kommt, rückt nach
   rechts. Die Details (Beschreibung, wer einen Benutzer-Task sieht) ändert
