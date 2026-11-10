@@ -67,6 +67,8 @@ export interface ExpectedType {
   kind: ExpectedKind;
   /** for a simple enum the allowed values — for a fixed case exactly one */
   values?: string[];
+  /** for a list: what its elements must be (`Seq[Client]`: objects) */
+  elements?: FeelType[];
 }
 
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
@@ -471,7 +473,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     for (const o of s.outputs ?? []) {
       if (o.disabled || !o.name || (!all && typed.has(o.name))) continue;
       const source = `Ausgabe von ${s.name || s.id}`;
-      const node = outputNode(o, ofStep);
+      const node = outputNode(o, ofStep, b);
       add(node
         ? { ...node, name: o.name, source, ...(o.description ? { description: o.description } : {}) }
         : { name: o.name, type: 'any', label: '?', source, ...(o.description ? { description: o.description } : {}) });
@@ -506,6 +508,9 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     if (spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name)) continue;
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
+
+  // A script task with an implementation (FEEL) writes its value into its `resultVariable`
+  for (const s of allSteps(spec.steps)) { const n = scriptResult(s, spec, b); if (n) add(n); }
 
   // A multi-instance with collected results writes the list after it — its entries typed by
   // what the instance knows. Only for the overview: the steps know it only after the
@@ -785,11 +790,18 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
  * (`= debitCardDetail`, `= result.basicData`), the process variable has its
  * type with fields — otherwise it stays unknown.
  */
-function outputNode(o: Mapping, results: () => VarNode[]): VarNode | null {
+function outputNode(o: Mapping, results: () => VarNode[], b?: Builder): VarNode | null {
   const path = /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(o.expression.trim())?.[1].split('.').map(x => x.trim());
   if (!path) return null;
   let node = results().find(n => n.name === path[0]) ?? null;
   for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  // converted into another type (`mapTo`): that type - a list stays a list
+  if (o.mapTo && b) {
+    return nodeOfField({
+      id: '', name: o.name, type: o.mapTo, ...(o.mapToCase ? { enumCase: o.mapToCase } : {}),
+      ...(node?.type === 'list' ? { collection: true } : {}), ...(node?.optional ? { optional: true } : {}),
+    }, node?.source ?? '', b, 0, new Set());
+  }
   return node;
 }
 
@@ -817,7 +829,8 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   }
   // if the value is missing, the default applies — null is then allowed
   if (f.optional || f.default?.trim()) accepts = [...accepts, 'nil'];
-  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}) };
+  const elements = f.collection ? expectedFor({ ...f, collection: false, optional: false, default: undefined }, types, model)?.accepts : undefined;
+  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}), ...(elements?.length ? { elements } : {}) };
 }
 
 // ── Example values ───────────────────────────────────────────────────────────
@@ -989,7 +1002,7 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
   for (const o of s.outputs ?? []) {
     if (o.disabled || !o.name) continue;
-    const typed = outputNode(o, ofStep);
+    const typed = outputNode(o, ofStep, b);
     if (typed) add({ ...typed, name: o.name, source: `Ausgabe von ${s.name || s.id}`, ...(o.description ? { description: o.description } : {}) });
   }
   const kind = interactionKind(s, spec.processId ?? '');
@@ -1006,7 +1019,31 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   if (s.kind === 'rule' && s.resultVariable && !(spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name))) {
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
+  const script = scriptResult(s, spec, b);
+  if (script) add(script);
   return out;
+}
+
+/** The variable a script task with an implementation (FEEL) sets - typed as its field (see scriptResultField). */
+function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode | null {
+  const name = s.kind === 'script' && s.script?.trim() ? s.resultVariable?.trim() : undefined;
+  if (!name) return null;
+  const source = `Ergebnis von ${s.name || s.id}`;
+  const f = scriptResultField(s, spec);
+  return f ? { ...nodeOfField(f, source, b, 0, new Set()), source } : { name, type: 'any', label: '?', source };
+}
+
+/**
+ * The field a script task's result is: the field of the Out of its name (`clients: Seq[Client]`),
+ * otherwise the type the step names (`resultType`, a list of it with `resultCollection`).
+ */
+export function scriptResultField(s: Step, spec: ProcessSpec): Field | null {
+  const name = s.resultVariable?.trim();
+  if (!name) return null;
+  const out = (spec.types ?? []).find(t => t.processOut);
+  const own = out?.kind === 'enum' ? undefined : (out?.fields ?? []).find(f => f.name === name);
+  if (own) return own;
+  return s.resultType ? { id: `r-${s.id}`, name, type: s.resultType, ...(s.resultCollection ? { collection: true } : {}) } : null;
 }
 
 /** What the step and the steps inside it write — inside a multi-instance they stay in the instance */
@@ -1024,6 +1061,7 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
+    if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) names.add(s.resultVariable.trim());
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
   }
@@ -1283,6 +1321,17 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       issues.push({
         level: 'warn', code: 'optional', path: opt.path,
         text: `«${opt.path}» ist optional (${opt.label}) — «${expected.label}» verlangt aber einen Wert. Vorgabe setzen oder absichern (\`if … != null then … else …\`).`,
+      });
+    }
+  }
+  // the elements of a list: a list in a list of objects (`[persons, companies]` for `Seq[Client]`) - only
+  // what the samples say for sure: a list or an object (a list of unknown elements has texts)
+  if (!issues.length && expected?.elements && Array.isArray(value) && !unknown && !pathFailed) {
+    const wrong = (value as unknown[]).map(feelType).find(t => (t === 'list' || t === 'context') && !expected.elements!.includes(t));
+    if (wrong) {
+      issues.push({
+        level: 'error',
+        text: `Die Elemente sind ${wrong === 'list' ? 'Listen' : 'Objekte'}, ${expected.label} erwartet ${expected.elements.map(t => FEEL_TYPE_LABEL[t]).join(' oder ')}${wrong === 'list' ? ' - Listen aneinanderhängen mit concatenate(a, b) oder flatten([a, b])' : ''}.`,
       });
     }
   }

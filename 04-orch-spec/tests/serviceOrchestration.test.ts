@@ -104,6 +104,7 @@ test('the CustomTask and the CustomWorker: one for in runWorkZIO', () => {
   assert.deepEqual(files.map(f => f.path), [
     '01-domain/src/main/scala/acme/crm/domain/client/v1/UpdateClient.scala',
     '03-worker/src/main/scala/acme/crm/worker/client/v1/UpdateClientWorker.scala',
+    '03-worker/src/test/scala/acme/crm/worker/client/v1/UpdateClientWorkerTest.scala',
   ]);
   const task = files[0].content;
   assert.match(task, /object UpdateClient\n {4}extends CompanyBpmnCustomTaskDsl:/);
@@ -113,9 +114,12 @@ test('the CustomTask and the CustomWorker: one for in runWorkZIO', () => {
   assert.match(w, /class UpdateClientWorker\n {4}extends CompanyCustomWorkerDsl\[In, Out\]:/);
   // a service of another API comes by import
   assert.match(w, /import acme\.crm\.domain\.crm\.v2\.GetSegment\nimport acme\.crm\.worker\.crm\.v2\.GetSegmentWorker/);
-  assert.match(w, /getClient <- GetClientWorker\(\)\n\s+\.runWorkFromWorkerUnsafe\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey\n\s+\)\n\s+\)\n\s+\.mapError\(e => CustomError\(s"GetClient: \$\{e\.errorMsg\}"\)\)/);
+  assert.match(w, /getClient <- runGetClient\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey\n\s+\)\n\s+\)/);
+  assert.match(w, /protected def runGetClient\(in: GetClient\.In\): RunWorkZIOOutput\[GetClient\.Out\] =\n\s+GetClientWorker\(\)\n\s+\.runWorkFromWorkerUnsafe\(in\)\n\s+\.mapError\(e => CustomError\("GetClient: " \+ e\.errorMsg\)\)/);
+  // no gateway that decides by a value: one test that it runs through
+  assert.match(files[2].content, /test\("runWorkZIO"\):\n\s+val result = run\(Mocked\(\), In\.example\)\n\s+assert\(result\.isRight, result\)/);
   // parallel: forked and joined
-  assert.match(w, /fiber\d+ <- \(\n\s+\(for \{[\s\S]*crm <- GetSegmentWorker\(\)[\s\S]*\} yield crm\)\n\s+\)\.fork/);
+  assert.match(w, /fiber\d+ <- \(\n\s+\(for \{[\s\S]*crm <- runGetSegment\([\s\S]*\} yield crm\)\n\s+\)\.fork/);
   assert.match(w, /crm <- fiber\d+\.join\n\s+marker <- fiber\d+\.join/);
   // exclusive: the condition, PutClient with the etag of GetClient (optional → a step that fails)
   assert.match(w, /_ <-\n\s+if getClient\.name != in\.name then\n\s+\(for \{/);

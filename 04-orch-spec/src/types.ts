@@ -60,6 +60,13 @@ export interface Mapping {
    * it»: an entry in `_outputVariables`, not an output parameter
    */
   fromService?: boolean;
+  /**
+   * Service orchestration, output: the type the value is converted into (`dom:…Client`) - a class
+   * into the case it fits, field by field; a list element by element.
+   */
+  mapTo?: string;
+  /** … the case of an ADT `mapTo` (`MultiplePersons`) - without: the one whose fields fit best */
+  mapToCase?: string;
   [key: string]: unknown;
 }
 
@@ -184,8 +191,19 @@ export interface Step {
   /**
    * Decision (DMN): which process variable the result goes into
    * (`camunda:resultVariable` or `zeebe:calledDecision resultVariable`) …
+   * Script task: the variable the value of its `script` goes into.
    */
   resultVariable?: string;
+  /**
+   * Script task: its implementation in FEEL - one expression, its value goes into
+   * `resultVariable` (as `zeebe:script`). In a service orchestration it becomes a method of
+   * the worker in Scala, with a test of its own.
+   */
+  script?: string;
+  /** Script task: the type of `resultVariable` when it is no field of the Out (then that field's type) */
+  resultType?: string;
+  /** … a list of it */
+  resultCollection?: boolean;
   /**
    * … and in which shape (`camunda:mapDecisionResult`): a value
    * (`singleEntry`), an object (`singleResult`), a list of values

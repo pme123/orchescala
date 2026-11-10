@@ -46,7 +46,8 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
   isDark: boolean;
   disabled?: boolean;
   onPick: (value: string) => void;
-  onCreate: (kind: 'case' | 'enum') => void;
+  /** without: no «neue Klasse» / «neue Auswahl» - only what there is */
+  onCreate?: (kind: 'case' | 'enum') => void;
   /** Width in the surrounding layout, e.g. `flex-1` */
   className?: string;
 }) {
@@ -222,7 +223,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
             )}
           </div>
 
-          <div className={`flex gap-1 px-2 py-1.5 border-t ${c.border}`}>
+          {onCreate && <div className={`flex gap-1 px-2 py-1.5 border-t ${c.border}`}>
             <button onClick={() => { onCreate('case'); setOpen(false); setQ(''); }}
               className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
               <Braces size={10} /> neue Klasse
@@ -231,7 +232,7 @@ export default function TypePicker({ value, types, selfId, model, isDark, disabl
               className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border ${c.btn}`}>
               <ListOrdered size={10} /> neue Auswahl
             </button>
-          </div>
+          </div>}
         </div>
       )}
     </div>

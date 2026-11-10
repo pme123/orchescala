@@ -10,7 +10,8 @@
 // it has; a collection wins over the catalog for its own services (it is what is built here).
 import { scanScala } from './domainScan';
 import { scalaFiles } from './scala';
-import { isServiceProcess, serviceProcessTopic, withCollections } from './services/serviceProcess';
+import { asOrchestration, callableServices, collectionsOf, isServiceProcess, serviceProcessTopic, withCollections } from './services/serviceProcess';
+import { orchestrationFiles } from './services/scalaOrchestration';
 import { servicesByTopic } from './services/orchestration';
 import type { ServiceCollectionSpec } from './services/types';
 import type { DomainType, Field, Model, ProcessSpec, ServiceDef, ServiceParam } from './types';
@@ -30,16 +31,26 @@ const placeOf = (path: string) => {
   return { pkg: parts.slice(from + 1, -1).join('.'), object: parts[parts.length - 1] };
 };
 
-const domainCache = new WeakMap<ProcessSpec, { model: Model | null; types: DomainType[] }>();
+const domainCache = new WeakMap<ProcessSpec, { model: Model | null; collections: ServiceCollectionSpec[]; types: DomainType[] }>();
+
+/** the default of `domainOfSpec` - one array, so its cache holds */
+const NO_COLLECTIONS: ServiceCollectionSpec[] = [];
 
 /** The classes a process of the folder would bring - read from the Scala orch-spec exports for it, as the
   * catalog has them from a build: its In and Out in the process object (a process with `processName`, an
-  * orchestration as a CustomTask with `topicName`), its interactions and its shared classes. */
-export function domainOfSpec(spec: ProcessSpec, model: Model | null): DomainType[] {
+  * orchestration as a CustomTask with `topicName`), its interactions and its shared classes. A service
+  * orchestration is read from what its export writes (scalaOrchestration.ts): its CustomTask in the
+  * package of its API and its own types in `schema` (`Client`) - `collections` are the services it calls. */
+export function domainOfSpec(spec: ProcessSpec, model: Model | null, collections: ServiceCollectionSpec[] = NO_COLLECTIONS): DomainType[] {
   const hit = domainCache.get(spec);
-  if (hit && hit.model === model) return hit.types;
+  if (hit && hit.model === model && hit.collections === collections) return hit.types;
   const types = (() => {
     try {
+      if (isServiceProcess(spec)) {
+        return orchestrationFiles(asOrchestration(spec), collectionsOf(callableServices(collections, model)), model)
+          .filter((f) => f.path.startsWith('01-domain/'))
+          .flatMap((f) => scanScala(f.content, f.path));
+      }
       return scalaFiles(spec, model).flatMap((f) => {
         if (!f.insert) return scanScala(f.content, f.path);
         // the process object comes as a part to insert - here a whole object, so it is read as one
@@ -54,7 +65,7 @@ export function domainOfSpec(spec: ProcessSpec, model: Model | null): DomainType
       return [];
     }
   })();
-  domainCache.set(spec, { model, types });
+  domainCache.set(spec, { model, collections, types });
   return types;
 }
 
@@ -101,7 +112,7 @@ export function folderCatalog(model: Model | null, folder: Folder, except?: stri
 
   // their classes - only those the catalog (or a collection) does not have
   const ids = new Set((withColl?.domainTypes ?? []).map((t) => t.id));
-  const domain = added.flatMap(({ spec }) => domainOfSpec(spec, model)).filter((t) => {
+  const domain = added.flatMap(({ spec }) => domainOfSpec(spec, model, folder.collections)).filter((t) => {
     if (ids.has(t.id)) return false;
     ids.add(t.id);
     return true;
