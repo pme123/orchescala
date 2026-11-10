@@ -200,6 +200,10 @@ export interface Step {
    * the worker in Scala, with a test of its own.
    */
   script?: string;
+  /** Script task: the type of `resultVariable` when it is no field of the Out (then that field's type) */
+  resultType?: string;
+  /** … a list of it */
+  resultCollection?: boolean;
   /**
    * … and in which shape (`camunda:mapDecisionResult`): a value
    * (`singleEntry`), an object (`singleResult`), a list of values

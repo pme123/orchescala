@@ -314,13 +314,29 @@ function readVars(body: string, known: OrchVar[]): OrchVar[] {
   });
 }
 
+/** The type of a script's value from what it reads: lists of one type concatenated, or one variable. */
+function derivedType(body: string, reads: OrchVar[]): Partial<OrchVar> {
+  const parts = listParts(body);
+  if (parts?.length) {
+    const vs = parts.map(p => reads.find(v => v.name === p));
+    const types = new Set(vs.map(v => v?.type));
+    if (vs.every(Boolean) && types.size === 1) return { type: vs[0]!.type, collection: true, optional: false };
+    return {};
+  }
+  const one = reads.find(v => v.name === body.trim());
+  return one ? { type: one.type, collection: !!one.collection, optional: !!one.optional } : {};
+}
+
 /** A script task with an implementation: its method - and the line of the `for` that calls it. */
 function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar | null } {
   const where = s.name || s.id;
-  const produced = scriptResultVar(ctx.o, task.resultVariable);
-  if (!produced) return { line: `// TODO «${where}»: die Implementierung hat keine Ergebnis-Variable`, produced: null };
+  const declared = scriptResultVar(ctx.o, task);
+  if (!declared) return { line: `// TODO «${where}»: die Implementierung hat keine Ergebnis-Variable`, produced: null };
   const body = (task.script ?? '').trim().replace(/^=\s*/, '');
   const reads = readVars(body, known);
+  const { typed, ...produced0 } = declared;
+  // without a type: derived where the expression says it - lists of one type, or one variable
+  const produced: OrchVar = typed ? produced0 : { ...produced0, ...derivedType(body, reads) };
   const params: Field[] = reads.map(v => ({
     id: `p-${v.name}`, name: v.name, type: v.type, ...(v.optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}),
   }));

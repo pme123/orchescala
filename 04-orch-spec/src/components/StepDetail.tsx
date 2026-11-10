@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
@@ -2094,7 +2094,9 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   const out = (spec.types ?? []).find(t => t.processOut);
   const outFields = (out?.fields ?? []).map(f => f.name).filter(Boolean);
   const result = step.resultVariable?.trim();
-  const field = result ? (out?.fields ?? []).find(f => f.name === result) : undefined;
+  // a field of the Out has its type - another variable the one chosen here
+  const ofOut = result ? (out?.fields ?? []).find(f => f.name === result) : undefined;
+  const field = useMemo(() => scriptResultField(step, spec) ?? undefined, [step, spec]);
   const expected = useMemo(() => expectedFor(field, spec.types ?? [], model), [field, spec.types, model]);
   // the value is checked against that type - `[persons, companies]` is no list of clients
   const issues: FeelIssue[] = value.trim()
@@ -2114,10 +2116,23 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
             placeholder="Variable, z. B. clients"
             className={`flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input} ${!step.resultVariable?.trim() && value.trim() ? (isDark ? 'border-rose-500/60' : 'border-rose-400') : ''}`} />
           <datalist id={listId}>{outFields.map(n => <option key={n} value={n} />)}</datalist>
-          {expected
-            ? <ExpectedChip expected={expected} list="outputs" isDark={isDark} />
-            : result && <span className={`text-[9px] ${c.muted}`} title="Nur ein Feld des Out hat einen Typ - dann wird das Ergebnis dagegen geprüft">Typ unbekannt</span>}
+          {ofOut && expected && <ExpectedChip expected={expected} list="outputs" isDark={isDark} />}
         </div>
+        {/* no field of the Out: its type chosen here - the value is checked against it */}
+        {result && !ofOut && (
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className={`${c.muted} w-24 flex-shrink-0`}>Typ</span>
+            <TypePicker value={step.resultType ?? ''} types={spec.types ?? []} selfId="" model={model} isDark={isDark} disabled={!canEdit}
+              onPick={v => onPatch({ resultType: v || undefined })} className="flex-1 min-w-0" />
+            <label className={`flex items-center gap-1 flex-shrink-0 ${c.muted}`} title="Eine Liste dieses Typs (Seq[…])">
+              <input type="checkbox" checked={!!step.resultCollection} disabled={!canEdit || !step.resultType}
+                onChange={e => onPatch({ resultCollection: e.target.checked || undefined })} /> Liste
+            </label>
+            {expected
+              ? <ExpectedChip expected={expected} list="outputs" isDark={isDark} />
+              : <span className={`text-[9px] ${c.muted}`} title="Ohne Typ leitet der Export ihn ab, wo es geht (Listen eines Typs aneinandergehängt) - geprüft wird dann nicht">kein Typ</span>}
+          </div>
+        )}
         <FeelInput value={value} disabled={!canEdit} isDark={isDark} variables={variables} multiline
           onChange={v => onPatch({ script: v || undefined })}
           placeholder="= concatenate(organisations, naturalPersons)"

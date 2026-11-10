@@ -181,8 +181,8 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
       else if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
     } else if (s.kind === 'script') {
       for (const a of task?.assignments ?? []) if (a.name.trim()) out.push({ name: a.name.trim(), scala: a.name.trim(), type: 'String', source: 'Script' });
-      const result = task?.script?.trim() ? scriptResultVar(o, task.resultVariable) : null;
-      if (result) out.push(result);
+      const result = task?.script?.trim() ? scriptResultVar(o, task) : null;
+      if (result) { const { typed: _typed, ...v } = result; out.push(v); }
     } else if (s.kind === 'gateway') {
       const inner = (s.branches ?? []).flatMap(b => producedBy(b.steps, o, services));
       const exclusive = s.gatewayType === 'exclusive';
@@ -194,16 +194,23 @@ export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services:
 
 /**
  * The variable the implementation of a script task sets - typed by the field of the
- * orchestration's Out of its name (`clients: Seq[Client]`), otherwise text.
+ * orchestration's Out of its name (`clients: Seq[Client]`), otherwise by the type the step
+ * names; without one `typed` is false (the export derives it from the expression if it can).
  */
-export function scriptResultVar(o: ServiceOrchestrationSpec, name: string | undefined): OrchVar | null {
-  const n = name?.trim();
+export function scriptResultVar(o: ServiceOrchestrationSpec, task: Pick<OrchTask, 'resultVariable' | 'resultType' | 'resultCollection'>): (OrchVar & { typed: boolean }) | null {
+  const n = task.resultVariable?.trim();
   if (!n) return null;
   const out = o.noOut ? undefined : o.types.find(t => t.id === o.outTypeId);
   const f = out?.kind === 'enum' ? undefined : (out?.fields ?? []).find(x => x.name === n);
+  if (f) {
+    return {
+      name: n, scala: n, type: f.type, source: 'Script', typed: true,
+      ...(f.collection ? { collection: true } : {}), ...(f.optional ? { optional: true } : {}),
+    };
+  }
   return {
-    name: n, scala: n, type: f?.type ?? 'String', source: 'Script',
-    ...(f?.collection ? { collection: true } : {}), ...(f?.optional ? { optional: true } : {}),
+    name: n, scala: n, type: task.resultType || 'String', source: 'Script', typed: !!task.resultType,
+    ...(task.resultType && task.resultCollection ? { collection: true } : {}),
   };
 }
 

@@ -510,7 +510,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
   }
 
   // A script task with an implementation (FEEL) writes its value into its `resultVariable`
-  for (const s of allSteps(spec.steps)) { const n = scriptResult(s); if (n) add(n); }
+  for (const s of allSteps(spec.steps)) { const n = scriptResult(s, spec, b); if (n) add(n); }
 
   // A multi-instance with collected results writes the list after it — its entries typed by
   // what the instance knows. Only for the overview: the steps know it only after the
@@ -1019,15 +1019,31 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   if (s.kind === 'rule' && s.resultVariable && !(spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name))) {
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
-  const script = scriptResult(s);
+  const script = scriptResult(s, spec, b);
   if (script) add(script);
   return out;
 }
 
-/** The variable a script task with an implementation (FEEL) sets - its type is the one of its value. */
-function scriptResult(s: Step): VarNode | null {
+/** The variable a script task with an implementation (FEEL) sets - typed as its field (see scriptResultField). */
+function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode | null {
   const name = s.kind === 'script' && s.script?.trim() ? s.resultVariable?.trim() : undefined;
-  return name ? { name, type: 'any', label: '?', source: `Ergebnis von ${s.name || s.id}` } : null;
+  if (!name) return null;
+  const source = `Ergebnis von ${s.name || s.id}`;
+  const f = scriptResultField(s, spec);
+  return f ? { ...nodeOfField(f, source, b, 0, new Set()), source } : { name, type: 'any', label: '?', source };
+}
+
+/**
+ * The field a script task's result is: the field of the Out of its name (`clients: Seq[Client]`),
+ * otherwise the type the step names (`resultType`, a list of it with `resultCollection`).
+ */
+export function scriptResultField(s: Step, spec: ProcessSpec): Field | null {
+  const name = s.resultVariable?.trim();
+  if (!name) return null;
+  const out = (spec.types ?? []).find(t => t.processOut);
+  const own = out?.kind === 'enum' ? undefined : (out?.fields ?? []).find(f => f.name === name);
+  if (own) return own;
+  return s.resultType ? { id: `r-${s.id}`, name, type: s.resultType, ...(s.resultCollection ? { collection: true } : {}) } : null;
 }
 
 /** What the step and the steps inside it write — inside a multi-instance they stay in the instance */

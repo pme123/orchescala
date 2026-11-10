@@ -199,3 +199,21 @@ test('an output converted into another type (mapTo): element by element, the cas
   // the script reads them as clients - nothing more to convert
   assert.match(w, /def mergeClients\(persons: Option\[Seq\[Client\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\n/, w);
 });
+
+test('a script result that is no field of the Out: the type the step names - without one derived from lists of one type', () => {
+  const mapped = (o: ServiceOrchestrationSpec) => {
+    o.tasks.ReadP = { ...o.tasks.ReadP, outputs: [{ name: 'persons', expression: '= persons', mapTo: 'client' }] };
+    o.tasks.ReadC = { ...o.tasks.ReadC, outputs: [{ name: 'companys', expression: '= companys', mapTo: 'client' }] };
+    o.outMappings = [{ name: 'clients', expression: '= allClients' }];
+    return o;
+  };
+  const method = (o: ServiceOrchestrationSpec) => orchestrationFiles(o, [collection()], model)
+    .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content.split('  def mergeClients')[1]?.split('\n')[0];
+  const named = mapped(scripted('= flatten([persons, companys])', 'allClients'));
+  named.tasks.MergeClientsTask = { ...named.tasks.MergeClientsTask, resultType: 'client', resultCollection: true };
+  assert.equal(method(named), '(persons: Option[Seq[Client]], companys: Option[Seq[Client]]): Seq[Client] =');
+  // without a type: the lists are all clients - so is the result
+  assert.equal(method(mapped(scripted('= concatenate(persons, companys)', 'allClients'))), '(persons: Option[Seq[Client]], companys: Option[Seq[Client]]): Seq[Client] =');
+  // lists of different types: no type to derive - text, the compiler says it
+  assert.match(method(scripted('= concatenate(persons, companys)', 'allClients')) ?? '', /\): String =$/);
+});

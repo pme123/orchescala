@@ -180,6 +180,9 @@ export interface OrchTask {
   /** script task: its implementation in FEEL - a method of the worker; its value goes into `resultVariable` */
   script?: string;
   resultVariable?: string;
+  /** the type of `resultVariable` when it is no field of the Out - and whether a list of it */
+  resultType?: string;
+  resultCollection?: boolean;
   [key: string]: unknown;
 }
 

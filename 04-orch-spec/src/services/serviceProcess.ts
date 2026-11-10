@@ -255,7 +255,10 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
     } else if (s.kind === 'script') {
       tasks[s.id] = {
         assignments: enabled(s.outputs),
-        ...(s.script?.trim() ? { script: s.script, ...(s.resultVariable?.trim() ? { resultVariable: s.resultVariable.trim() } : {}) } : {}),
+        ...(s.script?.trim() ? {
+          script: s.script, ...(s.resultVariable?.trim() ? { resultVariable: s.resultVariable.trim() } : {}),
+          ...(s.resultType ? { resultType: s.resultType, ...(s.resultCollection ? { resultCollection: true } : {}) } : {}),
+        } : {}),
       };
     }
   }
@@ -381,7 +384,10 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
     } else if (s.kind === 'script' && t) {
       next = {
         ...s, ...(t.assignments?.length ? { outputs: t.assignments } : {}),
-        ...(t.script?.trim() ? { script: t.script, ...(t.resultVariable ? { resultVariable: t.resultVariable } : {}) } : {}),
+        ...(t.script?.trim() ? {
+          script: t.script, ...(t.resultVariable ? { resultVariable: t.resultVariable } : {}),
+          ...(t.resultType ? { resultType: t.resultType, ...(t.resultCollection ? { resultCollection: true } : {}) } : {}),
+        } : {}),
       };
     }
     if (next.branches) next = { ...next, branches: next.branches.map((b: Branch) => ({ ...b, ...(conditions[b.id] ? { condition: conditions[b.id] } : {}), steps: visit(b.steps) })) };
