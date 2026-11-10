@@ -372,8 +372,20 @@ test('the settings from the environment - off without a key, the key never in wh
 });
 
 test('the other settings from the environment - paths relative to the working directory, a wrong port named', () => {
-  const c = configFromEnv({ STUDIO_PORT: '9000', STUDIO_HOST: '0.0.0.0', STUDIO_SITE_DIR: 'docs/site', STUDIO_SKILLS_DIR: '/company/skills' }, '/work');
-  assert.deepEqual([c.port, c.host, c.siteDir, c.skillsDir, c.specDir, c.ai], [9000, '0.0.0.0', '/work/docs/site', '/company/skills', undefined, undefined]);
+  const work = mkdtempSync(join(tmpdir(), 'work-'));
+  try {
+    mkdirSync(join(work, 'docs', 'site'), { recursive: true });
+    mkdirSync(join(work, 'skills'));
+    const c = configFromEnv({ STUDIO_PORT: '9000', STUDIO_HOST: '0.0.0.0', STUDIO_SITE_DIR: 'docs/site', STUDIO_SKILLS_DIR: join(work, 'skills') }, work);
+    assert.deepEqual([c.port, c.host, c.siteDir, c.skillsDir, c.specDir, c.ai], [9000, '0.0.0.0', join(work, 'docs', 'site'), join(work, 'skills'), undefined, undefined]);
+    // a folder of the company that is not there ends the start - its reviewed skills are not replaced unseen
+    for (const name of ['STUDIO_SITE_DIR', 'STUDIO_SPEC_DIR', 'STUDIO_OPS_DIR', 'STUDIO_SKILLS_DIR'])
+      assert.throws(() => configFromEnv({ [name]: 'missing' }, work), new RegExp(`${name} is no folder: «${join(work, 'missing')}»`));
+    writeFileSync(join(work, 'a-file'), '');
+    assert.throws(() => configFromEnv({ STUDIO_SKILLS_DIR: 'a-file' }, work), /STUDIO_SKILLS_DIR is no folder/);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
   assert.equal(configFromEnv({}, '/work').port, 8880);
   assert.throws(() => configFromEnv({ STUDIO_PORT: 'x' }), /STUDIO_PORT is no port: «x»/);
   assert.throws(() => configFromEnv({ STUDIO_PORT: '70000' }), /STUDIO_PORT/);

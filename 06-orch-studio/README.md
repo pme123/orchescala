@@ -78,7 +78,8 @@ docker run -p 127.0.0.1:8881:8880 \
 | `STUDIO_AI_MODEL` | `claude-opus-5-5` | the model of a skill that names none - whatever orch-spec sends |
 | `STUDIO_AI_ANTHROPIC_URL` | `https://api.anthropic.com` | e.g. a gateway of the company |
 
-A wrong setting ends the start with one line that names it.
+A wrong setting - also a folder of the company that is set but not there, or a port that is taken -
+ends the start with one line that names it. `docker stop` ends the studio at once (SIGTERM).
 
 ## Without an image
 

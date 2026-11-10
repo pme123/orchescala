@@ -1,6 +1,7 @@
 // The settings of a company's studio - all from the environment. The company configures the image
 // (E28), it does not build one: its documentation, the folders of orch-spec and orch-ops, its skills
 // and the key of the AI. A wrong setting ends the start with one line that names it.
+import { statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 /** The AI of the studio (E23) - the key stays on the server. orch-spec only learns that the AI is on
@@ -69,8 +70,8 @@ export function aiFromEnv(env: Env): AiConfig | undefined {
 }
 
 /** The settings from the environment: `STUDIO_PORT`, `STUDIO_HOST`, `STUDIO_APPS_DIR`, `STUDIO_SITE_DIR`,
-  * `STUDIO_SPEC_DIR`, `STUDIO_OPS_DIR`, `STUDIO_SKILLS_DIR` (paths absolute or relative to `cwd`) and the
-  * AI (`STUDIO_AI_*`, see aiFromEnv). */
+  * `STUDIO_SPEC_DIR`, `STUDIO_OPS_DIR`, `STUDIO_SKILLS_DIR` (paths absolute or relative to `cwd`; a folder
+  * of the company that is set must exist) and the AI (`STUDIO_AI_*`, see aiFromEnv). */
 export function configFromEnv(env: Env = process.env, cwd = process.cwd()): StudioConfig {
   const get = (name: string) => env[name]?.trim() || undefined;
   const path = (name: string) => {
@@ -80,9 +81,14 @@ export function configFromEnv(env: Env = process.env, cwd = process.cwd()): Stud
   const portText = get('STUDIO_PORT');
   const port = portText === undefined ? DEFAULT_PORT : Number(portText);
   if (!Number.isInteger(port) || port <= 0 || port >= 65536) throw new Error(`STUDIO_PORT is no port: «${portText}»`);
+  // a folder of the company that is set must be there - a typo would drop its documentation or replace
+  // its reviewed skills by the studio's without a word
   const optional = (key: keyof StudioConfig, name: string) => {
     const p = path(name);
-    return p === undefined ? {} : { [key]: p };
+    if (p === undefined) return {};
+    const isDir = (() => { try { return statSync(p).isDirectory(); } catch { return false; } })();
+    if (!isDir) throw new Error(`${name} is no folder: «${p}»`);
+    return { [key]: p };
   };
   const ai = aiFromEnv(env);
   return {
