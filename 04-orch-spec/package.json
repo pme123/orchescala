@@ -7,15 +7,13 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "core": "node -e \"require('fs').existsSync('src/core/orchSpecCore.js') || (console.error('src/core/orchSpecCore.js is missing - in the root of Orchescala: sbt orchSpecCoreJS/linkToOrchSpec'), process.exit(1))\"",
-    "predev": "npm run core --silent",
-    "prebuild": "npm run core --silent",
-    "pretest": "npm run core --silent",
     "dev": "vite --port=3002",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit && tsc --noEmit -p e2e",
     "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --log-level=warning && node --test \"dist-tests/*.test.mjs\"",
+    "build:standalone": "vite build --base=./ --outDir dist-standalone --emptyOutDir --logLevel warn",
+    "test:standalone": "tsc --noEmit -p e2e && npm run build:standalone && playwright test",
     "build:tools": "esbuild tools/openapi2catalog.ts tools/domain2catalog.ts tools/site2catalog.ts tools/spec2export.ts tools/spec2diff.ts tools/xmlformat.ts --bundle --platform=node --format=esm --outdir=dist-tools --log-level=warning",
     "dev:pages": "vite -c vite.pages.config.ts --port=3013",
     "build:pages": "vite build -c vite.pages.config.ts"
@@ -37,6 +35,7 @@
     "zeebe-bpmn-moddle": "1.18.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.1.14",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.14.0",

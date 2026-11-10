@@ -78,7 +78,8 @@ object DocsJson:
 
     val groupOrder   = mutable.ListBuffer.empty[(String, String)]
     val projectGroup = mutable.LinkedHashMap.empty[String, String]
-    """(?s)subgraph (\S+)\s*\n(.*?)\n\s*end""".r.findAllMatchIn(index).foreach: m =>
+    // [ \t]* not \s*: an empty group (`subgraph a\n    \n    end`) must not take the next group's projects
+    """(?s)subgraph (\S+)[ \t]*\n(.*?)\n\s*end""".r.findAllMatchIn(index).foreach: m =>
       val group = m.group(1)
       val color = s"style ${Regex.quote(group)} fill:[^,]*,color:(\\w+)".r.findFirstMatchIn(index).map(_.group(1)).getOrElse("gray")
       groupOrder += group -> color

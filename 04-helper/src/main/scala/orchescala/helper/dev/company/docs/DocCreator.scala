@@ -265,11 +265,8 @@ trait DocCreator extends DependencyCreator, Helpers:
     versions
       .filter(l => l.contains("Version") && !l.contains("\"\""))
       .map: l =>
-        val projectName = l.trim
-          .split("(?<!(^|[A-Z]))(?=[A-Z])|(?<!^)(?=[A-Z][a-z])")
-          .map(_.toLowerCase)
-          .takeWhile(!_.startsWith("version"))
-          .mkString("-")
+        val projectName =
+          DocCreator.projectOfVersionKey(l.trim, apiConfig.projectsConfig.projectConfigs.map(_.name))
         val regex       = """"(\d+\.\d+\.\d+)"""".r
         val version     = regex.findFirstMatchIn(l.trim).get.group(1)
         projectName -> version
@@ -628,6 +625,25 @@ trait DocCreator extends DependencyCreator, Helpers:
 end DocCreator
 
 object DocCreator:
+
+  /** The project of a VERSIONS.conf key: `acmeShopWorkerVersion` → `acme-shop-worker`. A project
+    * whose name is not dashed lower case (`z9nai-finnovaNeoIs`, the name of its repo) is the
+    * configured one with the same letters - else it would be left out of the docs without a word.
+    */
+  def projectOfVersionKey(key: String, projectNames: Seq[String]): String =
+    val dashed   = key
+      .split("(?<!(^|[A-Z]))(?=[A-Z])|(?<!^)(?=[A-Z][a-z])")
+      .map(_.toLowerCase)
+      .takeWhile(!_.startsWith("version"))
+      .mkString("-")
+    val isWorker = dashed.endsWith("-worker")
+    val project  = dashed.stripSuffix("-worker")
+    def letters(name: String) = name.replace("-", "").toLowerCase
+    val name     = projectNames.find(_ == project)
+      .orElse(projectNames.find(n => letters(n) == letters(project)))
+      .getOrElse(project)
+    if isWorker then s"$name-worker" else name
+  end projectOfVersionKey
 
   /** A version of VERSIONS.conf: `democompany-customer-worker` → the worker of `democompany-customer`. */
   case class ProjectVersion(name: String, version: String):

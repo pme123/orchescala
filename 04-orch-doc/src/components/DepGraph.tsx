@@ -1,7 +1,8 @@
 // Project dependency graph as plain SVG — no mermaid, no CDN.
 //
 // Layout: one band per project group; bands are ordered by how "high" their
-// projects sit in the dependency chain (things nobody depends on come first).
+// projects sit in the dependency chain (things nobody depends on come first);
+// groups of projects without any dependency come last.
 // Inside a band, nodes are ordered by the centre of their dependents, which
 // keeps most edges short. Hover draws an arrow from the project straight to
 // every project of its "depends on" list — the chains between them are the
@@ -46,11 +47,17 @@ export default function DepGraph({ docs, isDark, focus, width = 960, onSelect }:
     names.forEach(n => rankOf(n));
 
     const groups = docs.groups.map(g => g.name).filter(g => docs.projects.some(p => p.group === g));
+    // a project without any edge is not part of the chain: it does not count for its group,
+    // and a group of only such projects goes to the bottom
+    const linked = new Set(edges.flatMap(e => [e.from, e.to]));
     const meanRank = (g: string) => {
-      const rs = docs.projects.filter(p => p.group === g).map(p => rank.get(p.name) ?? 0);
-      return rs.reduce((a, b) => a + b, 0) / Math.max(1, rs.length);
+      const rs = docs.projects.filter(p => p.group === g && linked.has(p.name)).map(p => rank.get(p.name) ?? 0);
+      return rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : Number.POSITIVE_INFINITY;
     };
-    const ordered = [...groups].sort((a, b) => meanRank(a) - meanRank(b));
+    const ordered = [...groups].sort((a, b) => {
+      const ra = meanRank(a), rb = meanRank(b);
+      return ra === rb ? 0 : ra < rb ? -1 : 1;
+    });
 
     const nodes: Node[] = [];
     const bands: { name: string; y: number; h: number; color: string }[] = [];
