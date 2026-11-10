@@ -1,0 +1,7 @@
+# the build context is the root of Orchescala - only this goes in
+*
+!06-orch-studio/package.json
+!06-orch-studio/package-lock.json
+!06-orch-studio/src
+!06-orch-studio/skills
+!04-orch-doc/bundle/orch-doc-site

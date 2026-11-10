@@ -39,7 +39,6 @@ lazy val root = project
     engineOp,
     engineGateway,
     gateway,
-    orchStudio,
     workerC7,
     workerC8,
     workerOp
@@ -480,34 +479,6 @@ lazy val gateway = project
     }
   )
   .dependsOn(engineGateway, orchDocClient) // orchDocClient: OrchDocApi.html served at /docs
-
-/** The studio - the app with which the business side describes an app and brings it to a test
-  * environment (Orch Platform, the «Entwicklung» side): it serves orch-doc, orch-spec and orch-ops
-  * with the company's documentation and the AI proxy of orch-spec; later the buttons and the
-  * runner. Like the gateway, the company builds its app from it in
-  * `<company>-orchescala`, module `studio`.
-  */
-lazy val orchStudio = project
-  .in(file("./06-orch-studio"))
-  .settings(publicationSettings)
-  .settings(projectSettings("orch-studio"))
-  .settings(
-    // like orch-doc: Business Source License 1.1 (see 06-orch-studio/LICENSE)
-    licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
-    zioTestSettings,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-http" % zioHttpVersion,
-      "io.circe" %% "circe-core" % circeVersion,
-      "io.circe" %% "circe-parser" % circeVersion,
-      // the front matter of the skills of the AI (AiSkills)
-      "io.circe" %% "circe-yaml" % circeYamlVersion,
-      osLib
-    ),
-    fork               := true,
-    run / connectInput := true
-  )
-  // orchDocClient: the apps (orch-doc-site/) on the classpath
-  .dependsOn(orchDocClient)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))
