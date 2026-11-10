@@ -71,13 +71,13 @@ test('the export reads the process: inputs per field of the In, the outputs as v
   assert.deepEqual(o.tasks.Get.outputs, [{ name: 'etag', expression: '= etag' }]);
   const w = orchestrationFiles(o, [collection()])[1].content;
   // GetClient: the In from the variable of the same name, its etag kept as variable — not its name (disabled)
-  assert.match(w, /getClient <- GetClientWorker\(\)\n\s+\.runWorkFromWorkerUnsafe\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey/);
+  assert.match(w, /getClient <- runGetClient\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey/);
   assert.match(w, /etag = getClient\.etag\n/);
   assert.doesNotMatch(w, /name = getClient\.name/);
   // PutClient: etag from the variable (optional → a step that fails), name from its input
   assert.match(w, /etag\d+ <- ZIO\.fromOption\(etag\)\.orElseFail\(CustomError\("PutClient: etag fehlt"\)\)/);
   assert.match(w, /name = "Muster"/);
-  assert.match(w, /_ <- PutClientWorker\(\)/);
+  assert.match(w, /_ <- runPutClient\(/);
   // the Out from the variable of the same name — optional there, so a step that fails
   assert.match(w, /yield Out\(\n\s+etag = etag\d+\n\s+\)/);
   const task = orchestrationFiles(o, [collection()])[0].content;

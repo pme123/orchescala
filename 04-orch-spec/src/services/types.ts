@@ -165,6 +165,10 @@ export interface OrchTask {
   inputs?: Mapping[];
   /** service task: the name of its result afterwards (`client`) — without: the service name, first letter small */
   result?: string;
+  /** service task: the case of the service's `In` it sends — an ADT In (`ClientKey`) */
+  inCase?: string;
+  /** service task: the case of the service's `Out` it reads — without: the one of the `In` case's name */
+  outCase?: string;
   /**
    * service task, as a process describes it: per variable afterwards a FEEL expression against
    * the fields of the service's `Out` (`etag = etag`). Then the result itself is not known

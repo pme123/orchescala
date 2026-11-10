@@ -18,6 +18,7 @@ import { nowIsoWithTimezone, slugify, uid } from '../util';
 import { catalogProjects, collectionFromCatalog, withProjectDomain } from './catalogCollections';
 import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, serviceMembers, servicesByTopic, type ServiceRef } from './orchestration';
 import { collectionFiles } from './scalaCollection';
+import { ALL_VARIANTS } from '../variants';
 import type { OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
 
 /** A service as the AI sees it (the context of a conversation about an orchestration). */
@@ -206,7 +207,13 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
   for (const s of flatSteps(spec.steps)) {
     if (s.kind === 'service') {
       const service = topicOf(s);
-      tasks[s.id] = { ...(service ? { service } : {}), inputs: enabled(s.inputs), outputs: enabled(s.outputs) };
+      // the case of an ADT In and Out the step chose — «all cases» is no one
+      const chosen = (v: string | undefined) => (v && v !== ALL_VARIANTS ? v : undefined);
+      const inCase = chosen(s.inVariant), outCase = chosen(s.outVariant);
+      tasks[s.id] = {
+        ...(service ? { service } : {}), inputs: enabled(s.inputs), outputs: enabled(s.outputs),
+        ...(inCase ? { inCase } : {}), ...(outCase ? { outCase } : {}),
+      };
     } else if (s.kind === 'script') {
       tasks[s.id] = { assignments: enabled(s.outputs) };
     }
