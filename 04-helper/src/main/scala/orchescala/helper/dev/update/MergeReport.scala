@@ -11,7 +11,7 @@ import orchescala.helper.dev.update.merge.*
   */
 object MergeReport:
 
-  private def colored(color: String, text: String) = s"$color$text${Console.RESET}"
+  private[update] def colored(color: String, text: String) = s"$color$text${Console.RESET}"
 
   /** grey - `Console` has none */
   private val Grey = "\u001b[90m"

@@ -101,6 +101,8 @@ class ScalaMergeTest extends FunSuite:
     assertEquals(r.removable, Seq("Legacy"))
     assert(!r.without.contains("Legacy"), r.without)
     assert(r.without.endsWith("end Client\n"), r.without)
+    // without them, but with what the spec changed - a yes does not undo the merge
+    assertEquals(r.without, r.text.replace("\ncase class Legacy(id: Long)\n\nobject Legacy:\n  lazy val example = Legacy(1L)\nend Legacy\n", ""))
 
   test("the same in another form: unchanged"):
     val reformatted = spec.replace("  given ApiSchema[Client]  = deriveApiSchema", "  given ApiSchema[Client] =\n    deriveApiSchema")

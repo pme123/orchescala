@@ -227,6 +227,8 @@ class SpecMergeTest extends FunSuite:
       os.write(dir / "Helpers.scala", helpers)
       // a class with an extension of its own: the class asked, the extension stays
       os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n\nextension (o: Old)\n  def y: Int = o.x\n")
+      // a file that is no UTF-8: not asked, the plan goes on
+      os.write(dir / "Latin1.scala", Array[Byte](99, 108, 97, 115, 115, 32, -28, 10))
       // `topicName` only in a comment: no service object
       os.write(dir / "Said.scala", "package acme.demo.domain\npackage order.v1\n\n// not the topicName of a service\ncase class Said(x: Int)\n")
       val (plan, result) = run(project, Seq(order), Seq(order), remove = true)

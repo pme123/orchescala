@@ -261,11 +261,13 @@ object SpecMerge:
     // BPMN and DMN: the logic as text, the diagram (shapes, edges) entry by entry - see DiagramMerge
     def threeWay(b: String, c: String, n: String) =
       val diagram    = if isXml(rel) && b.nonEmpty then DiagramMerge.merge(b, c, n) else None
-      val (r, notes) = diagram.fold(ThreeWay.merge(b, c, n, ignoreForm = !isXml(rel)) -> Seq.empty[String])(d => d.merge -> d.notes)
+      // the form is no change only in Scala - in YAML or Markdown the indentation is meaning
+      val scala      = rel.ext == "scala"
+      val (r, notes) = diagram.fold(ThreeWay.merge(b, c, n, ignoreForm = scala) -> Seq.empty[String])(d => d.merge -> d.notes)
       val note       = Option.when(notes.nonEmpty)(notes.mkString("; "))
       if r.clean then
         // what only differs in its form stays as the code has it
-        if !isXml(rel) && same(r.text, c) then file(Action.unchanged, note = note.orElse(Some("only the form differs")))
+        if scala && same(r.text, c) then file(Action.unchanged, note = note.orElse(Some("only the form differs")))
         else file(Action.merged, Some(r.text), note = note)
       else file(Action.conflict, Some(r.text), r.conflicts, note)
     (base, neu, code) match

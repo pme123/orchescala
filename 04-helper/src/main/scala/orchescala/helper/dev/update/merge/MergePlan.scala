@@ -149,8 +149,8 @@ enum OnConflict:
   /** the file gets conflict markers like `git merge` - the developer resolves them in the IDE */
   case Markers
 
-/** What `merge` did. */
-/** @param removed   the classes, objects and cases only the code had that went
+/** What `merge` did.
+  * @param removed   the classes, objects and cases only the code had that went
   * @param removedIn the files they went from
   */
 case class MergeResult(

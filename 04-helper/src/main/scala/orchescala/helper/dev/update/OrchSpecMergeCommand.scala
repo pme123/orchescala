@@ -78,7 +78,8 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         // what only the code has goes only when asked - `--yes` deletes nothing
         val remove = if yes then Set.empty[String] else MergeReport.askRemoval(plan)
         if yes && plan.removals.nonEmpty then
-          println(Console.YELLOW + s"--yes deletes nothing: ${plan.removals.size} file(s) with what only the code has stay as they are - run without --yes to be asked." + Console.RESET)
+          val kept = plan.removals.size
+          println(MergeReport.colored(Console.YELLOW, s"--yes deletes nothing: $kept file(s) with what only the code has stay as they are - run without --yes to be asked."))
         try
           val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove)
           println()
