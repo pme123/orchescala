@@ -296,7 +296,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
         })}
         {busy && (
           <div className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
-            <Loader2 size={11} className="animate-spin" /> Claude arbeitet … – bearbeiten geht wieder, wenn der Entwurf da ist{live && <span>{usageLine(live)}</span>}
+            <Loader2 size={11} className="animate-spin" /> Claude arbeitet … – bearbeiten geht wieder, wenn Claude fertig ist{live && <span>{usageLine(live)}</span>}
           </div>
         )}
         <div ref={end} />
