@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { changedKeys, pageDiff } from '../../ai/diff';
-import { useAiFor } from '../../ai/config';
+import { useAiFor } from '../../ai/useAiConfig';
 import type { PageDraft } from '../../ai/pageTools';
 import { useAuth, useAuthor, usePermissions } from '../../auth';
 import { countIndex, markNotified, threadOf } from '../../comments';

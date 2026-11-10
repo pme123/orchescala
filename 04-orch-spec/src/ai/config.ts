@@ -7,7 +7,9 @@
 //
 // Without a studio (a folder of the docs, GitHub Pages, the dev server without ORCH_SPEC_STUDIO) the
 // request fails - then the AI is off and nothing of it is visible. orch-spec stays fully usable.
-import { useSyncExternalStore } from 'react';
+//
+// Here what the config is and how it is read - no React, no browser (part of src/core); the hook
+// that asks the studio once per page is in useAiConfig.ts.
 
 /** The tasks orch-spec has a place for - the studio offers those it has a skill for. */
 export const AI_TASKS = ['uiCreator', 'processCreator', 'serviceOrchestrator', 'serviceRegistration', 'serviceCreator'] as const;
@@ -72,49 +74,8 @@ export async function loadConfig(fetchFn: typeof fetch = fetch): Promise<AiConfi
   }
 }
 
-// ---- once per page: every component that shows something of AI asks the same answer
-
-let current: AiConfig = AI_OFF;
-let started = false;
-const listeners = new Set<() => void>();
-
-function start() {
-  if (started || typeof window === 'undefined') return;
-  started = true;
-  forgetBrowserKey();
-  void loadConfig().then((c) => {
-    current = c;
-    listeners.forEach((l) => l());
-  });
-}
-
-const subscribe = (onChange: () => void) => {
-  listeners.add(onChange);
-  start();
-  return () => { listeners.delete(onChange); };
-};
-
-/** The AI of the studio - off until it answered, and when there is none. */
-export function useAiConfig(): AiConfig {
-  return useSyncExternalStore(subscribe, () => current, () => AI_OFF);
-}
-
 /** Is the AI on for `task` - on in the studio and a skill for the task? */
 export const aiFor = (config: AiConfig, task: AiTask): boolean => config.enabled && config.tasks.includes(task);
 
-/** The switch of one place: the AI of its task. */
-export const useAiFor = (task: AiTask): boolean => aiFor(useAiConfig(), task);
-
 /** Is there AI anywhere - the icon in the header. */
 export const anyAi = (config: AiConfig): boolean => config.enabled && config.tasks.length > 0;
-
-/** Until E23 the key was stored in the browser - it is removed, so it does not stay there unused. */
-export const OLD_BROWSER_KEYS = ['orch-spec.anthropicKey', 'orch-spec.anthropicWorkspace'];
-
-export function forgetBrowserKey(store: Pick<Storage, 'removeItem'> | null = browserStore()): void {
-  try { OLD_BROWSER_KEYS.forEach((k) => store?.removeItem(k)); } catch { /* blocked storage */ }
-}
-
-function browserStore(): Storage | null {
-  try { return typeof localStorage === 'undefined' ? null : localStorage; } catch { return null; }
-}

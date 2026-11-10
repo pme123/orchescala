@@ -3,9 +3,7 @@
 // a field that is not there stays out (orch-spec reads it as undefined).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { changedKeys, pageDiff, type PageChange } from '../src/ai/diff';
-import { flatten } from '../src/pages/pageActions';
-import type { Component, Page } from '../src/pages/runtime/spec';
+import { changedKeys, flatten, pageDiff, type Component, type Page, type PageChange } from '../src/core';
 
 const diff = (before: string, after: string) => JSON.stringify(pageDiff(JSON.parse(before) as Page, JSON.parse(after) as Page));
 
