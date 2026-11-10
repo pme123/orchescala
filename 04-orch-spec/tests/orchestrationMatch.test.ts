@@ -178,13 +178,13 @@ test('a script task in FEEL: another expression as a mapping; without a result v
   assert.doesNotMatch(none, /def mergeClients/);
 });
 
-test('a script task in FEEL: a list of lists or flatten([…]) for a list of classes - as concatenate', () => {
+test('a script task in FEEL: flatten([…]) as concatenate - a list of lists stays one (the FEEL check says it)', () => {
   const method = (script: string) => orchestrationFiles(scripted(script), [collection()], model)
     .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content.split('  def mergeClients')[1]?.split('\n\n')[0];
   const concat = method('= concatenate(persons, companys)');
   assert.match(concat ?? '', /Client\.Person[\s\S]*\) \+\+\n[\s\S]*Client\.Company/);
-  assert.equal(method('= [persons, companys]'), concat);
   assert.equal(method('= flatten([ persons, companys ])'), concat);
+  assert.doesNotMatch(method('= [persons, companys]') ?? '', /Client\.Person/);
   // two lists side by side are no one list
   assert.doesNotMatch(method('= [persons] ++ [companys]') ?? '', /Client\.Person/);
 });

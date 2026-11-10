@@ -697,7 +697,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
 
       {/* Script task of a service orchestration: its implementation in FEEL - a method of the worker */}
       {step.kind === 'script' && spec.service && !ofPattern && (
-        <ScriptSection step={step} spec={spec} isDark={isDark} canEdit={canEdit} variables={variables}
+        <ScriptSection step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} variables={variables}
           onPatch={patch => onPatch(step.id, patch)} />
       )}
 
@@ -2017,20 +2017,24 @@ function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: Exp
  * The implementation of a script task in FEEL: one expression and the variable its value goes
  * into. In a service orchestration the export makes it a method of the worker, with a test.
  */
-function ScriptSection({ step, spec, isDark, canEdit, variables, onPatch }: {
-  step: Step; spec: ProcessSpec; isDark: boolean; canEdit: boolean; variables: VarNode[] | null;
+function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch }: {
+  step: Step; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; variables: VarNode[] | null;
   onPatch: (patch: Partial<Step>) => void;
 }) {
   const c = cls(isDark);
   const err = isDark ? 'text-rose-400' : 'text-rose-600';
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
   const value = step.script ?? '';
-  const issues: FeelIssue[] = value.trim()
-    ? (isFeel(value) ? checkFeel(value, variables).issues : [{ level: 'error', text: 'Mit «=» beginnen - die Implementierung ist ein FEEL-Ausdruck.' }])
-    : [];
-  // the fields of the Out - the result usually is one of them
+  // the fields of the Out - the result usually is one of them, then it has its type
   const out = (spec.types ?? []).find(t => t.processOut);
   const outFields = (out?.fields ?? []).map(f => f.name).filter(Boolean);
+  const result = step.resultVariable?.trim();
+  const field = result ? (out?.fields ?? []).find(f => f.name === result) : undefined;
+  const expected = useMemo(() => expectedFor(field, spec.types ?? [], model), [field, spec.types, model]);
+  // the value is checked against that type - `[persons, companies]` is no list of clients
+  const issues: FeelIssue[] = value.trim()
+    ? (isFeel(value) ? checkFeel(value, variables, expected).issues : [{ level: 'error', text: 'Mit «=» beginnen - die Implementierung ist ein FEEL-Ausdruck.' }])
+    : [];
   const listId = `script-result-${step.id}`;
   return (
     <Section id="script" label="Implementierung (FEEL)" isDark={isDark} count={value.trim() ? 1 : 0}
@@ -2045,6 +2049,9 @@ function ScriptSection({ step, spec, isDark, canEdit, variables, onPatch }: {
             placeholder="Variable, z. B. clients"
             className={`flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input} ${!step.resultVariable?.trim() && value.trim() ? (isDark ? 'border-rose-500/60' : 'border-rose-400') : ''}`} />
           <datalist id={listId}>{outFields.map(n => <option key={n} value={n} />)}</datalist>
+          {expected
+            ? <ExpectedChip expected={expected} list="outputs" isDark={isDark} />
+            : result && <span className={`text-[9px] ${c.muted}`} title="Nur ein Feld des Out hat einen Typ - dann wird das Ergebnis dagegen geprüft">Typ unbekannt</span>}
         </div>
         <FeelInput value={value} disabled={!canEdit} isDark={isDark} variables={variables} multiline
           onChange={v => onPatch({ script: v || undefined })}

@@ -241,13 +241,13 @@ function splitTop(text0: string): string[] | null {
 }
 
 /**
- * The parts of a list the field gets: `concatenate(a, b)`, `flatten([a, b])` - and, for a field
- * that is a list of classes, `[a, b]` too (lists in it are meant as their elements).
+ * The lists the field gets one after the other: `concatenate(a, b)`, `flatten([a, b])`. A list of
+ * lists (`[a, b]`) stays what it is - the check of the FEEL says it does not fit a list of classes.
  */
 function listParts(body: string): string[] | null {
   const flat = callArgs(body, 'flatten');
   if (flat?.length === 1) return listArgs(flat[0]);
-  return callArgs(body, 'concatenate') ?? listArgs(body);
+  return callArgs(body, 'concatenate');
 }
 
 /**

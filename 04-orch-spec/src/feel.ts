@@ -67,6 +67,8 @@ export interface ExpectedType {
   kind: ExpectedKind;
   /** for a simple enum the allowed values — for a fixed case exactly one */
   values?: string[];
+  /** for a list: what its elements must be (`Seq[Client]`: objects) */
+  elements?: FeelType[];
 }
 
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
@@ -820,7 +822,8 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   }
   // if the value is missing, the default applies — null is then allowed
   if (f.optional || f.default?.trim()) accepts = [...accepts, 'nil'];
-  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}) };
+  const elements = f.collection ? expectedFor({ ...f, collection: false, optional: false, default: undefined }, types, model)?.accepts : undefined;
+  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}), ...(elements?.length ? { elements } : {}) };
 }
 
 // ── Example values ───────────────────────────────────────────────────────────
@@ -1295,6 +1298,17 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       issues.push({
         level: 'warn', code: 'optional', path: opt.path,
         text: `«${opt.path}» ist optional (${opt.label}) — «${expected.label}» verlangt aber einen Wert. Vorgabe setzen oder absichern (\`if … != null then … else …\`).`,
+      });
+    }
+  }
+  // the elements of a list: a list in a list of objects (`[persons, companies]` for `Seq[Client]`) - only
+  // what the samples say for sure: a list or an object (a list of unknown elements has texts)
+  if (!issues.length && expected?.elements && Array.isArray(value) && !unknown && !pathFailed) {
+    const wrong = (value as unknown[]).map(feelType).find(t => (t === 'list' || t === 'context') && !expected.elements!.includes(t));
+    if (wrong) {
+      issues.push({
+        level: 'error',
+        text: `Die Elemente sind ${wrong === 'list' ? 'Listen' : 'Objekte'}, ${expected.label} erwartet ${expected.elements.map(t => FEEL_TYPE_LABEL[t]).join(' oder ')}${wrong === 'list' ? ' - Listen aneinanderhängen mit concatenate(a, b) oder flatten([a, b])' : ''}.`,
       });
     }
   }
