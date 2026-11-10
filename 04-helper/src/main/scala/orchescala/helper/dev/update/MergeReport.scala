@@ -28,13 +28,15 @@ object MergeReport:
   def printPlan(plan: MergePlan, project: os.Path): Unit =
     println(banner(Console.CYAN, s"START Merge plan for ${plan.project}"))
     plan.files.foreach: f =>
-      val code = read(project, f.path)
+      // read only where its changes are shown
+      lazy val code = read(project, f.path)
       header(f, planned = true).foreach(println)
       if Seq(Action.merged, Action.update).contains(f.action) then
-        changes(code.getOrElse(""), f.content.getOrElse("")).foreach(println)
+        if f.binary then println(colored(Grey, "    a binary file - its changes are not shown"))
+        else changes(code.getOrElse(""), f.content.getOrElse("")).foreach(println)
       conflictLines(f).foreach(println)
       f.removal.foreach: r =>
-        println(colored(Console.YELLOW, s"ONLY IN THE CODE - you are asked: ${f.path} - ${r.names.mkString(", ")}"))
+        println(colored(Console.YELLOW, s"ONLY IN THE CODE - you are asked: ${what(f, r)}"))
         // what goes - against what is written otherwise
         for c <- r.content; before <- f.content.orElse(code) do changes(before, c).foreach(println)
     printNotes(plan)
@@ -42,7 +44,7 @@ object MergeReport:
 
   /** The texts of the files before the merge - for their changes in `printMerged`. */
   def before(project: os.Path, plan: MergePlan): Map[String, String] =
-    plan.files.filter(f => f.action != Action.unchanged || f.removal.nonEmpty)
+    plan.files.filter(f => !f.binary && (f.action != Action.unchanged || f.removal.nonEmpty))
       .flatMap(f => read(project, f.path).map(f.path -> _)).toMap
 
   /** What the merge did - in the words `processFromSpec` always used.
@@ -61,7 +63,8 @@ object MergeReport:
       plan.files.foreach: f =>
         header(f, planned = false, Some(result), markers).foreach(println)
         if result.written.contains(f.path) && f.action != Action.create then
-          changes(old.getOrElse(f.path, ""), read(project, f.path).getOrElse("")).foreach(println)
+          if f.binary then println(colored(Grey, "    a binary file - its changes are not shown"))
+          else changes(old.getOrElse(f.path, ""), read(project, f.path).getOrElse("")).foreach(println)
         conflictLines(f).foreach(println)
     printNotes(plan)
     printSummary(plan, Some(result), planned = false, markers)
@@ -87,17 +90,29 @@ object MergeReport:
         val r = f.removal.get
         println(colored(Console.YELLOW, s"  ${what(f, r)}"))
 
-  /** Ask whether what only the code has goes - `ask` gets the question, the answer is yes or no. */
+  /** Ask whether what only the code has goes - `ask` gets the question, the answer is yes or no.
+    * The files and what goes of them are listed before (`printPlan`); the question names them again.
+    */
   def askRemoval(plan: MergePlan, ask: String => Option[String] = readAnswer): Boolean =
     plan.removals.nonEmpty && {
-      val n = plan.removals.flatMap(_.removal).map(_.names.size).sum
-      ask(s"\nDelete the $n class(es), object(s) and case(s) only the code has? [y/N] ")
-        .exists(a => Seq("y", "yes", "j", "ja").contains(a.trim.toLowerCase))
+      val removals = plan.removals.flatMap(f => f.removal.map(f -> _))
+      val n        = removals.map(_._2.names.size).sum
+      val whole    = removals.count(_._2.content.isEmpty)
+      val files    = removals.map((f, r) => s"  ${what(f, r)}").mkString("\n")
+      val asWhole  = if whole == 0 then "" else s", $whole of the ${removals.size} file(s) as a whole"
+      isYes(ask(s"\n$files\nDelete these $n class(es), object(s) and case(s) only the code has$asWhole? [y/N] "))
     }
 
-  private def readAnswer(question: String): Option[String] =
+  /** The question on the console - its answer; None at the end of the input (no console, a closed
+    * stdin): that is a no.
+    */
+  def readAnswer(question: String): Option[String] =
     print(question)
     Option(scala.io.StdIn.readLine())
+
+  /** `y`, `yes`, `j`, `ja` - anything else, and no answer, is a no. */
+  def isYes(answer: Option[String]): Boolean =
+    answer.exists(a => Seq("y", "yes", "j", "ja").contains(a.trim.toLowerCase))
 
   // ── the files ─────────────────────────────────────────────────────────────────────────
 
@@ -135,12 +150,12 @@ object MergeReport:
   private[update] def changes(code: String, neu: String, context: Int = 2): Seq[String] =
     import ThreeWay.DiffLine
     // the line of the code each entry is at - a new line at the one of the code it comes before
-    var n        = 0
-    val numbered = ThreeWay.diff(code, neu).map:
-      case d: DiffLine.Spec => (n + 1, d)
-      case d                =>
-        n += 1
-        (n, d)
+    val diff     = ThreeWay.diff(code, neu)
+    // the lines of the code up to each entry - a new one is not one of them
+    val ofCode   = diff.scanLeft(0)((n, d) => if d.isInstanceOf[DiffLine.Spec] then n else n + 1).tail
+    val numbered = diff.zip(ofCode).map:
+      case (d: DiffLine.Spec, n) => (n + 1, d)
+      case (d, n)                => (n, d)
     val changed  = numbered.indices.filterNot(i => numbered(i)._2.isInstanceOf[DiffLine.Same])
     // near changes in one block
     val blocks   = changed.foldLeft(List.empty[(Int, Int)]): (acc, i) =>

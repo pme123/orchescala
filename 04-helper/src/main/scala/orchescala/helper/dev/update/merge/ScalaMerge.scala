@@ -26,7 +26,7 @@ import orchescala.helper.dev.update.OrchSpecImports
   * No parser: it reads the code as the generator writes it and a developer extends it - every
   * definition on a line of its own, a body indented deeper than its head, ending at the next line
   * of its level (or its `end X`). Known are `class`, `trait`, `enum`, `object`, `case`, `val`,
-  * `var`, `def`, `given`, `type`, `extension` and `import`, each after modifiers and annotations; a
+  * `var`, `def`, `given`, `type`, `extension`, `import` and `export`, each after modifiers and annotations; a
   * head over several lines (parameters, `extends`/`with`/`derives`) belongs to it. Another line of
   * a level continues the definition before it.
   */
@@ -85,6 +85,7 @@ object ScalaMerge:
   private val AliasStart = s"""$mods(?:type)\\s+(\\w+).*""".r
   private val ExtStart   = """extension\b\s*(.*?):?""".r
   private val ImportLine = """import\s+(.+)""".r
+  private val ExportLine = """export\s+(.+)""".r
   private val Annotation = """@\w+(?:\([^()]*\))?\s+(.*)""".r
 
   // `@description("…") def x` - the definition behind annotations on its line
@@ -100,6 +101,7 @@ object ScalaMerge:
       case AliasStart(n) => Some((Kind.Member, n, s"type $n"))
       case ExtStart(on)  => Some((Kind.Member, "extension", s"extension ${on.replaceAll("\\s+", "")}"))
       case ImportLine(i) => Some((Kind.Member, "import", s"import ${i.replaceAll("\\s+", "")}"))
+      case ExportLine(e) => Some((Kind.Member, "export", s"export ${e.replaceAll("\\s+", "")}"))
       case ValStart(n)   => Some((Kind.Member, n, n))
       case CaseStart(n)  =>
         val name = n.replaceAll("\\s+", "")
@@ -224,7 +226,6 @@ object ScalaMerge:
     val names     = (sParts ++ cParts).filter(p => p.kind == Kind.Type && sKeys(p.key)).map(_.name).toSet
     val out       = Seq.newBuilder[String]
     val removable = Seq.newBuilder[String]
-    // a class, an object, a case only the code has - an object of a type that stays is its companion
     // a class, object, case or declared field (a shared field of an enum) only the code has - an
     // object of a type that stays is its companion
     def removableCode(p: Part) =
@@ -311,9 +312,9 @@ object ScalaMerge:
       .replaceAll("(?s)/\\*.*?\\*/", "")
       .replaceAll("//[^\n]*", "")
 
-  // `???` or a `TODO` of the generator: the code has its implementation there
+  // `???` or a `TODO` of the generator: the code has its implementation there - not a `???` in a string
   private def placeholder(spec: Seq[String]): Boolean =
-    spec.exists(l => l.contains("???") || l.trim.startsWith("// TODO") || l.contains("/* TODO"))
+    spec.exists(l => l.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "\"\"").contains("???") || l.trim.startsWith("// TODO") || l.contains("/* TODO"))
 
   private def reindent(lines: Seq[String], shift: Int): Seq[String] =
     if shift == 0 then lines

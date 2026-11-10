@@ -22,7 +22,7 @@ import orchescala.helper.dev.update.merge.{MergePlan, OnConflict, ProcessExport,
   */
 case class OrchSpecGenerator(
     /** the question whether what only the code has goes - the console by default */
-    ask: String => Option[String] = q => { print(q); Option(scala.io.StdIn.readLine()) }
+    ask: String => Option[String] = MergeReport.readAnswer
 )(using config: DevConfig):
 
   /** «Process from Spec» of one process (`orchspec:` or pasted): decide (the plan, without a base),

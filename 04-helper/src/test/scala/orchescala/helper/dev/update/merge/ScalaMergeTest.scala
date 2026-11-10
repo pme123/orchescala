@@ -326,6 +326,59 @@ class ScalaMergeTest extends FunSuite:
     // only classes: the file goes
     assertEquals(ScalaMerge.orphaned("package acme\n\nimport acme.schema.*\n\n// a class\ncase class Old(x: Int)\n").rest, None)
 
+  test("properties: a file merged with itself stays as it is; what is left without the removable has nothing removable"):
+    for (c, sp) <- Seq(code -> spec, enumCode -> enumSpec, spec -> spec) do
+      assertEquals(ScalaMerge.merge(c, c).text, c)
+      assertEquals(ScalaMerge.merge(c, c).removable, Seq.empty)
+      val r = ScalaMerge.merge(c, sp)
+      assertEquals(ScalaMerge.merge(r.without, sp).removable, Seq.empty)
+      assertEquals(ScalaMerge.merge(r.text, sp).text, r.text)
+
+  test("a ??? in a string of the spec is no placeholder; an export is a part of its own"):
+    val code = """object Texts:
+                 |  val hint: String = "old"
+                 |  export Other.*
+                 |  def own: Int = 1
+                 |end Texts
+                 |""".stripMargin
+    val spec = """object Texts:
+                 |  val hint: String = "what ???"
+                 |end Texts
+                 |""".stripMargin
+    val r    = ScalaMerge.merge(code, spec)
+    assert(r.text.contains("  val hint: String = \"what ???\"\n  export Other.*\n  def own: Int = 1\n"), r.text)
+    assertEquals(r.removable, Seq.empty)
+
+  test("the question whether what only the code has goes: it names the files - y, yes, j, ja are a yes; anything else and no answer a no"):
+    import orchescala.helper.dev.update.MergeReport
+    val plan  = MergePlan("demo", Seq(
+      PlannedFile("a/Old.scala", Owner.generated, Action.unchanged, removal = Some(Removal(Seq("Old"), None))),
+      PlannedFile("a/In.scala", Owner.generated, Action.merged, removal = Some(Removal(Seq("In.Legacy", "In.dummy"), Some("x"))))
+    ))
+    var asked = ""
+    def answer(a: Option[String]) = MergeReport.askRemoval(plan, q => { asked = q; a })
+    for a <- Seq("y", "yes", "J", " ja ") do assert(answer(Some(a)), a)
+    for a <- Seq("n", "", "no", "later") do assert(!answer(Some(a)), a)
+    assert(!answer(None))
+    assert(asked.contains("the file a/Old.scala (Old)") && asked.contains("In.Legacy, In.dummy in a/In.scala"), asked)
+    assert(asked.contains("Delete these 3 class(es), object(s) and case(s) only the code has, 1 of the 2 file(s) as a whole?"), asked)
+    assert(!MergeReport.askRemoval(MergePlan("demo", Seq.empty), _ => fail("asked without a removal")))
+
+  test("the report: a binary file is not diffed as text"):
+    import orchescala.helper.dev.update.MergeReport
+    val project = os.temp.dir()
+    try
+      os.write(project / "logo.png", Array[Byte](-119, 80, 78, 71, 0, 1, 2, 3))
+      val neu     = java.util.Base64.getEncoder.encodeToString(Array[Byte](-119, 80, 78, 71, 9, 9))
+      val plan    = MergePlan("demo", Seq(PlannedFile("logo.png", Owner.spec, Action.update, content = Some(neu), binary = true)))
+      val out     = new java.io.ByteArrayOutputStream()
+      Console.withOut(out)(MergeReport.printPlan(plan, project))
+      val printed = out.toString.replaceAll("\u001b\\[[0-9;]*m", "")
+      assert(printed.contains("a binary file - its changes are not shown"), printed)
+      assert(!printed.contains(neu) && !printed.contains("PNG"), printed)
+      assertEquals(MergeReport.before(project, plan), Map.empty)
+    finally os.remove.all(project)
+
   test("the report: each change with the line of the code and two lines around it - near ones in one block"):
     import orchescala.helper.dev.update.MergeReport
     val code    = (1 to 12).map(i => s"  line$i").mkString("\n")

@@ -213,6 +213,8 @@ class SpecMergeTest extends FunSuite:
       val dir     = file(project, "CheckOrder.scala") / os.up
       os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n")
       os.write(dir / "OtherTask.scala", "package acme.demo.domain\npackage order.v1\n\nobject OtherTask:\n  val topicName = \"x\"\n")
+      // only the folder of the export - not one below it
+      os.write(dir / "extra" / "Deeper.scala", "package acme.demo.domain\npackage order.v1.extra\n\ncase class Deeper(x: Int)\n", createFolders = true)
       val plan    = SpecMerge.plan(project, Seq(order), Seq(order))
       assertEquals(plan.removals.map(f => f.path -> f.removal.get.names), Seq((dir / "Old.scala").relativeTo(project).toString -> Seq("Old")))
 

@@ -2,7 +2,6 @@ package orchescala.helper.dev.update
 
 import orchescala.helper.dev.update.merge.*
 
-import scala.io.StdIn
 import scala.util.Try
 
 /** `./helper.scala processFromSpec --check | --merge` - the merge from Orch Spec in the console:
@@ -78,7 +77,8 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       else if yes || confirm(plan, markers) then
         // what only the code has goes only when asked - `--yes` deletes nothing
         val remove = !yes && MergeReport.askRemoval(plan)
-        if yes && plan.removals.nonEmpty then println("--yes: what only the code has stays - run without --yes to be asked.")
+        if yes && plan.removals.nonEmpty then
+          println(Console.YELLOW + s"--yes deletes nothing: ${plan.removals.size} file(s) with what only the code has stay as they are - run without --yes to be asked." + Console.RESET)
         try
           val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove)
           println()
@@ -104,8 +104,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       if conflicts == 0 then ""
       else if markers then s" - $conflicts file(s) get conflict markers"
       else s" - $conflicts file(s) with conflicts stay as they are"
-    print(s"\nMerge into ${config.projectName}$what? [y/N] ")
-    Option(StdIn.readLine()).exists(a => Seq("y", "yes", "j", "ja").contains(a.trim.toLowerCase))
+    MergeReport.isYes(MergeReport.readAnswer(s"\nMerge into ${config.projectName}$what? [y/N] "))
 
   /** Orch Spec's comparison in business terms (`spec2diff.js`) - None without Node.js. If it
     * fails, why - the plan does not depend on it, so the command goes on.
