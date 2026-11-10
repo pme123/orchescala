@@ -201,7 +201,10 @@ object SpecMerge:
     plan.files.foreach: f =>
       try
         // only on a file that is merged or stays - a conflict is never written over by it
-        f.removal.filter(_ => remove(f.path) && Seq(Action.unchanged, Action.merged).contains(f.action)) match
+        val mergedOrStays = f.action match
+          case Action.unchanged | Action.merged => true
+          case _                                => false
+        f.removal.filter(_ => remove(f.path) && mergedOrStays) match
           // what only the code has - the developer said it goes
           case Some(Removal(names, None))          =>
             os.remove(project / os.RelPath(f.path))
@@ -252,8 +255,10 @@ object SpecMerge:
         else file(Action.merged, Some(r.text), removal = removal)
     def asText(c: String, n: String, why: String) =
       val r = ThreeWay.merge("", c, n, ignoreForm = true)
-      if r.clean then file(Action.merged, Some(r.text), note = Some(s"merged as text - $why"))
-      else file(Action.conflict, Some(r.text), r.conflicts, Some(s"merged as text - $why"))
+      // without a base only the form is merged - what differs beyond it is one conflict
+      val note = Some(s"$why - only the form merged, what differs is a conflict")
+      if r.clean then file(Action.merged, Some(r.text), note = note)
+      else file(Action.conflict, Some(r.text), r.conflicts, note)
     def structural(f: GeneratedFile) = f.kind == FileKind.Export && rel.ext == "scala"
     def processObject(n: GeneratedFile, c: String) =
       val merged = n.structural.fold(c)(_(c))

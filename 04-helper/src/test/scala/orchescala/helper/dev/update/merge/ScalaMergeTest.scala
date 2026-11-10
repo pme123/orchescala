@@ -446,7 +446,7 @@ class ScalaMergeTest extends FunSuite:
     val neu    = GeneratedFile(os.RelPath("a/Client.scala"), FileKind.Export, "package acme\n\ncase class Client(name: String)\n")
     val f      = SpecMerge.decide(os.RelPath("a/Client.scala"), None, Some(neu), Some(braces), None).get
     assertEquals(f.action, Action.conflict)
-    assert(f.note.exists(_.startsWith("merged as text")), f.note)
+    assert(f.note.exists(_.contains("only the form merged, what differs is a conflict")), f.note)
     assert(f.content.exists(t => t.contains("def own: Int = 1") && t.contains("case class Client(name: String)")), f.content)
 
   test("the report: each change with the line of the code and two lines around it - near ones in one block"):

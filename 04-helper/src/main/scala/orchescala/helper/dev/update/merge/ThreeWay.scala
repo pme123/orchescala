@@ -124,11 +124,17 @@ object ThreeWay:
             case single                      => Seq(single)
         case _ => Seq.empty
 
+    // a wildcard covers a plain name - not the givens (`a.given`), not a renamed one (`a.X as Y`),
+    // not one it hides (`{X as _, *}`)
     private def covered(code: Seq[String])(name: String): Boolean =
       val prefix = name.lastIndexOf('.') match
         case -1 => ""
         case i  => name.take(i)
-      code.contains(name) || code.contains(s"$prefix.*") || code.contains(s"$prefix._")
+      val simple = name.drop(prefix.length + 1)
+      val plain  = !simple.startsWith("given") && !simple.contains(" as ") && !simple.contains("=>")
+      code.contains(name) ||
+      plain && (code.contains(s"$prefix.*") || code.contains(s"$prefix._")) &&
+      !code.exists(c => c.startsWith(s"$prefix.$simple ") && c.endsWith("_"))
 
   end Imports
 

@@ -606,6 +606,14 @@ class SpecMergeTest extends FunSuite:
     assertEquals(conflict.conflicts, Seq(Conflict(2, "X", "B")))
     assertEquals(conflict.text, "a\n<<<<<<< code\nB\n=======\nX\n>>>>>>> orch-spec\nc\nd\ne\n")
 
+  test("ThreeWay imports: a wildcard of the code covers a plain name - not the givens, a renamed or a hidden one"):
+    def inForm(code: String, spec: String) = ThreeWay.Imports.inFormOf(s"$code\n\nval x = 1\n", s"$spec\n\nval x = 1\n")
+    assertEquals(inForm("import a.*", "import a.X"), "import a.*\n\nval x = 1\n")
+    assertEquals(inForm("import a.*", "import a.given"), "import a.given\n\nval x = 1\n")
+    assertEquals(inForm("import a.*", "import a.{X as Y}"), "import a.{X as Y}\n\nval x = 1\n")
+    assertEquals(inForm("import a.{X as _, *}", "import a.X"), "import a.X\n\nval x = 1\n")
+    assertEquals(inForm("import a.{X as _, *}", "import a.Z"), "import a.{X as _, *}\n\nval x = 1\n")
+
   test("ThreeWay - the form is no change: indentation and imports the code has in another form"):
     val code =
       """package a
