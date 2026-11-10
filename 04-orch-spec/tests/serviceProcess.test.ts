@@ -8,7 +8,7 @@ import { newCollection } from '../src/services/collection';
 import { newOrchestration, servicesByTopic } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import {
-  asOrchestration, flatten, fromOrchestration, isServiceProcess, newServiceProcess, serviceProcessTopic, withCollections, type ServiceProcess,
+  asOrchestration, flatten, fromOrchestration, isServiceProcess, newServiceProcess, serviceProcessTopic, withCollections, withOrchestrationTypes, type ServiceProcess,
 } from '../src/services/serviceProcess';
 import { removeOld, takeOver, type TakeOverStore } from '../src/services/takeOver';
 import type { CollectionService, ServiceCollectionSpec, ServiceOrchestrationSpec } from '../src/services/types';
@@ -267,4 +267,20 @@ test('renaming an orchestration: not to an ID whose file name another specificat
   const { serviceRefProblem } = await import('../src/services/serviceProcess');
   // a different ID, the same slug
   assert.match(serviceRefProblem({ project: 'acme-crm', api: 'client', apiVersion: '1', name: 'UpdateClient' }, ['acme-crm-clientv1-updateclient'])!, /gibt es schon/);
+});
+
+test('withOrchestrationTypes: an orchestrator finds the classes another one exports - not its own, the catalog wins', () => {
+  const mk = (name: string) => newServiceProcess({ title: name, project: 'acme-crm', api: 'client', apiVersion: 1, name }).spec;
+  const a = mk('GetClient');
+  a.types = [...(a.types ?? []), { id: 'c', name: 'Client', kind: 'enum', values: [{ name: 'Person', fields: [{ id: 'f', name: 'firstName', type: 'String' }] }] }];
+  const b = mk('GetClients');
+  const ids = (m: ReturnType<typeof withOrchestrationTypes>) => (m?.domainTypes ?? []).map(d => d.id);
+  const m = withOrchestrationTypes(null, [a, b], [], b.slug);
+  assert.ok(ids(m).includes('acme.crm.domain.client.v1.schema.Client'), ids(m).join(', '));
+  assert.ok(ids(m).includes('acme.crm.domain.client.v1.GetClient.In'));
+  // its own classes are not in it - they are its own types
+  assert.equal(withOrchestrationTypes(null, [a], [], a.slug), null);
+  // what the catalog knows stays as it is
+  const known = { version: 1, services: [], domainTypes: [{ id: 'acme.crm.domain.client.v1.schema.Client', name: 'Client', pkg: 'acme.crm.domain.client.v1.schema', kind: 'case' as const }] };
+  assert.equal(withOrchestrationTypes(known, [a, b], [], b.slug)?.domainTypes?.filter(d => d.name === 'Client').length, 1);
 });

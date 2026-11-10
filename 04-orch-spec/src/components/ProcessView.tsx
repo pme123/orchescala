@@ -49,7 +49,7 @@ import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements 
 import { collectDiagram, overlayPasted } from '../copyPaste';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
-import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, withCollectionTypes, withCollections, type ServiceProcess } from '../services/serviceProcess';
+import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, withCollectionTypes, withCollections, withOrchestrationTypes, type ServiceProcess } from '../services/serviceProcess';
 
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
@@ -189,7 +189,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
   useEffect(() => { if (!aiOn || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiOn, mayEdit]);
   // otherwise their classes — a type can refer to them (a copied class to its original)
-  const model = useMemo(() => (serviceMode ? withCollections(storeModel, collections) : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections]);
+  // in service mode also the classes of the other orchestrations - one can use a class another defines
+  const model = useMemo(() => (serviceMode
+    ? withOrchestrationTypes(withCollections(storeModel, collections), specs.map(x => x.data), collections, slug)
+    : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections, specs, slug]);
   const [serviceExportOpen, setServiceExportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
