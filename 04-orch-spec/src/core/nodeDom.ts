@@ -35,11 +35,12 @@ function protoWith(obj: object, prop: string): object {
   return Object.getPrototypeOf(obj);
 }
 
-let installed = false;
+/** The parsers whose prototypes have the namespaces - each one once. */
+const patched = new WeakSet<DomParserClass>();
 
 export function installXmlNamespaces(DOMParser: DomParserClass) {
-  if (installed) return;
-  installed = true;
+  if (patched.has(DOMParser)) return;
+  patched.add(DOMParser);
   const doc = new DOMParser().parseFromString('<a xmlns:x="u" x:c="1"><x:b/></a>', 'text/xml') as unknown as Document;
   const el = doc.documentElement;
   const elementProto = protoWith(el, 'getAttribute');
@@ -96,5 +97,7 @@ export function installNodeDom(DOMParser: DomParserClass) {
   const g = globalThis as unknown as Record<string, unknown>;
   g.DOMParser ??= DOMParser;
   g.XMLSerializer ??= class { serializeToString(doc: { toString(): string }) { return doc.toString(); } };
-  installXmlNamespaces(DOMParser);
+  // the namespaces for the parser in use only - one that was there already (a browser's, a host's)
+  // is complete and stays as it is
+  if (g.DOMParser === DOMParser) installXmlNamespaces(DOMParser);
 }

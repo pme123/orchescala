@@ -2,9 +2,10 @@
 // Bundled with esbuild as the studio would take it, it must reach
 //   - no React and no component (.tsx),
 //   - no package besides PACKAGES,
-//   - nothing that only the browser has (BROWSER) - esbuild replaces a reference to such a global
-//     with a marker (`define`: only real references, not a property, a text or a local of that name),
-//     and the marker must not be in the bundle,
+//   - nothing that only the browser has (BROWSER) - esbuild replaces a reference to such a global,
+//     also as `globalThis.<name>`, with a marker (`define`: only real references, not a property, a
+//     text or a local of that name), and the marker must not be in the bundle. A computed access
+//     (`globalThis['document']`) is not found - the check is for what is written plainly,
 // and the bundle must load in Node without a DOM. Exit 1 with what crossed it.
 //
 //   node tests/checkCore.ts        (npm run check:core, on CI)
@@ -18,8 +19,11 @@ const OUT = 'dist-core/core.mjs';
   * which the catalog collections of a service orchestration use) */
 const PACKAGES = ['feelin', 'fflate'];
 /** what only the browser has - XML (DOMParser, XMLSerializer) comes from the host, see src/core/index.ts */
-const BROWSER = ['window', 'document', 'localStorage', 'sessionStorage', 'navigator', 'location', 'history', 'alert', 'confirm', 'import.meta.env'];
+const GLOBALS = ['window', 'self', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator', 'location', 'history', 'alert', 'confirm'];
+const BROWSER = [...GLOBALS, ...GLOBALS.map((name) => `globalThis.${name}`), 'import.meta.env'];
 const MARK = '__browser_only__';
+const marker = (name: string) => `${MARK}${name.replaceAll('.', '_')}`;
+const nameOf = new Map(BROWSER.map((name) => [marker(name).slice(MARK.length), name]));
 
 const result = await build({
   entryPoints: [ENTRY],
@@ -30,7 +34,7 @@ const result = await build({
   metafile: true,
   write: false,
   logLevel: 'error',
-  define: Object.fromEntries(BROWSER.map((name) => [name, `${MARK}${name.replaceAll('.', '_')}`])),
+  define: Object.fromEntries(BROWSER.map((name) => [name, marker(name)])),
 });
 const code = result.outputFiles[0].text;
 const meta: Metafile = result.metafile;
@@ -44,7 +48,7 @@ const foreign = packages.filter((p) => !PACKAGES.some((ok) => p === ok || p.star
 const lines = code.split('\n');
 const moduleAt = (line: number) => lines.slice(0, line + 1).reverse().find((l) => /^\/\/ src\/.*\.ts$/.test(l))?.slice(3) ?? '?';
 const browser = lines.flatMap((l, n) =>
-  [...l.matchAll(new RegExp(`${MARK}(\\w+)`, 'g'))].map((m) => `${m[1].replace('import_meta_env', 'import.meta.env')} in ${moduleAt(n)}`));
+  [...l.matchAll(new RegExp(`${MARK}(\\w+)`, 'g'))].map((m) => `${nameOf.get(m[1]) ?? m[1]} in ${moduleAt(n)}`));
 
 const problems = [
   ...ui.map((i) => `a component: ${i}`),
