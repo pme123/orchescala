@@ -235,6 +235,7 @@ class SpecMergeTest extends FunSuite:
       assertEquals(os.read(dir / "Old.scala"), "package acme.demo.domain\npackage order.v1\n\nextension (o: Old)\n  def y: Int = o.x\n")
       assert(!os.exists(dir / "Said.scala"))
       assertEquals(result.removed.sorted, Seq("Old", "Said"))
+      assertEquals(result.removedIn.map(_.split('/').last).sorted, Seq("Old.scala", "Said.scala"))
 
   test("a removal is never written over a conflict - with or without markers"):
     inProject: project =>

@@ -420,7 +420,8 @@ class ScalaMergeTest extends FunSuite:
       PlannedFile("a/Old.scala", Owner.generated, Action.unchanged, removal = Some(Removal(Seq("Old"), None))),
       PlannedFile("a/Same.scala", Owner.generated, Action.unchanged)
     ))
-    val result  = MergeResult(Seq("a/New.scala", "a/In.scala"), Seq("a/Old.scala"), Seq.empty, Seq("Old"))
+    // `Old` went from a/Old.scala - a/In.scala removes a name of its own, it stays
+    val result  = MergeResult(Seq("a/New.scala", "a/In.scala"), Seq("a/Old.scala"), Seq.empty, Seq("Old"), Seq("a/Old.scala"))
     val out     = new java.io.ByteArrayOutputStream()
     Console.withOut(out)(MergeReport.printMerged(plan, result, os.temp.dir()))
     val printed = out.toString.replaceAll("\u001b\\[[0-9;]*m", "")
@@ -430,6 +431,21 @@ class ScalaMergeTest extends FunSuite:
         "END Merge from Orch Spec - demo: 1 created · 1 merged · 1 removed · 1 kept · 1 unchanged"
       )
     do assert(printed.contains(line), s"$line\n---\n$printed")
+
+  test("code it does not read - tabs, a body in braces - or a result with open brackets: merged as text, a conflict where it differs"):
+    assert(ScalaMerge.readable(code) && ScalaMerge.readable(enumCode))
+    assert(!ScalaMerge.readable("object A:\n\tval x = 1\n"))
+    assert(!ScalaMerge.readable("class A {\n  def own = 1\n}\n"))
+    // braces of a member or in a string are fine
+    assert(ScalaMerge.readable("object A:\n  def f = {\n    1\n  }\n  val s = \"class B {\"\n"))
+    assert(ScalaMerge.balanced(code) && ScalaMerge.balanced("val s = \")\" // (\n/* ( */ val c = '('"))
+    assert(!ScalaMerge.balanced("case class A(\n  x: Int\n") && !ScalaMerge.balanced("f(]"))
+    val braces = "package acme\n\nclass Client {\n  def own: Int = 1\n}\n"
+    val neu    = GeneratedFile(os.RelPath("a/Client.scala"), FileKind.Export, "package acme\n\ncase class Client(name: String)\n")
+    val f      = SpecMerge.decide(os.RelPath("a/Client.scala"), None, Some(neu), Some(braces), None).get
+    assertEquals(f.action, Action.conflict)
+    assert(f.note.exists(_.startsWith("merged as text")), f.note)
+    assert(f.content.exists(t => t.contains("def own: Int = 1") && t.contains("case class Client(name: String)")), f.content)
 
   test("the report: each change with the line of the code and two lines around it - near ones in one block"):
     import orchescala.helper.dev.update.MergeReport

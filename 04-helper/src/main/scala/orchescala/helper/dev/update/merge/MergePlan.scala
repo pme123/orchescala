@@ -150,7 +150,16 @@ enum OnConflict:
   case Markers
 
 /** What `merge` did. */
-case class MergeResult(written: Seq[String], deleted: Seq[String], conflicts: Seq[PlannedFile], removed: Seq[String] = Seq.empty)
+/** @param removed   the classes, objects and cases only the code had that went
+  * @param removedIn the files they went from
+  */
+case class MergeResult(
+    written: Seq[String],
+    deleted: Seq[String],
+    conflicts: Seq[PlannedFile],
+    removed: Seq[String] = Seq.empty,
+    removedIn: Seq[String] = Seq.empty
+)
 
 /** A file changed between the check and the merge - nothing was written; it needs a new check. */
 case class MergeAborted(changed: Seq[String])

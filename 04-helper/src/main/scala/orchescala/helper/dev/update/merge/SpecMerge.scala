@@ -158,8 +158,7 @@ object SpecMerge:
   /** 2. Merge: exactly the plan - first all `codeHash` are checked: if a file changed since the
     * check, it aborts without writing a file (`MergeAborted`). If writing or deleting a file fails,
     * it stops there - `MergeIncomplete` tells what was done before.
-    */
-  /** @param remove the files whose removal applies - what only the code has goes there (the
+    * @param remove the files whose removal applies - what only the code has goes there (the
     *               developer said so, `MergeReport.askRemoval`); elsewhere it stays
     */
   def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Set[String] = Set.empty): MergeResult =
@@ -189,8 +188,9 @@ object SpecMerge:
         finally Try(os.remove(temp))
       end if
       written += f.path
-    val removed = Seq.newBuilder[String]
-    def result  = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result())
+    val removed   = Seq.newBuilder[String]
+    val removedIn = Seq.newBuilder[String]
+    def result    = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result(), removedIn.result())
     def planned(f: PlannedFile): Unit = f.action match
       case Action.create | Action.update | Action.merged       => write(f)
       case Action.delete                                       =>
@@ -207,9 +207,11 @@ object SpecMerge:
             os.remove(project / os.RelPath(f.path))
             deleted += f.path
             removed ++= names
+            removedIn += f.path
           case Some(Removal(names, Some(content))) =>
             write(f.copy(content = Some(content), binary = false))
             removed ++= names
+            removedIn += f.path
           case None                                => planned(f)
       catch case NonFatal(e) => throw MergeIncomplete(result, f.path, e)
     result
@@ -237,13 +239,21 @@ object SpecMerge:
     ) =
       Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note, removal = removal))
     // a Scala file of the export: by structure into the code - the code is the basis
+    // code it does not read (tabs, braces) or a result whose brackets do not close: as text, like
+    // git - what differs is a conflict, nothing of the code is lost unseen
     def intoCode(c: String, n: String) =
       if same(c, n) then file(Action.unchanged)
+      else if !ScalaMerge.readable(c) then asText(c, n, "not in the form the structural merge reads (tabs or braces)")
       else
         val r       = ScalaMerge.merge(c, n)
         val removal = Option.when(r.removable.nonEmpty)(Removal(r.removable, Some(r.without)))
-        if same(r.text, c) then file(Action.unchanged, note = Option.when(removal.isEmpty)("only the form differs"), removal = removal)
+        if !ScalaMerge.balanced(r.text) || !ScalaMerge.balanced(r.without) then asText(c, n, "the structural merge did not close its brackets")
+        else if same(r.text, c) then file(Action.unchanged, note = Option.when(removal.isEmpty)("only the form differs"), removal = removal)
         else file(Action.merged, Some(r.text), removal = removal)
+    def asText(c: String, n: String, why: String) =
+      val r = ThreeWay.merge("", c, n, ignoreForm = true)
+      if r.clean then file(Action.merged, Some(r.text), note = Some(s"merged as text - $why"))
+      else file(Action.conflict, Some(r.text), r.conflicts, Some(s"merged as text - $why"))
     def structural(f: GeneratedFile) = f.kind == FileKind.Export && rel.ext == "scala"
     def processObject(n: GeneratedFile, c: String) =
       val merged = n.structural.fold(c)(_(c))

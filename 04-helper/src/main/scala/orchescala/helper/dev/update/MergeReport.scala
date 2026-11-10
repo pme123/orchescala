@@ -131,7 +131,8 @@ object MergeReport:
     Option.when(os.isFile(file))(os.read(file))
 
   private def removed(f: PlannedFile, result: Option[MergeResult]) =
-    result.exists(r => f.removal.exists(_.names.forall(r.removed.contains)))
+    // by its file - the same name may go in one file and stay in another
+    result.exists(r => f.removal.nonEmpty && r.removedIn.contains(f.path))
 
   private def what(f: PlannedFile, r: Removal) =
     if r.content.isEmpty then s"the file ${f.path} (${r.names.mkString(", ")})" else s"${r.names.mkString(", ")} in ${f.path}"

@@ -62,6 +62,43 @@ object ScalaMerge:
     // the gap before a class that goes stays with the header
     Orphaned(names, Option.when(code_.nonEmpty)((c.take(first) ++ body.dropWhile(_.isBlank)).mkString("\n")))
 
+  /** Code in the form it reads: indented with blanks, no class, object or extension with a body in
+    * braces. Otherwise the caller merges it as text.
+    */
+  def readable(code: String): Boolean =
+    val lines  = code.split("\n", -1).toSeq
+    val inside = continued(lines)
+    !lines.indices.exists: i =>
+      val l = lines(i)
+      !inside(i) && (l.takeWhile(_.isWhitespace).contains('\t') ||
+        l.trim.endsWith("{") && start(l.trim).exists((kind, name, _) => kind == Kind.Type || kind == Kind.Obj || name == "extension"))
+
+  /** The brackets close - `(`, `[`, `{` outside strings, characters and comments; what the merge
+    * writes is checked with it.
+    */
+  def balanced(code: String): Boolean =
+    val pairs = Map(')' -> '(', ']' -> '[', '}' -> '{')
+    @annotation.tailrec
+    def go(i: Int, open: List[Char]): Boolean =
+      if i >= code.length then open.isEmpty
+      else if code.startsWith("//", i) then go(code.indexOf('\n', i) match { case -1 => code.length; case j => j }, open)
+      else if code.startsWith("/*", i) then go(commentEnd(code, i + 2, 1), open)
+      else if code.startsWith("\"\"\"", i) then go(code.indexOf("\"\"\"", i + 3) match { case -1 => code.length; case j => j + 3 }, open)
+      else if code(i) == '"' then go(stringEnd(code, i + 1), open)
+      else if code(i) == '\'' && i + 2 < code.length && code(i + 2) == '\'' then go(i + 3, open)
+      else if "([{".contains(code(i)) then go(i + 1, code(i) :: open)
+      else if pairs.contains(code(i)) then open.headOption.contains(pairs(code(i))) && go(i + 1, open.tail)
+      else go(i + 1, open)
+    go(0, Nil)
+
+  // the index after the `*/` closing a (nested) block comment
+  @annotation.tailrec
+  private def commentEnd(code: String, i: Int, depth: Int): Int =
+    if i >= code.length then code.length
+    else if code.startsWith("*/", i) then (if depth == 1 then i + 2 else commentEnd(code, i + 2, depth - 1))
+    else if code.startsWith("/*", i) then commentEnd(code, i + 2, depth + 1)
+    else commentEnd(code, i + 1, depth)
+
   /** Equal but for blanks and line breaks. */
   def sameStructure(a: String, b: String): Boolean = compact(a) == compact(b)
 
