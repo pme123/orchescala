@@ -1,5 +1,6 @@
 // The designer of a page (E15): the outline of its building blocks, the page live - with the same renderer
 // as the app, fed with sample data of the services - and the properties of the selected building block.
+import { useFolderModel } from '../../useFolderModel';
 import {
   AlertTriangle, ArrowUpRight, ChevronLeft, ClipboardCheck, GripVertical, Heading, Info, ListChecks, Loader2, MousePointerClick, Plus, Redo2,
   History as HistoryIcon, MessageSquare, RotateCcw, Rows3, SquareDashed, Sparkles, TextCursorInput, Type, CalendarRange, Undo2,
@@ -275,7 +276,9 @@ export default function PageEditor({ slug, onBack, aiPrompt, focusCommentId, not
   const undo = () => step('undo');
   const redo = () => step('redo');
 
-  const targets = useMemo(() => (model ? targetsOf(model, specs.map((s) => s.data)) : EMPTY), [model, specs]);
+  // the folder as a whole: also its collections and orchestrations as services, its processes (folderCatalog)
+  const folderModel = useFolderModel();
+  const targets = useMemo(() => (folderModel ? targetsOf(folderModel, specs.map((s) => s.data)) : EMPTY), [folderModel, specs]);
   const gateway = useMemo(() => previewGateway(targets), [targets]);
   const paths = useMemo(() => (shown ? statePaths(shown, targets) : []), [shown, targets]);
   const findings = useMemo(

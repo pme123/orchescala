@@ -1,3 +1,4 @@
+import type { TaskPageDraft } from './pages/taskLinks';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldCheck, Cloud, KeyRound, BookOpen, Loader2, Undo2, SquareFunction, AppWindow, Workflow, Sparkles, Boxes } from 'lucide-react';
@@ -27,7 +28,7 @@ import { CompanyFolderHint, useCompanyFolder } from './companyFolder';
 
 // `back`: a process in service mode opened from the services goes back there
 type View = { kind: 'list' } | { kind: 'spec'; slug: string; commentId?: string; stepId?: string; back?: 'services' } | { kind: 'admin' }
-  | { kind: 'pages' } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string }
+  | { kind: 'pages'; create?: TaskPageDraft } | { kind: 'page'; slug: string; aiPrompt?: string; commentId?: string; notice?: string }
   | { kind: 'services' } | { kind: 'service'; slug: string };
 
 // Deep link (?spec=<slug>&comment=<id> or ?page=<slug>&comment=<id> for a page, see util.deepLink): on start take it from
@@ -457,7 +458,7 @@ export default function App() {
           </Suspense>
         ) : view.kind === 'pages' ? (
           <Suspense fallback={<Loader2 size={14} className="animate-spin m-6" />}>
-            <PagesView onOpen={(slug, aiPrompt, notice) => setView({ kind: 'page', slug, aiPrompt, notice })}
+            <PagesView create={view.create} onOpen={(slug, aiPrompt, notice) => setView({ kind: 'page', slug, aiPrompt, notice })}
               onOpenTask={(slug, stepId) => setView({ kind: 'spec', slug, stepId })} />
           </Suspense>
         ) : view.kind === 'page' ? (
@@ -476,7 +477,8 @@ export default function App() {
         ) : (
           <ProcessView key={view.slug} slug={view.slug} focusCommentId={view.commentId} focusStepId={view.stepId}
             onBack={() => setView(view.back === 'services' ? { kind: 'services' } : { kind: 'list' })}
-            onOpenPage={pageSlug => setView({ kind: 'page', slug: pageSlug })} />
+            onOpenPage={pageSlug => setView({ kind: 'page', slug: pageSlug })}
+            onNewPage={draft => setView({ kind: 'pages', create: draft })} />
         )}
       </div>
 

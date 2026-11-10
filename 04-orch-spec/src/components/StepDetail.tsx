@@ -25,7 +25,7 @@ import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { useStore } from '../store';
-import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
+import { pagesForTask, taskPageDraft, userTaskSteps, type TaskPageDraft } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, typeUnknown, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
@@ -60,6 +60,10 @@ interface Props {
   hasDiagram?: boolean;
   /** to a page of the app - the pages that complete a user task */
   onOpenPage?: (pageSlug: string) => void;
+  /** a new page for the user task - the dialog «Neu» of the pages, filled in */
+  onNewPage?: (draft: TaskPageDraft) => void;
+  /** an existing page completes the user task: a button «Abschliessen» at its end */
+  onAttachPage?: (pageSlug: string, taskKey: string, out: string[]) => void;
 }
 
 // Width, border and background come from the right column — only content here.
@@ -354,7 +358,7 @@ function VariableRow({ v, conflict, isDark, canEdit, onDescribe, onRemove }: {
 }
 
 // ── Step level ────────────────────────────────────────────────────────────
-function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram, onOpenPage }: Props & { step: Step }) {
+function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram, onOpenPage, onNewPage, onAttachPage }: Props & { step: Step }) {
   const confirm = useConfirm();
   const { pages, specs } = useStore();
   const c = cls(isDark);
@@ -502,7 +506,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 ? `\n⚠ Der Schlüssel «${ia.key}» kommt auch in ${keyElsewhere.map(t => `«${t.process}»`).join(', ')} vor – die Seite gilt für alle.`
                 : '';
               const tone = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
-              return forTask.length ? forTask.map(pg => (
+              const links = forTask.length ? forTask.map(pg => (
                 <button key={pg.slug} onClick={() => onOpenPage(pg.slug)}
                   title={`Die Seite «${pg.title}» schliesst diesen Benutzer-Task ab – Klick: zur Seite im Seiten-Designer${elsewhere}`}
                   className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
@@ -511,6 +515,31 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               )) : (
                 <span title={`Keine Seite der App schliesst «${ia.key}» ab (Aktion «Task abschliessen»)`}
                   className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted}`}>keine Seite</span>
+              );
+              return links;
+            })()}
+            {/* a page for the user task: a new one (the dialog «Neu», filled in) or one that is there */}
+            {ia?.kind === 'userTask' && canEdit && (onNewPage || onAttachPage) && (() => {
+              const outFields = ((spec.types ?? []).find(t => t.id === ia.outTypeId)?.fields ?? []).map(f => f.name).filter(Boolean);
+              const others = pages.filter(pg => !taskPages.some(t => t.slug === pg.slug));
+              return (
+                <>
+                  {onNewPage && (
+                    <button onClick={() => onNewPage(taskPageDraft({ key: ia.key, name: step.name || ia.name, process: spec.title || spec.slug }, outFields, pages.map(pg => pg.data.path)))}
+                      title={`Eine Seite für «${ia.key}» anlegen – mit den Feldern des Out und einem Button «Abschliessen»`}
+                      className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${c.btn}`}>
+                      <Plus size={9} />Seite anlegen
+                    </button>
+                  )}
+                  {onAttachPage && others.length > 0 && (
+                    <select value="" onChange={e => { if (e.target.value) onAttachPage(e.target.value, ia.key, outFields); }}
+                      title={`Eine bestehende Seite schliesst «${ia.key}» ab – sie bekommt am Ende einen Button «Abschliessen»`}
+                      className={`text-[9px] px-1 py-0.5 rounded border bg-transparent ${c.border2} ${c.muted}`}>
+                      <option value="">Seite wählen …</option>
+                      {others.map(pg => <option key={pg.slug} value={pg.slug}>{pg.data.title || pg.slug}</option>)}
+                    </select>
+                  )}
+                </>
               );
             })()}
             {!ia && foreign && (
@@ -1406,6 +1435,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
         {canEdit && <ChevronDown size={12} className={c.muted} />}
       </button>
       {current?.description && <p className={`text-[10px] mt-1 ${c.muted}`}>{current.description.split('\n')[0]}</p>}
+      {current?.unreleased && <p className="text-[10px] mt-1 text-amber-600">Noch nicht released – aus dem Ordner, kommt mit dem nächsten Release in den Katalog.</p>}
 
       {open && (
         <div className={`mt-1 rounded border ${c.border2} ${c.panelStrong}`}>
@@ -1420,7 +1450,9 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
             {hits.map(s => (
               <button key={s.id} onClick={() => apply(s)}
                 className={`w-full text-left px-2 py-1.5 border-b last:border-b-0 ${c.border} ${c.hover}`}>
-                <div className={`text-[11px] truncate ${c.text}`}>{s.name}</div>
+                <div className={`text-[11px] truncate ${c.text}`}>{s.name}
+                  {s.unreleased && <span title="Aus dem Ordner – wählbar, kommt mit dem nächsten Release in den Katalog" className="ml-1.5 text-[9px] text-amber-600">noch nicht released</span>}
+                </div>
                 <div className={`text-[9px] font-mono truncate ${c.muted}`}>{s.id}</div>
                 <div className={`text-[9px] ${c.muted}`}>
                   {(s.inputs?.length ?? 0)} Eingaben · {(s.outputs?.length ?? 0)} Ausgaben
@@ -1428,7 +1460,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
                 </div>
               </button>
             ))}
-            {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden. Katalog im Admin befüllen.</div>}
+            {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden – weder im Katalog noch im Ordner.</div>}
           </div>
         </div>
       )}

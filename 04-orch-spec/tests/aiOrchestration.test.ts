@@ -46,8 +46,8 @@ test('the services an orchestration can call - the same as a step (callableServi
   assert.deepEqual(services[1].in.map((f) => `${f.name}: ${f.type}`), ['clientKey: Long', 'name: String']);
   assert.deepEqual(services[1].out, []); // noOut
   assert.deepEqual([...callableTopics(ctx)], services.map((s) => s.topic));
-  // the workers of a process are not what an orchestration calls - and vice versa
-  assert.equal(callableTopics({ model, serviceMode: false }).has(PUT), false);
+  // with the model of the folder (folderCatalog) a process calls the services of the folder's collections too
+  assert.equal(callableTopics({ model, serviceMode: false }).has(PUT), true);
 });
 
 test('service mode - only service steps with a service of the orchestration; the tool says why', () => {

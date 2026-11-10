@@ -769,6 +769,11 @@ export interface ServiceDef {
   handledErrors?: string[];
   /** for subprocesses the called process (`calledElement`) */
   calledProcess?: string;
+  /**
+   * From the folder, not (yet) in the catalog: a service of a collection, a service orchestration, a
+   * process - usable already, «noch nicht released» (see folderCatalog). Never saved.
+   */
+  unreleased?: boolean;
   docUrl?: string;
   /**
    * Built locally («Neu aufbauen» or «OpenAPI einlesen», ISO time): on purpose - it overrides a
@@ -818,6 +823,8 @@ export interface DomainType {
   id: string;
   /** from the bundled `catalog.generated.json` — see ServiceDef.generated */
   generated?: boolean;
+  /** a class of a process of the folder, not (yet) in the catalog - see ServiceDef.unreleased */
+  unreleased?: boolean;
   /** Scala type, e.g. `GetAccount.Out` or `InAddress` */
   name: string;
   pkg: string;
