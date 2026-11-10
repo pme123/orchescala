@@ -70,16 +70,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       json.foreach: file =>
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
-      if !merge then true
-      else if !plan.hasChanges && !(markers && plan.hasConflicts) && plan.removals.isEmpty then
-        println("Nothing to merge.")
-        true
-      else if yes || confirm(plan, markers) then
-        // what only the code has goes only when asked - `--yes` deletes nothing
-        val remove = if yes then Set.empty[String] else MergeReport.askRemoval(plan)
-        if yes && plan.removals.nonEmpty then
-          val kept = plan.removals.size
-          println(MergeReport.colored(Console.YELLOW, s"--yes deletes nothing: $kept file(s) with what only the code has stay as they are - run without --yes to be asked."))
+      def mergeWith(remove: Set[String]): Boolean =
         try
           val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove)
           println()
@@ -91,6 +82,29 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
             println()
             MergeReport.printIncomplete(e)
             false
+      // what only the code has goes only when asked - `--yes` deletes nothing
+      def keptByYes() =
+        println(MergeReport.colored(Console.YELLOW, s"--yes deletes nothing: ${plan.removals.size} file(s) with what only the code has stay as they are - run without --yes to be asked."))
+      val nothingElse = !plan.hasChanges && !(markers && plan.hasConflicts)
+      if !merge then true
+      else if nothingElse && plan.removals.isEmpty then
+        println("Nothing to merge.")
+        true
+      else if nothingElse then
+        // only what only the code has: its question alone, no merge to confirm
+        if yes then
+          println("Nothing to merge.")
+          keptByYes()
+          true
+        else
+          val remove = MergeReport.askRemoval(plan)
+          if remove.isEmpty then
+            println("Nothing deleted.")
+            true
+          else mergeWith(remove)
+      else if yes || confirm(plan, markers) then
+        if yes && plan.removals.nonEmpty then keptByYes()
+        mergeWith(if yes then Set.empty else MergeReport.askRemoval(plan))
       else
         println("Not merged.")
         true

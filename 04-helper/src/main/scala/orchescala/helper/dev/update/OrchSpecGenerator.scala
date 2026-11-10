@@ -1453,12 +1453,20 @@ object OrchSpecImports:
         val wanted   = names(selector)
         packages.contains(prefix) && !wanted.contains("*") ||
         wanted.forall: n =>
-          existing.exists((p, ns) => (p == prefix && (ns.contains(n) || ns.contains("*"))) || (n != "*" && ns.contains(n)))
+          existing.exists((p, ns) => (p == prefix && (ns.contains(n) || ns.contains("*") && !ns.contains(s"-$n"))) || (n != "*" && ns.contains(n)))
       case _                        => lines.exists(_.trim == importLine.trim)
 
+  // the names an import brings into scope: `X`, `*` - a renamed one under its new name (`X as Y`:
+  // `Y`), a hidden one as `-X` (`X as _`: not by the `*` next to it); `given` brings none
   private def names(selector: String): Seq[String] =
-    selector.stripPrefix("{").stripSuffix("}").split(",").toSeq.map(_.trim.split("\\s+").head)
-      .map(n => if n == "_" then "*" else n).filter(_.nonEmpty)
+    selector.stripPrefix("{").stripSuffix("}").split(",").toSeq.map(_.trim).filter(_.nonEmpty).flatMap: s =>
+      s.split("\\s*(?:\\bas\\b|=>)\\s*").toSeq match
+        case Seq("_" | "*")                    => Seq("*")
+        case Seq(n) if n.startsWith("given")   => Seq.empty
+        case Seq(n)                            => Seq(n)
+        case Seq(n, "_")                       => Seq(s"-$n")
+        case Seq(_, alias)                     => Seq(alias)
+        case _                                 => Seq.empty
 
   // `package acme.product` + `package domain.orderCard.v1` - both are visible without import
   private def visiblePackages(lines: Seq[String]): Seq[String] =

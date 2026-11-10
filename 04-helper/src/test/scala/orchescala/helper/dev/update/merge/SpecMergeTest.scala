@@ -239,6 +239,15 @@ class SpecMergeTest extends FunSuite:
       assertEquals(result.removed.sorted, Seq("Old", "Said"))
       assertEquals(result.removedIn.map(_.split('/').last).sorted, Seq("Old.scala", "Said.scala"))
 
+  test("a folder another process shares: nothing of it asked - its classes may be that process's"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val dir  = file(project, "CheckOrder.scala") / os.up
+      os.write(dir / "OtherProcess.scala", "package acme.demo.domain\npackage order.v1\n\nobject OtherProcess:\n  final val processName = \"demo-other\"\n")
+      os.write(dir / "OtherIn.scala", "package acme.demo.domain\npackage order.v1\n\ncase class OtherIn(x: Int)\n")
+      val plan = SpecMerge.plan(project, Seq(order), Seq(order))
+      assertEquals(plan.removals, Seq.empty)
+
   test("a removal is never written over a conflict - with or without markers"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))

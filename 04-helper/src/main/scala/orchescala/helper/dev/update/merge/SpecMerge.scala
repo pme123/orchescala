@@ -378,11 +378,17 @@ object SpecMerge:
     val ownObject = "(?m)^\\s*(?:(?:final|lazy|override|private|protected)\\s+)*(?:val|def)\\s+(?:topicName|processName)\\b".r
     val dirs = generated.filter(f => f.kind == FileKind.Export && f.rel.ext == "scala").map(_.rel / os.up)
       .filter(_.segments.exists(_.matches("v\\d+"))).distinct.sortBy(_.toString)
+    // another process in the folder (its process object, not in this export): the folder is shared -
+    // its classes may be that process's, nothing of it is asked
+    val ofProcess = "(?m)^\\s*(?:(?:final|lazy|override|private|protected)\\s+)*(?:val|def)\\s+processName\\b".r
     dirs.filter(d => os.isDir(project / d)).flatMap: dir =>
-      os.list(project / dir).filter(f => os.isFile(f) && f.ext == "scala").map(_.relativeTo(project))
-        .filterNot(planned).sortBy(_.toString).flatMap: rel =>
-          // a file that cannot be read (not UTF-8) is not asked - and does not stop the plan
-          Try(os.read(project / rel)).toOption.flatMap: code =>
+      // a file that cannot be read (not UTF-8) is not asked - and does not stop the plan
+      val others = os.list(project / dir).filter(f => os.isFile(f) && f.ext == "scala").map(_.relativeTo(project))
+        .filterNot(planned).sortBy(_.toString).map(rel => rel -> Try(os.read(project / rel)).toOption)
+      if others.exists((_, code) => code.exists(ofProcess.findFirstIn(_).isDefined)) then Seq.empty
+      else
+        others.flatMap: (rel, read) =>
+          read.flatMap: code =>
             if ownObject.findFirstIn(code).isDefined then None
             else
               orphaned(code).map: r =>
