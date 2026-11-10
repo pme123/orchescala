@@ -10,11 +10,13 @@
 //   into the `schema` of the deepest such level — otherwise into the `schema` of
 //   its first API, as before.
 // · An import (OpenAPI, from the catalog, the Abgleich) takes a class of the same
-//   name the project has higher up in the hierarchy as the collection's own: the
+//   name the project has in a `schema` of its hierarchy as the collection's own: the
 //   type of the collection goes, its uses point into the catalog. A class of another
 //   name counts as well when it has exactly the same structure — the same values of a
 //   simple enum, the same fields with the same types — and is the only one of its level.
-//   The top of the hierarchy is the `schema` of the domain (`acme.crm.domain.schema`).
+//   Every `schema` of the project is searched, the nearest first (`searchGroups`): the
+//   levels above the API up to `acme.crm.domain.schema`, then the other levels, then the
+//   packages of the other APIs.
 import { domainRef, parseDomainRef } from '../serviceTypes.ts';
 import type { DomainType, Field, Model, TypeDef } from '../types.ts';
 import { apiOf, apiParents, apisOf, collectionPackage, hierarchySchemaPackages, sameApi, type ApiRef } from './collection.ts';
@@ -104,13 +106,42 @@ export function schemaPackageOf(c: ServiceCollectionSpec, typeId: string): strin
 
 const CLASS_KINDS = new Set<DomainType['kind']>(['case', 'enum', 'alias']);
 
-/** A class of the project higher up in the hierarchy with the name — nearest level first. */
-function inHierarchy(name: string, apis: ApiRef[], model: Model | null): DomainType | undefined {
+// an API's own package: `acme.crm.domain.clientMaster.persons.v1.schema` — no level shared by APIs
+const VERSIONED = /\.v\d+\.schema$/;
+
+/**
+ * Where the classes of the hierarchy are searched — every `schema` package of the project, in
+ * groups, the nearest first: the levels above the APIs that use a type (each a group, up to
+ * `domain.schema`), then the other levels of the project (`clientMaster.schema`), the shallow ones
+ * first, and last the `schema` of the other APIs. The packages of the collection's own APIs are none:
+ * what is there is the collection's.
+ */
+export function searchGroups(by: ApiRef[], apis: ApiRef[], model: Model | null): string[][] {
+  const above = [...new Set(by.flatMap(a => hierarchySchemaPackages(a)))];
+  const stems = [...new Set(by.map(a => [...a.project.split('-').filter(Boolean), 'domain'].join('.')))];
+  const own = apis.map(a => `${collectionPackage(a)}.`);
+  const others = [...new Set((model?.domainTypes ?? []).filter(d => !d.owner).map(d => d.pkg))]
+    .filter(p => p.endsWith('.schema') && !above.includes(p) && stems.some(x => p.startsWith(`${x}.`)) && !own.some(o => p.startsWith(o)))
+    .sort();
+  const depth = (p: string) => p.split('.').length;
+  const levels = others.filter(p => !VERSIONED.test(p));
+  const byDepth = [...new Set(levels.map(depth))].sort((a, b) => a - b).map(n => levels.filter(p => depth(p) === n));
+  const ofApis = others.filter(p => VERSIONED.test(p));
+  return [...above.map(p => [p]), ...byDepth, ...(ofApis.length ? [ofApis] : [])];
+}
+
+/**
+ * A class of the project with the name — in the nearest group that has one; of several there the
+ * one with the same fields, otherwise none.
+ */
+function inHierarchy(t: TypeDef, groups: string[][], model: Model | null): DomainType | undefined {
   const domain = model?.domainTypes ?? [];
-  const pkgs = [...new Set(apis.flatMap(a => hierarchySchemaPackages(a)))];
-  for (const pkg of pkgs) {
-    const hit = domain.find(d => d.pkg === pkg && d.name === name && !d.owner && CLASS_KINDS.has(d.kind));
-    if (hit) return hit;
+  for (const group of groups) {
+    const hits = domain.filter(d => group.includes(d.pkg) && d.name === t.name && !d.owner && CLASS_KINDS.has(d.kind));
+    if (!hits.length) continue;
+    if (hits.length === 1) return hits[0];
+    const same = hits.filter(d => d.kind !== 'alias' && !differences(t, d).length);
+    return same.length === 1 ? same[0] : undefined;
   }
   return undefined;
 }
@@ -188,8 +219,8 @@ const describedType = (t: TypeDef) => (t.fields ?? []).map(f => `${f.name}:${sai
 
 /**
  * The types of the collection the hierarchy has under another name with exactly the same
- * structure: taken from there like one of the same name. Only one such class on the nearest level
- * with one counts — of two of the same structure there the one whose fields have the same
+ * structure: taken from there like one of the same name. Only one such class in the nearest group
+ * of `searchGroups` with one counts — of two of the same structure there the one whose fields have the same
  * descriptions; otherwise the type stays. A type whose fields
  * point to a type taken over is compared with the name it gets: the simple enums first, then the
  * classes that use them.
@@ -228,8 +259,8 @@ function sameStructure(
       if (t.domainId && by.some(a => t.domainId!.startsWith(`${collectionPackage(a)}.`))) continue;
       const shape = typeShape(t, nameOf);
       if (!shape) continue;
-      for (const pkg of [...new Set(by.flatMap(a => hierarchySchemaPackages(a)))]) {
-        const all  = byShape(pkg).get(shape) ?? [];
+      for (const group of searchGroups(by, apis, model)) {
+        const all  = group.flatMap(pkg => byShape(pkg).get(shape) ?? []);
         if (!all.length) continue;
         // several of the same structure: the one whose fields say the same
         const hits = all.length === 1 ? all : all.filter(d => described(d) === describedType(t));
@@ -245,8 +276,8 @@ function sameStructure(
 }
 
 /**
- * The types of the collection the project has higher up in the hierarchy (same name, in the
- * `schema` of a level above an API that uses it) are taken from there: the type goes, every
+ * The types of the collection the project has in its hierarchy (same name, in a `schema` of the
+ * project — the nearest first, see `searchGroups`) are taken from there: the type goes, every
  * use points to the class of the catalog. A type the project has in the API's own package
  * (its `domainId` there) stays — the project says where it lives.
  * @param keep the ids of the types the user keeps as the collection's own — not taken over; a
@@ -263,7 +294,7 @@ export function adoptHierarchyTypes(c: ServiceCollectionSpec, model: Model | nul
     const by = users.get(t.id) ?? apis;
     // the project has it with its API — not a candidate
     if (t.domainId && by.some(a => t.domainId!.startsWith(`${collectionPackage(a)}.`))) continue;
-    const hit = inHierarchy(t.name, by, model);
+    const hit = inHierarchy(t, searchGroups(by, apis, model), model);
     if (!hit) continue;
     replace.set(t.id, domainRef(hit.id));
     // the same name, but other fields: taken all the same — the preview shows it to check

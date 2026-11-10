@@ -541,7 +541,7 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
 
 /** `Gender`, `NaturalPersonGender1 → Gender1` — what was taken from the hierarchy. */
 const adoptedNote = (adopted: Adopted[]) =>
-  `Aus der Hierarchie übernommen: ${adopted.map(a => `${a.renamed ? `${a.name} → ` : ''}${a.from.split('.').slice(-2).join('.')}`).join(', ')}`;
+  `Aus der Hierarchie übernommen: ${adopted.map(a => `${a.renamed ? `${a.name} → ` : ''}${a.from.split('.domain.').pop()}`).join(', ')}`;
 
 /** What the Abgleich with the catalog changes — before it applies. */
 /** The own project folder is remembered but not readable — as in the process sync: choose it, or a ZIP. */

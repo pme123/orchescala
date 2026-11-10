@@ -9,8 +9,8 @@ import { cls } from '../ui';
 import { adoptHierarchyTypes, type Adopted } from './hierarchy';
 import type { ServiceCollectionSpec } from './types';
 
-/** `acme.crm.domain.clientMaster.schema.Gender` → `schema.Gender` */
-const shortRef = (from: string) => from.split('.').slice(-2).join('.');
+/** `acme.crm.domain.clientMaster.schema.Gender` → `clientMaster.schema.Gender` — where it lives below the domain */
+const shortRef = (from: string) => from.split('.domain.').pop() ?? from;
 
 /**
  * The checkboxes of the found types.

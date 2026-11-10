@@ -7,7 +7,7 @@ import { catalogProjects, collectionFromCatalog, nestedApi, syncWithCatalog } fr
 import {
   API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceIssues, serviceTopic, workerPackage,
 } from '../src/services/collection';
-import { adoptHierarchyTypes, commonParents, schemaHomes } from '../src/services/hierarchy';
+import { adoptHierarchyTypes, commonParents, schemaHomes, searchGroups } from '../src/services/hierarchy';
 import { addOperations, readApi } from '../src/services/openApiRest';
 import { collectionFiles } from '../src/services/scalaCollection';
 import type { ServiceCollectionSpec } from '../src/services/types';
@@ -99,9 +99,47 @@ test('an OpenAPI import takes a class of the same name higher up in the hierarch
   const withZip = { ...twoApis(), types: twoApis().types.map(t => (t.name === 'Address' ? { ...t, fields: [...t.fields!, { id: 'z', name: 'zip', type: 'String' }] } : t)) };
   assert.deepEqual(adoptHierarchyTypes(withZip, model).adopted.map(a => a.differs), [['-zip']]);
   assert.equal(adopted[0].differs, undefined);
-  // without a hierarchy nothing changes
+  // an API without levels: every schema of the project is searched - also the one of clientMaster
   const flat = { ...twoApis(), services: twoApis().services.map(s => ({ ...s, api: 'client' })) };
-  assert.deepEqual(adoptHierarchyTypes(flat, model).adopted, []);
+  assert.deepEqual(adoptHierarchyTypes(flat, model).adopted.map(a => a.from), ['acme.crm.domain.clientMaster.schema.Address']);
+});
+
+test('the search for classes of the hierarchy: every schema of the project, the nearest first - not the packages of the own APIs', () => {
+  const pkgs = [
+    'acme.crm.domain.schema', 'acme.crm.domain.clientMaster.schema', 'acme.crm.domain.partner.schema',
+    'acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.legal.schema',
+    'acme.crm.domain.clientMaster.orgs.v1.schema', 'acme.crm.domain.clientMaster.orgs.v1', 'acme.other.domain.schema',
+  ];
+  const model = { version: 1, services: [], domainTypes: pkgs.map((pkg, i) => ({ id: `${pkg}.T${i}`, name: `T${i}`, pkg, kind: 'case', fields: [] })) } as never;
+  const orgs = { project: 'acme-crm', api: 'clientMaster.orgs', apiVersion: 1 };
+  assert.deepEqual(searchGroups([orgs], [orgs], model), [
+    ['acme.crm.domain.clientMaster.schema'], ['acme.crm.domain.schema'],
+    ['acme.crm.domain.partner.schema'], ['acme.crm.domain.clientMaster.legal.schema'],
+    ['acme.crm.domain.clientMaster.naturalPersons.v1.schema'],
+  ]);
+  // without levels: the domain's schema first, then the levels by their depth
+  const flat = { project: 'acme-crm', api: 'readOrganisation2', apiVersion: 1 };
+  assert.deepEqual(searchGroups([flat], [flat], model), [
+    ['acme.crm.domain.schema'],
+    ['acme.crm.domain.clientMaster.schema', 'acme.crm.domain.partner.schema'], ['acme.crm.domain.clientMaster.legal.schema'],
+    ['acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.orgs.v1.schema'],
+  ]);
+});
+
+test('an API without levels: the enums of a level of the project by their structure', () => {
+  const doc = {
+    openapi: '3.0.1', info: { title: 'Organisation', version: '1' },
+    paths: { '/readOrganisation2': { post: { operationId: 'postReadOrganisation2', responses: { 200: { description: 'ok', content: { 'application/json': { schema: { $ref: '#/components/schemas/Organisation' } } } } } } } },
+    components: { schemas: {
+      Organisation: { type: 'object', properties: { gender: { $ref: '#/components/schemas/OrganisationGender1' } } },
+      OrganisationGender1: { type: 'string', enum: ['female', 'male'] },
+    } },
+  };
+  const c0 = newCollection({ title: 'Organisation', project: 'acme-crm', api: 'readOrganisation2', apiVersion: 1 });
+  const api = readApi(doc);
+  const c = addOperations(c0, api, api.operations.map(o => o.key), () => ({ api: 'readOrganisation2', apiVersion: 1 })).spec;
+  const model = { version: 1, services: [], domainTypes: scanScala(sharedOther, 'clientMaster/schema/Shared.scala') } as never;
+  assert.deepEqual(adoptHierarchyTypes(c, model).adopted.map(a => [a.name, a.from]), [['OrganisationGender1', 'acme.crm.domain.clientMaster.schema.Gender1']]);
 });
 
 /** the project's classes higher up: under other names than the OpenAPI gives them */
