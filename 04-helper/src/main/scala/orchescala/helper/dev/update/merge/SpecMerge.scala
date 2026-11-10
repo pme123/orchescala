@@ -197,7 +197,8 @@ object SpecMerge:
       case _                                                   => ()
     plan.files.foreach: f =>
       try
-        f.removal.filter(_ => remove) match
+        // only on a file that is merged or stays - a conflict is never written over by it
+        f.removal.filter(_ => remove && Seq(Action.unchanged, Action.merged).contains(f.action)) match
           // what only the code has - the developer said it goes
           case Some(Removal(names, None))          =>
             os.remove(project / os.RelPath(f.path))
@@ -261,7 +262,7 @@ object SpecMerge:
       case (_, Some(n), Some(c)) if n.kind == FileKind.ProcessObject => processObject(n, c)
       case (Some(b), None, Some(c)) if structural(b) =>
         // Orch Spec no longer gives it - its classes go only when the developer says so
-        file(Action.unchanged, note = Some("not in orch-spec any more"), removal = Some(Removal(ScalaMerge.topLevel(c), None)))
+        file(Action.unchanged, note = Some("not in orch-spec any more"), removal = orphaned(c))
       case (None, Some(n), None)        => file(Action.create, Some(n.content))
       case (Some(b), None, Some(c))     =>
         // the simulation follows the code - its process is gone: compared with the skeleton
@@ -345,22 +346,32 @@ object SpecMerge:
     end match
   end register
 
+  /** What goes of a Scala file Orch Spec does not give: its classes and objects - the file only when
+    * nothing else is in it; the rest (top-level `def`s, extensions, `given`s) stays. None: no class.
+    */
+  private def orphaned(code: String): Option[Removal] =
+    val r = ScalaMerge.orphaned(code)
+    Option.when(r.names.nonEmpty)(Removal(r.names, r.rest))
+
   /** The Scala files next to the domain classes of the export that Orch Spec does not know - in
     * the own packages of an API or a process (`…/v1/`, `…/v1/schema/`), not in a shared level of
     * the hierarchy; not a service or process object (another export may give it): the question
     * whether they go.
     */
   private def orphans(project: os.Path, generated: Seq[GeneratedFile], planned: Set[os.RelPath]): Seq[PlannedFile] =
+    // a service or process object - its `topicName`/`processName` defined, not only named
+    val ownObject = "(?m)^\\s*(?:(?:final|lazy|override|private|protected)\\s+)*(?:val|def)\\s+(?:topicName|processName)\\b".r
     val dirs = generated.filter(f => f.kind == FileKind.Export && f.rel.ext == "scala").map(_.rel / os.up)
       .filter(_.segments.exists(_.matches("v\\d+"))).distinct.sortBy(_.toString)
     dirs.filter(d => os.isDir(project / d)).flatMap: dir =>
       os.list(project / dir).filter(f => os.isFile(f) && f.ext == "scala").map(_.relativeTo(project))
         .filterNot(planned).sortBy(_.toString).flatMap: rel =>
-          val code  = os.read(project / rel)
-          val names = ScalaMerge.topLevel(code)
-          Option.when(names.nonEmpty && !code.contains("topicName") && !code.contains("processName")):
-            PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
-              removal = Some(Removal(names, None)))
+          val code = os.read(project / rel)
+          if ownObject.findFirstIn(code).isDefined then None
+          else
+            orphaned(code).map: r =>
+              PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
+                removal = Some(r))
   end orphans
 
   /** `spec/` as Orch Spec sent it - 1:1, without merge; what is no longer there is deleted. */

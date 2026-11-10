@@ -22,6 +22,13 @@ import orchescala.helper.dev.update.OrchSpecImports
   * | in the code                    |                                                                 |
   *
   * What differs only in its form (indentation, line breaks) stays as the code has it.
+  *
+  * No parser: it reads the code as the generator writes it and a developer extends it - every
+  * definition on a line of its own, a body indented deeper than its head, ending at the next line
+  * of its level (or its `end X`). Known are `class`, `trait`, `enum`, `object`, `case`, `val`,
+  * `var`, `def`, `given`, `type`, `extension` and `import`, each after modifiers and annotations; a
+  * head over several lines (parameters, `extends`/`with`/`derives`) belongs to it. Another line of
+  * a level continues the definition before it.
   */
 object ScalaMerge:
 
@@ -32,16 +39,28 @@ object ScalaMerge:
   case class Result(text: String, removable: Seq[String], without: String)
 
   def merge(code: String, spec: String): Result =
-    val c    = code.split("\n", -1).toSeq
-    val s    = spec.split("\n", -1).toSeq
-    val keep = file(c, s, drop = false)
-    val drop = file(c, s, drop = true)
-    Result(keep._1.mkString("\n"), keep._2, drop._1.mkString("\n"))
+    val c                    = code.split("\n", -1).toSeq
+    val s                    = spec.split("\n", -1).toSeq
+    val (text, removable)    = file(c, s, drop = false)
+    val (without, _)         = file(c, s, drop = true)
+    Result(text.mkString("\n"), removable, without.mkString("\n"))
 
-  /** The classes and objects on the top level of a file - what goes when the file goes. */
-  def topLevel(code: String): Seq[String] =
-    val lines = code.split("\n", -1).toSeq
-    parts(lines, 0, lines.size, 0).filter(_.kind != Kind.Member).map(_.name).distinct
+  /** @param names the classes and objects of a file Orch Spec does not give (any more)
+    * @param rest  the file without them - None when nothing else is in it (only the package, the
+    *              imports and comments): the file can go
+    */
+  case class Orphaned(names: Seq[String], rest: Option[String])
+
+  /** What goes of a file Orch Spec does not give: its classes and objects - not what else is in it
+    * (top-level `def`s, `given`s, extensions): with that the file stays, without them.
+    */
+  def orphaned(code: String): Orphaned =
+    val c             = code.split("\n", -1).toSeq
+    val first         = firstPart(c)
+    val (body, names) = level(c, first, c.size, 0, Seq.empty, 0, 0, 0, "", drop = true)
+    val code_         = body.map(_.trim).filterNot(l => l.isEmpty || isAttachment(l))
+    // the gap before a class that goes stays with the header
+    Orphaned(names, Option.when(code_.nonEmpty)((c.take(first) ++ body.dropWhile(_.isBlank)).mkString("\n")))
 
   /** Equal but for blanks and line breaks. */
   def sameStructure(a: String, b: String): Boolean = compact(a) == compact(b)
@@ -64,6 +83,8 @@ object ScalaMerge:
   private val ValStart   = s"""$mods(?:val|var|def)\\s+(\\w+).*""".r
   private val GivenStart = s"""$mods(?:given)\\s+(?:\\w+\\s*:\\s*)?(.+?)\\s*(?:=|\\bwith\\b).*""".r
   private val AliasStart = s"""$mods(?:type)\\s+(\\w+).*""".r
+  private val ExtStart   = """extension\b\s*(.*?):?""".r
+  private val ImportLine = """import\s+(.+)""".r
   private val Annotation = """@\w+(?:\([^()]*\))?\s+(.*)""".r
 
   // `@description("…") def x` - the definition behind annotations on its line
@@ -77,6 +98,8 @@ object ScalaMerge:
       case ObjStart(n)   => Some((Kind.Obj, n, s"object $n"))
       case GivenStart(t) => Some((Kind.Member, t, s"given ${t.replaceAll("\\s+", "")}"))
       case AliasStart(n) => Some((Kind.Member, n, s"type $n"))
+      case ExtStart(on)  => Some((Kind.Member, "extension", s"extension ${on.replaceAll("\\s+", "")}"))
+      case ImportLine(i) => Some((Kind.Member, "import", s"import ${i.replaceAll("\\s+", "")}"))
       case ValStart(n)   => Some((Kind.Member, n, n))
       case CaseStart(n)  =>
         val name = n.replaceAll("\\s+", "")
@@ -134,15 +157,15 @@ object ScalaMerge:
       if !open then p.at
       else (p.at + 1 until p.until).find(j => indentOf(lines(j)) == level && lines(j).trim.startsWith(")")).getOrElse(p.at)
     // `trait X` + `  extends Dsl:` - a continuation of the head
-    var end   = close
-    while
-      !lines(end).trim.endsWith(":") && end + 1 < p.until && {
-        val next = (end + 1 until p.until).find(j => !lines(j).isBlank)
-        next.exists(j => Seq("extends", "with", "derives").exists(w => lines(j).trim.startsWith(s"$w ")) && indentOf(lines(j)) > level) &&
-        { end = next.get; true }
-      }
-    do ()
-    end
+    def continues(j: Int) =
+      indentOf(lines(j)) > level && Seq("extends", "with", "derives").exists(w => lines(j).trim.startsWith(s"$w "))
+    @annotation.tailrec
+    def headUntil(end: Int): Int =
+      if lines(end).trim.endsWith(":") then end
+      else (end + 1 until p.until).find(j => !lines(j).isBlank) match
+        case Some(j) if continues(j) => headUntil(j)
+        case _                       => end
+    headUntil(close)
 
   /** A container: its head, its body (from, until) and its `end X` line. */
   private case class Split(head: Seq[String], body: Option[(Int, Int)], foot: Option[String])
@@ -172,7 +195,7 @@ object ScalaMerge:
   // the first line at the top level that is a definition (or its doc comment) - before it the
   // package clauses, the imports and the comments of the file
   private def firstPart(lines: Seq[String]): Int =
-    parts(lines, 0, lines.size, 0).headOption.map(_.from).getOrElse(lines.size)
+    parts(lines, 0, lines.size, 0).find(_.name != "import").map(_.from).getOrElse(lines.size)
 
   /** The header of the code with the imports of the spec it does not cover - after its last import. */
   private def withImports(code: Seq[String], spec: Seq[String]): Seq[String] =
@@ -277,8 +300,16 @@ object ScalaMerge:
     */
   private def declaration(lines: Seq[String], p: Part): Boolean =
     p.kind == Kind.Member && (definition(lines(p.at).trim) match
-      case ValStart(_) => !lines.slice(p.at, p.until).map(_.replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "")).exists(_.contains("="))
+      // a value is an `=` outside of strings and comments - not one of `=>`, `==`, `!=`, `<=`, `>=`
+      case ValStart(_) => !"(?<![=!<>])=(?![=>])".r.findFirstIn(withoutComments(lines.slice(p.at, p.until))).isDefined
       case _           => false)
+
+  // the lines without their strings and comments
+  private def withoutComments(lines: Seq[String]): String =
+    lines.mkString("\n")
+      .replaceAll("\"(?:[^\"\\\\]|\\\\.)*\"", "\"\"")
+      .replaceAll("(?s)/\\*.*?\\*/", "")
+      .replaceAll("//[^\n]*", "")
 
   // `???` or a `TODO` of the generator: the code has its implementation there
   private def placeholder(spec: Seq[String]): Boolean =

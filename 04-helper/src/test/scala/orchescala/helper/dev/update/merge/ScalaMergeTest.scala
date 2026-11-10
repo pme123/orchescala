@@ -243,6 +243,89 @@ class ScalaMergeTest extends FunSuite:
     assert(!r.without.contains("dummy"), r.without)
     assert(r.without.contains("    def readFromFcs: Option[Boolean]\n    def label: String = readFromFcs.toString\n"), r.without)
 
+  test("a declared field: a function type or a comment with = is no value - a value outside a comment is"):
+    val code = """object GetClient:
+                 |  enum In:
+                 |    def onDone: String => Unit
+                 |    def kind: Option[String] // e.g. x = 1
+                 |    def label: String = "a = b"
+                 |    def same(a: Int): Boolean =
+                 |      a == 1
+                 |
+                 |    case Standard(
+                 |        kind: Option[String]
+                 |    )
+                 |  end In
+                 |end GetClient
+                 |""".stripMargin
+    val spec = """object GetClient:
+                 |  enum In:
+                 |    case Standard(
+                 |        kind: Option[String]
+                 |    )
+                 |  end In
+                 |end GetClient
+                 |""".stripMargin
+    assertEquals(ScalaMerge.merge(code, spec).removable, Seq("GetClient.In.onDone", "GetClient.In.kind"))
+
+  test("overloaded defs: each with the one of the spec in its order; end X and a multi-line annotation stay with their part"):
+    val code = """object Codec:
+                 |  def of(x: Int): String = x.toString
+                 |  def of(x: Long): String = x.toString
+                 |
+                 |  @description(
+                 |    "For one client"
+                 |  )
+                 |  case class Legacy(
+                 |      id: Long
+                 |  ):
+                 |    def short = id
+                 |  end Legacy
+                 |
+                 |  def own: Int = 1
+                 |end Codec
+                 |""".stripMargin
+    val spec = """object Codec:
+                 |  def of(x: Int): String = s"int $x"
+                 |  def of(x: Long): String = s"long $x"
+                 |end Codec
+                 |""".stripMargin
+    val r    = ScalaMerge.merge(code, spec)
+    assert(r.text.contains("  def of(x: Int): String = s\"int $x\"\n  def of(x: Long): String = s\"long $x\"\n"), r.text)
+    assertEquals(r.removable, Seq("Codec.Legacy"))
+    assertEquals(
+      r.without,
+      """object Codec:
+        |  def of(x: Int): String = s"int $x"
+        |  def of(x: Long): String = s"long $x"
+        |
+        |  def own: Int = 1
+        |end Codec
+        |""".stripMargin
+    )
+
+  test("a file Orch Spec does not give: its classes go - an extension or a top-level def of its own stays"):
+    val code = """package acme
+                 |
+                 |import acme.schema.*
+                 |
+                 |/** gone */
+                 |case class Old(x: Int)
+                 |
+                 |object Old:
+                 |  lazy val example = Old(1)
+                 |
+                 |extension (o: Old)
+                 |  def y: Int = o.x
+                 |
+                 |def twice(x: Int): Int = 2 * x
+                 |""".stripMargin
+    val r    = ScalaMerge.orphaned(code)
+    assertEquals(r.names, Seq("Old"))
+    assertEquals(r.rest, Some("package acme\n\nimport acme.schema.*\n\nextension (o: Old)\n  def y: Int = o.x\n\ndef twice(x: Int): Int = 2 * x\n"))
+    // only classes: the file goes
+    assertEquals(ScalaMerge.orphaned("package acme\n\nimport acme.schema.*\n\n// a class\ncase class Old(x: Int)\n").rest, None)
+
   test("the report: each change with the line of the code and two lines around it - near ones in one block"):
     import orchescala.helper.dev.update.MergeReport
     val code    = (1 to 12).map(i => s"  line$i").mkString("\n")

@@ -216,6 +216,37 @@ class SpecMergeTest extends FunSuite:
       val plan    = SpecMerge.plan(project, Seq(order), Seq(order))
       assertEquals(plan.removals.map(f => f.path -> f.removal.get.names), Seq((dir / "Old.scala").relativeTo(project).toString -> Seq("Old")))
 
+  test("a file next to the domain classes with more than classes: only its classes go - a helper of its own stays"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val dir     = file(project, "CheckOrder.scala") / os.up
+      // a helper file: an extension and a top-level def - no class: nothing asked
+      val helpers = "package acme.demo.domain\npackage order.v1\n\nextension (o: CheckOrder.In)\n  def short: String = o.toString.take(3)\n\ndef twice(x: Int): Int = 2 * x\n"
+      os.write(dir / "Helpers.scala", helpers)
+      // a class with an extension of its own: the class asked, the extension stays
+      os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n\nextension (o: Old)\n  def y: Int = o.x\n")
+      // `topicName` only in a comment: no service object
+      os.write(dir / "Said.scala", "package acme.demo.domain\npackage order.v1\n\n// not the topicName of a service\ncase class Said(x: Int)\n")
+      val (plan, result) = run(project, Seq(order), Seq(order), remove = true)
+      assertEquals(plan.removals.map(_.path.split('/').last).sorted, Seq("Old.scala", "Said.scala"))
+      assertEquals(os.read(dir / "Helpers.scala"), helpers)
+      assertEquals(os.read(dir / "Old.scala"), "package acme.demo.domain\npackage order.v1\n\nextension (o: Old)\n  def y: Int = o.x\n")
+      assert(!os.exists(dir / "Said.scala"))
+      assertEquals(result.removed.sorted, Seq("Old", "Said"))
+
+  test("a removal is never written over a conflict - with or without markers"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val rel     = os.RelPath(path(project, "CheckOrder.scala"))
+      val before  = os.read(project / rel)
+      val hash    = SpecMerge.plan(project, Seq(order), Seq(order)).files.find(_.path == rel.toString).get.codeHash
+      val planned = PlannedFile(rel.toString, Owner.generated, Action.conflict, hash, None, removal = Some(Removal(Seq("Old"), Some("gone"))))
+      val plan    = MergePlan("demo-order", Seq(planned))
+      for onConflict <- Seq(OnConflict.KeepCode, OnConflict.Markers) do
+        val result = SpecMerge.merge(project, plan, onConflict, remove = true)
+        assertEquals(os.read(project / rel), before, onConflict)
+        assertEquals(result.removed, Seq.empty, onConflict)
+
   test("a new step (custom task): its object and worker created, the worker registered"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
