@@ -21,6 +21,7 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from 
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
 import FeelInput from './FeelInput';
 import TypePicker from './TypePicker';
+import { clearsMapTo } from '../mapTo';
 import { domainRef } from '../serviceTypes';
 import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
@@ -1809,7 +1810,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
               </div>
               {typeMapping && mapOpen === i && (
                 <MapToRow m={m} types={types} model={model} isDark={isDark} canEdit={canEdit}
-                  onChange={patch => { onChange(list, i, patch); if (!patch.mapTo) setMapOpen(null); }} />
+                  onChange={patch => { onChange(list, i, patch); if (clearsMapTo(patch)) setMapOpen(null); }} />
               )}
               <input value={m.description ?? ''} disabled={!canEdit || off}
                 onChange={e => onChange(list, i, { description: e.target.value || undefined })}
@@ -2106,11 +2107,6 @@ function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: Exp
 }
 
 /**
- * Collapsible section with a counter. Collapsed when it is empty; open when
- * there is something in it — and the person's choice is remembered per section.
- * If something is added (the counter goes up), it opens.
- */
-/**
  * The implementation of a script task in FEEL: one expression and the variable its value goes
  * into. In a service orchestration the export makes it a method of the worker, with a test.
  */
@@ -2185,6 +2181,11 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   );
 }
 
+/**
+ * Collapsible section with a counter. Collapsed when it is empty; open when
+ * there is something in it — and the person's choice is remembered per section.
+ * If something is added (the counter goes up), it opens.
+ */
 function Section({ id, label, count, isDark, action, hint, children, comment, openFor }: {
   id: string; label: string; count?: number; isDark: boolean;
   action?: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode;

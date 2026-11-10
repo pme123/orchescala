@@ -245,3 +245,33 @@ test('step names with $ and " stay text in the generated Scala; two scripts of t
   assert.match(w, /def preisXNeu2\(/);
   assert.match(w, /more <- ZIO\.attempt\(preisXNeu2\(/);
 });
+
+test('no fixed x: a variable called x stays itself - the element gets x2, one value is read directly', () => {
+  const o = scripted('= concatenate(x, companys)');
+  o.tasks.ReadP = { ...o.tasks.ReadP, outputs: [{ name: 'x', expression: '= persons' }] };
+  o.tasks.ReadC = { ...o.tasks.ReadC, outputs: [{ name: 'companys', expression: '= companys', mapTo: 'client' }] };
+  const w = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  // x is a variable of the for - the elements of companys are x2
+  assert.match(w, /companys = readCompany\.companys\.map\(_\.map\(x2 =>/, w);
+  // in the method a parameter is called x - its elements are x2
+  assert.match(w, /def mergeClients\(x: Option\[Seq\[Person3\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+x\.getOrElse\(Seq\.empty\)\.map\(x2 =>\n\s+Client\.Person\(\n\s+clientKey = x2\.clientKey/, w);
+  assert.doesNotMatch(w, /val x = /);
+});
+
+test('matchOf: a number only against an Int - on a Double or BigDecimal the if', () => {
+  const v = (type: string) => new Map([['amount', { scala: 'amount', type }]]);
+  assert.deepEqual(matchOf(['= amount = 1', '= amount = 2'], v('Int'), [])?.patterns, ['1', '2']);
+  assert.equal(matchOf(['= amount = 1', '= amount = 2'], v('Double'), []), null);
+  assert.equal(matchOf(['= amount = 1', '= amount = 2'], v('BigDecimal'), []), null);
+  assert.equal(matchOf(['= kind = "A"'], new Map([['kind', { scala: 'kind', type: 'Int' }]]), []), null);
+});
+
+test('an escaped quote in a FEEL text is no end of it - the lists are split right', () => {
+  const o = scripted('= concatenate(persons, companys)');
+  const plain = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  const quoted = orchestrationFiles(scripted('= flatten([persons, companys]) '), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.equal(quoted.split('def mergeClients')[1], plain.split('def mergeClients')[1]);
+  // a text with \" and a comma inside: not two lists, so nothing to concatenate - the mapping as it is
+  const text = orchestrationFiles(scripted('= concatenate("a\\", b", companys)'), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(text.split('def mergeClients')[1], /\?\?\? \/\* TODO/);
+});

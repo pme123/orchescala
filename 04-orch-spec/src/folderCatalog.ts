@@ -33,12 +33,15 @@ const placeOf = (path: string) => {
 
 const domainCache = new WeakMap<ProcessSpec, { model: Model | null; collections: ServiceCollectionSpec[]; types: DomainType[] }>();
 
+/** the default of `domainOfSpec` - one array, so its cache holds */
+const NO_COLLECTIONS: ServiceCollectionSpec[] = [];
+
 /** The classes a process of the folder would bring - read from the Scala orch-spec exports for it, as the
   * catalog has them from a build: its In and Out in the process object (a process with `processName`, an
   * orchestration as a CustomTask with `topicName`), its interactions and its shared classes. A service
   * orchestration is read from what its export writes (scalaOrchestration.ts): its CustomTask in the
   * package of its API and its own types in `schema` (`Client`) - `collections` are the services it calls. */
-export function domainOfSpec(spec: ProcessSpec, model: Model | null, collections: ServiceCollectionSpec[] = []): DomainType[] {
+export function domainOfSpec(spec: ProcessSpec, model: Model | null, collections: ServiceCollectionSpec[] = NO_COLLECTIONS): DomainType[] {
   const hit = domainCache.get(spec);
   if (hit && hit.model === model && hit.collections === collections) return hit.types;
   const types = (() => {

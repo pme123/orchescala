@@ -216,6 +216,14 @@ function convertTo(x: string, fromId: string | undefined, toId: string | undefin
   return { scala: args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name, to: name, throws };
 }
 
+/** The name of an element in a lambda (`x => Client.Person(…)`) - `x`, unless a variable is called so. */
+function elementName(scope: Map<string, ScalaVar>): string {
+  const taken = new Set([...scope.keys(), ...[...scope.values()].map(v => v.scala)]);
+  let n = 'x';
+  for (let i = 2; taken.has(n); i++) n = `x${i}`;
+  return n;
+}
+
 /**
  * An output converted into another type (`mapTo`): the variable it reads, as that type - a list
  * element by element. `throws`: a required value may be missing - the step fails with its name.
@@ -226,18 +234,20 @@ function mappedOutput(m: Mapping, scope: Map<string, ScalaVar>, ctx: Ctx, where:
   const target = typeOf(m.mapTo!, ctx)?.name ?? m.mapTo!;
   if (!v) return { scala: todo(`${m.name}: in ${target} umwandeln geht nur von einem Feld des Ergebnisses`), throws: false };
   if (v.type === m.mapTo) return { scala: v.scala, throws: false };
-  const c = convertTo('x', v.type, m.mapTo, ctx, where, m.mapToCase);
+  // one value read directly; the elements of a list (or an Option) under a name nothing else has
+  const el = elementName(scope);
+  const c = convertTo(v.collection || v.optional ? el : v.scala, v.type, m.mapTo, ctx, where, m.mapToCase);
   if (!c) return { scala: todo(`${m.name}: lässt sich nicht in ${target} umwandeln`), throws: false };
-  const lambda = `x =>\n${indent(c.scala, '  ')}\n`;
+  const lambda = `${el} =>\n${indent(c.scala, '  ')}\n`;
   const scala = v.collection
     ? (v.optional ? `${v.scala}.map(_.map(${lambda}))` : `${v.scala}.map(${lambda})`)
-    : v.optional ? `${v.scala}.map(${lambda})` : `{\n  val x = ${v.scala}\n${indent(c.scala, '  ')}\n}`;
+    : v.optional ? `${v.scala}.map(${lambda})` : c.scala;
   return { scala, throws: c.throws, to: c.to };
 }
 
 /** The arguments of a FEEL call, split at the commas outside brackets and texts. */
 function callArgs(body: string, fn: string): string[] | null {
-  const m = new RegExp(`^${fn}\\s*\\(([\\s\\S]*)\\)$`).exec(body.trim());
+  const m = new RegExp(`^${fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\(([\\s\\S]*)\\)$`).exec(body.trim());
   return m ? splitTop(m[1]) : null;
 }
 
@@ -249,6 +259,7 @@ function listArgs(body: string): string[] | null {
   let depth = 0, text = false;
   for (let i = 0; i < t.length; i++) {
     const ch = t[i];
+    if (text && ch === '\\') { i++; continue; }
     if (ch === '"') text = !text;
     if (text) continue;
     if ('([{'.includes(ch)) depth++;
@@ -260,8 +271,11 @@ function listArgs(body: string): string[] | null {
 /** Split at the commas outside brackets and texts - null if the brackets do not close. */
 function splitTop(text0: string): string[] | null {
   const args: string[] = [];
-  let depth = 0, text = false, cur = '';
+  let depth = 0, text = false, cur = '', escaped = false;
   for (const ch of text0) {
+    // `\"` in a FEEL text is no end of it
+    if (escaped) { escaped = false; cur += ch; continue; }
+    if (text && ch === '\\') { escaped = true; cur += ch; continue; }
     if (ch === '"') text = !text;
     if (!text && '([{'.includes(ch)) depth++;
     if (!text && ')]}'.includes(ch)) depth--;
@@ -295,20 +309,22 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
     const parts = args.map(a => {
       const v = scope.get(a)!;
       const list = !v.collection ? (v.optional ? `${v.scala}.toSeq` : `Seq(${v.scala})`) : v.optional ? `${v.scala}.getOrElse(Seq.empty)` : v.scala;
-      const c = convertTo('x', v.type, target.type, ctx, where);
+      const el = elementName(scope);
+      const c = convertTo(el, v.type, target.type, ctx, where);
       if (!c) return list;
       if (!cases.includes(c.to)) cases.push(c.to);
-      return `${list}.map(x =>\n${indent(c.scala, '  ')}\n)`;
+      return `${list}.map(${el} =>\n${indent(c.scala, '  ')}\n)`;
     });
     return { scala: wrap(parts.join(' ++\n')), concat: args, cases };
   }
   const name = /^[A-Za-z_]\w*$/.test(body.trim()) ? scope.get(body.trim()) : undefined;
   if (name && !name.collection && !target.collection) {
-    const c = convertTo('x', name.type, target.type, ctx, where);
+    const el = elementName(scope);
+    const c = convertTo(name.optional ? el : name.scala, name.type, target.type, ctx, where);
     if (c) {
       cases.push(c.to);
-      if (name.optional && target.optional) return { scala: `${name.scala}.map(x =>\n${indent(c.scala, '  ')}\n)`, cases };
-      if (!name.optional) return { scala: wrap(`{\n  val x = ${name.scala}\n${indent(c.scala, '  ')}\n}`), cases };
+      if (name.optional && target.optional) return { scala: `${name.scala}.map(${el} =>\n${indent(c.scala, '  ')}\n)`, cases };
+      if (!name.optional) return { scala: wrap(c.scala), cases };
     }
   }
   const v = forTarget(feelToScala(`= ${body}`, scope, ctx.types, target), !!target.optional);
@@ -424,6 +440,11 @@ export function matchOf(conditions: (string | undefined)[], vars: Map<string, Sc
   const en = variable.type ? types.find(t => t.id === variable.type && t.kind === 'enum') : undefined;
   if (en && (en.values ?? []).some(v => v.fields?.length)) return null;
   const literals = parsed.map(p => p![2]);
+  // without an enum a pattern only where the literal is of the variable's type: text, Int, Boolean -
+  // `case 1 =>` on a Double or BigDecimal does not compile (then the if)
+  const fits = (l: string) => (/^"/.test(l) ? variable.type === 'String'
+    : /^-?\d+$/.test(l) ? variable.type === 'Int' : /^(true|false)$/.test(l) ? variable.type === 'Boolean' : false);
+  if (!en && !literals.every(fits)) return null;
   let patterns: string[];
   if (en) {
     const cases = (en.values ?? []).map(v => v.name);
