@@ -7,6 +7,8 @@
 //
 // The flow becomes one `for` in `runWorkZIO`:
 //   service task   getClient <- runGetClient(GetClient.In(…))   (a `protected def` per service - a test overrides it)
+//                  an ADT Out is narrowed to the case the step reads (`.collect`) - another case fails
+//                  the step with `nicht Out.<Case>`, on purpose: the step was described for that case
 //   script task    clients <- ZIO.attempt(mergeClients(…))   (its FEEL as a method of the worker - with a test;
 //                                                     `concatenate` of lists, a class into the case it fits)
 //                  total = …                        (an assignment: FEEL → Scala, see feelScala.ts)
@@ -38,6 +40,12 @@ const scalaVars = (vars: OrchVar[]): Map<string, ScalaVar> =>
   new Map(vars.map(v => [v.name, { scala: v.scala, type: v.type, optional: !!v.optional, collection: !!v.collection, ...(v.byCase ? { byCase: v.byCase } : {}) }]));
 
 const todo = (why: string) => `??? /* TODO ${why.replace(/\*\//g, '* /')} */`;
+
+/**
+ * `CustomError("Merge Clients: " + e.getMessage)` - the text as a literal, the message added: a step
+ * name with `$` or `"` stays text (in an `s"…"` it would be interpolated).
+ */
+const failWith = (prefix: string, message: string) => `CustomError(${JSON.stringify(prefix)} + ${message})`;
 
 interface Ctx {
   o: ServiceOrchestrationSpec;
@@ -184,7 +192,7 @@ function typeOf(id: string, ctx: Ctx): TypeDef | undefined {
 }
 
 /** `x` of a class into the type `toId` - the case it fits, field by field (`Client.Company(…)`). */
-function convertTo(x: string, fromId: string | undefined, toId: string | undefined, ctx: Ctx, where: string, chosen?: string): { scala: string; to: string } | null {
+function convertTo(x: string, fromId: string | undefined, toId: string | undefined, ctx: Ctx, where: string, chosen?: string): { scala: string; to: string; throws: boolean } | null {
   if (!fromId || !toId || fromId === toId) return null;
   const to = typeOf(toId, ctx);
   const from = typeOf(fromId, ctx);
@@ -195,15 +203,17 @@ function convertTo(x: string, fromId: string | undefined, toId: string | undefin
   const sub = new Map<string, ScalaVar>(from.fields.filter(f => f.name).map(f =>
     [f.name, { scala: `${x}.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const fields = caseOf ? caseFields(to, caseOf) : (to.fields ?? []).filter(f => f.name);
+  let throws = false;
   const args = fields.filter(f => isFinished(f, ctx.idx)).map(f => {
     if (!sub.has(f.name)) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: nicht in ${from.name}`)}`;
     const v = forTarget(feelToScala(`= ${f.name}`, sub, ctx.types, f), !!f.optional);
-    // a required value the class may lack: the method fails with its name - runWorkZIO reports it
+    // a required value the class may lack: it fails with its name - the caller runs it in ZIO.attempt
+    if (v.needed) throws = true;
     const value = v.needed ? `${v.scala}.getOrElse(throw IllegalArgumentException(${JSON.stringify(`${where}: ${from.name}.${f.name} fehlt`)}))` : v.scala;
     return `${scalaName(f.name)} = ${value}`;
   });
   const name = caseOf ? `${to.name}.${caseIdent(caseOf)}` : to.name;
-  return { scala: args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name, to: name };
+  return { scala: args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name, to: name, throws };
 }
 
 /**
@@ -222,7 +232,7 @@ function mappedOutput(m: Mapping, scope: Map<string, ScalaVar>, ctx: Ctx, where:
   const scala = v.collection
     ? (v.optional ? `${v.scala}.map(_.map(${lambda}))` : `${v.scala}.map(${lambda})`)
     : v.optional ? `${v.scala}.map(${lambda})` : `{\n  val x = ${v.scala}\n${indent(c.scala, '  ')}\n}`;
-  return { scala, throws: c.scala.includes('throw IllegalArgumentException'), to: c.to };
+  return { scala, throws: c.throws, to: c.to };
 }
 
 /** The arguments of a FEEL call, split at the commas outside brackets and texts. */
@@ -349,15 +359,16 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const t = scriptScala(body, scope, result, ctx, where);
   const used = new Set(ctx.scripts.map(x => x.method));
-  let method = camelName((s.name || s.id).replace(/Task$/, ''));
-  for (let i = 2; used.has(method); i++) method = `${camelName(s.name || s.id)}${i}`;
+  const base = camelName((s.name || s.id).replace(/Task$/, ''));
+  let method = base;
+  for (let i = 2; used.has(method); i++) method = `${base}${i}`;
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
   });
   const call = `${method}(${reads.map(v => v.scala).join(', ')})`;
   return {
-    line: `${scalaIdent(produced.name)} <- ZIO.attempt(${call}).mapError(e => CustomError(s${JSON.stringify(`${where}: `).slice(0, -1)}\${e.getMessage}"))`,
+    line: `${scalaIdent(produced.name)} <- ZIO.attempt(${call}).mapError(e => ${failWith(`${where}: `, 'e.getMessage')})`,
     produced: { ...produced, scala: scalaIdent(produced.name) },
   };
 }
@@ -496,7 +507,7 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
           const pre: string[] = [];
           const value = mapped?.scala ?? (c ? converted(c, ctx, pre) : feelToScala(m.expression, scope, ctx.types).scala);
           const ident = scalaIdent(m.name.trim());
-          if (mapped?.throws) lines.push(`${ident} <- ZIO.attempt(${value}).mapError(e => CustomError(s"${name}: \${e.getMessage}"))`);
+          if (mapped?.throws) lines.push(`${ident} <- ZIO.attempt(${value}).mapError(e => ${failWith(`${name}: `, 'e.getMessage')})`);
           else lines.push(...pre, `${ident} = ${value}`);
           const out = outFieldOf(ctx.o, m.name.trim());
           if (mapped?.to && out && !out.collection) {
@@ -663,7 +674,7 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       `  protected def run${name}(in: ${name}.In): RunWorkZIOOutput[${name}.Out] =`,
       `    ${name}Worker()`,
       '      .runWorkFromWorkerUnsafe(in)',
-      `      .mapError(e => CustomError(s"${name}: \${e.errorMsg}"))`,
+      `      .mapError(e => ${failWith(`${name}: `, 'e.errorMsg')})`,
     ].join('\n');
   });
   const scripts = ctx.scripts.map(m => scriptMethod(m, ctx.idx));

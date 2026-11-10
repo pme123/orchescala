@@ -115,7 +115,7 @@ test('the CustomTask and the CustomWorker: one for in runWorkZIO', () => {
   // a service of another API comes by import
   assert.match(w, /import acme\.crm\.domain\.crm\.v2\.GetSegment\nimport acme\.crm\.worker\.crm\.v2\.GetSegmentWorker/);
   assert.match(w, /getClient <- runGetClient\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey\n\s+\)\n\s+\)/);
-  assert.match(w, /protected def runGetClient\(in: GetClient\.In\): RunWorkZIOOutput\[GetClient\.Out\] =\n\s+GetClientWorker\(\)\n\s+\.runWorkFromWorkerUnsafe\(in\)\n\s+\.mapError\(e => CustomError\(s"GetClient: \$\{e\.errorMsg\}"\)\)/);
+  assert.match(w, /protected def runGetClient\(in: GetClient\.In\): RunWorkZIOOutput\[GetClient\.Out\] =\n\s+GetClientWorker\(\)\n\s+\.runWorkFromWorkerUnsafe\(in\)\n\s+\.mapError\(e => CustomError\("GetClient: " \+ e\.errorMsg\)\)/);
   // no gateway that decides by a value: one test that it runs through
   assert.match(files[2].content, /test\("runWorkZIO"\):\n\s+val result = run\(Mocked\(\), In\.example\)\n\s+assert\(result\.isRight, result\)/);
   // parallel: forked and joined
