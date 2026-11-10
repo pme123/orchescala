@@ -60,6 +60,13 @@ export interface Mapping {
    * it»: an entry in `_outputVariables`, not an output parameter
    */
   fromService?: boolean;
+  /**
+   * Service orchestration, output: the type the value is converted into (`dom:…Client`) - a class
+   * into the case it fits, field by field; a list element by element.
+   */
+  mapTo?: string;
+  /** … the case of an ADT `mapTo` (`MultiplePersons`) - without: the one whose fields fit best */
+  mapToCase?: string;
   [key: string]: unknown;
 }
 

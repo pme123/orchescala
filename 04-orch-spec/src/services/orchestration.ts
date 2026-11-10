@@ -220,7 +220,7 @@ export function outputVars(outputs: Mapping[], outType: TypeDef | undefined, out
     const f = read ? outFieldsOf(outType, outCase).find(x => x.name === read) : undefined;
     const name = m.name.trim();
     return {
-      name, scala: name, type: f?.type ?? 'String', source: 'Service' as const,
+      name, scala: name, type: m.mapTo || (f?.type ?? 'String'), source: 'Service' as const,
       ...(f?.collection ? { collection: true } : {}), ...(f?.optional ? { optional: true } : {}),
     };
   });

@@ -5,7 +5,7 @@
 // of the element template as a template; meanings already maintained stay.
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
-import { AlertTriangle, AppWindow, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, AppWindow, ArrowRight, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, MultiInstanceSpec, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
@@ -20,6 +20,8 @@ import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newE
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
 import FeelInput from './FeelInput';
+import TypePicker from './TypePicker';
+import { domainRef } from '../serviceTypes';
 import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
@@ -711,6 +713,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         variants={variantsIn} chosen={chosenFor('inputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
+        typeMapping={!!spec.service && step.kind === 'service'}
         variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
         implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternTimes={fromPattern.times.outputs} patternName={patternName}
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
@@ -1448,8 +1451,10 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
 // can do — what this process does not need is deselected (stays visible)
 // or deleted (comes back via «+ N aus Katalog»). A new sync
 // does not restore deselected rows.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert, typeMapping = false }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
+  /** an output of a service orchestration may be converted into another type (`mapTo`) */
+  typeMapping?: boolean;
   /** variants of the In or Out (enum with cases) — null: none */
   variants: Variants | null;
   chosen: Chosen;
@@ -1498,6 +1503,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const active = rows.filter(m => !m.disabled).length;
   /** row whose removal is about to be confirmed */
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
+  /** row whose «umwandeln in» is open */
+  const [mapOpen, setMapOpen] = useState<number | null>(null);
   // What the fields mean — explained on hover, because for inputs and
   // outputs the reading direction differs: for inputs «name» is the
   // parameter of the service and the expression comes from the process, for
@@ -1738,6 +1745,13 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   ].filter(Boolean).join('\n\n')}
                   className="flex-[3] min-w-0" />
                 {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
+                {typeMapping && !off && (
+                  <button onClick={() => setMapOpen(mapOpen === i ? null : i)} disabled={!canEdit && !m.mapTo}
+                    title={m.mapTo ? `Wird umgewandelt in ${mapToLabel(m, types, model)} - anklicken zum Ändern` : 'In einen anderen Typ umwandeln - z. B. in den Typ des Out (der passende Fall, Feld für Feld)'}
+                    className={`flex-shrink-0 flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded border font-mono ${m.mapTo ? kindStyle('class', isDark).cls : `${c.muted} border-transparent opacity-0 group-hover:opacity-100`}`}>
+                    <ArrowRight size={9} />{m.mapTo ? <span className="truncate max-w-[9rem]">{mapToLabel(m, types, model)}</span> : null}
+                  </button>
+                )}
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
                 {m.name && <CommentBubble target={sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`)} quiet />}
                 {/* Removing always works. A field of the yardstick comes back any time via
@@ -1761,6 +1775,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   </span>
                 )}
               </div>
+              {typeMapping && mapOpen === i && (
+                <MapToRow m={m} types={types} model={model} isDark={isDark} canEdit={canEdit}
+                  onChange={patch => { onChange(list, i, patch); if (!patch.mapTo) setMapOpen(null); }} />
+              )}
               <input value={m.description ?? ''} disabled={!canEdit || off}
                 onChange={e => onChange(list, i, { description: e.target.value || undefined })}
                 placeholder={fromCatalog.get(m.name) || 'fachliche Bedeutung'}
@@ -1770,6 +1788,53 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           );
         })}
       </div>}
+    </div>
+  );
+}
+
+/** The cases of an ADT type - own or of the catalog (`dom:…`); none for a class or a simple enum. */
+function adtCases(id: string | undefined, types: TypeDef[], model: Model | null): string[] {
+  if (!id) return [];
+  const own = types.find(t => t.id === id);
+  if (own) return own.kind === 'enum' && (own.values ?? []).some(v => v.fields?.length) ? (own.values ?? []).map(v => v.name) : [];
+  const dom = (model?.domainTypes ?? []).find(d => domainRef(d.id) === id);
+  return (dom?.cases ?? []).map(c => c.name);
+}
+
+/** `Client.MultiplePersons` · `Client` - what an output is converted into */
+function mapToLabel(m: Mapping, types: TypeDef[], model: Model | null): string {
+  const id = m.mapTo ?? '';
+  const name = types.find(t => t.id === id)?.name ?? (model?.domainTypes ?? []).find(d => domainRef(d.id) === id)?.name ?? id.replace(/^dom:/, '').split('.').pop() ?? id;
+  return m.mapToCase ? `${name}.${m.mapToCase}` : name;
+}
+
+/**
+ * «umwandeln in»: the type an output of a service orchestration is converted into - and for an
+ * ADT the case (without: the one whose fields fit best). The export maps field by field.
+ */
+function MapToRow({ m, types, model, isDark, canEdit, onChange }: {
+  m: Mapping; types: TypeDef[]; model: Model | null; isDark: boolean; canEdit: boolean;
+  onChange: (patch: Partial<Mapping>) => void;
+}) {
+  const c = cls(isDark);
+  const cases = adtCases(m.mapTo, types, model);
+  return (
+    <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+      <span className={`${c.muted} flex-shrink-0 flex items-center gap-0.5`}><ArrowRight size={9} /> umwandeln in</span>
+      <TypePicker value={m.mapTo ?? ''} types={types} selfId="" model={model} isDark={isDark} disabled={!canEdit}
+        onPick={v => onChange({ mapTo: v || undefined, mapToCase: undefined })} className="flex-1 min-w-0" />
+      {cases.length > 0 && (
+        <select value={m.mapToCase ?? ''} disabled={!canEdit} onChange={e => onChange({ mapToCase: e.target.value || undefined })}
+          title="Der Fall des Typs - ohne Wahl der, dessen Felder am besten passen"
+          className={`flex-shrink-0 text-[10px] px-1 py-0.5 rounded border outline-none ${c.input}`}>
+          <option value="">passender Fall</option>
+          {cases.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      )}
+      {m.mapTo && canEdit && (
+        <button onClick={() => onChange({ mapTo: undefined, mapToCase: undefined })} title="Nicht umwandeln"
+          className={`p-0.5 flex-shrink-0 ${c.muted}`}><X size={10} /></button>
+      )}
     </div>
   );
 }

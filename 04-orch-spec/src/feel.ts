@@ -473,7 +473,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     for (const o of s.outputs ?? []) {
       if (o.disabled || !o.name || (!all && typed.has(o.name))) continue;
       const source = `Ausgabe von ${s.name || s.id}`;
-      const node = outputNode(o, ofStep);
+      const node = outputNode(o, ofStep, b);
       add(node
         ? { ...node, name: o.name, source, ...(o.description ? { description: o.description } : {}) }
         : { name: o.name, type: 'any', label: '?', source, ...(o.description ? { description: o.description } : {}) });
@@ -790,11 +790,18 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
  * (`= debitCardDetail`, `= result.basicData`), the process variable has its
  * type with fields — otherwise it stays unknown.
  */
-function outputNode(o: Mapping, results: () => VarNode[]): VarNode | null {
+function outputNode(o: Mapping, results: () => VarNode[], b?: Builder): VarNode | null {
   const path = /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(o.expression.trim())?.[1].split('.').map(x => x.trim());
   if (!path) return null;
   let node = results().find(n => n.name === path[0]) ?? null;
   for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  // converted into another type (`mapTo`): that type - a list stays a list
+  if (o.mapTo && b) {
+    return nodeOfField({
+      id: '', name: o.name, type: o.mapTo, ...(o.mapToCase ? { enumCase: o.mapToCase } : {}),
+      ...(node?.type === 'list' ? { collection: true } : {}), ...(node?.optional ? { optional: true } : {}),
+    }, node?.source ?? '', b, 0, new Set());
+  }
   return node;
 }
 
@@ -995,7 +1002,7 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
   for (const o of s.outputs ?? []) {
     if (o.disabled || !o.name) continue;
-    const typed = outputNode(o, ofStep);
+    const typed = outputNode(o, ofStep, b);
     if (typed) add({ ...typed, name: o.name, source: `Ausgabe von ${s.name || s.id}`, ...(o.description ? { description: o.description } : {}) });
   }
   const kind = interactionKind(s, spec.processId ?? '');

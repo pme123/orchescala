@@ -182,12 +182,13 @@ function typeOf(id: string, ctx: Ctx): TypeDef | undefined {
 }
 
 /** `x` of a class into the type `toId` - the case it fits, field by field (`Client.Company(…)`). */
-function convertTo(x: string, fromId: string | undefined, toId: string | undefined, ctx: Ctx, where: string): { scala: string; to: string } | null {
+function convertTo(x: string, fromId: string | undefined, toId: string | undefined, ctx: Ctx, where: string, chosen?: string): { scala: string; to: string } | null {
   if (!fromId || !toId || fromId === toId) return null;
   const to = typeOf(toId, ctx);
   const from = typeOf(fromId, ctx);
   if (!to || !from?.fields?.length || (to.kind !== 'enum' && to.kind !== 'case')) return null;
-  const caseOf = to.kind === 'enum' ? fittingCase(to, from) : undefined;
+  const caseOf = to.kind !== 'enum' ? undefined
+    : chosen && (to.values ?? []).some(v => v.name === chosen) ? chosen : fittingCase(to, from);
   if (to.kind === 'enum' && !caseOf) return null;
   const sub = new Map<string, ScalaVar>(from.fields.filter(f => f.name).map(f =>
     [f.name, { scala: `${x}.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection }]));
@@ -201,6 +202,25 @@ function convertTo(x: string, fromId: string | undefined, toId: string | undefin
   });
   const name = caseOf ? `${to.name}.${caseIdent(caseOf)}` : to.name;
   return { scala: args.length ? `${name}(\n${indent(args.join(',\n'), '  ')}\n)` : name, to: name };
+}
+
+/**
+ * An output converted into another type (`mapTo`): the variable it reads, as that type - a list
+ * element by element. `throws`: a required value may be missing - the step fails with its name.
+ */
+function mappedOutput(m: Mapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string): { scala: string; throws: boolean; to?: string } {
+  const src = /^=\s*([A-Za-z_]\w*)\s*$/.exec(m.expression.trim())?.[1];
+  const v = src ? scope.get(src) : undefined;
+  const target = typeOf(m.mapTo!, ctx)?.name ?? m.mapTo!;
+  if (!v) return { scala: todo(`${m.name}: in ${target} umwandeln geht nur von einem Feld des Ergebnisses`), throws: false };
+  if (v.type === m.mapTo) return { scala: v.scala, throws: false };
+  const c = convertTo('x', v.type, m.mapTo, ctx, where, m.mapToCase);
+  if (!c) return { scala: todo(`${m.name}: lässt sich nicht in ${target} umwandeln`), throws: false };
+  const lambda = `x =>\n${indent(c.scala, '  ')}\n`;
+  const scala = v.collection
+    ? (v.optional ? `${v.scala}.map(_.map(${lambda}))` : `${v.scala}.map(${lambda})`)
+    : v.optional ? `${v.scala}.map(${lambda})` : `{\n  val x = ${v.scala}\n${indent(c.scala, '  ')}\n}`;
+  return { scala, throws: c.scala.includes('throw IllegalArgumentException'), to: c.to };
 }
 
 /** The arguments of a FEEL call, split at the commas outside brackets and texts. */
@@ -452,11 +472,18 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
           [f.name, { scala: `${target}.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection }]));
         const scope = new Map([...vars, ...outFields]);
         for (const m of outputs) {
-          // a class into the type the Out defines (`Client.Person`)
-          const c = conversionOf(ctx.o, m, scope, ctx.types);
+          // converted into the type the row names (`mapTo`) - or a class into the type the Out defines (`Client.Person`)
+          const mapped = m.mapTo ? mappedOutput(m, scope, ctx, name) : null;
+          const c = mapped ? null : conversionOf(ctx.o, m, scope, ctx.types);
           const pre: string[] = [];
-          const value = c ? converted(c, ctx, pre) : feelToScala(m.expression, scope, ctx.types).scala;
-          lines.push(...pre, `${scalaIdent(m.name.trim())} = ${value}`);
+          const value = mapped?.scala ?? (c ? converted(c, ctx, pre) : feelToScala(m.expression, scope, ctx.types).scala);
+          const ident = scalaIdent(m.name.trim());
+          if (mapped?.throws) lines.push(`${ident} <- ZIO.attempt(${value}).mapError(e => CustomError(s"${name}: \${e.getMessage}"))`);
+          else lines.push(...pre, `${ident} = ${value}`);
+          const out = outFieldOf(ctx.o, m.name.trim());
+          if (mapped?.to && out && !out.collection) {
+            ctx.conversions.set(s.id, [...(ctx.conversions.get(s.id) ?? []), { field: out.name, optional: !!out.optional, to: mapped.to }]);
+          }
           // what the test sets and checks
           const field = /^=\s*([A-Za-z_]\w*)\s*$/.exec(m.expression.trim())?.[1];
           if (field && outFields.has(field)) ctx.sources.set(m.name.trim(), { service: name, field, ...(outCase ? { outCase } : {}) });

@@ -188,3 +188,14 @@ test('a script task in FEEL: flatten([…]) as concatenate - a list of lists sta
   // two lists side by side are no one list
   assert.doesNotMatch(method('= [persons] ++ [companys]') ?? '', /Client\.Person/);
 });
+
+test('an output converted into another type (mapTo): element by element, the case chosen or the fitting one', () => {
+  const o = scripted('= concatenate(persons, companys)');
+  o.tasks.ReadP = { ...o.tasks.ReadP, outputs: [{ name: 'persons', expression: '= persons', mapTo: 'client' }] };
+  o.tasks.ReadC = { ...o.tasks.ReadC, outputs: [{ name: 'companys', expression: '= companys', mapTo: 'client', mapToCase: 'Company' }] };
+  const w = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
+  assert.match(w, /persons = readPerson\.persons\.map\(_\.map\(x =>\n\s+Client\.Person\(\n\s+clientKey = x\.clientKey,\n\s+firstName = x\.firstName\n\s+\)\n\s+\)\)/, w);
+  assert.match(w, /companys = readCompany\.companys\.map\(_\.map\(x =>\n\s+Client\.Company\(/);
+  // the script reads them as clients - nothing more to convert
+  assert.match(w, /def mergeClients\(persons: Option\[Seq\[Client\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\n/, w);
+});
