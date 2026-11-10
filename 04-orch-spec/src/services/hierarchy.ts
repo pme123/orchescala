@@ -15,8 +15,8 @@
 //   name counts as well when it has exactly the same structure — the same values of a
 //   simple enum, the same fields with the same types — and is the only one of its level.
 //   Every `schema` of the project is searched, the nearest first (`searchGroups`): the
-//   levels above the API up to `acme.crm.domain.schema`, then the other levels, then the
-//   packages of the other APIs.
+//   levels above the API up to `acme.crm.domain.schema`, then the other levels — never
+//   the package of an API (`….v1.schema`).
 import { domainRef, parseDomainRef } from '../serviceTypes.ts';
 import type { DomainType, Field, Model, TypeDef } from '../types.ts';
 import { apiOf, apiParents, apisOf, collectionPackage, hierarchySchemaPackages, sameApi, type ApiRef } from './collection.ts';
@@ -106,28 +106,26 @@ export function schemaPackageOf(c: ServiceCollectionSpec, typeId: string): strin
 
 const CLASS_KINDS = new Set<DomainType['kind']>(['case', 'enum', 'alias']);
 
-// an API's own package: `acme.crm.domain.clientMaster.persons.v1.schema` — no level shared by APIs
-const VERSIONED = /\.v\d+\.schema$/;
+// the package of an API: `acme.crm.domain.clientMaster.persons.v1.schema` — no level of the
+// hierarchy, its classes are the API's
+const OF_AN_API = /\.v\d+\.schema$/;
 
 /**
- * Where the classes of the hierarchy are searched — every `schema` package of the project, in
+ * Where the classes of the hierarchy are searched — the `schema` of every level of the project, in
  * groups, the nearest first: the levels above the APIs that use a type (each a group, up to
- * `domain.schema`), then the other levels of the project (`clientMaster.schema`), the shallow ones
- * first, and last the `schema` of the other APIs. The packages of the collection's own APIs are none:
- * what is there is the collection's.
+ * `domain.schema`), then the other levels (`clientMaster.schema`), the shallow ones first. The
+ * packages of the APIs (`….v1.schema`) are none — neither the collection's own nor another's.
  */
 export function searchGroups(by: ApiRef[], apis: ApiRef[], model: Model | null): string[][] {
   const above = [...new Set(by.flatMap(a => hierarchySchemaPackages(a)))];
   const stems = [...new Set(by.map(a => [...a.project.split('-').filter(Boolean), 'domain'].join('.')))];
   const own = apis.map(a => `${collectionPackage(a)}.`);
-  const others = [...new Set((model?.domainTypes ?? []).filter(d => !d.owner).map(d => d.pkg))]
-    .filter(p => p.endsWith('.schema') && !above.includes(p) && stems.some(x => p.startsWith(`${x}.`)) && !own.some(o => p.startsWith(o)))
+  const levels = [...new Set((model?.domainTypes ?? []).filter(d => !d.owner).map(d => d.pkg))]
+    .filter(p => p.endsWith('.schema') && !OF_AN_API.test(p) && !above.includes(p) && stems.some(x => p.startsWith(`${x}.`)) && !own.some(o => p.startsWith(o)))
     .sort();
   const depth = (p: string) => p.split('.').length;
-  const levels = others.filter(p => !VERSIONED.test(p));
   const byDepth = [...new Set(levels.map(depth))].sort((a, b) => a - b).map(n => levels.filter(p => depth(p) === n));
-  const ofApis = others.filter(p => VERSIONED.test(p));
-  return [...above.map(p => [p]), ...byDepth, ...(ofApis.length ? [ofApis] : [])];
+  return [...above.map(p => [p]), ...byDepth];
 }
 
 /**

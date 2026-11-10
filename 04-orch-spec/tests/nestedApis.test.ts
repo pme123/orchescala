@@ -104,7 +104,7 @@ test('an OpenAPI import takes a class of the same name higher up in the hierarch
   assert.deepEqual(adoptHierarchyTypes(flat, model).adopted.map(a => a.from), ['acme.crm.domain.clientMaster.schema.Address']);
 });
 
-test('the search for classes of the hierarchy: every schema of the project, the nearest first - not the packages of the own APIs', () => {
+test('the search for classes of the hierarchy: the schema of every level, the nearest first - never the package of an API', () => {
   const pkgs = [
     'acme.crm.domain.schema', 'acme.crm.domain.clientMaster.schema', 'acme.crm.domain.partner.schema',
     'acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.legal.schema',
@@ -115,14 +115,12 @@ test('the search for classes of the hierarchy: every schema of the project, the 
   assert.deepEqual(searchGroups([orgs], [orgs], model), [
     ['acme.crm.domain.clientMaster.schema'], ['acme.crm.domain.schema'],
     ['acme.crm.domain.partner.schema'], ['acme.crm.domain.clientMaster.legal.schema'],
-    ['acme.crm.domain.clientMaster.naturalPersons.v1.schema'],
   ]);
   // without levels: the domain's schema first, then the levels by their depth
   const flat = { project: 'acme-crm', api: 'readOrganisation2', apiVersion: 1 };
   assert.deepEqual(searchGroups([flat], [flat], model), [
     ['acme.crm.domain.schema'],
     ['acme.crm.domain.clientMaster.schema', 'acme.crm.domain.partner.schema'], ['acme.crm.domain.clientMaster.legal.schema'],
-    ['acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.orgs.v1.schema'],
   ]);
 });
 
