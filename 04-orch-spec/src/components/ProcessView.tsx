@@ -182,6 +182,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { services } = useServices();
   const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
   const serviceMode = !!spec?.service;
+  // the types the data model lists - a service orchestrator has no InitIn and no InConfig
+  const modelTypes = (spec?.types ?? []).filter(t => !serviceMode || (!t.initIn && !t.inConfig)).length;
   const aiOn = aiFor(aiConfig, serviceMode ? 'serviceOrchestrator' : 'processCreator');
   // without the AI of the studio the draft is gone too
   // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
@@ -1089,7 +1091,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                 ? (isDark ? 'border-white/40 text-white bg-white/10' : 'border-black/40 text-black bg-black/10')
                 : c.btn}`}>
             <Icon size={12} /> {label}
-            {id === 'model' && !!spec.types?.length && <span className="opacity-60">{spec.types.length}</span>}
+            {id === 'model' && !!modelTypes && <span className="opacity-60">{modelTypes}</span>}
           </button>
         ))}
 
