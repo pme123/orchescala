@@ -132,3 +132,28 @@ test('cross-check: with a studio the AI shows', async ({ page }) => {
   await createPage(page);
   await expect(page.locator(AI.page)).toBeVisible();
 });
+
+test('while Claude works on a draft, the process stays as it is - editing again after it', async ({ page }) => {
+  await page.route('**/ai/config', (route) => route.fulfill({
+    json: { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['processCreator'], skills: { processCreator: { name: 'processCreator-anthropic', version: 2 } } },
+  }));
+  // Claude does not answer: the turn runs until it is stopped
+  const asked = page.waitForRequest('**/ai/processCreator/v1/messages*');
+  await page.route('**/ai/processCreator/v1/messages*', () => {});
+  await openFolder(page);
+  await openProcess(page);
+  const title = page.getByPlaceholder('Fachlicher Titel');
+  await expect(title).toBeEnabled();
+
+  await page.locator(AI.process).click();
+  await page.getByPlaceholder('Was soll sich am Ablauf ändern?').fill('Nach der Freigabe den Kunden informieren');
+  await page.getByTitle('Senden (Enter)').click();
+  await asked;
+  await expect(page.getByText('Claude arbeitet')).toBeVisible();
+  // an edit now would make the draft refuse to be taken over
+  await expect(title).toBeDisabled();
+
+  await page.getByTitle('Anhalten').click();
+  await expect(page.getByText('Claude arbeitet')).toBeHidden();
+  await expect(title).toBeEnabled();
+});

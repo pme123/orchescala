@@ -12,7 +12,7 @@ import { draftChanged, pageToolKit, startDraft, type PageDraft } from './pageToo
 /** a page without its comments - they change while a draft is open, without touching it */
 const withoutComments = (p: Page): Page => ({ ...p, spec: p.spec ? { ...p.spec, comments: undefined } : undefined });
 
-export function AiPanel({ isDark, slug, page, pages, app, targets, draft, onDraft, onAccept, onSelect, initialPrompt, onInitialPrompt }: {
+export function AiPanel({ isDark, slug, page, pages, app, targets, draft, onDraft, onBusy, onAccept, onSelect, initialPrompt, onInitialPrompt }: {
   isDark: boolean;
   slug: string;
   /** the page as it is saved (without the draft) */
@@ -23,6 +23,8 @@ export function AiPanel({ isDark, slug, page, pages, app, targets, draft, onDraf
   targets: Targets;
   draft: PageDraft | null;
   onDraft: (d: PageDraft | null) => void;
+  /** Claude works on the draft - the designer is read only meanwhile */
+  onBusy: (busy: boolean) => void;
   /** the draft taken over; `requests`: what the RE asked for it (for the change log) */
   onAccept: (page: Page, requests: string[]) => void;
   onSelect: (key: BlockKey) => void;
@@ -33,7 +35,7 @@ export function AiPanel({ isDark, slug, page, pages, app, targets, draft, onDraf
   const changes = useMemo(() => (draft ? pageDiff(draft.base, draft.page) : []), [draft]);
   const all = [...pages.filter((p) => p.slug !== slug), { slug, page }];
   return (
-    <AiChat<PageDraft> isDark={isDark} task="uiCreator" draft={draft} onDraft={onDraft} initialPrompt={initialPrompt} onInitialPrompt={onInitialPrompt}
+    <AiChat<PageDraft> isDark={isDark} task="uiCreator" draft={draft} onDraft={onDraft} onBusy={onBusy} initialPrompt={initialPrompt} onInitialPrompt={onInitialPrompt}
       system={() => pageSystem(specSource, targets, all, app)}
       kit={pageToolKit({ targets, others: all })}
       start={() => startDraft(slug, page)}
