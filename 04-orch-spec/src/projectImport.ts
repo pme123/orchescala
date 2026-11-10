@@ -30,7 +30,7 @@ import { defaultIsUsed, packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
 import { domainRef } from './serviceTypes.ts';
 import { enumHasCase, splitEnumCase } from './feel.ts';
-import { handleFor, readSources } from './projects.ts';
+import { handleFor, intoProject, readSources, rememberProject } from './projects.ts';
 import { uid } from './util.ts';
 import { shareCaseFields, sharedFields } from './enumCases.ts';
 
@@ -158,6 +158,22 @@ export function ownFolders(model: Model | null, id: string): ProjectFolder[] {
   const matching = (model?.projects ?? []).filter(p => id === p.name || id.startsWith(`${p.name}-`));
   const longest = Math.max(0, ...matching.map(p => p.name.length));
   return matching.filter(p => p.name.length === longest);
+}
+
+/**
+ * A folder chosen in the sync (its domain has what was looked for): remembered as the own
+ * project folder of the ID — the next sync reads it without asking again. A folder above
+ * the project counts too: the project inside it is remembered.
+ */
+export async function rememberOwnFolder(model: Model | null, id: string, dir: FileSystemDirectoryHandle): Promise<boolean> {
+  let any = false;
+  for (const p of ownFolders(model, id)) {
+    const h = await intoProject(dir, p.name).catch(() => null);
+    if (!h) continue;
+    await rememberProject(p, h);
+    any = true;
+  }
+  return any;
 }
 
 async function searchDomain(

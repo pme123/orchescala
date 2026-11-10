@@ -55,6 +55,8 @@ export interface VarNode {
   optional?: boolean;
   /** where the variable comes from: `In`, `InitIn`, `Variable`, `Ausgabe von …` */
   source: string;
+  /** a simple enum: its values — a FEEL string each (`clientMainType = "Person"`) */
+  values?: string[];
 }
 
 /** What may arrive at the target field. */
@@ -150,11 +152,12 @@ function nodeOf(
     ...(o.map && !o.collection ? { open: true } : {}),
   };
   if (base.children?.length && !o.map) node.children = base.children;
+  if (base.values?.length && !o.collection && !o.map) node.values = base.values;
   return node;
 }
 
 /** Type and subfields of a base type (without Option/Seq); `enumCase` = only this case. */
-function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
+function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[]; values?: string[] } {
   if (isScalar(typeRef)) return { type: SCALAR_FEEL[typeRef] ?? 'string' };
   if (depth >= MAX_DEPTH || seen.has(typeRef)) return { type: 'context' };
   const inner = new Set(seen).add(typeRef);
@@ -163,7 +166,7 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
   if (own) {
     // an ADT is an object in JSON — visible are the fields of all cases,
     // for a single case only the shared ones and those of this case
-    if (own.kind === 'enum' && !isAdt(own)) return { type: 'string' };
+    if (own.kind === 'enum' && !isAdt(own)) return { type: 'string', values: enumCase ? [enumCase.replace(/^`|`$/g, '')] : (own.values ?? []).map(v => v.name).filter(Boolean) };
     const cases = (own.values ?? []).filter(v => !enumCase || v.name === enumCase);
     const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...cases.flatMap(v => v.fields ?? [])] : (own.fields ?? []);
     const seenNames = new Set<string>();
@@ -183,8 +186,8 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
   return { type: 'any' };
 }
 
-function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
-  if (dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length) return { type: 'string' };
+function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[]; values?: string[] } {
+  if (dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length) return { type: 'string', values: enumCase ? [enumCase.replace(/^`|`$/g, '')] : dom.values ?? [] };
   if (dom.kind === 'alias') return { type: 'any' };
   const seenNames = new Set<string>();
   const cases = (dom.cases ?? []).filter(c => !enumCase || c.name === enumCase);
@@ -1311,12 +1314,53 @@ export interface Completion {
   path: string;
   /** Characters the cursor jumps back after inserting (into the parenthesis) */
   back?: number;
+  /** a value of a simple enum — the variable it is compared with */
+  enumOf?: VarNode;
 }
 
 export interface CompletionResult {
   from: number;
   to: number;
   items: Completion[];
+  /** the values of an enum after `=`: shown before anything is typed */
+  values?: boolean;
+}
+
+/** The variable or field of a path — `client.kind` in the tree. */
+function nodeAt(path: string, vars: VarNode[]): VarNode | undefined {
+  let pool = vars;
+  let hit: VarNode | undefined;
+  for (const seg of path.split('.')) {
+    hit = pool.find(v => v.name === seg);
+    if (!hit) return undefined;
+    pool = hit.children ?? [];
+  }
+  return hit;
+}
+
+/**
+ * After a comparison with a simple enum (`clientMainType = Per|`, `kind != "|`): its values as
+ * FEEL strings. Typed is a part of a value — or of the name of the enum (`ClientMainT`): all.
+ */
+function enumValues(text: string, cursor: number, vars: VarNode[]): CompletionResult | null {
+  const before = text.slice(0, cursor);
+  const m = /([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*(?:!=|=)\s*("?)([\w-]*)$/.exec(before);
+  if (!m || m.index <= text.indexOf('=')) return null;
+  const [, path, quote, partial] = m;
+  const node = nodeAt(path, vars);
+  if (!node?.values?.length) return null;
+  const needle = partial.toLowerCase();
+  const typeName = node.label.replace(/^Option\[|\]$/g, '').toLowerCase();
+  const all = !needle || typeName.startsWith(needle);
+  const values = all ? node.values : [
+    ...node.values.filter(v => v.toLowerCase().startsWith(needle)),
+    ...node.values.filter(v => !v.toLowerCase().startsWith(needle) && v.toLowerCase().includes(needle)),
+  ];
+  if (!values.length) return null;
+  const from = cursor - partial.length - quote.length;
+  // a closing quote already there (typed `""`) is replaced too
+  const to = quote && text[cursor] === '"' ? cursor + 1 : cursor;
+  return { from, to, values: true, items: values.map(v => ({ insert: `"${v}"`, path: `"${v}"`, enumOf: node })) };
 }
 
 /**
@@ -1328,6 +1372,8 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
   if (!isFeel(text)) return null;
   const eq = text.indexOf('=');
   if (cursor <= eq) return null;
+  const values = enumValues(text, cursor, vars);
+  if (values) return values;
   const before = text.slice(0, cursor);
   // inside a string? (odd number of quotes before)
   if ((before.slice(eq + 1).match(/"/g)?.length ?? 0) % 2 === 1) return null;

@@ -1,7 +1,7 @@
 package orchescala.helper.dev.update
 
 import orchescala.domain.BpmnProcessType
-import orchescala.helper.dev.update.merge.{OnConflict, ProcessExport, ServicesExport, SpecMerge}
+import orchescala.helper.dev.update.merge.{MergeAborted, MergeIncomplete, MergePlan, OnConflict, ProcessExport, ServicesExport, SpecMerge}
 
 /** Creates a process from the exports of Orch Spec:
   *   - the BPMN export - the process id gives the names (process, version, object); without it the
@@ -12,36 +12,55 @@ import orchescala.helper.dev.update.merge.{OnConflict, ProcessExport, ServicesEx
   * custom tasks, signal- and message events) and the simulation - like `./helper.scala process`
   * does - and registers them in the `WorkerApp` and the `ApiProjectCreator`.
   *
-  * Existing files are never overwritten - so the command can be re-run after adding new classes
-  * in Orch Spec. The one exception is the process object: the types from Orch Spec are merged into
-  * it, everything else in it stays (see `OrchSpecProcessObject.merge`).
+  * The command can be re-run after changes in Orch Spec: the domain classes are merged into the code
+  * by structure (`merge.ScalaMerge` - the own members stay, what only the code has goes only on a
+  * yes), the process object gets the types from Orch Spec (`OrchSpecProcessObject.merge`); workers
+  * and the BPMN that exist are not overwritten.
   *
   * The decision is the plan of the merge from Orch Spec without a base (`merge.SpecMerge`): the
   * library decides and writes, only this command prints.
   */
-case class OrchSpecGenerator()(using config: DevConfig):
+final class OrchSpecGenerator(
+    /** the question whether what only the code has goes - the console by default */
+    ask: String => Option[String] = MergeReport.readAnswer
+)(using config: DevConfig):
 
-  /** «Process from Spec» of one process (`orchspec:` or pasted): decide (the plan, without a base
-    * - an existing file that differs stays), write it, print it.
+  /** «Process from Spec» of one process (`orchspec:` or pasted): decide (the plan, without a base),
+    * ask whether what only the code has goes, write it, print it.
     */
   def createProcess(bpmn: Option[String], scalaExport: String, dmns: Seq[(String, String)] = Seq.empty): Unit =
     val project = config.projectDir
     val plan    = SpecMerge.plan(project, Seq.empty, Seq(ProcessExport("orchspec", bpmn, scalaExport, dmns)), strict = true)
-    val result  = SpecMerge.merge(project, plan, OnConflict.KeepCode)
-    MergeReport.printMerged(plan, result)
+    mergeAndPrint(project, plan)
     linkDiagrams(project)
   end createProcess
 
   /** «Process from Spec» of a service collection or a service orchestration (`orchspec:` v2) - the
     * same plan without a base as for a process (see `merge.ServicePlanner`): new files are created,
-    * an existing one that differs stays, the registrations are added.
+    * the domain classes merged into the code, the registrations added.
     */
   def createServices(scalaExport: String): Unit =
     val project = config.projectDir
     val plan    = SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("orchspec", scalaExport)), strict = true)
-    val result  = SpecMerge.merge(project, plan, OnConflict.KeepCode)
-    MergeReport.printMerged(plan, result)
+    mergeAndPrint(project, plan)
   end createServices
+
+  // what only the code has: the plan with its changes first, then the question - it goes only on
+  // a yes; without it the changes are shown with what the merge did
+  // a file changed while asked (nothing written) or one that could not be written (what was done
+  // before stays): said, as `processFromSpec --merge` says it
+  private def mergeAndPrint(project: os.Path, plan: MergePlan): Unit =
+    try
+      if plan.removals.isEmpty then
+        val before = MergeReport.before(project, plan)
+        MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode), project, Some(before))
+      else
+        MergeReport.printPlan(plan, project)
+        val remove = MergeReport.askRemoval(plan, ask)
+        MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove), project)
+    catch
+      case e: MergeAborted    => println(MergeReport.colored(Console.YELLOW, s"${e.getMessage} - run it again."))
+      case e: MergeIncomplete => MergeReport.printIncomplete(e)
 
   /** The worker app serves the diagrams in its docs - a project set up before its first BPMN has no link yet. */
   def linkDiagrams(project: os.Path): Unit =
@@ -1434,12 +1453,20 @@ object OrchSpecImports:
         val wanted   = names(selector)
         packages.contains(prefix) && !wanted.contains("*") ||
         wanted.forall: n =>
-          existing.exists((p, ns) => (p == prefix && (ns.contains(n) || ns.contains("*"))) || (n != "*" && ns.contains(n)))
+          existing.exists((p, ns) => (p == prefix && (ns.contains(n) || ns.contains("*") && !ns.contains(s"-$n"))) || (n != "*" && ns.contains(n)))
       case _                        => lines.exists(_.trim == importLine.trim)
 
+  // the names an import brings into scope: `X`, `*` - a renamed one under its new name (`X as Y`:
+  // `Y`), a hidden one as `-X` (`X as _`: not by the `*` next to it); `given` brings none
   private def names(selector: String): Seq[String] =
-    selector.stripPrefix("{").stripSuffix("}").split(",").toSeq.map(_.trim.split("\\s+").head)
-      .map(n => if n == "_" then "*" else n).filter(_.nonEmpty)
+    selector.stripPrefix("{").stripSuffix("}").split(",").toSeq.map(_.trim).filter(_.nonEmpty).flatMap: s =>
+      s.split("\\s*(?:\\bas\\b|=>)\\s*").toSeq match
+        case Seq("_" | "*")                    => Seq("*")
+        case Seq(n) if n.startsWith("given")   => Seq.empty
+        case Seq(n)                            => Seq(n)
+        case Seq(n, "_")                       => Seq(s"-$n")
+        case Seq(_, alias)                     => Seq(alias)
+        case _                                 => Seq.empty
 
   // `package acme.product` + `package domain.orderCard.v1` - both are visible without import
   private def visiblePackages(lines: Seq[String]): Seq[String] =

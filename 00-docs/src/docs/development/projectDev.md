@@ -231,9 +231,36 @@ changes into the code - without losing the implementation:
 ./helper.scala processFromSpec --check --json plan.json     # ... and the plan as JSON
 ./helper.scala processFromSpec --merge [--from <dir>] [--markers] [--yes]
 ```
-The base is the export of the spec in the last commit (`HEAD:spec`), the new one the export of
-`spec/` (or `--from`); both are made with _Orch Spec_'s own tool (needs Node.js). Per file of the
-project:
+The domain classes (the Scala files of the export) are merged into the code by structure - the
+code is the basis, whatever the spec was before. Part by part (classes, objects, the cases of an
+enum, the members - each with its doc comment and annotations):
+
+| The part                               | In the result                                                       |
+|----------------------------------------|---------------------------------------------------------------------|
+| the imports                            | those of the code - the ones of _Orch Spec_ it does not cover added |
+| a class, object, enum in both          | the head of _Orch Spec_ (parameters, `extends`), the body merged    |
+| a member or case in both               | the one of _Orch Spec_ - the code's when _Orch Spec_ has a placeholder there (`???`, a `TODO`, like the decoder of an enum without a field that names its case) |
+| only in _Orch Spec_                    | added - after the part it follows there                             |
+| a member only in the code              | stays - it is your implementation                                   |
+| a class, object, case or a shared field of an enum (`def x: T` without a value) only in the code | stays - you are asked whether it goes |
+
+What differs only in its form (indentation, line breaks, the imports in another form) stays as the
+code has it. Code the structural merge does not read (indented with tabs, a class or
+object with its body in braces) is merged as text, like `git merge`: what differs is a conflict. A Scala file next to the domain classes that _Orch Spec_ does not know (in the
+package of the API or process, `…/v1/`, `…/v1/schema/`; not a service or process object) and a
+file _Orch Spec_ no longer gives are asked the same way: only their classes and objects go - the
+file only when nothing else is in it (an extension or a `def` of your own stays). The question
+lists every file and what goes of it; of several files you answer `y` (all), `e` (each on its own)
+or `N` (none). `--yes` deletes nothing of it.
+
+The output is laid out like the one of a simulation: every file that changes with its changes as
+`git diff` shows them (the line, two lines around it - the code's lines red, _Orch Spec_'s green, a
+change of the form grey), then the files grouped by what happens to them and an `END` line with
+the numbers.
+
+For the other files - BPMN, DMN, workers, simulation - the base is the export of the spec in the
+last commit (`HEAD:spec`), the new one the export of `spec/` (or `--from`); both are made with
+_Orch Spec_'s own tool (needs Node.js). Per file of the project:
 
 | Orch Spec (base -> new) | Code                      | Action                                  |
 |-------------------------|---------------------------|-----------------------------------------|
@@ -313,8 +340,11 @@ It is the one field of the domain classes with a default: `inConfig: Option[InCo
 The types of the process object are in the order `In`, `InitIn`, `InConfig`, `Out` - then the other
 types of the object (e.g. `enum CustomProcessStatus`).
 
-**Re-run.** Existing files are not overwritten - they are compared with _Orch Spec_ (`UNCHANGED` / `DIFFERS`).
-The process object is the exception - _Orch Spec_ is merged into it (`UPDATED`):
+**Re-run.** The domain classes are merged into the code by structure, as `--merge` does (see the
+table there): what _Orch Spec_ generates comes in, your own members stay (`MERGED` / `UNCHANGED`),
+and for a class, object or case only the code has you are asked whether it goes. Workers and the
+BPMN that exist are not overwritten (`UNCHANGED` / `DIFFERS`).
+The process object - _Orch Spec_ is merged into it (`MERGED`):
 - `In`, `Out` and the other types of the export replace the ones with the same name
   (unless they only differ in blanks and line breaks); a missing one goes to its place in the order above.
 - `InConfig` and `InitIn` only get the fields they miss - what is there (own mocks, examples) stays.
@@ -382,14 +412,14 @@ The package of the Scala classes must be `<projectPackage>.domain.<processName>.
 so company and project of the process in _Orch Spec_ must match the project.
 If it differs from the names of the BPMN, you get a warning (the Scala classes win).
 
-Existing files are never overwritten - so you can run it again after changes in _Orch Spec_:
+So you can run it again after changes in _Orch Spec_:
 - new classes, workers and tests are created,
 - new workers and interactions are added to the `WorkerApp` and the `ApiProjectCreator`,
-- the classes and the BPMN are compared with _Orch Spec_ - `UNCHANGED`, or
-  `DIFFERS from Orch Spec` (for the process object only the types of the export - `In`, `Out`, `InConfig`, `InitIn` -
-  and the imports, the rest is implementation).
+- the domain classes are merged into the code - your own members stay; what only the code has
+  goes only when you say so,
+- the BPMN is compared with _Orch Spec_ - `UNCHANGED`, or `DIFFERS from Orch Spec`.
 
-To take a new version of a class or of the BPMN: delete it and run the command again - or merge it manually.
+To take a new version of the BPMN: delete it and run the command again - or merge it manually.
 
 ### customTask
 Creates a new Custom Task.

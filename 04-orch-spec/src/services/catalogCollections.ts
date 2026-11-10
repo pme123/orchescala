@@ -26,12 +26,12 @@ import { catalogObject, domainRef, objectOf } from '../serviceTypes';
 import { SCALA_TYPES, type DomainType, type Field, type Model, type ServiceDef, type TypeDef } from '../types';
 import { uid } from '../util';
 import { knownPrefixes } from '../stepIds';
-import { adoptHierarchyTypes, type Adopted } from './hierarchy';
+import { adoptHierarchyTypes, typesOf, type Adopted } from './hierarchy';
 import { API_NAME, apiKey, apiLeaf, apiOf, apisOf, renameApi, topicPrefix, basePathParams, collectionPackage, newCollection, sameApi, serviceTopic, suggestPathBase, withSuggestedOutMappings, workerPackage, type ApiRef } from './collection';
 import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
-const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
+const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][A-Za-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
 
 export interface CatalogApi extends ApiRef {
   /** `acme-crm-clientV1` */
@@ -191,7 +191,8 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
       extra.push(t);
       return t;
     }
-    if (!dom?.fields?.length) {
+    // an enum with cases (`case Standard(…)`, `case ClientKey(…)`) has no fields of its own
+    if (!dom?.fields?.length && !dom?.cases?.length) {
       const t = memberFromEntry(svc, which, serviceId);
       extra.push(t);
       return t;
@@ -337,6 +338,8 @@ export interface CatalogSync {
   removed: string[];
   /** types of the API new in the collection */
   addedTypes: string[];
+  /** types of the collection no service uses any more after the Abgleich — the domain has them elsewhere now */
+  removedTypes: string[];
   /** APIs the project has in a hierarchy — `multipleNaturalPersons v1 → clientMaster.multipleNaturalPersons` */
   renamedApis: string[];
   /** APIs whose topics several APIs of the project have — not renamed: `persons v1: clientMaster.persons, other.persons` */
@@ -357,8 +360,9 @@ const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
  * only the collection has stays: its mappings, further In/Out fields, query and headers of
  * an OpenAPI, status and description. Services of its APIs the collection lacks are added,
  * custom workers an older import took over are removed. `null`: the catalog does not know the project.
+ * @param keep the ids of the types the user keeps as the collection's own instead of the class of the hierarchy
  */
-export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null): CatalogSync | null {
+export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null, keep: ReadonlySet<string> = new Set()): CatalogSync | null {
   const project = catalogProjects(model).find(p => p.project === given.project);
   if (!project) return null;
   // an API is the same by its topics (the last part and the version) — where the project
@@ -380,7 +384,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   const apis = project.apis.filter(a => apisOf(c).some(x => sameApi(x, a)));
   // nothing to compare with — but say which API is not clear
   if (!apis.length) return ambiguousApis.length
-    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], renamedApis: [], ambiguousApis, adopted: [] }
+    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], removedTypes: [], renamedApis: [], ambiguousApis, adopted: [] }
     : null;
   const fresh = collectionFromCatalog(project, apis, model, c.title);
   const keyOf = (s: CollectionService) => serviceTopic(apiOf(c, s), s);
@@ -433,7 +437,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
         return { ...df, ...(old ? { id: old.id } : {}), type: mapType(df.type) };
       });
       const extra = (cur.fields ?? []).filter(x => !domFields.some(d => d.name === x.name));
-      types.set(cur.id, { ...cur, fields: [...domFields, ...extra] });
+      types.set(cur.id, { ...cur, fields: [...domFields, ...extra], ...(dom.kind === 'enum' ? { kind: 'enum', values: syncCases(cur, dom, mapType) } : {}) });
     }
     // the request: path parameters from the domain (with the value the collection gave), query and headers stay
     const params = f.path
@@ -495,8 +499,47 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
     return fromBase.size ? { ...s, params: s.params.filter(p => !(p.in === 'path' && fromBase.has(p.name))) } : s;
   });
   // own types the project has higher up in the hierarchy: taken from there
-  const h = adoptHierarchyTypes(spec, model);
-  return { spec: h.spec, added: added.map(s => s.name), updated, removed, addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)), renamedApis, ambiguousApis, adopted: h.adopted };
+  const h = adoptHierarchyTypes(spec, model, keep);
+  // types a service used before and none uses now: the domain moved them (to a `schema` higher up,
+  // under another name) — they go; a type no service used before stays, the collection keeps it
+  const usedBefore = usedTypes(c);
+  const usedNow = usedTypes(h.spec);
+  const orphans = h.spec.types.filter(t => !t.interactionId && usedBefore.has(t.id) && !usedNow.has(t.id));
+  const result = orphans.length ? { ...h.spec, types: h.spec.types.filter(t => !orphans.includes(t)) } : h.spec;
+  return {
+    spec: result, added: added.map(s => s.name), updated, removed,
+    addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)),
+    removedTypes: orphans.map(t => t.name),
+    renamedApis, ambiguousApis, adopted: h.adopted,
+  };
+}
+
+/**
+ * The cases of an In or Out that is an enum: those of the domain with their fields (the ids and
+ * the description the collection gave them), then the fields and cases only the collection has.
+ */
+function syncCases(cur: TypeDef, dom: TypeDef, map: (type: string) => string): NonNullable<TypeDef['values']> {
+  const shared = new Set((dom.fields ?? []).map(f => f.name));
+  const fromDomain = (dom.values ?? []).map(dv => {
+    const old = cur.values?.find(v => v.name === dv.name);
+    const fields = (dv.fields ?? []).map(df => {
+      const o = old?.fields?.find(x => x.name === df.name);
+      return { ...df, ...(o ? { id: o.id } : {}), type: map(df.type) };
+    });
+    const extra = (old?.fields ?? []).filter(x => !shared.has(x.name) && !fields.some(d => d.name === x.name));
+    const all = [...fields, ...extra];
+    const { fields: _, ...rest } = { ...old, ...dv };
+    return { ...rest, ...(old?.description && !dv.description ? { description: old.description } : {}), ...(all.length ? { fields: all } : {}) };
+  });
+  const own = (cur.values ?? []).filter(v => !fromDomain.some(d => d.name === v.name));
+  return [...fromDomain, ...own];
+}
+
+/** The ids of the types the services of a collection use — In, Out, bodies, parameters and what they reach. */
+function usedTypes(c: ServiceCollectionSpec): Set<string> {
+  const out = new Set<string>();
+  for (const s of c.services) for (const id of typesOf(s, c.types)) out.add(id);
+  return out;
 }
 
 /**

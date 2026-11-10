@@ -424,8 +424,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass.filter(n => variantAllows(v, chosen, n)), quelle: 'Modell' };
     const params = (list === 'inputs' ? service?.inputs : service?.outputs) ?? [];
-    const names = params.map(p => p.name).filter(n => variantAllows(v, chosen, n));
-    return params.length ? { names, quelle: 'Katalog' } : null;
+    // the fields of the chosen case, also those the catalog of the service does not list
+    const ofCase = v && chosen.name && chosen.name !== ALL_VARIANTS ? v.cases.find(x => x.name === chosen.name)?.fields.map(f => f.name) ?? [] : [];
+    const names = [...new Set([...params.map(p => p.name), ...ofCase])].filter(n => variantAllows(v, chosen, n));
+    return names.length ? { names, quelle: 'Katalog' } : null;
   };
 
   const setMapping = (list: 'inputs' | 'outputs', i: number, patch: Partial<Mapping>) =>
@@ -437,7 +439,11 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     const have = new Set((step[list] ?? []).map(m => m.name));
     const ref = reference(list);
     if (!ref) return;
-    const descr = new Map(((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).map(p => [p.name, p.description]));
+    // the descriptions of the catalog — of a field of a case the one the case gives it
+    const descr = new Map<string, string | undefined>([
+      ...(variantsFor(list)?.cases ?? []).flatMap(x => x.fields).map(f => [f.name, f.description] as [string, string | undefined]),
+      ...((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).filter(p => p.description).map(p => [p.name, p.description] as [string, string | undefined]),
+    ]);
     const add = ref.names.filter(n => !have.has(n)).map(name => ({
       name,
       expression: `= ${name}`,
@@ -1349,6 +1355,9 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
     const same = current?.id === svc.id;
     const extra = (list: Mapping[] | undefined, params: ServiceParam[]) =>
       (same ? list ?? [] : []).filter(m => !params.some(pm => pm.name === m.name));
+    // a chosen case that stays: its fields as rows too — the catalog may list only the shared ones
+    const ofCase = (rows: Mapping[], v: { v: Variants | null; name: string | null }, list: 'inputs' | 'outputs') =>
+      v.v && v.name && v.name !== ALL_VARIANTS ? rowsForVariant(rows, v.v, v.name, list) : rows;
     onPatch(step.id, {
       ...(name && name !== step.name ? { name } : {}),
       serviceId: svc.id,
@@ -1357,18 +1366,18 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       ...(svc.topic ? { topic: svc.topic } : {}),
       ...(svc.calledProcess ? { calledProcess: svc.calledProcess } : {}),
       // What was already entered stays: expression, meaning and the deselection
-      inputs: inParams.map(pm => ({
+      inputs: ofCase(inParams.map(pm => ({
         name: pm.name,
         expression: oldIn.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldIn.get(pm.name)?.description ?? pm.description ? { description: oldIn.get(pm.name)?.description ?? pm.description } : {}),
         ...(oldIn.get(pm.name)?.disabled ? { disabled: true } : {}),
-      })).concat(extra(step.inputs, inParams)),
-      outputs: outParams.map(pm => ({
+      })).concat(extra(step.inputs, inParams)), vin, 'inputs'),
+      outputs: ofCase(outParams.map(pm => ({
         name: pm.name,
         expression: oldOut.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
         ...(oldOut.get(pm.name)?.disabled ? { disabled: true } : {}),
-      })).concat(extra(step.outputs, outParams)),
+      })).concat(extra(step.outputs, outParams)), vout, 'outputs'),
       ...(svc.handledErrors?.length
         ? { errors: [...(step.errors ?? []), ...svc.handledErrors.filter(code => !(step.errors ?? []).some(e => e.code === code)).map(code => ({ code }))] }
         : {}),
