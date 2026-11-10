@@ -1445,6 +1445,18 @@ Der Katalog kommt aus der **OpenAPI** der Projekte — eine Quelle für alles:
 Worker, Prozesse, Benutzeraufgaben und Signale, jeweils mit ihren Ein- und
 Ausgaben. Sie beschreibt, was **tatsächlich deployed** ist.
 
+**Der Ordner gehört dazu.** Was im gewählten Ordner liegt, ist überall wählbar, bevor es
+umgesetzt ist: die Services der Collections, die Service-Orchestrierungen (als Service, den ein
+Schritt aufruft) und die Prozesse (für eine Call Activity und für eine Seite, mit ihrem In und
+Out). Was der Katalog noch nicht hat, ist **noch nicht released** – im Auswahlfeld markiert, im
+Befund eine Warnung statt eines Fehlers. Das nächste Release bringt es in den Katalog, und die
+Warnung verschwindet. Ohne Katalog wird nichts markiert.
+
+**Seite zum Benutzer-Task.** Beim Benutzer-Task legt **Seite anlegen** eine Seite an – der
+Dialog «Neu» mit Titel und Pfad des Tasks, mit Login, den Feldern seines Out und einem Button
+«Abschliessen»; mit KI auch eine Beschreibung für Claude. **Seite wählen** gibt einer bestehenden
+Seite diesen Button am Ende, mit einem Eintrag im Verlauf der Seite.
+
 **Admin → Katalog → Katalog lokal erzeugen → OpenAPI einlesen** nimmt einen Ordner und sammelt
 alle `OpenApi.yml` darunter ein; «Dateien» wählt stattdessen einzelne. Beides
 läuft im Browser, ohne Netzwerk. Für Skripte und CI dasselbe im Terminal:

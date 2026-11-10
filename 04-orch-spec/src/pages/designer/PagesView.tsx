@@ -1,4 +1,5 @@
 // The pages of the app (E15) - one page per file in `pages/`, the app settings in `pages/app.json`.
+import type { TaskPageDraft } from '../taskLinks';
 import { useFolderModel } from '../../useFolderModel';
 import { AlertTriangle, AppWindow, ArrowUpRight, ClipboardCheck, LayoutTemplate, MessageSquare, Plus, Settings2, Trash2 } from 'lucide-react';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from '../../components/SpecList';
@@ -22,17 +23,19 @@ const pageEntry = ({ slug, data }: PageListItem): ListEntry => ({
   title: data.title, terms: [data.path, slug], project: data.spec?.project, epics: data.spec?.epics,
 });
 
-export default function PagesView({ onOpen, onOpenTask }: {
+export default function PagesView({ onOpen, onOpenTask, create }: {
   /** `notice`: a warning for the editor - e.g. the first log entry of a new page was not written */
   onOpen: (slug: string, aiPrompt?: string, notice?: string) => void;
   /** to the user task of a page - the process at its step */
   onOpenTask?: (specSlug: string, stepId: string) => void;
+  /** a page for a user task (from the process): the dialog «Neu» filled in */
+  create?: TaskPageDraft;
 }) {
   const { isDark, model, specs, pages, pagesApp, pagesUnreadable, createPage, deletePage, savePagesApp } = useStore();
   const { canEdit, canDelete } = usePermissions();
   const confirm = useConfirm();
   const c = cls(isDark);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(!!create);
   const [appOpen, setAppOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const folderModel = useFolderModel();
@@ -74,7 +77,7 @@ export default function PagesView({ onOpen, onOpenTask }: {
           return r.status === 'saved' ? null : r.status === 'conflict' ? 'Die Datei wurde inzwischen geändert – deine Eingaben bleiben hier stehen; die andere Fassung zeigt erst ein Neuladen der Seite.' : r.message;
         }}
         onClose={() => setAppOpen(false)} />}
-      {creating && <NewPage existing={pages.map((p) => p.slug)}
+      {creating && <NewPage existing={pages.map((p) => p.slug)} draft={create}
         onCreate={async (slug, page, aiPrompt) => { const r = await createPage(slug, page);
           if (r.ok) { setCreating(false); onOpen(slug, aiPrompt, r.auditError && `Angelegt, aber der erste Eintrag im Änderungsprotokoll nicht: ${r.auditError}`); }
           return r; }}
@@ -185,17 +188,21 @@ export default function PagesView({ onOpen, onOpenTask }: {
   );
 }
 
-function NewPage({ existing, onCreate, onClose }: {
-  existing: string[]; onCreate: (slug: string, page: Page, aiPrompt?: string) => Promise<{ ok: true } | { ok: false; message: string }>; onClose: () => void;
+function NewPage({ existing, draft, onCreate, onClose }: {
+  existing: string[];
+  /** filled in - a page for a user task (title, path, with login, its fields and the button «Abschliessen») */
+  draft?: TaskPageDraft;
+  onCreate: (slug: string, page: Page, aiPrompt?: string) => Promise<{ ok: true } | { ok: false; message: string }>; onClose: () => void;
 }) {
   const { isDark } = useStore();
   // with a key (AI mode): what the page should show - Claude drafts it right after creating
   const aiOn = useAiFor('uiCreator');
-  const [describe, setDescribe] = useState('');
+  const [describe, setDescribe] = useState(draft?.describe ?? '');
   const c = cls(isDark);
-  const [title, setTitle] = useState('');
-  const [path, setPath] = useState('');
-  const [access, setAccess] = useState<'public' | 'login'>('public');
+  const [title, setTitle] = useState(draft?.title ?? '');
+  const [path, setPath] = useState(draft?.path ?? '');
+  // a user task is done by someone who logged in
+  const [access, setAccess] = useState<'public' | 'login'>(draft ? 'login' : 'public');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const slug = slugOf(path || title);
@@ -222,9 +229,13 @@ function NewPage({ existing, onCreate, onClose }: {
           onClick={async () => {
             setBusy(true);
             try {
+              // the page of a user task brings its fields and the button that completes it - the heading is the title
+              const body: Page['body'] = draft
+                ? draft.page.body.map((b, i) => (i === 0 && b.type === 'heading' ? { ...b, text: title.trim() } : b))
+                : [{ type: 'heading', text: title.trim() }];
               const r = await onCreate(slug, {
                 path: path.trim(), title: title.trim(), access: access === 'public' ? 'public' : { roles: [] },
-                state: {}, body: [{ type: 'heading', text: title.trim() }],
+                state: {}, body,
               }, aiOn && describe.trim() ? describe.trim() : undefined);
               if (!r.ok) setError(r.message);
             } finally {
