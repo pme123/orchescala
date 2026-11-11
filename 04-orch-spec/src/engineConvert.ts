@@ -636,6 +636,14 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
         const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
         add.push(camunda('executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event: 'start' }));
       }
+    } else if (io.length && name.endsWith('Gateway')) {
+      // Camunda 7 rejects an inputOutput on a gateway (ENGINE-09005), Zeebe ignores
+      // an ioMapping there — so it had no effect: not taken over, kept as a comment
+      for (const p of io) {
+        const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
+        prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${text.replace(/--/g, '- -')} `) as unknown as Element);
+      }
+      issue('Mapping', `«${io.map(p => p.getAttribute('target')).join(', ')}» NICHT übernommen — ${C7_LABEL} erlaubt kein Input/Output-Mapping am ${name}, ${C8_LABEL} ignoriert es dort. Falls nötig von Hand umsetzen (z. B. als Start-Listener am Gateway).`);
     } else if (io.length) {
       const cio = camunda('inputOutput');
       const params = io.map(p => {
