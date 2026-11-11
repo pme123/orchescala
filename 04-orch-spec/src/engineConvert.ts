@@ -575,6 +575,15 @@ function toC8(defs: Element, ctx: Ctx) {
 }
 
 // ── Camunda 8 → Camunda 7 ────────────────────────────────────────────────────
+
+/** A `zeebe:output` as a Camunda 7 listener: `${execution.setVariable("x", …)}` */
+function setVariableListener(p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx): Element {
+  const target = p.getAttribute('target') ?? '';
+  const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, ctx.juel);
+  const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
+  return create(ctx, CAMUNDA_NS, 'camunda', 'executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event });
+}
+
 function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
   const setC = (el: Element, name: string, value: string | undefined) => {
     if (value !== undefined && value !== '') el.setAttributeNS(CAMUNDA_NS, `camunda:${name}`, value);
@@ -630,20 +639,21 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     } else if (io.length && EVENTS.has(name) && io.every(p => local(p) === 'output')) {
       // Camunda 7 knows no output mapping on events — there a
       // listener sets the variable (the pattern it came from in Camunda 8)
-      for (const p of io) {
-        const target = p.getAttribute('target') ?? '';
-        const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, ctx.juel);
-        const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
-        add.push(camunda('executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event: 'start' }));
-      }
+      for (const p of io) add.push(setVariableListener(p, 'start', issue, ctx));
     } else if (io.length && name.endsWith('Gateway')) {
-      // Camunda 7 rejects an inputOutput on a gateway (ENGINE-09005), Zeebe ignores
-      // an ioMapping there — so it had no effect: not taken over, kept as a comment
-      for (const p of io) {
+      // Camunda 7 rejects an inputOutput on a gateway (ENGINE-09005). An output becomes
+      // an end listener (when an output mapping would apply); an input has no
+      // local scope on a gateway — it stays as a comment.
+      const outs = io.filter(p => local(p) === 'output');
+      const ins = io.filter(p => local(p) !== 'output');
+      for (const p of outs) add.push(setVariableListener(p, 'end', issue, ctx));
+      for (const p of ins) {
         const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
         prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${text.replace(/--/g, '- -')} `) as unknown as Element);
       }
-      issue('Mapping', `«${io.map(p => p.getAttribute('target')).join(', ')}» NICHT übernommen — ${C7_LABEL} erlaubt kein Input/Output-Mapping am ${name}, ${C8_LABEL} ignoriert es dort. Falls nötig von Hand umsetzen (z. B. als Start-Listener am Gateway).`);
+      const names = (ps: Element[]) => ps.map(p => `«${p.getAttribute('target')}»`).join(', ');
+      if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als End-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.`);
+      if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
     } else if (io.length) {
       const cio = camunda('inputOutput');
       const params = io.map(p => {

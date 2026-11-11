@@ -27,17 +27,29 @@ const c8 = (gateway: string, task = '') => `<?xml version="1.0" encoding="UTF-8"
 const io = '<bpmn:extensionElements><zeebe:ioMapping><zeebe:input source="=1" target="limit" /><zeebe:output source="=count + 1" target="count" /></zeebe:ioMapping></bpmn:extensionElements>';
 
 for (const kind of ['exclusiveGateway', 'parallelGateway', 'inclusiveGateway']) {
-  test(`C8 -> C7: an ioMapping on a ${kind} is not taken over - a comment and an issue instead`, () => {
+  test(`C8 -> C7: an ioMapping on a ${kind} - the output an end listener, the input a comment`, () => {
     const r = convertBpmn(c8(`<bpmn:${kind} id="gw">${io}<bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:${kind}>`), 'c7');
     const gw = r.xml.slice(r.xml.indexOf(`<bpmn:${kind}`), r.xml.indexOf(`</bpmn:${kind}>`));
     assert.ok(!gw.includes('camunda:inputOutput'), gw);
-    assert.ok(!gw.includes('extensionElements'), gw);
+    const listener = /<camunda:executionListener [^>]*\/>/.exec(gw)?.[0] ?? '';
+    assert.ok(listener.includes('event="end"'), gw);
+    assert.ok(/expression="\$\{execution\.setVariable\((&#34;|&quot;|")count(&#34;|&quot;|"), count \+ 1\)\}"/.test(listener), gw);
     assert.ok(gw.includes('nicht übernommen: zeebe:input source="=1" target="limit"'), gw);
-    assert.ok(gw.includes('nicht übernommen: zeebe:output source="=count + 1" target="count"'), gw);
-    const issue = r.issues.find(i => i.stepId === 'gw');
-    assert.ok(issue && issue.where === 'Mapping' && issue.text.includes('limit, count'), JSON.stringify(r.issues));
+    assert.ok(!gw.includes('zeebe:output'), gw);
+    const issues = r.issues.filter(i => i.stepId === 'gw' && i.where === 'Mapping').map(i => i.text);
+    assert.equal(issues.length, 2, JSON.stringify(r.issues));
+    assert.ok(issues[0].includes('«count» als End-Listener'), issues[0]);
+    assert.ok(issues[1].includes('«limit» NICHT übernommen'), issues[1]);
   });
 }
+
+test('C8 -> C7: only outputs on a gateway - only a listener, no comment', () => {
+  const r = convertBpmn(c8('<bpmn:exclusiveGateway id="gw"><bpmn:extensionElements><zeebe:ioMapping><zeebe:output source="=count + 1" target="count" /></zeebe:ioMapping></bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:exclusiveGateway>'), 'c7');
+  const gw = r.xml.slice(r.xml.indexOf('<bpmn:exclusiveGateway'), r.xml.indexOf('</bpmn:exclusiveGateway>'));
+  assert.ok(gw.includes('camunda:executionListener'), gw);
+  assert.ok(!gw.includes('<!--'), gw);
+  assert.equal(r.issues.filter(i => i.stepId === 'gw').length, 1, JSON.stringify(r.issues));
+});
 
 test('C8 -> C7: an ioMapping on a task still becomes an inputOutput', () => {
   const r = convertBpmn(c8('<bpmn:exclusiveGateway id="gw"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:exclusiveGateway>',
