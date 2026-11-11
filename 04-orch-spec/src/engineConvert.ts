@@ -576,10 +576,12 @@ function toC8(defs: Element, ctx: Ctx) {
 
 // ── Camunda 8 → Camunda 7 ────────────────────────────────────────────────────
 
-/** A `zeebe:output` as a Camunda 7 listener: `${execution.setVariable("x", …)}` */
-function setVariableListener(p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx): Element {
+/** A `zeebe:output` as a Camunda 7 listener: `${execution.setVariable("x", …)}`.
+ *  `nullSafe`: every variable read with `execution.getVariable` — a counter
+ *  (`count + 1`) may be missing on the first pass; `${count}` would throw there. */
+function setVariableListener(p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx, nullSafe = false): Element {
   const target = p.getAttribute('target') ?? '';
-  const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, ctx.juel);
+  const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, nullSafe ? { ...ctx.juel, allOptional: true } : ctx.juel);
   const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
   return create(ctx, CAMUNDA_NS, 'camunda', 'executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event });
 }
@@ -646,7 +648,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       // local scope on a gateway — it stays as a comment.
       const outs = io.filter(p => local(p) === 'output');
       const ins = io.filter(p => local(p) !== 'output');
-      for (const p of outs) add.push(setVariableListener(p, 'end', issue, ctx));
+      for (const p of outs) add.push(setVariableListener(p, 'end', issue, ctx, true));
       for (const p of ins) {
         const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
         prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${text.replace(/--/g, '- -')} `) as unknown as Element);

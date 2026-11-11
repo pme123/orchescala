@@ -298,6 +298,12 @@ export function juelToFeel(body: string): FeelResult {
     const isOp = (...vs: string[]) => { const t = peek(); return t.t === 'op' && vs.includes(t.v); };
     const take = () => toks[p++];
     const expect = (v: string) => { if (!isOp(v)) throw new Unsupported(`«${v}» erwartet`); p++; };
+    // `execution.getVariable("x")` may be missing: in JUEL arithmetic null counts
+    // as 0 (`null + 1` is 1), in FEEL it stays null — there `(if x = null then 0 else x)`
+    // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it)
+    const mayBeMissing = new Set<string>();
+    const num = (x: string) => (mayBeMissing.has(x) ? `(if ${x} = null then 0 else ${x})` : x);
+    const arith = (o: string) => (a: string, b: string) => `${num(a)} ${o} ${num(b)}`;
 
     const expr = (): string => {
       const c = or();
@@ -325,8 +331,9 @@ export function juelToFeel(body: string): FeelResult {
     const and = () => binary(eq, { '&&': 'and', and: 'and' });
     const eq = () => binary(rel, { '==': '=', eq: '=', '!=': '!=', ne: '!=' });
     const rel = () => binary(add, { '<': '<', lt: '<', '>': '>', gt: '>', '<=': '<=', le: '<=', '>=': '>=', ge: '>=' });
-    const add = () => binary(mul, { '+': '+', '-': '-' });
-    const mul = () => binary(unary, { '*': '*', '/': '/', div: '/', '%': (a, b) => `modulo(${a}, ${b})`, mod: (a, b) => `modulo(${a}, ${b})` });
+    const add = () => binary(mul, { '+': arith('+'), '-': arith('-') });
+    const modulo = (a: string, b: string) => `modulo(${num(a)}, ${num(b)})`;
+    const mul = () => binary(unary, { '*': arith('*'), '/': arith('/'), div: arith('/'), '%': modulo, mod: modulo });
     const unary = (): string => {
       if (isOp('!', 'not')) { take(); return `not(${unary()})`; }
       if (isOp('-')) { take(); return `-${unary()}`; }
@@ -347,6 +354,7 @@ export function juelToFeel(body: string): FeelResult {
             if (!isOp(')')) { args.push(expr()); while (isOp(',')) { take(); args.push(expr()); } }
             expect(')');
             v = method(v, n.v, args);
+            if (n.v === 'getVariable') mayBeMissing.add(v);
           } else {
             v = v === 'execution' ? executionProperty(n.v) : `${v}.${n.v}`;
           }

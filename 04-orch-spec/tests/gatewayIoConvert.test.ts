@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { convertBpmn } from '../src/engineConvert';
+import { importExpression } from '../src/juelFeel';
 import { installXmlNamespaces } from './xmlNamespaces';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -24,6 +25,11 @@ const c8 = (gateway: string, task = '') => `<?xml version="1.0" encoding="UTF-8"
   </bpmn:process>
 </bpmn:definitions>`;
 
+/** the expression of the first listener in the XML, as the engine reads it (entities decoded) */
+const listenerExpr = (xml: string) => {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
+  return Array.from(doc.querySelectorAll('*')).find(e => e.tagName === 'camunda:executionListener')?.getAttribute('expression');
+};
 const io = '<bpmn:extensionElements><zeebe:ioMapping><zeebe:input source="=1" target="limit" /><zeebe:output source="=count + 1" target="count" /></zeebe:ioMapping></bpmn:extensionElements>';
 
 for (const kind of ['exclusiveGateway', 'parallelGateway', 'inclusiveGateway']) {
@@ -33,7 +39,8 @@ for (const kind of ['exclusiveGateway', 'parallelGateway', 'inclusiveGateway']) 
     assert.ok(!gw.includes('camunda:inputOutput'), gw);
     const listener = /<camunda:executionListener [^>]*\/>/.exec(gw)?.[0] ?? '';
     assert.ok(listener.includes('event="end"'), gw);
-    assert.ok(/expression="\$\{execution\.setVariable\((&#34;|&quot;|")count(&#34;|&quot;|"), count \+ 1\)\}"/.test(listener), gw);
+    // null-safe: on the first pass `count` may be missing — `${count}` would throw
+    assert.equal(listenerExpr(r.xml), '${execution.setVariable("count", execution.getVariable("count") + 1)}', gw);
     assert.ok(gw.includes('nicht übernommen: zeebe:input source="=1" target="limit"'), gw);
     assert.ok(!gw.includes('zeebe:output'), gw);
     const issues = r.issues.filter(i => i.stepId === 'gw' && i.where === 'Mapping').map(i => i.text);
@@ -56,4 +63,21 @@ test('C8 -> C7: an ioMapping on a task still becomes an inputOutput', () => {
     '<zeebe:ioMapping><zeebe:output source="=count + 1" target="count" /></zeebe:ioMapping>'), 'c7');
   assert.ok(/<camunda:outputParameter name="count">\$\{count \+ 1\}<\/camunda:outputParameter>/.test(r.xml), r.xml);
   assert.ok(!r.issues.some(i => i.where === 'Mapping'), JSON.stringify(r.issues));
+});
+
+// ── null in arithmetic: JUEL counts it as 0, FEEL keeps null ─────────────────
+
+test('C7 -> C8: execution.getVariable in arithmetic is null-safe - a missing counter starts at 0', () => {
+  assert.equal(importExpression('${execution.getVariable("count") + 1}'), '= (if count = null then 0 else count) + 1');
+  assert.equal(importExpression('${2 * execution.getVariable("count")}'), '= 2 * (if count = null then 0 else count)');
+  // a variable read directly must be set in Camunda 7 anyway - it stays as it is
+  assert.equal(importExpression('${count + 1}'), '= count + 1');
+  // not in arithmetic: the variable as it is
+  assert.equal(importExpression('${execution.getVariable("count")}'), '= count');
+});
+
+test('C8 -> C7: the null-safe FEEL counter on a gateway becomes a JUEL listener again', () => {
+  const r = convertBpmn(c8('<bpmn:exclusiveGateway id="gw"><bpmn:extensionElements><zeebe:ioMapping><zeebe:output source="=(if count = null then 0 else count) + 1" target="count" /></zeebe:ioMapping></bpmn:extensionElements><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:exclusiveGateway>'), 'c7');
+  assert.equal(listenerExpr(r.xml), '${execution.setVariable("count", ((execution.getVariable("count") == null ? 0 : execution.getVariable("count"))) + 1)}', r.xml);
+  assert.ok(!r.issues.some(i => i.text.includes('nicht nach JUEL')), JSON.stringify(r.issues));
 });

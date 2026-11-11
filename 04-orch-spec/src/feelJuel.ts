@@ -80,6 +80,8 @@ const children = (n: SyntaxNode): SyntaxNode[] => {
 export interface JuelOptions {
   /** Process variables that may be missing (optional in the data model) — `execution.getVariable("x")` */
   optional?: ReadonlySet<string>;
+  /** every variable may be missing — all are read with `execution.getVariable("x")` (a counter on a gateway) */
+  allOptional?: boolean;
   /** the variables with their fields — determine how a Spin path ends (`stringValue()` …) */
   vars?: readonly VarNode[];
   /** Variables that are not JSON in Camunda 7 (result of a DMN decision) — their paths stay `a.b` */
@@ -329,7 +331,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
         // what Camunda 8 keeps as a variable, Camunda 7 has on the execution;
         // an optional variable is read so that it may be missing
-        return EXECUTION_JUEL[name] ?? (wrap && opts.optional?.has(name) ? getVariable(name) : name);
+        return EXECUTION_JUEL[name] ?? (wrap && (opts.allOptional || opts.optional?.has(name)) ? getVariable(name) : name);
       }
       case 'PathExpression': {
         const [base, , prop] = kids;
