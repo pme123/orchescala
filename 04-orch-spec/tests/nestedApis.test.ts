@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
-import { catalogProjects, collectionFromCatalog, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
+import { catalogProjects, collectionFromCatalog, missingApis, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
 import {
   API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
 } from '../src/services/collection';
@@ -420,4 +420,17 @@ test('the Abgleich: In and Out with cases — the description of a shared def, t
   assert.equal(out2.fields?.length ?? 0, 0);
   const in2 = r.spec.types.find(t => t.id === r.spec.services[0].inTypeId)!;
   assert.equal(in2.fields?.find(f => f.name === 'fromSource')?.description, 'If set, read from the source.');
+});
+
+test('Abgleich without a match: the APIs the project lacks are named - with the ones it has', () => {
+  // the project has `naturalPerson` (singular), the collection `clientMaster.naturalPersons`
+  const model = { version: 1, services: [{ id: 'acme-crm-naturalPersonV1.GetX', name: 'GetX', kind: 'service', topic: 'acme-crm-naturalPersonV1.GetX' }] } as never;
+  const c = twoApis();
+  assert.equal(syncWithCatalog(c, model), null);
+  assert.deepEqual(missingApis(c, model), {
+    missing: ['clientMaster.naturalPersons v1 (acme-crm-naturalPersonsV1)'],
+    known: ['naturalPerson v1'],
+  });
+  // another project: not known at all
+  assert.equal(missingApis({ ...c, project: 'acme-other' }, model), null);
 });

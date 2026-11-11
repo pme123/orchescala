@@ -355,6 +355,20 @@ const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
 });
 
 /**
+ * Why the Abgleich has nothing to compare with: `null` — the project is unknown; otherwise
+ * the APIs of the collection the project does not have (by their topics, `acme-crm-clientsV1`)
+ * and the APIs it has — a name that differs (`clients` / `client`) shows that way.
+ */
+export function missingApis(given: ServiceCollectionSpec, model: Model | null): { missing: string[]; known: string[] } | null {
+  const project = catalogProjects(model).find(p => p.project === given.project);
+  if (!project) return null;
+  return {
+    missing: apisOf(given).filter(x => !project.apis.some(a => a.prefix === topicPrefix(x))).map(x => `${x.api} v${x.apiVersion} (${topicPrefix(x)})`),
+    known: project.apis.map(a => `${a.api} v${a.apiVersion}`),
+  };
+}
+
+/**
  * Compare a collection with the catalog of its project — without starting anew. What the
  * domain knows wins (request, bodies, the fields of In and Out, the types of the API); what
  * only the collection has stays: its mappings, further In/Out fields, query and headers of

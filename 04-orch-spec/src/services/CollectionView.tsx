@@ -24,7 +24,7 @@ import {
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
-import { catalogProjects, knownProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
+import { catalogProjects, knownProjects, missingApis, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
 import { adoptHierarchyTypes, type Adopted } from './hierarchy';
 import { AdoptDialog, AdoptList } from './AdoptChoice';
 import { readSources } from '../projects';
@@ -186,9 +186,12 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     const r = syncWithCatalog(cur, m);
     const classes = classesOf(cur);
     if (!r) {
+      // the project is known, but not the API: say which one and what the project has
+      const gap = classes ? null : missingApis(cur, m);
       return {
         missing: true,
         text: classes ? `${hit ? source : 'Der Katalog'} hat keine Klassen in ${classes}`
+          : gap?.missing.length ? `${hit ? source : 'Der Katalog'} kennt ${gap.missing.length === 1 ? 'die API' : 'die APIs'} ${gap.missing.join(', ')} nicht — das Projekt hat ${gap.known.join(', ') || 'keine REST-Services'}`
           : hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt',
       };
     }
