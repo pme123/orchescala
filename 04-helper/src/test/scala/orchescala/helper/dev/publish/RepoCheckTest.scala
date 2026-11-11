@@ -40,6 +40,20 @@ class RepoCheckTest extends FunSuite:
     assert(error.getMessage.contains("is in the repository already"), error.getMessage)
     assert(error.getMessage.contains("example-customer-worker"), error.getMessage)
 
+  test("the artifacts are named as sbt publishes them - a name in camel case in lower case"):
+    val camel = RepoCheck.BuildNames("acme", "acme-customerNeo", Seq("domain", "domain-base"), "")
+    assertEquals(RepoCheck.releaseArtifacts(camel), Seq("acme-customerneo-domain", "acme-customerneo-domain-base"))
+    assertEquals(
+      RepoCheck.releaseUrls("1.2.3", camel, orchescala.engine.config.RepoConfig.Gitlab("release", "https://repo")),
+      Seq(
+        "https://repo/acme/acme-customerneo-domain/1.2.3/acme-customerneo-domain-1.2.3.pom",
+        "https://repo/acme/acme-customerneo-domain-base/1.2.3/acme-customerneo-domain-base-1.2.3.pom"
+      )
+    )
+    assertEquals(RepoCheck.sbtModuleName("Acme Customer.Neo"), "acme-customer-neo")
+    // the suffix stays as it is - `_2.13` is not normalized
+    assertEquals(RepoCheck.releaseArtifacts(camel.copy(artifactSuffix = "_2.13")).head, "acme-customerneo-domain_2.13")
+
   test("the company's artifacts carry the Scala suffix, a project's do not"):
     val company = RepoCheck.releaseArtifactUrls(
       "https://repo", "acme", Seq("acme-orchescala-domain_3"), "1.2.3"
