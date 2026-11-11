@@ -37,3 +37,5 @@ export declare function serverTurn(
   o: { send: Send; limits?: TurnLimits; onEvent?: (e: AgentEvent) => void; signal?: AbortSignal },
 ): Promise<TurnResult>;
 export declare function outcomeOf(r: TurnResult): TurnOutcome;
+/** A turn that a defect of the loop ended - the request unanswered, the draft as it was, a 500 that says so. */
+export declare function failedTurn(turn: CheckedTurn, e: unknown, usage?: Usage): TurnResult;

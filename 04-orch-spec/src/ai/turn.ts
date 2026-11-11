@@ -11,7 +11,8 @@ import type { BetaMessageParam, BetaTextBlockParam } from '@anthropic-ai/sdk/res
 import type { Targets } from '../pages/designer/model';
 import type { Page } from '../pages/runtime/spec';
 import type { Model } from '../types';
-import { runTurn, type AgentEvent, type Send, type TurnResult } from './agent';
+import { checkDraft, runTurn, withPrompt, type AgentEvent, type Send, type TurnResult } from './agent';
+import { NO_USAGE, type Usage } from './cost';
 import { pageToolKit } from './pageTools';
 import { processToolKit } from './processTools';
 import { isObject, type ToolKit } from './toolkit';
@@ -113,6 +114,18 @@ export function serverTurn(
     ...(o.limits?.maxCorrections !== undefined ? { maxCorrections: o.limits.maxCorrections } : {}),
     ...(o.limits?.maxUsd !== undefined ? { maxUsd: o.limits.maxUsd } : {}),
   });
+}
+
+/** A turn that a defect of the loop ended (it threw) - as an error of the API would have ended it: the
+  * history with the request, the draft as it was, the costs so far, and an error that says so. The
+  * studio sends it as the result, so orch-spec does not read it as a lost connection. */
+export function failedTurn({ request, kit }: { request: TurnRequest; kit: ToolKit<unknown> }, e: unknown, usage: Usage = NO_USAGE): TurnResult<unknown> {
+  const message = e instanceof Error ? e.message : String(e);
+  return {
+    history: withPrompt(request.history, request.prompt), draft: request.draft, usage, stop: 'error', text: '',
+    errors: checkDraft(kit, request.draft),
+    error: { status: 500, body: apiErrorBody('api_error', `the turn failed on the studio: ${message}`) },
+  };
 }
 
 /** A line of the answer - or undefined for one that is not (a newer studio, a broken line). */

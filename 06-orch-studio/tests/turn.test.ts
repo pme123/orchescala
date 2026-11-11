@@ -26,7 +26,7 @@ const answers = [
 ];
 
 /** A fake Claude API: the answers one after the other (by the answers in the request) - or `status` with an error; `wait` holds each. */
-async function fakeApi(o: { status?: number; wait?: number } = {}) {
+async function fakeApi(o: { status?: number; wait?: number; answer?: unknown } = {}) {
   const seen: { url: string; headers: Json; body: Json }[] = [];
   const closed: boolean[] = [];
   const server = createServer((req, res) => {
@@ -39,7 +39,7 @@ async function fakeApi(o: { status?: number; wait?: number } = {}) {
       setTimeout(() => {
         if (res.destroyed) return;
         if (o.status) return res.writeHead(o.status, { 'content-type': 'application/json' }).end('{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}');
-        const next = answers[(body.messages as Json[]).filter((m) => m.role === 'assistant').length];
+        const next = o.answer ?? answers[(body.messages as Json[]).filter((m) => m.role === 'assistant').length];
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(next));
       }, o.wait ?? 0);
     });
@@ -141,6 +141,26 @@ test('an error of the Claude API - the result says stop «error» with its statu
     assert.deepEqual(result.error, { status: 401, body: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } } });
     // the draft and the history as they were, with the request
     assert.deepEqual(result.history, [{ role: 'user', content: 'Nimm ein Feld für die Filiale auf.' }]);
+  } finally {
+    await api.close();
+  }
+});
+
+test('a defect of the loop - still a result: stop «error» that says so, the request unanswered, the costs so far', async () => {
+  // an answer the loop cannot read (content is no list) - it throws after the request was counted
+  const api = await fakeApi({ answer: { id: 'msg', type: 'message', role: 'assistant', content: 'odd', stop_reason: 'end_turn', usage } });
+  try {
+    const { app: a, log } = app(config(api.port));
+    const lines = await linesOf(await a.request(turn(turnBody())));
+    const result = resultOf(lines);
+    assert.equal(result.stop, 'error');
+    assert.equal(result.error.status, 500);
+    assert.match(result.error.body.error.message, /^the turn failed on the studio: /);
+    assert.deepEqual(result.history, [{ role: 'user', content: 'Nimm ein Feld für die Filiale auf.' }]);
+    assert.equal(result.draft.page.body.length, 3);
+    assert.equal(result.usage.requests, 1);
+    assert.ok(log.lines.some((l) => l.startsWith('WARN POST /ai/uiCreator/turn - the turn failed: ')));
+    assert.match(log.lines.at(-1)!, /: error in \d+ ms, 1 requests/);
   } finally {
     await api.close();
   }

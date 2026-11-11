@@ -23,8 +23,8 @@ import { request as httpsRequest } from 'node:https';
 import type { Hono } from 'hono';
 import { DOMParser } from 'linkedom';
 import {
-  apiErrorBody, costUsd, installNodeDom, outcomeOf, serverTurn, TURN_CONTENT_TYPE, turnRequest,
-  type AgentRequest, type Send, type TurnLine, type TurnResult,
+  apiErrorBody, costUsd, failedTurn, installNodeDom, outcomeOf, serverTurn, TURN_CONTENT_TYPE, turnRequest,
+  type AgentEvent, type AgentRequest, type Send, type TurnLine, type TurnResult, type Usage,
 } from '#core';
 import { apiUrl, type AiConfig } from './config.ts';
 import { skillLabel, type Skill } from './skills.ts';
@@ -354,16 +354,20 @@ export function aiRoutes(app: Hono, ai: AiConfig | undefined, skills: Skill[], l
           if (signal.aborted) return;
           try { lines.enqueue(encoder.encode(`${JSON.stringify(line)}\n`)); } catch { /* the stream is closed */ }
         };
-        const result = await serverTurn(turn, { send, limits: limitsOf(ok.skill), onEvent: write, signal })
-          .catch((e: unknown): TurnResult | undefined => {
-            // a defect of the loop - orch-spec reads the missing result as a turn without an answer
+        // the costs so far - for a turn that a defect ends
+        const spent: { usage?: Usage } = {};
+        const onEvent = (e: AgentEvent) => {
+          if (e.kind === 'usage') spent.usage = e.usage as Usage;
+          write(e);
+        };
+        const result = await serverTurn(turn, { send, limits: limitsOf(ok.skill), onEvent, signal })
+          .catch((e: unknown): TurnResult => {
+            // a defect of the loop - still a result, so orch-spec says what happened, not «no connection»
             log.warn(`${path} - the turn failed: ${e instanceof Error ? e.message : String(e)}`);
-            return undefined;
+            return failedTurn(turn, e, spent.usage);
           });
-        if (result) {
-          log.info(`${path} - ${skillLabel(ok.skill)}, ${modelOf(ok.ai, ok.skill)}: ${result.stop} in ${Date.now() - start} ms, ${result.usage.requests} requests, ${costUsd(result.usage).toFixed(3)} USD`);
-          write({ kind: 'result', result: outcomeOf(result) });
-        }
+        log.info(`${path} - ${skillLabel(ok.skill)}, ${modelOf(ok.ai, ok.skill)}: ${result.stop} in ${Date.now() - start} ms, ${result.usage.requests} requests, ${costUsd(result.usage).toFixed(3)} USD`);
+        write({ kind: 'result', result: outcomeOf(result) });
         try { lines.close(); } catch { /* the browser went away */ }
       },
       cancel() { stopped.abort(); },
