@@ -116,13 +116,18 @@ function toFeelSource(text: string, where: string, issue: Issue): string {
  * `….prop("username").stringValue()`.
  */
 function toJuel(text: string, where: string, issue: Issue, juel: JuelOptions): string {
+  return tryJuel(text, where, issue, juel) ?? text.trim();
+}
+
+/** Like `toJuel`, but null if the FEEL is not translatable (reported as an issue) */
+function tryJuel(text: string, where: string, issue: Issue, juel: JuelOptions): string | null {
   const t = text.trim();
   const body = feelBody(t);
   if (body == null) return t;
   const r = feelToJuel(body, juel);
   if (r.ok) return `\${${r.juel}}`;
   issue(where, `«${t}» ist nicht nach JUEL übersetzbar (${r.reason}) — von Hand anpassen.`);
-  return t;
+  return null;
 }
 
 /** Value of a `camunda:inputParameter` from a zeebe source: a FEEL string becomes fixed text again */
@@ -575,6 +580,24 @@ function toC8(defs: Element, ctx: Ctx) {
 }
 
 // ── Camunda 8 → Camunda 7 ────────────────────────────────────────────────────
+
+/** A `zeebe:output` as a Camunda 7 listener: `${execution.setVariable("x", …)}`.
+ *  `nullSafe`: every variable read with `execution.getVariable` — a counter
+ *  (`count + 1`) may be missing on the first pass; `${count}` would throw there. */
+function setVariableListener(el: Element, p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx, nullSafe = false): Element | null {
+  const target = p.getAttribute('target') ?? '';
+  const source = p.getAttribute('source') ?? '';
+  const juel = tryJuel(source, `Ausgabe «${target}»`, issue, nullSafe ? { ...ctx.juel, allOptional: true } : ctx.juel);
+  // not translatable (reported as an issue): no listener that would set the FEEL
+  // as a text — the output stays as a comment
+  if (juel == null) {
+    prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(`zeebe:output source="${source}" target="${target}"`)} `) as unknown as Element);
+    return null;
+  }
+  const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
+  return create(ctx, CAMUNDA_NS, 'camunda', 'executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event });
+}
+
 function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
   const setC = (el: Element, name: string, value: string | undefined) => {
     if (value !== undefined && value !== '') el.setAttributeNS(CAMUNDA_NS, `camunda:${name}`, value);
@@ -630,12 +653,32 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     } else if (io.length && EVENTS.has(name) && io.every(p => local(p) === 'output')) {
       // Camunda 7 knows no output mapping on events — there a
       // listener sets the variable (the pattern it came from in Camunda 8)
-      for (const p of io) {
-        const target = p.getAttribute('target') ?? '';
-        const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, ctx.juel);
-        const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
-        add.push(camunda('executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event: 'start' }));
+      for (const p of io) { const l = setVariableListener(el, p, 'start', issue, ctx); if (l) add.push(l); }
+    } else if (io.length && name.endsWith('Gateway')) {
+      // Camunda 7 rejects an inputOutput on a gateway (ENGINE-09005). An output becomes
+      // a listener; an input has no local scope on a gateway — it stays as a comment.
+      // The listener runs on `start`: so the conditions of the gateway already see the
+      // new value (a retry counter `count = max` stops on time). Only a join of a
+      // parallel or inclusive gateway takes `end` — once, not once per arriving branch.
+      const outs = io.filter(p => local(p) === 'output');
+      const ins = io.filter(p => local(p) !== 'output');
+      const join = (name === 'parallelGateway' || name === 'inclusiveGateway') && incomingOf(el).length > 1;
+      const event = join ? 'end' : 'start';
+      // the outputs that got a listener — an untranslatable one stays a comment
+      const set = outs.filter(p => { const l = setVariableListener(el, p, event, issue, ctx, true); if (l) add.push(l); return !!l; });
+      for (const p of ins) {
+        const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
+        prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(text)} `) as unknown as Element);
       }
+      const target = (p: Element) => p.getAttribute('target') ?? '';
+      const names = (ps: Element[]) => ps.map(p => `«${target(p)}»`).join(', ');
+      // at a join the conditions of the gateway are evaluated before the end listener
+      const late = join ? ' Bedingungen am Gateway sehen noch den alten Wert.' : '';
+      if (set.length) issue('Mapping', `Ausgabe ${names(set)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.${late}`);
+      if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
+      // an output that reads a dropped input reads the process variable instead
+      const read = ins.filter(i => outs.some(o => readsVariable(o.getAttribute('source') ?? '', target(i))));
+      if (read.length) issue('Mapping', `Ausgabe liest die Eingabe ${names(read)} — die gibt es am Gateway nicht mehr, der Listener liest die Prozessvariable gleichen Namens: von Hand prüfen.`);
     } else if (io.length) {
       const cio = camunda('inputOutput');
       const params = io.map(p => {
@@ -775,12 +818,25 @@ interface SetEvent { el: Element; place: EventPlacement; outputs: Element[]; lis
 
 const listenerText = (l: Element) => `camunda:executionListener event="${l.getAttribute('event') ?? 'start'}" expression="${l.getAttribute('expression') ?? ''}"`;
 
+/** `--` must not appear in an XML comment — not even in `---` — and it must not end with `-` */
+const commentSafe = (text: string) => text.replace(/-(?=-)/g, '- ').replace(/-$/, '- ');
+
+/** Does the FEEL `source` read the variable `name`? A heuristic for a warning only (a
+ *  false hit costs a superfluous issue): names may hold any letter (`\p{L}`); a text in
+ *  quotes is not a read, nor is a field `a.name` or a longer name. Not recognised:
+ *  backtick names, `a . name` with spaces, a local binding (`for name in …`). */
+function readsVariable(source: string, name: string): boolean {
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const outsideTexts = source.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  return new RegExp(String.raw`(?<![\p{L}\p{N}_.])${escaped}(?![\p{L}\p{N}_])`, 'u').test(outsideTexts);
+}
+
 /** What was not taken over stays as a comment on the element — for manual work */
 function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {
   const where = flows.length ? ` auf ${flows.map(f => `«${f}»`).join(', ')}` : '';
   for (const text of listeners) {
-    // `--` must not appear in an XML comment
-    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen${where}: ${text.replace(/--/g, '- -')} `) as unknown as Element);
+    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen${where}: ${commentSafe(text)} `) as unknown as Element);
   }
 }
 
