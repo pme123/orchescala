@@ -304,13 +304,32 @@ export function unguard(feel: string): string {
 
 /** Translate the body of a JUEL expression (without `${}`) to FEEL. */
 export function juelToFeel(body: string): FeelResult {
+  /** the variables read with `execution.getVariable` — see `num` */
+  const reads: string[] = [];
+  const resolve = (x: string) => x.replace(/\u0001(\d+)\u0001/g, (_m, i: string) => reads[Number(i)]);
   try {
+    // the marker of a read (see `num`) must not come from the input
+    if (body.includes('\u0001')) throw new Unsupported('Steuerzeichen U+0001 im Ausdruck');
     const toks = tokenize(body.trim());
     let p = 0;
     const peek = () => toks[p];
     const isOp = (...vs: string[]) => { const t = peek(); return t.t === 'op' && vs.includes(t.v); };
     const take = () => toks[p++];
     const expect = (v: string) => { if (!isOp(v)) throw new Unsupported(`«${v}» erwartet`); p++; };
+    // `execution.getVariable("x")` may be missing: in JUEL arithmetic null counts
+    // as 0 (`null + 1` is 1), in FEEL it stays null — there `(if x = null then 0 else x)`
+    // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it).
+    // Each such read becomes a marker (`\u0001n\u0001`) resolved at the end — so only
+    // this read is wrapped, not a direct read of the same name or other equal text.
+    // Only the read itself: a path from it (`getVariable("a").prop("b") + 1`) stays as it is.
+    // `reads[n]` is always a plain name — a computed name (also a nested read) is rejected.
+    // JUEL `+` is always a number (text is joined with `concat`), so no text operand gets the 0.
+    const num = (x: string) => {
+      const m = /^(?:\(\u0001(\d+)\u0001\)|\u0001(\d+)\u0001)$/.exec(x);
+      const name = m ? reads[Number(m[1] ?? m[2])] : undefined;
+      return name ? `(if ${name} = null then 0 else ${name})` : x;
+    };
+    const arith = (o: string) => (a: string, b: string) => `${num(a)} ${o} ${num(b)}`;
 
     const expr = (): string => {
       const c = or();
@@ -338,11 +357,12 @@ export function juelToFeel(body: string): FeelResult {
     const and = () => binary(eq, { '&&': 'and', and: 'and' });
     const eq = () => binary(rel, { '==': '=', eq: '=', '!=': '!=', ne: '!=' });
     const rel = () => binary(add, { '<': '<', lt: '<', '>': '>', gt: '>', '<=': '<=', le: '<=', '>=': '>=', ge: '>=' });
-    const add = () => binary(mul, { '+': '+', '-': '-' });
-    const mul = () => binary(unary, { '*': '*', '/': '/', div: '/', '%': (a, b) => `modulo(${a}, ${b})`, mod: (a, b) => `modulo(${a}, ${b})` });
+    const add = () => binary(mul, { '+': arith('+'), '-': arith('-') });
+    const modulo = (a: string, b: string) => `modulo(${num(a)}, ${num(b)})`;
+    const mul = () => binary(unary, { '*': arith('*'), '/': arith('/'), div: arith('/'), '%': modulo, mod: modulo });
     const unary = (): string => {
       if (isOp('!', 'not')) { take(); return `not(${unary()})`; }
-      if (isOp('-')) { take(); return `-${unary()}`; }
+      if (isOp('-')) { take(); return `-${num(unary())}`; }
       // JUEL `empty`: null, empty text — or an empty list
       if (isOp('empty')) { take(); const x = unary(); return `(${x} = null or ${x} = "" or ${x} = [])`; }
       return postfix();
@@ -360,6 +380,7 @@ export function juelToFeel(body: string): FeelResult {
             if (!isOp(')')) { args.push(expr()); while (isOp(',')) { take(); args.push(expr()); } }
             expect(')');
             v = method(v, n.v, args);
+            if (n.v === 'getVariable') { reads.push(v); v = `\u0001${reads.length - 1}\u0001`; }
           } else {
             v = v === 'execution' ? executionProperty(n.v) : `${v}.${n.v}`;
           }
@@ -415,13 +436,13 @@ export function juelToFeel(body: string): FeelResult {
       throw new Unsupported(t.t === 'end' ? 'Ausdruck unvollständig' : `unerwartet: «${'v' in t ? t.v : ''}»`);
     };
 
-    const feel = expr();
+    const feel = resolve(expr());
     if (peek().t !== 'end') throw new Unsupported(`unerwartet: «${(peek() as { v?: string }).v ?? ''}»`);
     // the whole expression needs no parentheses around its if/then/else
     const done = presence(feel);
     return { ok: true, feel: wrapped(done) && done.slice(1, -1).startsWith('if ') ? done.slice(1, -1) : done };
   } catch (e) {
-    if (e instanceof Unsupported) return { ok: false, reason: e.message };
+    if (e instanceof Unsupported) return { ok: false, reason: resolve(e.message) };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }
