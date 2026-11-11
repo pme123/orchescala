@@ -669,10 +669,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.`);
       if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
       // an output that reads a dropped input reads the process variable instead
-      // FEEL names may hold any letter (`\p{L}`); a text in quotes is not a read
-      const reads = (src: string, v: string) => v !== '' && new RegExp(String.raw`(?<![\p{L}\p{N}_.])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\p{L}\p{N}_])`, 'u')
-        .test(src.replace(/"(?:[^"\\]|\\.)*"/g, '""'));
-      const read = ins.filter(i => outs.some(o => reads(o.getAttribute('source') ?? '', target(i))));
+      const read = ins.filter(i => outs.some(o => readsVariable(o.getAttribute('source') ?? '', target(i))));
       if (read.length) issue('Mapping', `Ausgabe liest die Eingabe ${names(read)} — die gibt es am Gateway nicht mehr, der Listener liest die Prozessvariable gleichen Namens: von Hand prüfen.`);
     } else if (io.length) {
       const cio = camunda('inputOutput');
@@ -815,6 +812,15 @@ const listenerText = (l: Element) => `camunda:executionListener event="${l.getAt
 
 /** `--` must not appear in an XML comment — not even in `---` — and it must not end with `-` */
 const commentSafe = (text: string) => text.replace(/-(?=-)/g, '- ').replace(/-$/, '- ');
+
+/** Does the FEEL `source` read the variable `name`? Names may hold any letter (`\p{L}`);
+ *  a text in quotes is not a read, nor is a field `a.name` or a longer name. */
+function readsVariable(source: string, name: string): boolean {
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const outsideTexts = source.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  return new RegExp(String.raw`(?<![\p{L}\p{N}_.])${escaped}(?![\p{L}\p{N}_])`, 'u').test(outsideTexts);
+}
 
 /** What was not taken over stays as a comment on the element — for manual work */
 function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {

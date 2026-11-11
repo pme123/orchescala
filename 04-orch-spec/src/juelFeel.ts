@@ -306,6 +306,8 @@ export function juelToFeel(body: string): FeelResult {
     // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it).
     // Each such read becomes a marker (`\u0001n\u0001`) resolved at the end — so only
     // this read is wrapped, not a direct read of the same name or other equal text.
+    // Only the read itself: a path from it (`getVariable("a").prop("b") + 1`) stays as it is.
+    // `reads[n]` is always a plain name — a computed name (also a nested read) is rejected.
     // JUEL `+` is always a number (text is joined with `concat`), so no text operand gets the 0.
     const num = (x: string) => {
       const m = /^\(?\u0001(\d+)\u0001\)?$/.exec(x);

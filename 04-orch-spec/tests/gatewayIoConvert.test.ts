@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { convertBpmn } from '../src/engineConvert';
-import { importExpression } from '../src/juelFeel';
+import { importExpression, juelToFeel } from '../src/juelFeel';
 import { installXmlNamespaces } from './xmlNamespaces';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -75,6 +75,24 @@ for (const kind of ['exclusiveGateway', 'eventBasedGateway']) {
     assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['start']);
   });
 }
+
+test('C8 -> C7: a parallel gateway that joins and forks - the end listener, once', () => {
+  const both = gateway('parallelGateway', ioMapping(COUNT), true).replace('<bpmn:outgoing>f2</bpmn:outgoing>', '<bpmn:outgoing>f2</bpmn:outgoing><bpmn:outgoing>f4</bpmn:outgoing>');
+  const xml = c8(both, { join: true }).replace('</bpmn:process>', '<bpmn:endEvent id="e2"><bpmn:incoming>f4</bpmn:incoming></bpmn:endEvent><bpmn:sequenceFlow id="f4" sourceRef="gw" targetRef="e2" /></bpmn:process>');
+  const r = convertBpmn(xml, 'c7');
+  assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['end']);
+});
+
+test('C8 -> C7: an untranslatable output on an end event - a comment, not the FEEL as a text', () => {
+  const xml = c8('<bpmn:exclusiveGateway id="gw"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:exclusiveGateway>')
+    .replace('<bpmn:endEvent id="e"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>',
+      `<bpmn:endEvent id="e"><bpmn:extensionElements>${ioMapping('<zeebe:output source="=some x in xs satisfies x &gt; 1" target="any" />')}</bpmn:extensionElements><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`);
+  const r = convertBpmn(xml, 'c7');
+  const end = byId(parse(r.xml), 'e');
+  assert.deepEqual(childrenOf(end, 'camunda:executionListener'), [], r.xml);
+  assert.ok(comments(r.xml).some(c => c.includes('target="any"')), r.xml);
+  assert.ok(r.issues.some(i => i.stepId === 'e' && i.text.includes('nicht nach JUEL übersetzbar')), JSON.stringify(r.issues));
+});
 
 test('C8 -> C7: inputs on a join - the end listener and the input as a comment', () => {
   const r = convertBpmn(c8(gateway('parallelGateway', ioMapping(LIMIT, COUNT), true), { join: true }), 'c7');
@@ -175,6 +193,14 @@ test('C7 -> C8: execution.getVariable in arithmetic is null-safe - a missing cou
   assert.equal(importExpression('${execution.getVariable("a").prop("b") + 1}'), '= a.b + 1');
   // unary minus without getVariable stays
   assert.equal(importExpression('${-(a + b)}'), '= -(a + b)');
+});
+
+test('C7 -> C8: a nested getVariable is a computed name - rejected, no marker leaks', () => {
+  for (const body of ['execution.getVariable(execution.getVariable("k")) + 1', 'execution.getVariable("a".concat(execution.getVariable("k")))']) {
+    const r = juelToFeel(body);
+    assert.equal(r.ok, false, body);
+    assert.ok(!r.ok && r.reason.startsWith('getVariable mit berechnetem Namen') && !r.reason.includes('\u0001'), JSON.stringify(r));
+  }
 });
 
 test('C8 -> C7: the null-safe FEEL counter on a gateway becomes a JUEL listener again', () => {
