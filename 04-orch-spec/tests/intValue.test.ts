@@ -10,7 +10,8 @@ import { importExpression } from '../src/juelFeel';
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
 const juel = '${ masterRead.hasProp("clientSegment") && !masterRead.prop("clientSegment").isNull() ? masterRead.prop("clientSegment").numberValue().intValue() : null }';
-const feel = '= if masterRead.clientSegment != null then masterRead.clientSegment else null';
+// the guard of the export (Spin throws on a missing field) reads back as the path - in FEEL it is null then anyway
+const feel = '= masterRead.clientSegment';
 
 test('import: intValue() / longValue() / doubleValue() is the number itself', () => {
   assert.equal(importExpression(juel), feel);
@@ -51,4 +52,9 @@ test('merge: number(…) from an older import becomes what the diagram reads tod
   // what someone wrote that way themselves and the diagram reads differently stays
   step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= number(masterRead.text)' } : m));
   assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), '= number(masterRead.text)');
+  // the guard of an older import: the diagram reads the path today - an if of its own stays
+  step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= if masterRead.clientSegment != null then masterRead.clientSegment else null' } : m));
+  assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), feel);
+  step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= if masterRead.clientSegment != null then masterRead.clientSegment else 0' } : m));
+  assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), '= if masterRead.clientSegment != null then masterRead.clientSegment else 0');
 });

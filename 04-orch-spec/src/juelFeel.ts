@@ -275,6 +275,9 @@ function method(target: string, name: string, args: string[]): string {
  * The test for a Spin path, as the export writes it (feelJuel.ts:
  * `a != null && a.hasProp("b") && !a.prop("b").isNull()`), arrives verbatim as
  * `a != null and a.b != null and not(a.b = null)` — what is meant is `a.b != null`.
+ * A path the export guards (`(a.hasProp("b") && … ? a.prop("b").stringValue() : null)`, Spin
+ * throws on a missing field) arrives as `if a.b != null then a.b else null` — in FEEL a path
+ * to a missing field is null anyway: it is `a.b`. The guard belongs to the export only.
  */
 function presence(feel: string): string {
   const P = String.raw`[A-Za-z_][\w.]*`;
@@ -285,8 +288,19 @@ function presence(feel: string): string {
     f = f.replace(new RegExp(String.raw`(?<![\w.])(${P}) != null and not\(\1 = null\)`, 'g'), '$1 != null')
       .replace(new RegExp(String.raw`(?<![\w.])(${P}) != null and (?=\1\.[A-Za-z_][\w.]* != null)`, 'g'), '')
       .replace(new RegExp(String.raw`not\(\((${P}) != null\)\)|not\((${P}) != null\)`, 'g'), (_m, a, b) => `${a ?? b} = null`);
+    f = unguard(f);
   } while (f !== prev);
   return f;
+}
+
+/**
+ * `if a.b != null then a.b else null` → `a.b`: the guard the export writes around a Spin path (or
+ * a variable), read back - in FEEL a missing value is null anyway. Texts stay as they are.
+ */
+export function unguard(feel: string): string {
+  const P = String.raw`[A-Za-z_][\w.]*`;
+  const guard = new RegExp(String.raw`\(if (${P}) != null then \1 else null\)|(?<![\w.])if (${P}) != null then \2 else null(?![\w.])`, 'g');
+  return feel.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 ? part : part.replace(guard, (_m, a, b) => a ?? b))).join('');
 }
 
 /** Translate the body of a JUEL expression (without `${}`) to FEEL. */
@@ -414,9 +428,10 @@ export function juelToFeel(body: string): FeelResult {
         if (t.v === '(') {
           const inner = expr();
           expect(')');
-          // parentheses around an if/then/else are unnecessary in FEEL — and a second pair around
-          // something that is already entirely in parentheses (`(empty x)` → `(x = null or …)`)
-          return inner.startsWith('if ') || wrapped(inner) ? inner : `(${inner})`;
+          // an if/then/else keeps its parentheses: `(a ? b : c) == x` is `(if a then b else c) = x` -
+          // without, `else c = x` is the comparison (the whole expression loses them below); no second
+          // pair around something that is already entirely in parentheses (`(empty x)` → `(x = null or …)`)
+          return wrapped(inner) ? inner : `(${inner})`;
         }
       }
       throw new Unsupported(t.t === 'end' ? 'Ausdruck unvollständig' : `unerwartet: «${'v' in t ? t.v : ''}»`);
@@ -424,7 +439,9 @@ export function juelToFeel(body: string): FeelResult {
 
     const feel = resolve(expr());
     if (peek().t !== 'end') throw new Unsupported(`unerwartet: «${(peek() as { v?: string }).v ?? ''}»`);
-    return { ok: true, feel: presence(feel) };
+    // the whole expression needs no parentheses around its if/then/else
+    const done = presence(feel);
+    return { ok: true, feel: wrapped(done) && done.slice(1, -1).startsWith('if ') ? done.slice(1, -1) : done };
   } catch (e) {
     if (e instanceof Unsupported) return { ok: false, reason: resolve(e.message) };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };

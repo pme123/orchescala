@@ -150,7 +150,8 @@ export interface ServiceCollectionSpec {
   createdAt: string;
   updatedAt: string;
   /** where the operations came from — the last OpenAPI read in */
-  source?: { file?: string; title?: string; version?: string; basePath?: string };
+  /** `stored`: where the collection keeps that OpenAPI - `services/openapi/<slug>.yml` (storedOpenApiPath) */
+  source?: { file?: string; title?: string; version?: string; basePath?: string; stored?: string };
   /** request/response types from the schemas, plus `In`/`Out` of every service */
   types: TypeDef[];
   services: CollectionService[];

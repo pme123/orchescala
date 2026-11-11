@@ -81,7 +81,8 @@ export interface SchemaHome {
  */
 export function schemaHomes(c: ServiceCollectionSpec): Map<string, SchemaHome> {
   const services = c.services.filter(s => s.name.trim());
-  const apis = apisOf({ ...c, services });
+  // a collection with only classes: they live in the schema of its API and version (`clientMaster.v1.schema`)
+  const apis = services.length ? apisOf({ ...c, services }) : [apiOf(c)];
   const users = usersOf(c);
   const out = new Map<string, SchemaHome>();
   for (const t of c.types.filter(x => !x.interactionId && x.name?.trim())) {

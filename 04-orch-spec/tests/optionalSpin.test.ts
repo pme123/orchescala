@@ -67,7 +67,23 @@ test('export: the element of a multi-instance knows the fields of its collection
   assert.ok(xml.includes('newDebitMastercard.hasProp('), xml);
 });
 
-test('import: the guard reads back as an explicit if — like a hand-written one', () => {
+test('import: the guard reads back as the path - null checks belong to the export only', () => {
   assert.equal(importExpression('${(card.hasProp("newModuleDebitInsurance") && !card.prop("newModuleDebitInsurance").isNull() ? card.prop("newModuleDebitInsurance").boolValue() : null)}'),
-    '= if card.newModuleDebitInsurance != null then card.newModuleDebitInsurance else null');
+    '= card.newModuleDebitInsurance');
+  // in a comparison too - and a hand-written if/then/else as an operand keeps its parentheses
+  assert.equal(importExpression('${(client.hasProp("kind") && !client.prop("kind").isNull() ? client.prop("kind").stringValue() : null) == "A"}'), '= client.kind = "A"');
+  assert.equal(importExpression('${(a > 1 ? "x" : "y") == "x"}'), '= (if a > 1 then "x" else "y") = "x"');
+  assert.equal(importExpression('${a > 1 ? "x" : "y"}'), '= if a > 1 then "x" else "y"');
+});
+
+test('unguard: only the guard of one path with null otherwise - texts, other paths and else values stay', async () => {
+  const { unguard } = await import('../src/juelFeel');
+  assert.equal(unguard('if a.b != null then a.b else null'), 'a.b');
+  assert.equal(unguard('x and (if a.b != null then a.b else null) = "A"'), 'x and a.b = "A"');
+  assert.equal(unguard('if a.b != null then a.b else 1'), 'if a.b != null then a.b else 1');
+  assert.equal(unguard('if a.b != null then a.c else null'), 'if a.b != null then a.c else null');
+  assert.equal(unguard('if a.b != null then a.bc else null'), 'if a.b != null then a.bc else null');
+  assert.equal(unguard('"if a.b != null then a.b else null"'), '"if a.b != null then a.b else null"');
+  // parentheses: an operand keeps them, the whole expression does not need them
+  assert.equal(importExpression('${(a ? b : c) && (d)}'), '= (if a then b else c) and (d)');
 });

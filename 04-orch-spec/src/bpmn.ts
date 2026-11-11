@@ -11,7 +11,7 @@
 // (see `mergeSpec`) — the implementation only updates the structure.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, MultiInstanceSpec, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
-import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
+import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe, unguard } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -1375,8 +1375,9 @@ function jsonTextUpgrade(stored: string, fromDiagram: string | undefined): boole
  * around paths: then the diagram wins.
  */
 function numberUpgrade(stored: string, fromDiagram: string | undefined): boolean {
-  if (!fromDiagram || !/(?<![\w.])number\(/.test(stored)) return false;
-  const without = stored.replace(/(?<![\w.])number\(([A-Za-z_][\w.]*)\)/g, '$1');
+  if (!fromDiagram) return false;
+  // the guard of the export read back as `if a.b != null then a.b else null` - today it is `a.b`
+  const without = unguard(stored.replace(/(?<![\w.])number\(([A-Za-z_][\w.]*)\)/g, '$1'));
   return without !== stored && without.trim() === fromDiagram.trim();
 }
 /** A value an older import read wrongly — the diagram reads it correctly today */

@@ -89,6 +89,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [syncBlocked, setSyncBlocked] = useState<string[] | null>(null);
   // what reading the chosen folder or ZIP gave — shown in the dialog, not behind it
   const [blockedNote, setBlockedNote] = useState<{ text: string; ok: boolean } | null>(null);
+  /** why the folder is asked for when it is readable: the domain found has nothing to compare with */
+  const [syncReason, setSyncReason] = useState<string | null>(null);
   // the part of the service in view — marked in the outline on the left
   const pane = useRef<HTMLDivElement>(null);
   const [activePart, setActivePart] = useState<ServicePart | null>(null);
@@ -163,21 +165,34 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
 
   const service = selection.kind === 'service' ? spec.services.find(s => s.id === selection.id) : undefined;
   const type = selection.kind === 'type' ? spec.types.find(t => t.id === selection.id) : undefined;
-  const schemaTypes = spec.types.filter(t => !t.interactionId);
+  // the types of the API by name - the list is easier to search that way
+  const schemaTypes = spec.types.filter(t => !t.interactionId).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'de'));
   const patchService = (id: string, patch: Partial<CollectionService>) =>
     update(s => ({ ...s, services: s.services.map(x => (x.id === id ? { ...x, ...patch } : x)) }));
 
   // Abgleich with the catalog: what changes is shown first, nothing is deleted without asking
   // as the process sync: the own project folder first (it has the current state), the catalog otherwise
-  /** opens the preview of the changes — or gives the note why there is none */
-  const syncFrom = (hit: DomainHit | null): string | undefined => {
+  /** a collection with only classes: the package whose classes the Abgleich takes */
+  const classesOf = (cur: ServiceCollectionSpec) => (cur.services.some(s => s.name.trim()) ? null : `${collectionPackage(cur)}.schema`);
+  /**
+   * opens the preview of the changes — or gives the note why there is none; `missing`: the domain
+   * has nothing to compare with - another folder may have it
+   */
+  const syncFrom = (hit: DomainHit | null): { text: string; missing?: true } | undefined => {
     const cur = latest.current;
     if (!cur) return undefined;
     const source = hit?.source ?? 'Katalog';
     const m = hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model;
     const r = syncWithCatalog(cur, m);
-    if (!r) return hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt';
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern`;
+    const classes = classesOf(cur);
+    if (!r) {
+      return {
+        missing: true,
+        text: classes ? `${hit ? source : 'Der Katalog'} hat keine Klassen in ${classes}`
+          : hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt',
+      };
+    }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return { text: `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern` };
     setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}), rerun: keep => syncWithCatalog(cur, m, keep) ?? r });
     return undefined;
   };
@@ -187,8 +202,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     setSyncNote(''); setSyncBlocked(null); setBlockedNote(null); setSyncBusy('Domain wird gesucht …');
     try {
       const hit = await findSyncDomainFor(serviceProjectTarget(cur.project), model, setSyncBusy);
-      if (hit && 'blocked' in hit) { setSyncBlocked(hit.unreadable); return; }
-      setSyncNote(syncFrom(hit) ?? '');
+      if (hit && 'blocked' in hit) { setSyncReason(null); setSyncBlocked(hit.unreadable); return; }
+      const r = syncFrom(hit);
+      // nothing there to compare with: another project folder (or a ZIP) may have it
+      if (r?.missing) { setSyncReason(r.text); setSyncBlocked([]); return; }
+      setSyncNote(r?.text ?? '');
     } catch (e) {
       setSyncNote(e instanceof Error ? e.message : String(e));
     } finally { setSyncBusy(''); }
@@ -205,14 +223,15 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     setSyncBusy(`${source} wird gelesen …`);
     try {
       const domain = scanDomain(await read());
-      if (!serviceProjectTarget(cur.project).has(domain)) {
-        setBlockedNote({ text: `In ${source} gibt es keine Services von ${cur.project} — den Ordner dieses Projekts wählen.`, ok: false });
+      const classes = classesOf(cur);
+      if (classes ? !domain.some(t => t.pkg === classes) : !serviceProjectTarget(cur.project).has(domain)) {
+        setBlockedNote({ text: classes ? `In ${source} gibt es keine Klassen in ${classes} — den Ordner des Projekts wählen.` : `In ${source} gibt es keine Services von ${cur.project} — den Ordner dieses Projekts wählen.`, ok: false });
         return;
       }
       const remembered = dir ? await rememberOwnFolder(model, cur.project, dir) : false;
       const note = syncFrom({ domain, source });
       if (!note) { setSyncBlocked(null); return; }
-      setBlockedNote({ text: `${note}.${remembered ? ' Der Ordner ist gemerkt — der nächste Abgleich liest ihn direkt.' : ''}`, ok: true });
+      setBlockedNote({ text: `${note.text}.${remembered ? ' Der Ordner ist gemerkt — der nächste Abgleich liest ihn direkt.' : ''}`, ok: !note.missing });
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setBlockedNote({ text: e instanceof Error ? e.message : String(e), ok: false });
     } finally { setSyncBusy(''); }
@@ -252,7 +271,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
             <FileUp size={12} /> OpenAPI importieren
           </button>
         )}
-        <button onClick={() => setExportOpen(true)} disabled={!spec.services.length}
+        <button onClick={() => setExportOpen(true)} disabled={!spec.services.length && !schemaTypes.length}
           title="Scala-Code der Services und der Befehl für den Helper"
           className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
           <FileCode2 size={12} /> Export
@@ -265,8 +284,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       )}
 
       {syncBlocked && (
-        <SyncBlocked unreadable={syncBlocked} busy={syncBusy} note={blockedNote} isDark={isDark}
-          onCancel={() => { if (blockedNote?.ok) setSyncNote(blockedNote.text); setSyncBlocked(null); setBlockedNote(null); }}
+        <SyncBlocked unreadable={syncBlocked} reason={syncReason} busy={syncBusy} note={blockedNote} isDark={isDark}
+          onCancel={() => { if (blockedNote?.ok) setSyncNote(blockedNote.text); setSyncBlocked(null); setBlockedNote(null); setSyncReason(null); }}
           onFolder={async () => {
             if (!('showDirectoryPicker' in window)) { setBlockedNote({ text: 'Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.', ok: false }); return; }
             const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
@@ -447,7 +466,6 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   const catalog = useMemo(() => catalogProjects(model), [model]);
   const prefixes = useMemo(() => knownProjects(model, services.map(s => s.data.project), specs.map(s => s.data.project)), [model, specs, services]);
   const knownApis = useMemo(() => [...new Set((catalog.find(p => p.project === spec.project)?.apis ?? []).map(a => a.api))].sort(), [catalog, spec.project]);
-  const apis = apisOf(spec).length ? apisOf(spec) : [{ project: spec.project, api: spec.api, apiVersion: spec.apiVersion }];
   // where the OpenAPI brings no URL (Swagger 2.0 without host): what the other collections of the project have
   const fromProject = useMemo(() => projectSuggestions(spec, services.map(s => s.data).filter(isCollection)), [spec, services]);
   const setServiceBasePath = (a: { api: string; apiVersion: number }, value: string) => {
@@ -471,15 +489,21 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
           </div>
         </div>
         <div className={`flex-[2_1_14rem] rounded border px-2 py-1 ${c.border2}`}>
-          <div className={`text-[9px] uppercase tracking-widest ${c.muted}`} title="Name und Version je API — ein Wechsel gilt für alle Services dieser API">APIs</div>
+          <div className={`text-[9px] uppercase tracking-widest ${c.muted}`} title="Name und Version der API — eine Collection hat eine API; ein Wechsel gilt für alle ihre Services">API</div>
           <datalist id="collection-apis">{knownApis.map(a => <option key={a} value={a} />)}</datalist>
-          {apis.map(a => (
-            <ApiField key={apiKey(a)} value={a} canEdit={canEdit}
-              onCommit={to => onUpdate(s => renameApi(s, a, to))} />
-          ))}
+          <ApiField value={{ api: spec.api, apiVersion: spec.apiVersion }} canEdit={canEdit}
+            onCommit={to => onUpdate(s => renameApi(s, s, to))} />
         </div>
         <div className="flex-[1_1_6rem]"><Info label="Status" value={STATUS_META[collectionStatus(spec)].label} isDark={isDark} /></div>
       </div>
+      {/* without services: a collection of classes - shared ones of a level, from the code or new */}
+      {!spec.services.some(s => s.name.trim()) && (
+        <p className={`text-[10px] px-2 py-1.5 rounded border ${c.border2} ${c.muted}`}>
+          <span className={`font-semibold ${c.text}`}>Nur Klassen</span> (noch keine Services): sie gehen nach{' '}
+          <span className="font-mono">{collectionPackage(spec)}.schema</span>. Der Abgleich holt die Klassen dieses Packages aus dem Code;
+          Collections, Orchestrierungen und Prozesse des Ordners finden sie im Katalog.
+        </p>
+      )}
       <label className="block space-y-0.5">
         <span className={`text-[10px] ${c.muted}`}>Service-Bezeichnung (<span className="font-mono">serviceLabel</span> — steht in der Beschreibung jedes Services)</span>
         <input className={input} disabled={!canEdit} value={spec.serviceLabel ?? ''} placeholder={spec.source?.title || spec.title}
@@ -533,7 +557,7 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
           onChange={e => onChange({ description: e.target.value || undefined })} placeholder="Wofür diese API da ist" />
       </label>
       {spec.source?.file && (
-        <p className={`text-[10px] ${c.muted}`}>Zuletzt importiert: <span className="font-mono">{spec.source.file}</span>{spec.source.title ? ` — ${spec.source.title}` : ''}{spec.source.version ? ` ${spec.source.version}` : ''}</p>
+        <p className={`text-[10px] ${c.muted}`}>Zuletzt importiert: <span className="font-mono">{spec.source.file}</span>{spec.source.title ? ` — ${spec.source.title}` : ''}{spec.source.version ? ` ${spec.source.version}` : ''}{spec.source.stored ? ' · hinterlegt' : ''}</p>
       )}
     </div>
   );
@@ -545,8 +569,10 @@ const adoptedNote = (adopted: Adopted[]) =>
 
 /** What the Abgleich with the catalog changes — before it applies. */
 /** The own project folder is remembered but not readable — as in the process sync: choose it, or a ZIP. */
-function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip }: {
+function SyncBlocked({ unreadable, reason, busy, note, isDark, onCancel, onFolder, onZip }: {
   unreadable: string[]; busy: string; note: { text: string; ok: boolean } | null; isDark: boolean;
+  /** the folder was read, but has nothing to compare with - instead of «not readable» */
+  reason?: string | null;
   onCancel: () => void; onFolder: () => void; onZip: (f: File) => void;
 }) {
   const c = cls(isDark);
@@ -557,8 +583,10 @@ function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip
         <div className={`flex items-center gap-2 text-xs font-semibold ${c.text}`}><RefreshCw size={13} /> Abgleich</div>
         <p className={`text-[11px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
           <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />
-          Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich den Zugriff je
-          Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt — Projekt-Ordner oder ZIP wählen.
+          {reason
+            ? <>{reason} — einen anderen Projekt-Ordner oder ein ZIP wählen. Ein gewählter Ordner wird für das Projekt gemerkt.</>
+            : <>Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich den Zugriff je
+              Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt — Projekt-Ordner oder ZIP wählen.</>}
         </p>
         {busy && <p className={`text-[11px] flex items-center gap-1.5 ${c.muted}`}><Loader2 size={11} className="animate-spin" /> {busy}</p>}
         {!busy && note && (
@@ -745,14 +773,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
           <div className={`text-[10px] font-mono ${c.muted}`} title="Topic des Workers — auch die Kennung im Service-Katalog">{serviceTopic(apiOf(spec, s), s)}</div>
         </div>
-        <label className={`flex items-center gap-1 text-[10px] ${c.muted}`} title={`API (Paket ${collectionPackage(apiOf(spec, s))}) und Version des Services`}>
-          API
-          <input value={s.api} disabled={!canEdit} onChange={e => onPatch({ api: apiName(e.target.value) })}
-            className={`w-28 font-mono ${input} ${API_NAME.test(s.api) ? '' : 'text-rose-500'}`} />
-          v
-          <input type="number" min={1} value={s.apiVersion} disabled={!canEdit} onChange={e => onPatch({ apiVersion: Math.max(1, Number(e.target.value) || 1) })}
-            className={`w-14 font-mono ${input}`} />
-        </label>
+        {/* the API of the collection - changed in its overview, for all its services */}
+        <span className={`flex items-center gap-1 text-[10px] ${c.muted}`} title={`API der Collection (Paket ${collectionPackage(apiOf(spec, s))}) — in der Übersicht ändern`}>
+          API <span className={`font-mono ${c.text}`}>{apiOf(spec, s).api}</span> v<span className={`font-mono ${c.text}`}>{apiOf(spec, s).apiVersion}</span>
+        </span>
         <select value={s.status} disabled={!canEdit} onChange={e => onPatch({ status: e.target.value as Status })} className={input}>
           {STATUSES.map(x => <option key={x} value={x}>{STATUS_META[x].label}</option>)}
         </select>
@@ -1026,7 +1050,7 @@ function TypeSelect({ value, spec, disabled, className, onChange, self }: {
   self?: Array<{ id: string; label: string }>;
 }) {
   const model = useTypeModel();
-  const own = spec.types.filter(t => !t.interactionId);
+  const own = spec.types.filter(t => !t.interactionId).sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "de"));
   const known = (SCALA_TYPES as readonly string[]).includes(value) || own.some(t => t.id === value) || !!self?.some(x => x.id === value);
   // a type of the domain (`dom:<id>`, from the catalog): its name — the project has it already
   const dom = parseDomainRef(value);

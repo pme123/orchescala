@@ -2,7 +2,7 @@
 // and waits for the new collection to open its import.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { collectionSuggestion, handOverOpenApi, parseOpenApi, takeOpenApi } from '../src/services/openApiFile.ts';
+import { collectionSuggestion, handOverOpenApi, parseOpenApi, storedOpenApiPath, takeOpenApi } from '../src/services/openApiFile.ts';
 
 const yaml = `
 openapi: 3.0.1
@@ -39,4 +39,16 @@ test('the file waits for its collection — once', () => {
   assert.equal(takeOpenApi('acme-crm-other'), null);
   assert.equal(takeOpenApi('acme-crm-personen')?.file, 'person.yml');
   assert.equal(takeOpenApi('acme-crm-personen'), null);
+});
+
+test('storedOpenApiPath: next to the collection, in a folder of its own - the ending of the file', () => {
+  assert.equal(storedOpenApiPath('acme-crm-personen', 'openApi-crm.v2.json'), 'services/openapi/acme-crm-personen.json');
+  assert.equal(storedOpenApiPath('acme-crm-personen', 'Party.YAML'), 'services/openapi/acme-crm-personen.yaml');
+  assert.equal(storedOpenApiPath('acme-crm-personen', 'party'), 'services/openapi/acme-crm-personen.yml');
+});
+
+test('parseOpenApi keeps the text as it was read - the collection keeps it', () => {
+  const r = parseOpenApi(yaml, 'person.yml');
+  assert.ok(r.ok);
+  assert.equal(r.ok && r.value.text, yaml);
 });
