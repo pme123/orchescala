@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
 import { catalogProjects, collectionFromCatalog, missingApis, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
 import {
-  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
+  API_NAME, apiName, apiOf, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
 } from '../src/services/collection';
 import { adoptHierarchyTypes, commonParents, searchGroups } from '../src/services/hierarchy';
 import { addOperations, readApi } from '../src/services/openApiRest';
@@ -433,4 +433,40 @@ test('Abgleich without a match: the APIs the project lacks are named - with the 
   });
   // another project: not known at all
   assert.equal(missingApis({ ...c, project: 'acme-other' }, model), null);
+});
+
+test('Abgleich: what the project does not have (any more) is listed - and deleted only when chosen', () => {
+  const c = twoApis();
+  const [natural, legal] = c.services;
+  // the project has only the first service — the second was deleted there
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const r = syncWithCatalog(c, model)!;
+  assert.deepEqual(r.stale, [{ id: legal.id, name: legal.name, kind: 'service' }]);
+  // kept as long as nobody chooses it
+  assert.ok(r.spec.services.some(s => s.id === legal.id));
+  // deleted: the service goes, and with it the types only it used (under «Typen entfernt»)
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.removedTypes.includes('LegalPerson'), JSON.stringify(d.removedTypes));
+  assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
+  // a type the first service still uses stays
+  assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson') && d.spec.types.some(t => t.name === 'Address'));
+});
+
+test('Abgleich: own types no service uses and the domain does not know are listed - deleted when chosen', () => {
+  const c0 = twoApis();
+  const [natural] = c0.services;
+  // the service was deleted in the collection before - its types stayed behind
+  const c = { ...c0, services: [natural] };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const r = syncWithCatalog(c, model)!;
+  const left = r.stale.filter(x => x.kind === 'type');
+  assert.ok(left.some(x => x.name === 'LegalPerson'), JSON.stringify(r.stale));
+  assert.ok(!left.some(x => x.name === 'NaturalPerson' || x.name === 'Address'), JSON.stringify(r.stale));
+  assert.ok(r.spec.types.some(t => t.name === 'LegalPerson'));
+  const d = syncWithCatalog(c, model, new Set(), new Set(left.map(x => x.id)))!;
+  assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
+  assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson'));
 });

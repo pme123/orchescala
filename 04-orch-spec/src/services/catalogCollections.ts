@@ -346,7 +346,16 @@ export interface CatalogSync {
   ambiguousApis: string[];
   /** types of the collection the project has higher up in the hierarchy — taken from there */
   adopted: Adopted[];
+  /**
+   * what the collection has and the project not (any more) — deleted or moved there: its
+   * services, and its own types no service uses and the domain does not know. Kept unless the
+   * user deletes them (`drop` of the Abgleich); deleting a service lists its types too.
+   */
+  stale: Stale[];
 }
+
+/** a service or a type of the collection the project does not have */
+export interface Stale { id: string; name: string; kind: 'service' | 'type' }
 
 const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
   ...t,
@@ -375,8 +384,9 @@ export function missingApis(given: ServiceCollectionSpec, model: Model | null): 
  * an OpenAPI, status and description. Services of its APIs the collection lacks are added,
  * custom workers an older import took over are removed. `null`: the catalog does not know the project.
  * @param keep the ids of the types the user keeps as the collection's own instead of the class of the hierarchy
+ * @param drop the ids of services and types the project does not have that the user deletes (see `stale`)
  */
-export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null, keep: ReadonlySet<string> = new Set()): CatalogSync | null {
+export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null, keep: ReadonlySet<string> = new Set(), drop: ReadonlySet<string> = new Set()): CatalogSync | null {
   if (!given.services.some(s => s.name.trim())) return syncClasses(given, model);
   const project = catalogProjects(model).find(p => p.project === given.project);
   if (!project) return null;
@@ -399,7 +409,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   const apis = project.apis.filter(a => apisOf(c).some(x => sameApi(x, a)));
   // nothing to compare with — but say which API is not clear
   if (!apis.length) return ambiguousApis.length
-    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], removedTypes: [], renamedApis: [], ambiguousApis, adopted: [] }
+    ? { spec: given, added: [], updated: [], removed: [], addedTypes: [], removedTypes: [], renamedApis: [], ambiguousApis, adopted: [], stale: [] }
     : null;
   const fresh = collectionFromCatalog(project, apis, model, c.title);
   const keyOf = (s: CollectionService) => serviceTopic(apiOf(c, s), s);
@@ -431,6 +441,7 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
 
   const removed: string[] = [];
   const updated: string[] = [];
+  const stale: Stale[] = [];
   const types = new Map(c.types.map(t => [t.id, fieldTypes(t, mapType)]));
   const services: CollectionService[] = [];
   for (const s of c.services) {
@@ -438,6 +449,9 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
     if (!f) {
       // the catalog knows it, but not as a service: a custom worker — otherwise the collection's own one
       if (known.has(keyOf(s)) && !s.operationId) { removed.push(s.name); for (const id of [s.inTypeId, s.outTypeId]) if (id) types.delete(id); continue; }
+      // the project does not have it (any more): it stays — unless the user deletes it
+      stale.push({ id: s.id, name: s.name, kind: 'service' });
+      if (drop.has(s.id)) { for (const id of [s.inTypeId, s.outTypeId]) if (id) types.delete(id); continue; }
       services.push(s);
       continue;
     }
@@ -520,12 +534,20 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   const usedBefore = usedTypes(c);
   const usedNow = usedTypes(h.spec);
   const orphans = h.spec.types.filter(t => !t.interactionId && usedBefore.has(t.id) && !usedNow.has(t.id));
-  const result = orphans.length ? { ...h.spec, types: h.spec.types.filter(t => !orphans.includes(t)) } : h.spec;
+  // own types no service uses and the domain does not know: deleted or moved in the project —
+  // they stay, unless the user deletes them (a type without a service may be the collection's own)
+  const inDomain = new Set((model?.domainTypes ?? []).map(t => t.id));
+  for (const t of h.spec.types) {
+    if (t.interactionId || orphans.includes(t) || usedNow.has(t.id) || (t.domainId && inDomain.has(t.domainId))) continue;
+    stale.push({ id: t.id, name: t.name, kind: 'type' });
+  }
+  const gone = new Set([...orphans.map(t => t.id), ...stale.filter(x => x.kind === 'type' && drop.has(x.id)).map(x => x.id)]);
+  const result = gone.size ? { ...h.spec, types: h.spec.types.filter(t => !gone.has(t.id)) } : h.spec;
   return {
     spec: result, added: added.map(s => s.name), updated, removed,
     addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)),
     removedTypes: orphans.map(t => t.name),
-    renamedApis, ambiguousApis, adopted: h.adopted,
+    renamedApis, ambiguousApis, adopted: h.adopted, stale,
   };
 }
 
@@ -562,7 +584,7 @@ export function syncClasses(c: ServiceCollectionSpec, model: Model | null): Cata
   }
   return {
     spec: { ...c, types: [...types.values()] }, added: [], updated, removed: [], addedTypes, removedTypes: [],
-    renamedApis: [], ambiguousApis: [], adopted: [],
+    renamedApis: [], ambiguousApis: [], adopted: [], stale: [],
   };
 }
 
