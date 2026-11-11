@@ -67,7 +67,11 @@ test('export: the element of a multi-instance knows the fields of its collection
   assert.ok(xml.includes('newDebitMastercard.hasProp('), xml);
 });
 
-test('import: the guard reads back as an explicit if — like a hand-written one', () => {
+test('import: the guard reads back as the path - null checks belong to the export only', () => {
   assert.equal(importExpression('${(card.hasProp("newModuleDebitInsurance") && !card.prop("newModuleDebitInsurance").isNull() ? card.prop("newModuleDebitInsurance").boolValue() : null)}'),
-    '= if card.newModuleDebitInsurance != null then card.newModuleDebitInsurance else null');
+    '= card.newModuleDebitInsurance');
+  // in a comparison too - and a hand-written if/then/else as an operand keeps its parentheses
+  assert.equal(importExpression('${(client.hasProp("kind") && !client.prop("kind").isNull() ? client.prop("kind").stringValue() : null) == "A"}'), '= client.kind = "A"');
+  assert.equal(importExpression('${(a > 1 ? "x" : "y") == "x"}'), '= (if a > 1 then "x" else "y") = "x"');
+  assert.equal(importExpression('${a > 1 ? "x" : "y"}'), '= if a > 1 then "x" else "y"');
 });

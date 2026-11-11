@@ -10,7 +10,8 @@ import { importExpression } from '../src/juelFeel';
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
 const juel = '${ masterRead.hasProp("clientSegment") && !masterRead.prop("clientSegment").isNull() ? masterRead.prop("clientSegment").numberValue().intValue() : null }';
-const feel = '= if masterRead.clientSegment != null then masterRead.clientSegment else null';
+// the guard of the export (Spin throws on a missing field) reads back as the path - in FEEL it is null then anyway
+const feel = '= masterRead.clientSegment';
 
 test('import: intValue() / longValue() / doubleValue() is the number itself', () => {
   assert.equal(importExpression(juel), feel);
