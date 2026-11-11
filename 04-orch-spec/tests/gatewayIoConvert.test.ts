@@ -98,6 +98,18 @@ test('C8 -> C7 (event, not gateway): an untranslatable output on an end event - 
   assert.ok(r.issues.some(i => i.stepId === 'e' && i.text.includes('nicht nach JUEL übersetzbar')), JSON.stringify(r.issues));
 });
 
+test('C8 -> C7: one output translatable, one not - the issue names only the listener', () => {
+  const bad = '<zeebe:output source="=some x in xs satisfies x &gt; 1" target="any" />';
+  const r = convertBpmn(c8(gateway('exclusiveGateway', ioMapping(COUNT, bad))), 'c7');
+  assert.equal(listeners(r.xml).length, 1, r.xml);
+  assert.deepEqual(mappingIssues(r).map(t => t.split(' — ')[0]), ['Ausgabe «count» als Start-Listener am exclusiveGateway']);
+  // none translatable: no «als Start-Listener» issue at all
+  const none = convertBpmn(c8(gateway('exclusiveGateway', ioMapping(bad))), 'c7');
+  assert.deepEqual(listeners(none.xml), []);
+  assert.deepEqual(mappingIssues(none), []);
+  assert.ok(none.issues.some(i => i.text.includes('nicht nach JUEL übersetzbar')), JSON.stringify(none.issues));
+});
+
 test('C8 -> C7: inputs on a join - the end listener and the input as a comment', () => {
   const r = convertBpmn(c8(gateway('parallelGateway', ioMapping(LIMIT, COUNT), true), { join: true }), 'c7');
   assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['end']);
@@ -211,6 +223,16 @@ test('C8 -> C7: allOptional never rewrites a name bound in the expression', () =
   for (const f of ['for x in xs return x + n', 'some x in xs satisfies x > n']) assert.equal(feelToJuel(f, { allOptional: true }).ok, false, f);
   const ctx = feelToJuel('{a: 1}.a', { allOptional: true });
   assert.ok(ctx.ok && !ctx.juel.includes('getVariable'), JSON.stringify(ctx));
+});
+
+test('C8 -> C7: allOptional with a path or a function - only the variable is read with getVariable, the Spin path stays', () => {
+  assert.deepEqual(feelToJuel('count.x + 1', { allOptional: true }), { ok: true, juel: 'execution.getVariable("count").prop("x").value() + 1' });
+  assert.deepEqual(feelToJuel('string(x)', { allOptional: true }), { ok: true, juel: '"".concat(execution.getVariable("x"))' });
+});
+
+test('C7 -> C8: a U+0001 in the input is rejected - it is the marker of a read', () => {
+  const r = juelToFeel('execution.getVariable("a") + "\u00010\u0001"');
+  assert.ok(!r.ok && r.reason.includes('U+0001'), JSON.stringify(r));
 });
 
 test('C7 -> C8: a nested getVariable is a computed name - rejected, no marker leaks', () => {

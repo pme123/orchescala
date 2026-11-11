@@ -295,6 +295,8 @@ export function juelToFeel(body: string): FeelResult {
   const reads: string[] = [];
   const resolve = (x: string) => x.replace(/\u0001(\d+)\u0001/g, (_m, i: string) => reads[Number(i)]);
   try {
+    // the marker of a read (see `num`) must not come from the input
+    if (body.includes('\u0001')) throw new Unsupported('Steuerzeichen U+0001 im Ausdruck');
     const toks = tokenize(body.trim());
     let p = 0;
     const peek = () => toks[p];
@@ -310,8 +312,9 @@ export function juelToFeel(body: string): FeelResult {
     // `reads[n]` is always a plain name — a computed name (also a nested read) is rejected.
     // JUEL `+` is always a number (text is joined with `concat`), so no text operand gets the 0.
     const num = (x: string) => {
-      const m = /^\(?\u0001(\d+)\u0001\)?$/.exec(x);
-      return m ? `(if ${reads[Number(m[1])]} = null then 0 else ${reads[Number(m[1])]})` : x;
+      const m = /^(?:\(\u0001(\d+)\u0001\)|\u0001(\d+)\u0001)$/.exec(x);
+      const name = m ? reads[Number(m[1] ?? m[2])] : undefined;
+      return name ? `(if ${name} = null then 0 else ${name})` : x;
     };
     const arith = (o: string) => (a: string, b: string) => `${num(a)} ${o} ${num(b)}`;
 

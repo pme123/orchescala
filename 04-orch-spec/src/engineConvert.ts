@@ -664,7 +664,8 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       const ins = io.filter(p => local(p) !== 'output');
       const join = (name === 'parallelGateway' || name === 'inclusiveGateway') && incomingOf(el).length > 1;
       const event = join ? 'end' : 'start';
-      for (const p of outs) { const l = setVariableListener(el, p, event, issue, ctx, true); if (l) add.push(l); }
+      // the outputs that got a listener — an untranslatable one stays a comment
+      const set = outs.filter(p => { const l = setVariableListener(el, p, event, issue, ctx, true); if (l) add.push(l); return !!l; });
       for (const p of ins) {
         const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
         prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(text)} `) as unknown as Element);
@@ -673,7 +674,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       const names = (ps: Element[]) => ps.map(p => `«${target(p)}»`).join(', ');
       // at a join the conditions of the gateway are evaluated before the end listener
       const late = join ? ' Bedingungen am Gateway sehen noch den alten Wert.' : '';
-      if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.${late}`);
+      if (set.length) issue('Mapping', `Ausgabe ${names(set)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.${late}`);
       if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
       // an output that reads a dropped input reads the process variable instead
       const read = ins.filter(i => outs.some(o => readsVariable(o.getAttribute('source') ?? '', target(i))));
@@ -820,8 +821,10 @@ const listenerText = (l: Element) => `camunda:executionListener event="${l.getAt
 /** `--` must not appear in an XML comment — not even in `---` — and it must not end with `-` */
 const commentSafe = (text: string) => text.replace(/-(?=-)/g, '- ').replace(/-$/, '- ');
 
-/** Does the FEEL `source` read the variable `name`? Names may hold any letter (`\p{L}`);
- *  a text in quotes is not a read, nor is a field `a.name` or a longer name. */
+/** Does the FEEL `source` read the variable `name`? A heuristic for a warning only (a
+ *  false hit costs a superfluous issue): names may hold any letter (`\p{L}`); a text in
+ *  quotes is not a read, nor is a field `a.name` or a longer name. Not recognised:
+ *  backtick names, `a . name` with spaces, a local binding (`for name in …`). */
 function readsVariable(source: string, name: string): boolean {
   if (!name) return false;
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
