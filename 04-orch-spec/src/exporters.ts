@@ -13,6 +13,7 @@ import { scalaBundle } from './scala.ts';
 import { C7_LABEL, C8_LABEL, engineLabel } from './engineLabels.ts';
 import { processTarget, stepTarget, threadsUnder, typeTarget } from './comments.ts';
 import { writeBpmn, type WriteResult } from './bpmnWrite.ts';
+import { gatewayOutputsAsListeners } from './gatewayVariables.ts';
 import { convertWithPatterns } from './patternConvert.ts';
 import { engineExpression } from './feelJuel.ts';
 import { juelOptions, variableOverview } from './feel.ts';
@@ -406,13 +407,19 @@ export function exportBpmn(spec: ProcessSpec, bpmn: string, model: Model | null 
 /**
  * The diagram for an engine: its own as it is, the other converted on the fly
  * — the specification stays as it is. The same for the
- * BPMN export and the helper command.
+ * BPMN export and the helper command. For Camunda 7 the outputs of a gateway
+ * become listeners (no inputOutput there, see gatewayVariables.ts).
  */
 export function exportBpmnFor(spec: ProcessSpec, bpmn: string, engine: EngineId = spec.engine ?? 'c7', model: Model | null = null): WriteResult {
   const written = exportBpmn(spec, bpmn, model);
-  if (!bpmn || engine === (spec.engine ?? 'c7')) return written;
-  const conv = convertWithPatterns(written.xml, engine, patternDefs(model), { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec), juel: juelOptions(spec, model) });
-  return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
+  if (!bpmn) return written;
+  const forEngine = engine === (spec.engine ?? 'c7') ? written : (() => {
+    const conv = convertWithPatterns(written.xml, engine, patternDefs(model), { timeToLive: spec.timeToLive, correlationKeys: correlationKeysOf(spec), juel: juelOptions(spec, model) });
+    return { xml: conv.xml, issues: [...written.issues, ...conv.issues] };
+  })();
+  if (engine !== 'c7') return forEngine;
+  const gateways = gatewayOutputsAsListeners(forEngine.xml, spec, juelOptions(spec, model));
+  return { xml: gateways.xml, issues: [...forEngine.issues, ...gateways.issues] };
 }
 
 export function exportSpec(spec: ProcessSpec, kind: ExportKind, model: Model | null, bpmn = ''): string {

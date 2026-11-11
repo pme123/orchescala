@@ -19,7 +19,7 @@
 // (`_handledErrors`, `_outputMock` …) stay as they are in the diagram.
 
 import type { EngineId, Mapping, Model, ProcessSpec, Step, TimerSpec } from './types';
-import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
+import { C8_LABEL } from './engineLabels.ts';
 import { ASSIGNMENT_KEYS, TECHNICAL, allSteps, isEventBoundary, unnamed, feelString, isInitWorker, isServiceWorker, mockFieldOf, mockRef, paramExpression } from './bpmn.ts';
 import { juelOptions, mappingTarget, multiInstanceScopes, namesWrittenInside, referencedVariables, resultVariables, withMultiInstance } from './feel.ts';
 import { catalogEntry } from './interactions.ts';
@@ -27,7 +27,6 @@ import { engineExpression, feelBody, feelToGroovy, feelToJuel, iterableJuel, typ
 import { importExpression, isJuel, nullSafeCondition, stripNullSafe } from './juelFeel.ts';
 import { appendEl, orderBpmn, prependEl, removeEl } from './xmlFormat.ts';
 import { writeMiResult } from './miResult.ts';
-import { assignmentListeners, gatewayListenerEvent, isGateway, listenerExpression } from './gatewayVariables.ts';
 
 const BPMN_NS = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
 const CAMUNDA_NS = 'http://camunda.org/schema/1.0/bpmn';
@@ -278,7 +277,6 @@ function writeBpmnWith(xml: string, spec: ProcessSpec, model: Model | null): Wri
       const outs = writtenOutputs(step, before);
       if (engine === 'c8') writeZeebe(doc, ext, ins, outs, step.id, issues, local(el) === 'callActivity');
       else if (local(el) === 'callActivity') writeCamundaInOut(doc, ext, ins, outs, step.id, issues);
-      else if (isGateway(el)) writeGatewayListeners(doc, el, ext, ins, outs, step.id, issues);
       else writeCamundaIo(doc, ext, ins, outs, step.id, issues);
     }
 
@@ -1071,43 +1069,6 @@ function setCamundaValue(doc: Document, p: Element, v: { text: string; script?: 
   sc.setAttribute('scriptFormat', 'groovy');
   sc.textContent = v.script;
   p.appendChild(sc);
-}
-
-/**
- * A gateway in Camunda 7: no inputOutput (ENGINE-09005) — an output becomes a
- * `setVariable` listener (see gatewayVariables.ts). An unchanged row keeps its listener
- * literally; a missing variable reads as null (`execution.getVariable`), so a counter
- * starts on its first pass. An input has no local scope on a gateway: not written.
- */
-function writeGatewayListeners(doc: Document, el: Element, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
-  for (const io of kids(ext).filter(k => local(k) === 'inputOutput')) removeEl(io);
-  if (ins.length) {
-    issues.push({ stepId, where: 'Mapping', text: `Eingabe ${ins.map(m => `«${m.name.trim()}»`).join(', ')} nicht geschrieben — ein Gateway hat in ${C7_LABEL} keine lokalen Variablen.` });
-  }
-  const existing = assignmentListeners(ext);
-  const wanted = new Set(outs.map(m => m.name.trim()));
-  // a row that is gone: its listener goes too
-  for (const [name, l] of existing) if (!wanted.has(name)) removeEl(l.el);
-  const event = gatewayListenerEvent(el);
-  for (const m of outs) {
-    const name = m.name.trim();
-    const old = existing.get(name);
-    if (old && importExpression(`\${${old.value}}`).trim() === m.expression.trim()) continue;
-    const body = feelBody(m.expression);
-    let value: string;
-    if (body == null) value = JSON.stringify(m.expression);
-    else {
-      const r = feelToJuel(body, { ...outputOpts(stepId), allOptional: true });
-      if (!r.ok) {
-        issues.push({ stepId, where: `Ausgabe «${name}»`, text: `nicht nach JUEL übersetzbar: ${r.reason} — nicht geschrieben (am Gateway setzt ein Listener die Variable).` });
-        continue;
-      }
-      value = r.juel;
-    }
-    const l = old?.el ?? doc.createElementNS(CAMUNDA_NS, 'camunda:executionListener');
-    l.setAttribute('expression', listenerExpression(name, value));
-    if (!old) { l.setAttribute('event', event); appendEl(ext, l); }
-  }
 }
 
 function writeCamundaIo(doc: Document, ext: Element, ins: Mapping[], outs: Mapping[], stepId: string, issues: WriteIssue[]) {
