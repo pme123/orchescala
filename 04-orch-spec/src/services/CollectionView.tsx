@@ -478,6 +478,14 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
         </div>
         <div className="flex-[1_1_6rem]"><Info label="Status" value={STATUS_META[collectionStatus(spec)].label} isDark={isDark} /></div>
       </div>
+      {/* without services: a collection of classes - shared ones of a level, from the code or new */}
+      {!spec.services.some(s => s.name.trim()) && (
+        <p className={`text-[10px] px-2 py-1.5 rounded border ${c.border2} ${c.muted}`}>
+          <span className={`font-semibold ${c.text}`}>Nur Klassen</span> (noch keine Services): sie gehen nach{' '}
+          <span className="font-mono">{collectionPackage(spec)}.schema</span>. Der Abgleich holt die Klassen dieses Packages aus dem Code;
+          Collections, Orchestrierungen und Prozesse des Ordners finden sie im Katalog.
+        </p>
+      )}
       <label className="block space-y-0.5">
         <span className={`text-[10px] ${c.muted}`}>Service-Bezeichnung (<span className="font-mono">serviceLabel</span> — steht in der Beschreibung jedes Services)</span>
         <input className={input} disabled={!canEdit} value={spec.serviceLabel ?? ''} placeholder={spec.source?.title || spec.title}

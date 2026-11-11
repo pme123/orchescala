@@ -363,6 +363,7 @@ const fieldTypes = (t: TypeDef, map: (type: string) => string): TypeDef => ({
  * @param keep the ids of the types the user keeps as the collection's own instead of the class of the hierarchy
  */
 export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | null, keep: ReadonlySet<string> = new Set()): CatalogSync | null {
+  if (!given.services.some(s => s.name.trim())) return syncClasses(given, model);
   const project = catalogProjects(model).find(p => p.project === given.project);
   if (!project) return null;
   // an API is the same by its topics (the last part and the version) — where the project
@@ -511,6 +512,43 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
     addedTypes: addedTypes.filter(n => !h.adopted.some(a => a.name === n)),
     removedTypes: orphans.map(t => t.name),
     renamedApis, ambiguousApis, adopted: h.adopted,
+  };
+}
+
+/**
+ * A collection with only classes (no services): the classes the domain has in its schema
+ * (`acme.crm.domain.clientMaster.v1.schema`) - the domain's version of each, under the id the
+ * collection gives it (same class or name), with the description it gave; one only the
+ * collection has stays. `null`: the domain has no class there.
+ */
+export function syncClasses(c: ServiceCollectionSpec, model: Model | null): CatalogSync | null {
+  const pkg = `${collectionPackage(apiOf(c))}.schema`;
+  const there = (model?.domainTypes ?? []).filter(d => d.pkg === pkg && !d.owner && (d.kind === 'case' || d.kind === 'enum' || d.kind === 'alias'));
+  if (!there.length) return null;
+  const conv = new Converter(model?.domainTypes ?? [], collectionPackage(apiOf(c)), model);
+  for (const d of there) conv.convert(d, {});
+  const own = c.types.filter(t => !t.interactionId);
+  // fresh id → the id the collection has for it
+  const ids = new Map<string, string>();
+  for (const t of conv.types) {
+    const hit = own.find(x => t.domainId && x.domainId === t.domainId) ?? own.find(x => !x.domainId && x.name === t.name);
+    if (hit) ids.set(t.id, hit.id);
+  }
+  const mapType = (type: string) => ids.get(type) ?? type;
+  const types = new Map(c.types.map(t => [t.id, t]));
+  const addedTypes: string[] = [];
+  const updated: string[] = [];
+  for (const t of conv.types) {
+    const id = ids.get(t.id) ?? t.id;
+    const cur = types.get(id);
+    const next = { ...fieldTypes({ ...t, id }, mapType), ...(cur?.description && !t.description ? { description: cur.description } : {}) };
+    if (!cur) addedTypes.push(t.name);
+    else if (JSON.stringify(cur) !== JSON.stringify(next)) updated.push(t.name);
+    types.set(id, next);
+  }
+  return {
+    spec: { ...c, types: [...types.values()] }, added: [], updated, removed: [], addedTypes, removedTypes: [],
+    renamedApis: [], ambiguousApis: [], adopted: [],
   };
 }
 
