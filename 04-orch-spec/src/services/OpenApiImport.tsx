@@ -98,18 +98,18 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
     const stored = spec.source?.stored;
     if (!stored || !spec.source?.file) { setLooked(true); return; }
     let alive = true;
-    void loadOpenApi(stored, spec.source.file).then(o => {
-      if (!alive) return;
-      if (o) open(o, 'stored');
-      setLooked(true);
-    });
+    // not readable (access revoked, file gone): as without one - the project folder is looked in next
+    void loadOpenApi(stored, spec.source.file)
+      .then(o => { if (alive && o) open(o, 'stored'); })
+      .catch(e => console.warn('[orch-spec] hinterlegtes OpenAPI nicht lesbar:', e))
+      .finally(() => { if (alive) setLooked(true); });
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the dialog opens
   }, [initial]);
   useEffect(() => {
     const name = spec.source?.file;
     const there = looked && !current && name ? project?.files.find(f => f.name === name) : undefined;
-    if (there) void there.file.getFile().then(f => read(f, 'project'));
+    if (there) void there.file.getFile().then(f => read(f, 'project')).catch(e => console.warn('[orch-spec] OpenAPI im Projekt-Ordner nicht lesbar:', e));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- when the project folder or the stored file is read
   }, [looked, project]);
 
@@ -272,7 +272,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
               const pathPrefix = prefix.trim().replace(/\/+$/, '');
               // the file is kept with the collection - a new one replaces the one before
               setSaving(true);
-              const stored = fresh && current ? await saveOpenApi(spec.slug, current.o) : null;
+              const stored = fresh && current ? await saveOpenApi(spec.slug, current.o, spec.source?.stored) : null;
               setSaving(false);
               if (fresh && !stored) setError('Das OpenAPI liess sich nicht bei der Collection hinterlegen — die Services werden trotzdem übernommen.');
               onApply({

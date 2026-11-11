@@ -294,12 +294,13 @@ function presence(feel: string): string {
 }
 
 /**
- * `if a.b != null then a.b else null` → `a.b`: the guard the export writes around a Spin path,
- * read back - in FEEL a path to a missing field is null anyway.
+ * `if a.b != null then a.b else null` → `a.b`: the guard the export writes around a Spin path (or
+ * a variable), read back - in FEEL a missing value is null anyway. Texts stay as they are.
  */
 export function unguard(feel: string): string {
   const P = String.raw`[A-Za-z_][\w.]*`;
-  return feel.replace(new RegExp(String.raw`\(if (${P}) != null then \1 else null\)|(?<![\w.])if (${P}) != null then \2 else null(?![\w.])`, 'g'), (_m, a, b) => a ?? b);
+  const guard = new RegExp(String.raw`\(if (${P}) != null then \1 else null\)|(?<![\w.])if (${P}) != null then \2 else null(?![\w.])`, 'g');
+  return feel.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 ? part : part.replace(guard, (_m, a, b) => a ?? b))).join('');
 }
 
 /** Translate the body of a JUEL expression (without `${}`) to FEEL. */

@@ -52,4 +52,9 @@ test('merge: number(…) from an older import becomes what the diagram reads tod
   // what someone wrote that way themselves and the diagram reads differently stays
   step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= number(masterRead.text)' } : m));
   assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), '= number(masterRead.text)');
+  // the guard of an older import: the diagram reads the path today - an if of its own stays
+  step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= if masterRead.clientSegment != null then masterRead.clientSegment else null' } : m));
+  assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), feel);
+  step(previous).outputs = step(previous).outputs!.map(m => (m.name === 'clientSegment' ? { ...m, expression: '= if masterRead.clientSegment != null then masterRead.clientSegment else 0' } : m));
+  assert.equal(out(mergeSpec(importBpmn(bpmn, 'segment').spec, previous, fresh).spec), '= if masterRead.clientSegment != null then masterRead.clientSegment else 0');
 });
