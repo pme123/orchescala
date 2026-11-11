@@ -69,9 +69,27 @@ for (const kind of ['parallelGateway', 'inclusiveGateway']) {
   });
 }
 
-test('C8 -> C7: a merging exclusive gateway keeps the start listener - each branch passes on its own', () => {
-  const r = convertBpmn(c8(gateway('exclusiveGateway', ioMapping(COUNT), true), { join: true }), 'c7');
-  assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['start']);
+for (const kind of ['exclusiveGateway', 'eventBasedGateway']) {
+  test(`C8 -> C7: a merging ${kind} keeps the start listener - each branch passes on its own`, () => {
+    const r = convertBpmn(c8(gateway(kind, ioMapping(COUNT), true), { join: true }), 'c7');
+    assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['start']);
+  });
+}
+
+test('C8 -> C7: inputs on a join - the end listener and the input as a comment', () => {
+  const r = convertBpmn(c8(gateway('parallelGateway', ioMapping(LIMIT, COUNT), true), { join: true }), 'c7');
+  assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['end']);
+  assert.equal(comments(r.xml).length, 1, r.xml);
+  assert.equal(mappingIssues(r).length, 2, JSON.stringify(r.issues));
+});
+
+test('C8 -> C7: an output on a gateway that is not translatable - no listener, a comment and the issue', () => {
+  const r = convertBpmn(c8(gateway('exclusiveGateway', ioMapping('<zeebe:output source="=some x in xs satisfies x &gt; 1" target="any" />'))), 'c7');
+  // not `setVariable("any", "=some x …")` - the FEEL as a text
+  assert.deepEqual(listeners(r.xml), []);
+  // (linkedom writes `>` in a comment as `&gt;`, the browser does not)
+  assert.deepEqual(comments(r.xml).map(c => c.trim().replace(/&gt;/g, '>')), ['Camunda 8, nicht übernommen: zeebe:output source="=some x in xs satisfies x > 1" target="any"']);
+  assert.ok(r.issues.some(i => i.stepId === 'gw' && i.text.includes('nicht nach JUEL übersetzbar')), JSON.stringify(r.issues));
 });
 
 test('C8 -> C7: several outputs - one listener each, one issue', () => {
@@ -96,9 +114,14 @@ test('C8 -> C7: only inputs - no listener, a comment and one issue', () => {
 test('C8 -> C7: an output that reads a dropped input - flagged', () => {
   const r = convertBpmn(c8(gateway('exclusiveGateway', ioMapping(LIMIT, '<zeebe:output source="=count &lt; limit" target="retry" />'))), 'c7');
   assert.ok(mappingIssues(r).some(t => t.startsWith('Ausgabe liest die Eingabe «limit»')), JSON.stringify(r.issues));
-  // `limits` or `a.limit` is another variable
-  const other = convertBpmn(c8(gateway('exclusiveGateway', ioMapping(LIMIT, '<zeebe:output source="=limits + a.limit" target="retry" />'))), 'c7');
+  // `limits` or `a.limit` is another variable, `"limit"` a text
+  const other = convertBpmn(c8(gateway('exclusiveGateway', ioMapping(LIMIT, '<zeebe:output source="=string(limits + a.limit) + &quot;limit&quot;" target="retry" />'))), 'c7');
   assert.ok(!mappingIssues(other).some(t => t.startsWith('Ausgabe liest')), JSON.stringify(other.issues));
+  // FEEL names may hold any letter
+  const umlaut = convertBpmn(c8(gateway('exclusiveGateway', ioMapping('<zeebe:input source="=1" target="zähler" />', '<zeebe:output source="=zähler + 1" target="n" />'))), 'c7');
+  assert.ok(mappingIssues(umlaut).some(t => t.startsWith('Ausgabe liest die Eingabe «zähler»')), JSON.stringify(umlaut.issues));
+  const umlautOther = convertBpmn(c8(gateway('exclusiveGateway', ioMapping('<zeebe:input source="=1" target="zähler" />', '<zeebe:output source="=zählerß + 1" target="n" />'))), 'c7');
+  assert.ok(!mappingIssues(umlautOther).some(t => t.startsWith('Ausgabe liest')), JSON.stringify(umlautOther.issues));
 });
 
 test('C8 -> C7: an output that is not FEEL - a fixed text', () => {
@@ -144,6 +167,14 @@ test('C7 -> C8: execution.getVariable in arithmetic is null-safe - a missing cou
   // not in arithmetic: the variable as it is
   assert.equal(importExpression('${execution.getVariable("count")}'), '= count');
   assert.equal(importExpression('${execution.getVariable("count") > 3}'), '= count > 3');
+  // only this read is null-safe - not a direct read of the same name elsewhere
+  assert.equal(importExpression('${execution.getVariable("c") > 0 && c + 1 > 0}'), '= c > 0 and c + 1 > 0');
+  assert.equal(importExpression('${(execution.getVariable("c")) + 1}'), '= (if c = null then 0 else c) + 1');
+  assert.equal(importExpression('${execution.getVariable("c") + execution.getVariable("d")}'), '= (if c = null then 0 else c) + (if d = null then 0 else d)');
+  // a path from it is no longer the variable itself
+  assert.equal(importExpression('${execution.getVariable("a").prop("b") + 1}'), '= a.b + 1');
+  // unary minus without getVariable stays
+  assert.equal(importExpression('${-(a + b)}'), '= -(a + b)');
 });
 
 test('C8 -> C7: the null-safe FEEL counter on a gateway becomes a JUEL listener again', () => {
@@ -166,6 +197,7 @@ test('round trip C7 -> C8 -> C7: a counter on a gateway stays null-safe', () => 
   const back = convertBpmn(toC8.xml, 'c7');
   assert.ok(!back.xml.includes('zeebe:'), back.xml);
   const params = childrenOf(parse(back.xml).documentElement as unknown as Element, 'camunda:outputParameter').map(p => p.textContent ?? '');
-  assert.ok(params.some(p => p.includes('execution.getVariable("count") == null')), back.xml);
+  // `count` in the else branch is read only once it is set
+  assert.deepEqual(params, ['${((execution.getVariable("count") == null ? 0 : count)) + 1}'], back.xml);
   assert.ok(!back.issues.some(i => i.text.includes('nicht nach JUEL')), JSON.stringify(back.issues));
 });

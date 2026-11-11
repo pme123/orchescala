@@ -291,6 +291,9 @@ function presence(feel: string): string {
 
 /** Translate the body of a JUEL expression (without `${}`) to FEEL. */
 export function juelToFeel(body: string): FeelResult {
+  /** the variables read with `execution.getVariable` — see `num` */
+  const reads: string[] = [];
+  const resolve = (x: string) => x.replace(/\u0001(\d+)\u0001/g, (_m, i: string) => reads[Number(i)]);
   try {
     const toks = tokenize(body.trim());
     let p = 0;
@@ -301,11 +304,13 @@ export function juelToFeel(body: string): FeelResult {
     // `execution.getVariable("x")` may be missing: in JUEL arithmetic null counts
     // as 0 (`null + 1` is 1), in FEEL it stays null — there `(if x = null then 0 else x)`
     // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it).
-    // Keyed by the name: a direct read of the same variable in arithmetic is wrapped
-    // too — harmless, JUEL counts null as 0 there as well. JUEL `+` is always a number
-    // (text is joined with `concat`), so no text operand gets the 0.
-    const mayBeMissing = new Set<string>();
-    const num = (x: string) => (mayBeMissing.has(x) ? `(if ${x} = null then 0 else ${x})` : x);
+    // Each such read becomes a marker (`\u0001n\u0001`) resolved at the end — so only
+    // this read is wrapped, not a direct read of the same name or other equal text.
+    // JUEL `+` is always a number (text is joined with `concat`), so no text operand gets the 0.
+    const num = (x: string) => {
+      const m = /^\(?\u0001(\d+)\u0001\)?$/.exec(x);
+      return m ? `(if ${reads[Number(m[1])]} = null then 0 else ${reads[Number(m[1])]})` : x;
+    };
     const arith = (o: string) => (a: string, b: string) => `${num(a)} ${o} ${num(b)}`;
 
     const expr = (): string => {
@@ -357,7 +362,7 @@ export function juelToFeel(body: string): FeelResult {
             if (!isOp(')')) { args.push(expr()); while (isOp(',')) { take(); args.push(expr()); } }
             expect(')');
             v = method(v, n.v, args);
-            if (n.v === 'getVariable') mayBeMissing.add(v);
+            if (n.v === 'getVariable') { reads.push(v); v = `\u0001${reads.length - 1}\u0001`; }
           } else {
             v = v === 'execution' ? executionProperty(n.v) : `${v}.${n.v}`;
           }
@@ -412,11 +417,11 @@ export function juelToFeel(body: string): FeelResult {
       throw new Unsupported(t.t === 'end' ? 'Ausdruck unvollständig' : `unerwartet: «${'v' in t ? t.v : ''}»`);
     };
 
-    const feel = expr();
+    const feel = resolve(expr());
     if (peek().t !== 'end') throw new Unsupported(`unerwartet: «${(peek() as { v?: string }).v ?? ''}»`);
     return { ok: true, feel: presence(feel) };
   } catch (e) {
-    if (e instanceof Unsupported) return { ok: false, reason: e.message };
+    if (e instanceof Unsupported) return { ok: false, reason: resolve(e.message) };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }

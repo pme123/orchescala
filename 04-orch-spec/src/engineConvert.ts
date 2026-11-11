@@ -579,9 +579,16 @@ function toC8(defs: Element, ctx: Ctx) {
 /** A `zeebe:output` as a Camunda 7 listener: `${execution.setVariable("x", …)}`.
  *  `nullSafe`: every variable read with `execution.getVariable` — a counter
  *  (`count + 1`) may be missing on the first pass; `${count}` would throw there. */
-function setVariableListener(p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx, nullSafe = false): Element {
+function setVariableListener(el: Element, p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx, nullSafe = false): Element | null {
   const target = p.getAttribute('target') ?? '';
-  const juel = toJuel(p.getAttribute('source') ?? '', `Ausgabe «${target}»`, issue, nullSafe ? { ...ctx.juel, allOptional: true } : ctx.juel);
+  const source = p.getAttribute('source') ?? '';
+  const juel = toJuel(source, `Ausgabe «${target}»`, issue, nullSafe ? { ...ctx.juel, allOptional: true } : ctx.juel);
+  // not translatable (toJuel reported it and returns the FEEL): no listener that would
+  // set the FEEL as a text — the output stays as a comment
+  if (feelBody(source.trim()) != null && !juel.startsWith('${')) {
+    prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(`zeebe:output source="${source}" target="${target}"`)} `) as unknown as Element);
+    return null;
+  }
   const value = /^\$\{([\s\S]*)\}$/.exec(juel)?.[1] ?? JSON.stringify(juel);
   return create(ctx, CAMUNDA_NS, 'camunda', 'executionListener', { expression: `\${execution.setVariable(${JSON.stringify(target)}, ${value})}`, event });
 }
@@ -641,7 +648,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
     } else if (io.length && EVENTS.has(name) && io.every(p => local(p) === 'output')) {
       // Camunda 7 knows no output mapping on events — there a
       // listener sets the variable (the pattern it came from in Camunda 8)
-      for (const p of io) add.push(setVariableListener(p, 'start', issue, ctx));
+      for (const p of io) { const l = setVariableListener(el, p, 'start', issue, ctx); if (l) add.push(l); }
     } else if (io.length && name.endsWith('Gateway')) {
       // Camunda 7 rejects an inputOutput on a gateway (ENGINE-09005). An output becomes
       // a listener; an input has no local scope on a gateway — it stays as a comment.
@@ -652,7 +659,7 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       const ins = io.filter(p => local(p) !== 'output');
       const join = (name === 'parallelGateway' || name === 'inclusiveGateway') && incomingOf(el).length > 1;
       const event = join ? 'end' : 'start';
-      for (const p of outs) add.push(setVariableListener(p, event, issue, ctx, true));
+      for (const p of outs) { const l = setVariableListener(el, p, event, issue, ctx, true); if (l) add.push(l); }
       for (const p of ins) {
         const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
         prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(text)} `) as unknown as Element);
@@ -662,7 +669,9 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.`);
       if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
       // an output that reads a dropped input reads the process variable instead
-      const reads = (src: string, v: string) => v !== '' && new RegExp(String.raw`(?<![\w.])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\w)`).test(src);
+      // FEEL names may hold any letter (`\p{L}`); a text in quotes is not a read
+      const reads = (src: string, v: string) => v !== '' && new RegExp(String.raw`(?<![\p{L}\p{N}_.])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\p{L}\p{N}_])`, 'u')
+        .test(src.replace(/"(?:[^"\\]|\\.)*"/g, '""'));
       const read = ins.filter(i => outs.some(o => reads(o.getAttribute('source') ?? '', target(i))));
       if (read.length) issue('Mapping', `Ausgabe liest die Eingabe ${names(read)} — die gibt es am Gateway nicht mehr, der Listener liest die Prozessvariable gleichen Namens: von Hand prüfen.`);
     } else if (io.length) {
@@ -804,8 +813,8 @@ interface SetEvent { el: Element; place: EventPlacement; outputs: Element[]; lis
 
 const listenerText = (l: Element) => `camunda:executionListener event="${l.getAttribute('event') ?? 'start'}" expression="${l.getAttribute('expression') ?? ''}"`;
 
-/** `--` must not appear in an XML comment — not even in `---` */
-const commentSafe = (text: string) => text.replace(/-(?=-)/g, '- ');
+/** `--` must not appear in an XML comment — not even in `---` — and it must not end with `-` */
+const commentSafe = (text: string) => text.replace(/-(?=-)/g, '- ').replace(/-$/, '- ');
 
 /** What was not taken over stays as a comment on the element — for manual work */
 function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {
