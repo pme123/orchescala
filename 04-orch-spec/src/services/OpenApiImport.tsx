@@ -12,6 +12,10 @@
 //     the operation completes it
 //   · «⌁ Katalog» — a service with the same topic is known (domain catalog or
 //     service catalog): it exists in a project already
+//
+// The OpenAPI a collection was imported from is kept next to it (`services/openapi/<slug>.yml`):
+// the dialog opens with it, another file overrides it. A collection from before that keeps none
+// finds the file of the same name in the project folder.
 import { AlertTriangle, Check, FileUp, Search, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ownFolders } from '../projectImport';
@@ -20,6 +24,7 @@ import type { Model } from '../types';
 import { cls } from '../ui';
 import { API_NAME, apiName, apiOf, sameApi, serviceTopic } from './collection';
 import { readOpenApiFile, type OpenApiFile } from './openApiFile';
+import { useServices } from './store';
 import { addOperations, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
 import type { ServiceCollectionSpec } from './types';
 import { MethodChip } from './ui';
@@ -49,6 +54,10 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   const fileRef = useRef<HTMLInputElement>(null);
   const [api, setApi] = useState<ApiImport | null>(null);
   const [file, setFile] = useState('');
+  /** the file shown - and where it comes from: kept with the collection, found in the project, or chosen now */
+  const [current, setCurrent] = useState<{ o: OpenApiFile; origin: 'stored' | 'project' | 'chosen' } | null>(null);
+  const { saveOpenApi, loadOpenApi } = useServices();
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
@@ -75,18 +84,39 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
     if (h) await read(await h.getFile());
   };
 
-  const open = (o: OpenApiFile) => {
+  const open = (o: OpenApiFile, origin: 'stored' | 'project' | 'chosen') => {
     setFile(o.file);
     setApi(readApi(o.doc));
+    setCurrent({ o, origin });
   };
-  const read = async (f: File) => {
+  const read = async (f: File, origin: 'project' | 'chosen' = 'chosen') => {
     setError(''); setApi(null); setPicked(new Set()); setApis({});
     const r = await readOpenApiFile(f);
-    if (r.ok) open(r.value);
+    if (r.ok) open(r.value, origin);
     else setError(r.message);
   };
-  // the file chosen at «Neue Collection» — read already, shown right away
-  useEffect(() => { if (initial) open(initial); }, [initial]);
+  // the file chosen at «Neue Collection» — read already, shown right away; otherwise the one the
+  // collection keeps; without one the file of its name in the project folder (below)
+  const [looked, setLooked] = useState(false);
+  useEffect(() => {
+    if (initial) { open(initial, 'chosen'); setLooked(true); return; }
+    const stored = spec.source?.stored;
+    if (!stored || !spec.source?.file) { setLooked(true); return; }
+    let alive = true;
+    void loadOpenApi(stored, spec.source.file).then(o => {
+      if (!alive) return;
+      if (o) open(o, 'stored');
+      setLooked(true);
+    });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the dialog opens
+  }, [initial]);
+  useEffect(() => {
+    const name = spec.source?.file;
+    const there = looked && !current && name ? project?.files.find(f => f.name === name) : undefined;
+    if (there) void there.file.getFile().then(f => read(f, 'project'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- when the project folder or the stored file is read
+  }, [looked, project]);
 
   // the suggestion per operation: an existing service under the same sub path gives its API
   const suggested = useMemo(() => api ? suggestApis(api.operations, { api: spec.api, apiVersion: spec.apiVersion }) : new Map(), [api, spec.api, spec.apiVersion]);
@@ -116,6 +146,8 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   }, [api, query, prefix, spec, suggested]);
   const selectable = groups.flatMap(([, rows]) => rows.filter(r => !r.here).map(r => r.op.key));
   const toggle = (keys: string[], on: boolean) => setPicked(p => { const n = new Set(p); for (const k of keys) { if (on) n.add(k); else n.delete(k); } return n; });
+  /** the file shown is not the one the collection keeps - it is kept on «übernehmen» */
+  const fresh = !!current && current.origin !== 'stored';
   const badApi = groups.some(([, rows]) => rows.some(r => picked.has(r.op.key) && !API_NAME.test(apiOfOp(r.op).api)));
 
   return (
@@ -126,6 +158,12 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
           <FileUp size={14} className={c.muted2} />
           <span className={`text-xs font-semibold ${c.text}`}>OpenAPI importieren</span>
           {api && <span className={`text-[10px] ${c.muted}`}>{file} — {api.title}{api.version ? ` ${api.version}` : ''} · {api.operations.length} Operationen</span>}
+          {current && current.origin !== 'chosen' && (
+            <span title={current.origin === 'stored' ? `Bei der Collection hinterlegt (${spec.source?.stored}) — «Andere Datei …» übersteuert es` : 'Die Datei des letzten Imports, im Projekt-Ordner gefunden — wird beim Übernehmen hinterlegt'}
+              className={`text-[9px] px-1.5 py-0.5 rounded border ${isDark ? 'border-teal-400/40 text-teal-300' : 'border-teal-600/40 text-teal-700'}`}>
+              {current.origin === 'stored' ? 'hinterlegt' : 'aus dem Projekt-Ordner'}
+            </span>
+          )}
           <button onClick={onClose} className={`ml-auto p-1 rounded ${c.muted} ${c.hover}`}><X size={13} /></button>
         </div>
 
@@ -135,7 +173,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
               onChange={e => { const f = e.target.files?.[0]; if (f) void read(f); e.target.value = ''; }} />
             <button onClick={() => void pickFile()} title={project ? `startet im Projekt-Ordner «${project.folder}»` : undefined}
               className={`text-[11px] px-2.5 py-1.5 rounded border whitespace-nowrap ${c.btn}`}>
-              {api ? 'Andere Datei …' : 'OpenAPI-Datei wählen (.yml, .yaml, .json) …'}
+              {api ? 'Andere Datei …' : looked ? 'OpenAPI-Datei wählen (.yml, .yaml, .json) …' : 'Hinterlegtes OpenAPI wird gelesen …'}
             </button>
             {api && (
               <>
@@ -165,7 +203,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {project.files.map(f => (
-                      <button key={f.path} onClick={async () => read(await f.file.getFile())} title={f.path}
+                      <button key={f.path} onClick={async () => read(await f.file.getFile(), 'chosen')} title={f.path}
                         className={`text-[10px] font-mono px-2 py-1 rounded border ${file === f.name ? (isDark ? 'border-teal-400/60 bg-teal-400/10' : 'border-teal-600/60 bg-teal-600/10') : c.btn} ${f.generated ? 'opacity-60' : ''}`}>
                         {f.name}
                         <span className={`ml-1.5 ${c.muted}`}>{f.path.split('/').slice(0, f.generated ? 2 : 1).join('/')}{f.generated ? ' · generiert' : ''}</span>
@@ -246,22 +284,28 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
         <div className={`flex items-center gap-2 px-4 py-2.5 border-t ${c.border}`}>
           <span className={`text-[10px] ${badApi ? 'text-rose-500' : c.muted}`}>
             {badApi ? 'Eine API ist kein gültiger Paketname (klein, camelCase, Ebenen mit «.»).'
-              : api ? `${picked.size} gewählt — je Operation ein Service mit In, Out und den ersten Mappings; Typen aus den Schemas` : 'OpenAPI 3 als YAML oder JSON'}
+              : api ? `${picked.size} gewählt — je Operation ein Service mit In, Out und den ersten Mappings; Typen aus den Schemas${fresh ? ' · die Datei wird bei der Collection hinterlegt' : ''}` : 'OpenAPI 3 als YAML oder JSON'}
           </span>
           <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
-          <button disabled={!api || !picked.size || badApi}
-            onClick={() => {
-              const r = addOperations(spec, api!, [...picked], apiOfOp);
+          {/* a file that is not kept yet: also without operations - then only the file is kept */}
+          <button disabled={!api || (!picked.size && !fresh) || badApi || saving}
+            onClick={async () => {
+              const r = picked.size ? addOperations(spec, api!, [...picked], apiOfOp) : { spec, added: [] as string[] };
               const pathPrefix = prefix.trim().replace(/\/+$/, '');
+              // the file is kept with the collection - a new one replaces the one before
+              setSaving(true);
+              const stored = fresh && current ? await saveOpenApi(spec.slug, current.o) : null;
+              setSaving(false);
+              if (fresh && !stored) setError('Das OpenAPI liess sich nicht bei der Collection hinterlegen — die Services werden trotzdem übernommen.');
               onApply({
                 ...r.spec,
-                source: { ...(r.spec.source ?? {}), file },
+                source: { ...(r.spec.source ?? {}), file, ...(stored ? { stored } : {}) },
                 ...(!spec.serviceLabel && api!.title ? { serviceLabel: api!.title } : {}),
                 ...(pathPrefix ? { pathPrefix } : {}),
               }, r.added);
             }}
             className={`text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
-            {picked.size || ''} übernehmen
+            {picked.size ? `${picked.size} übernehmen` : fresh ? 'OpenAPI hinterlegen' : 'übernehmen'}
           </button>
         </div>
       </div>

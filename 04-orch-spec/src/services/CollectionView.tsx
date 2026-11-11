@@ -533,7 +533,7 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
           onChange={e => onChange({ description: e.target.value || undefined })} placeholder="Wofür diese API da ist" />
       </label>
       {spec.source?.file && (
-        <p className={`text-[10px] ${c.muted}`}>Zuletzt importiert: <span className="font-mono">{spec.source.file}</span>{spec.source.title ? ` — ${spec.source.title}` : ''}{spec.source.version ? ` ${spec.source.version}` : ''}</p>
+        <p className={`text-[10px] ${c.muted}`}>Zuletzt importiert: <span className="font-mono">{spec.source.file}</span>{spec.source.title ? ` — ${spec.source.title}` : ''}{spec.source.version ? ` ${spec.source.version}` : ''}{spec.source.stored ? ' · hinterlegt' : ''}</p>
       )}
     </div>
   );
