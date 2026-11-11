@@ -14,6 +14,7 @@ import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, Multi
 import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
+import { assignmentListeners, isGateway } from './gatewayVariables.ts';
 import { STATUSES } from './types.ts';
 import { readMiResult, resultLocals } from './miResult.ts';
 import { parseErrorList } from './errorCodes.ts';
@@ -377,6 +378,13 @@ function readIo(el: Element): IoResult {
     for (const p of childrenNamed(io, 'outputParameter')) {
       const name = attr(p, 'name') ?? '';
       (TECHNICAL.has(name) ? res.technical : res.outputs).push({ name, expression: TECHNICAL.has(name) ? paramValue(p) : fachlich(p) });
+    }
+  }
+
+  // Camunda 7 gateway: a `setVariable` listener is its output (see gatewayVariables.ts)
+  if (isGateway(el)) {
+    for (const [name, { value }] of assignmentListeners(ext)) {
+      if (!res.outputs.some(o => o.name === name)) res.outputs.push({ name, expression: importExpression(`\${${value}}`) });
     }
   }
   return res;
