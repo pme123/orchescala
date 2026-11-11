@@ -644,18 +644,27 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       for (const p of io) add.push(setVariableListener(p, 'start', issue, ctx));
     } else if (io.length && name.endsWith('Gateway')) {
       // Camunda 7 rejects an inputOutput on a gateway (ENGINE-09005). An output becomes
-      // an end listener (when an output mapping would apply); an input has no
-      // local scope on a gateway — it stays as a comment.
+      // a listener; an input has no local scope on a gateway — it stays as a comment.
+      // The listener runs on `start`: so the conditions of the gateway already see the
+      // new value (a retry counter `count = max` stops on time). Only a join of a
+      // parallel or inclusive gateway takes `end` — once, not once per arriving branch.
       const outs = io.filter(p => local(p) === 'output');
       const ins = io.filter(p => local(p) !== 'output');
-      for (const p of outs) add.push(setVariableListener(p, 'end', issue, ctx, true));
+      const join = (name === 'parallelGateway' || name === 'inclusiveGateway') && incomingOf(el).length > 1;
+      const event = join ? 'end' : 'start';
+      for (const p of outs) add.push(setVariableListener(p, event, issue, ctx, true));
       for (const p of ins) {
         const text = `zeebe:${local(p)} source="${p.getAttribute('source') ?? ''}" target="${p.getAttribute('target') ?? ''}"`;
-        prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${text.replace(/--/g, '- -')} `) as unknown as Element);
+        prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(text)} `) as unknown as Element);
       }
-      const names = (ps: Element[]) => ps.map(p => `«${p.getAttribute('target')}»`).join(', ');
-      if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als End-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.`);
+      const target = (p: Element) => p.getAttribute('target') ?? '';
+      const names = (ps: Element[]) => ps.map(p => `«${target(p)}»`).join(', ');
+      if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.`);
       if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
+      // an output that reads a dropped input reads the process variable instead
+      const reads = (src: string, v: string) => v !== '' && new RegExp(String.raw`(?<![\w.])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\w)`).test(src);
+      const read = ins.filter(i => outs.some(o => reads(o.getAttribute('source') ?? '', target(i))));
+      if (read.length) issue('Mapping', `Ausgabe liest die Eingabe ${names(read)} — die gibt es am Gateway nicht mehr, der Listener liest die Prozessvariable gleichen Namens: von Hand prüfen.`);
     } else if (io.length) {
       const cio = camunda('inputOutput');
       const params = io.map(p => {
@@ -795,12 +804,14 @@ interface SetEvent { el: Element; place: EventPlacement; outputs: Element[]; lis
 
 const listenerText = (l: Element) => `camunda:executionListener event="${l.getAttribute('event') ?? 'start'}" expression="${l.getAttribute('expression') ?? ''}"`;
 
+/** `--` must not appear in an XML comment — not even in `---` */
+const commentSafe = (text: string) => text.replace(/-(?=-)/g, '- ');
+
 /** What was not taken over stays as a comment on the element — for manual work */
 function keepAsComment(el: Element, listeners: string[], flows: string[] = []) {
   const where = flows.length ? ` auf ${flows.map(f => `«${f}»`).join(', ')}` : '';
   for (const text of listeners) {
-    // `--` must not appear in an XML comment
-    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen${where}: ${text.replace(/--/g, '- -')} `) as unknown as Element);
+    prependEl(el, el.ownerDocument.createComment(` ${C7_LABEL}, nicht übernommen${where}: ${commentSafe(text)} `) as unknown as Element);
   }
 }
 

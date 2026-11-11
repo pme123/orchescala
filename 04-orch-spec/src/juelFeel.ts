@@ -300,7 +300,10 @@ export function juelToFeel(body: string): FeelResult {
     const expect = (v: string) => { if (!isOp(v)) throw new Unsupported(`«${v}» erwartet`); p++; };
     // `execution.getVariable("x")` may be missing: in JUEL arithmetic null counts
     // as 0 (`null + 1` is 1), in FEEL it stays null — there `(if x = null then 0 else x)`
-    // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it)
+    // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it).
+    // Keyed by the name: a direct read of the same variable in arithmetic is wrapped
+    // too — harmless, JUEL counts null as 0 there as well. JUEL `+` is always a number
+    // (text is joined with `concat`), so no text operand gets the 0.
     const mayBeMissing = new Set<string>();
     const num = (x: string) => (mayBeMissing.has(x) ? `(if ${x} = null then 0 else ${x})` : x);
     const arith = (o: string) => (a: string, b: string) => `${num(a)} ${o} ${num(b)}`;
@@ -336,7 +339,7 @@ export function juelToFeel(body: string): FeelResult {
     const mul = () => binary(unary, { '*': arith('*'), '/': arith('/'), div: arith('/'), '%': modulo, mod: modulo });
     const unary = (): string => {
       if (isOp('!', 'not')) { take(); return `not(${unary()})`; }
-      if (isOp('-')) { take(); return `-${unary()}`; }
+      if (isOp('-')) { take(); return `-${num(unary())}`; }
       // JUEL `empty`: null, empty text — or an empty list
       if (isOp('empty')) { take(); const x = unary(); return `(${x} = null or ${x} = "" or ${x} = [])`; }
       return postfix();
