@@ -524,10 +524,10 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
 
   // What the engine itself keeps — in Camunda 7 on the execution (`execution.…`,
   // the export translates it), in Camunda 8 under these names.
-  // The own instance: Camunda 8 has it in FEEL as `camunda.processInstance.key` (8.10) —
-  // a number; `string(…)` for a key or a text (it exceeds JavaScript's safe integers).
-  // Camunda 7 knows it too: the import turns `execution.processInstanceId` into it,
-  // the export turns it back (feelJuel.ts).
+  // The own instance is always the context `camunda.processInstance` (Camunda 8 from 8.10),
+  // also in Camunda 7: the import writes it for `execution.processInstanceId` and
+  // `execution.processBusinessKey`, the export turns it back (feelJuel.ts).
+  // The key is a number; `string(…)` for a key or a text (it exceeds JavaScript's safe integers).
   const ofEngine = (name: string, type: FeelType, label: string, description: string, children?: VarNode[]): VarNode =>
     ({ name, type, label, source: 'Engine', description, ...(children ? { children } : {}) });
   add(ofEngine('camunda', 'context', 'Camunda', `Was die Engine über die Instanz weiss (C8 ab 8.10; ${C7_LABEL}: execution.…)`, [
@@ -536,11 +536,6 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
       { ...ofEngine('businessId', 'string', 'String', `Business Key der Instanz, falls beim Start gesetzt — eine Call Activity erbt ihn; ${C7_LABEL}: execution.processBusinessKey`), optional: true },
     ]),
   ]));
-  if (spec.engine !== 'c8') {
-    add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz — ${C7_LABEL}: execution.processInstanceId` });
-    // Camunda 8 has no variable `businessKey` (from 8.10) — there it is camunda.processInstance.businessId
-    add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
-  }
   add({ name: 'processDefinitionKey', type: 'any', label: 'Prozess', source: 'Engine', description: `der Prozess — ${C7_LABEL}: execution.getProcessDefinition().getKey()` });
   // What the gateway of Orchescala sets: the signed identity of the start - and the identity of
   // whoever completed a user task (or sent a message with processInstanceId), only after that
@@ -1272,8 +1267,10 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
           // `for i in items[i.active = true]` — the loop variable only applies after the `in`
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
         } else if (name === 'processInstanceKey' || name === 'processInstanceId') {
-          // Camunda 8: the InitWorker set it once — today FEEL has the own instance
-          issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (C8 ab 8.10; der InitWorker setzt «${name}» nicht mehr). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
+          // the own instance is always the context — in Camunda 7 too (the export makes it execution.processInstanceId)
+          issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (${C7_LABEL}: execution.processInstanceId). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
+        } else if (name === 'businessKey') {
+          issues.push({ level: 'error', text: `Variable «businessKey» ist nicht bekannt — der Business Key der Instanz ist «camunda.processInstance.businessId» (${C7_LABEL}: execution.processBusinessKey). Kommt er von aussen (Start, Call Activity), im In aufnehmen.` });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }

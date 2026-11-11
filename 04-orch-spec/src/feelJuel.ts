@@ -64,10 +64,12 @@ export function feelBody(expression: string): string | null {
 
 class Unsupported extends Error {}
 
-/** Variables of Camunda 8 that Camunda 7 has on the execution — counterpart to the import (juelFeel.ts) */
+/** What Camunda 7 has on the execution — counterpart to the import (juelFeel.ts) */
+const OWN_KEY = '__ownProcessInstanceKey';
+const OWN_BUSINESS_ID = '__ownBusinessId';
 const EXECUTION_JUEL: Record<string, string> = {
-  processInstanceId: 'execution.processInstanceId',
-  businessKey: 'execution.processBusinessKey',
+  [OWN_KEY]: 'execution.processInstanceId',
+  [OWN_BUSINESS_ID]: 'execution.processBusinessKey',
   processDefinitionKey: 'execution.getProcessDefinition().getKey()',
 };
 
@@ -110,15 +112,16 @@ const SPIN_VALUE: Partial<Record<FeelType, string>> = {
 type Use = 'value' | 'scalar' | 'list' | 'empty';
 
 /**
- * The own instance of Camunda 8 (`camunda.processInstance.key`, 8.10) is in Camunda 7
- * `execution.processInstanceId` — outside text literals it becomes `processInstanceId`,
- * which EXECUTION_JUEL translates. Likewise its business id (`camunda.processInstance.businessId`)
- * becomes `businessKey`, in Camunda 7 `execution.processBusinessKey`.
+ * The own instance is always the context `camunda.processInstance` (Camunda 8 from 8.10):
+ * its key is in Camunda 7 `execution.processInstanceId`, its business id
+ * `execution.processBusinessKey`. Outside text literals it becomes a placeholder that
+ * EXECUTION_JUEL translates — a variable named `processInstanceId` or `businessKey`
+ * stays a variable.
  */
 const ownInstance = (body: string): string =>
   body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
-    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, 'processInstanceId')
-      .replace(/(?<![\w.])camunda\.processInstance\.businessId(?![\w])/g, 'businessKey'))).join('');
+    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, OWN_KEY)
+      .replace(/(?<![\w.])camunda\.processInstance\.businessId(?![\w])/g, OWN_BUSINESS_ID))).join('');
 
 /** Translate a FEEL body to JUEL (without `${}`). */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {

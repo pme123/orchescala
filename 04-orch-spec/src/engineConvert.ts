@@ -78,23 +78,15 @@ export const detectEngine = (xml: string): EngineId =>
 // ── Expressions ──────────────────────────────────────────────────────────────
 type Issue = (where: string, text: string) => void;
 
-/**
- * The business key of the instance: the import reads `execution.processBusinessKey` as the
- * variable `businessKey` (what Camunda 7 knows it as) — Camunda 8 (from 8.10) has no such
- * variable, there it is the business id of the instance. Only outside text literals, and not
- * as a path segment (`order.businessKey`) or a context key (`{businessKey: …}`).
- */
+/** The business key of the instance — the import writes it as this context (juelFeel.ts) */
 const BUSINESS_ID = 'camunda.processInstance.businessId';
-const withBusinessId = (feel: string): string =>
-  feel.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
-    : part.replace(/(?<![\w.])businessKey(?![\w]|\s*:)/g, BUSINESS_ID))).join('');
 
 /** JUEL/text → FEEL with `=`; fixed text stays fixed text (timer, condition) */
 function toFeel(text: string, where: string, issue: Issue): string {
   const t = text.trim();
   if (!t || t.startsWith('=') || !isJuel(t)) return t;
   const f = importExpression(t);
-  if (f.startsWith('= ')) return `=${withBusinessId(f.slice(2))}`;
+  if (f.startsWith('= ')) return `=${f.slice(2)}`;
   issue(where, untranslatableText(t, `«${t}» ist`, 'von Hand anpassen.'));
   return t;
 }
