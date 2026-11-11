@@ -6,6 +6,8 @@ import { allSteps, importBpmn } from '../src/bpmn';
 import { convertBpmn } from '../src/engineConvert';
 import { feelToJuel } from '../src/feelJuel';
 import { juelToFeel } from '../src/juelFeel';
+import { checkFeel, processVariables } from '../src/feel';
+import type { ProcessSpec } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -67,5 +69,15 @@ test('JUEL <-> FEEL: the own instance - execution.processInstanceId and camunda.
   for (const body of ['order.camunda.processInstance.key', 'camunda.processInstance.keys']) {
     const r = feelToJuel(body);
     assert.ok(r.ok && !r.juel.includes('execution.processInstanceId'), `${body}: ${JSON.stringify(r)}`);
+  }
+});
+
+test('C7 and C8: the check knows camunda.processInstance - the import of C7 writes it for execution.processInstanceId', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const spec = { id: 'p', name: 'p', engine, steps: [{ id: 's1', kind: 'service', name: 'S' }], types: [] } as unknown as ProcessSpec;
+    const vars = processVariables(spec, null);
+    for (const body of ['string(camunda.processInstance.key)', 'camunda.processInstance.businessId']) {
+      assert.deepEqual(checkFeel(`= ${body}`, vars).issues, [], `${engine}: ${body}`);
+    }
   }
 });

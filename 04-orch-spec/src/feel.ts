@@ -525,17 +525,18 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
   // What the engine itself keeps — in Camunda 7 on the execution (`execution.…`,
   // the export translates it), in Camunda 8 under these names.
   // The own instance: Camunda 8 has it in FEEL as `camunda.processInstance.key` (8.10) —
-  // a number; `string(…)` for a key or a text (it exceeds JavaScript's safe integers)
-  if (spec.engine === 'c8') {
-    const ofEngine = (name: string, type: FeelType, label: string, description: string, children?: VarNode[]): VarNode =>
-      ({ name, type, label, source: 'Engine', description, ...(children ? { children } : {}) });
-    add(ofEngine('camunda', 'context', 'Camunda', 'Was die Engine über die Instanz weiss (C8 ab 8.10)', [
-      ofEngine('processInstance', 'context', 'Prozess-Instanz', 'die eigene Prozess-Instanz', [
-        ofEngine('key', 'number', 'Long', `Kennung der eigenen Prozess-Instanz — als Text string(camunda.processInstance.key); ${C7_LABEL}: execution.processInstanceId`),
-        { ...ofEngine('businessId', 'string', 'String', `Business Key der Instanz, falls beim Start gesetzt — eine Call Activity erbt ihn; ${C7_LABEL}: execution.processBusinessKey`), optional: true },
-      ]),
-    ]));
-  } else {
+  // a number; `string(…)` for a key or a text (it exceeds JavaScript's safe integers).
+  // Camunda 7 knows it too: the import turns `execution.processInstanceId` into it,
+  // the export turns it back (feelJuel.ts).
+  const ofEngine = (name: string, type: FeelType, label: string, description: string, children?: VarNode[]): VarNode =>
+    ({ name, type, label, source: 'Engine', description, ...(children ? { children } : {}) });
+  add(ofEngine('camunda', 'context', 'Camunda', `Was die Engine über die Instanz weiss (C8 ab 8.10; ${C7_LABEL}: execution.…)`, [
+    ofEngine('processInstance', 'context', 'Prozess-Instanz', 'die eigene Prozess-Instanz', [
+      ofEngine('key', 'number', 'Long', `Kennung der eigenen Prozess-Instanz — als Text string(camunda.processInstance.key); ${C7_LABEL}: execution.processInstanceId`),
+      { ...ofEngine('businessId', 'string', 'String', `Business Key der Instanz, falls beim Start gesetzt — eine Call Activity erbt ihn; ${C7_LABEL}: execution.processBusinessKey`), optional: true },
+    ]),
+  ]));
+  if (spec.engine !== 'c8') {
     add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz — ${C7_LABEL}: execution.processInstanceId` });
     // Camunda 8 has no variable `businessKey` (from 8.10) — there it is camunda.processInstance.businessId
     add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
