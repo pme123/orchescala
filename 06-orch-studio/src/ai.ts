@@ -14,7 +14,7 @@
 //     request of the RE, the draft and what the tools need; the studio runs the loop of orch-spec's core
 //     with the tools of the task and the `limits` of the skill (steps, corrections, costs), each request
 //     of it as above. The answer: one JSON per line - the events as they come, then the result
-//     (`application/x-ndjson`). orch-spec uses it with `agent: server` (`STUDIO_AI_AGENT`).
+//     (`application/x-ndjson`). orch-spec uses it with `agent: server` - the default of `STUDIO_AI_AGENT`.
 //
 // Later: the AI per person (`usd_per_person_day`). Without login for now (PoC, the studio listens on
 // localhost) - whoever reaches the studio uses its key.

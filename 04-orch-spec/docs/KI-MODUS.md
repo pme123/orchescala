@@ -155,11 +155,11 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 - **Ablauf über das Studio:** Wo die Agent-Schleife läuft, sagt das Studio
   (`STUDIO_AI_AGENT`, in `GET /ai/config` als `agent`):
-  - **im Browser** (Vorgabe): mit dem TypeScript-SDK von Anthropic. Dessen
+  - **im Browser** (`STUDIO_AI_AGENT=browser`, der Rückweg): mit dem TypeScript-SDK von Anthropic. Dessen
     Basis-URL ist die Adresse der Aufgabe im Studio (`/ai/uiCreator`); das Studio
     wendet den Skill an, setzt Key und Workspace und gibt die Antwort unverändert
     zurück, auch Fehler der API.
-  - **im Studio** (`agent: server`, E28 Schritt 5): orch-spec schickt Wunsch,
+  - **im Studio** (`agent: server`, die Vorgabe, E28 Schritt 5): orch-spec schickt Wunsch,
     Entwurf und Kontext an `POST /ai/<Aufgabe>/turn`. Das Studio führt dieselbe
     Schleife aus (`src/ai/turn.ts` im Kern, mit den Werkzeugen der Aufgabe) und
     hält dabei die Grenzen des Skills ein (`limits`: Anfragen, Korrekturen, Kosten
@@ -167,7 +167,8 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
     Ende der Entwurf. Derselbe Wunsch gibt denselben Entwurf wie im Browser.
     Hält der RE an, endet der Zug auch im Studio; was dort schon geschah, fällt
     weg, und der Entwurf bleibt, wie er war.
-  Die Schleife im Browser bleibt, bis die im Studio stabil läuft.
+  Die Schleife im Browser bleibt als Rückweg, bis die im Studio stabil läuft; ein
+  Studio, das `agent` nicht nennt (älter als Schritt 5), hat nur sie.
 - **Anfrage:** wie im Skill – heute bei allen drei `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,

@@ -13,7 +13,7 @@ the folders of orch-spec and orch-ops, its skills and the key of the AI. It buil
 | `/`, `/spec`, `/ops` | redirect there | – |
 | `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
 | `POST /ai/<task>/v1/messages` | a request of orch-spec's agent for `<task>` (e.g. `uiCreator`), with the skill applied and sent on to the Claude API with the studio's key and workspace; a task without a skill is refused (403), a tool that is not in the skill too (400) | `STUDIO_AI_*`, the skills |
-| `POST /ai/<task>/turn` | a whole turn of the agent on the studio, for `uiCreator`, `processCreator` and `serviceOrchestrator`: orch-spec sends the request of the RE, the draft and the context of the tools; the studio runs the loop of orch-spec's core with the tools of the task and the `limits` of the skill, each request as above. The answer: one JSON per line (`application/x-ndjson`) - the events as they come, then the result. orch-spec uses it with `STUDIO_AI_AGENT=server` | `STUDIO_AI_*`, the skills, orch-spec's core |
+| `POST /ai/<task>/turn` | a whole turn of the agent on the studio, for `uiCreator`, `processCreator` and `serviceOrchestrator`: orch-spec sends the request of the RE, the draft and the context of the tools; the studio runs the loop of orch-spec's core with the tools of the task and the `limits` of the skill, each request as above. The answer: one JSON per line (`application/x-ndjson`) - the events as they come, then the result. orch-spec uses it unless `STUDIO_AI_AGENT=browser` | `STUDIO_AI_*`, the skills, orch-spec's core |
 
 **Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceOrchestrator`, `serviceRegistration`, `serviceCreator`)
 is offered only with a skill for it and its provider: `<skills>/<task>/<provider>/SKILL.md` - its
@@ -93,7 +93,7 @@ docker run -p 127.0.0.1:8881:8880 \
 | `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` | – | only if the API asks for it (a key without a workspace) |
 | `STUDIO_AI_MODEL` | `claude-opus-5-5` | the model of a skill that names none - whatever orch-spec sends |
 | `STUDIO_AI_ANTHROPIC_URL` | `https://api.anthropic.com` | e.g. a gateway of the company |
-| `STUDIO_AI_AGENT` | `browser` | `server`: orch-spec runs the loop of the agent on the studio (`POST /ai/<task>/turn`), with the limits of the skill - until it runs stable, the browser's is the default |
+| `STUDIO_AI_AGENT` | `server` | where orch-spec's agent runs: `server` - its loop on the studio (`POST /ai/<task>/turn`), with the limits of the skill; `browser` - the loop in the browser, each request through `POST /ai/<task>/v1/messages`, without the limits per turn - the way back while the studio's loop is new |
 
 A wrong setting - also a folder of the company that is set but not there, or a port that is taken -
 ends the start with one line that names it. `docker stop` ends the studio at once (SIGTERM).

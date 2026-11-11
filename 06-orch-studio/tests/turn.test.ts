@@ -196,14 +196,18 @@ test('the browser goes away - the loop stops, its request to the API ends too, n
   }
 });
 
-test('where the loop runs - STUDIO_AI_AGENT: browser (default) or server, in GET /ai/config', () => {
+test('where the loop runs - STUDIO_AI_AGENT: server (default) or browser, in GET /ai/config', () => {
   const key = { STUDIO_AI_ANTHROPIC_API_KEY: 'sk-ant-x' };
-  assert.equal(configFromEnv(key).ai?.agent, undefined);
-  assert.equal(configFromEnv({ ...key, STUDIO_AI_AGENT: 'browser' }).ai?.agent, undefined);
-  const server = configFromEnv({ ...key, STUDIO_AI_AGENT: 'server' }).ai!;
+  const server = configFromEnv(key).ai!;
   assert.equal(server.agent, 'server');
-  assert.match(describeAi(server), /the agent in the server/);
-  assert.throws(() => configFromEnv({ ...key, STUDIO_AI_AGENT: 'cloud' }), /STUDIO_AI_AGENT is «cloud» - only browser or server/);
+  // set but empty - as docker compose passes a variable that is not set - is the default too
+  assert.equal(configFromEnv({ ...key, STUDIO_AI_AGENT: '' }).ai?.agent, 'server');
+  assert.equal(configFromEnv({ ...key, STUDIO_AI_AGENT: 'server' }).ai?.agent, 'server');
+  const browser = configFromEnv({ ...key, STUDIO_AI_AGENT: 'browser' }).ai!;
+  assert.equal(browser.agent, undefined);
+  assert.match(describeAi(server), /the agent on the studio$/);
+  assert.match(describeAi(browser), /the agent in the browser$/);
+  assert.throws(() => configFromEnv({ ...key, STUDIO_AI_AGENT: 'cloud' }), /STUDIO_AI_AGENT is «cloud» - only server or browser/);
   assert.equal(configJson(server, [skill]).agent, 'server');
   assert.equal(configJson({ ...server, agent: undefined }, [skill]).agent, undefined);
 });
