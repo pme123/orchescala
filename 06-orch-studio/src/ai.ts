@@ -10,13 +10,22 @@
 //     its model and `request` settings replace those of the browser, and a tool that is not in the
 //     skill is refused (400). The answer - also an error of the API - goes back as it is, so the SDK in
 //     the browser reads it as usual.
+//   - `POST /ai/<task>/turn` - a whole turn of the agent on the studio (E28, step 5): orch-spec sends the
+//     request of the RE, the draft and what the tools need; the studio runs the loop of orch-spec's core
+//     with the tools of the task and the `limits` of the skill (steps, corrections, costs), each request
+//     of it as above. The answer: one JSON per line - the events as they come, then the result
+//     (`application/x-ndjson`). orch-spec uses it with `agent: server` - the default of `STUDIO_AI_AGENT`.
 //
-// Later: the agent on the server with the limits of the skill (steps, corrections, costs) and the AI
-// per person. Without login for now (PoC, the studio listens on localhost) - whoever reaches the studio
-// uses its key.
+// Later: the AI per person (`usd_per_person_day`). Without login for now (PoC, the studio listens on
+// localhost) - whoever reaches the studio uses its key.
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { Hono } from 'hono';
+import { DOMParser } from 'linkedom';
+import {
+  apiErrorBody, costUsd, failedTurn, installNodeDom, outcomeOf, serverTurn, TURN_CONTENT_TYPE, turnRequest,
+  type AgentEvent, type AgentRequest, type Send, type TurnLine, type TurnResult, type Usage,
+} from '#core';
 import { apiUrl, type AiConfig } from './config.ts';
 import { skillLabel, type Skill } from './skills.ts';
 import type { Log } from './log.ts';
@@ -30,6 +39,8 @@ export const MAX_TOKENS = 32000;
 export const MAX_PARALLEL = 8;
 /** A request with thinking can take minutes; the SDK in the browser waits 10. */
 export const TIMEOUT_MS = 10 * 60 * 1000;
+/** What orch-spec's loop asks for per request (client.ts) - the skill decides (`request.max_tokens`). */
+export const TURN_MAX_TOKENS = 16000;
 export const ANTHROPIC_VERSION = '2023-06-01';
 /** The beta of `fallbacks` - the studio sets it when the skill asks for fallbacks. */
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
@@ -55,6 +66,7 @@ export function configJson(ai: AiConfig | undefined, skills: Skill[]): Json {
     model: ai.model,
     tasks: skills.map((s) => s.task),
     skills: Object.fromEntries(skills.map((s) => [s.task, { name: s.name, version: s.version, model: modelOf(ai, s) }])),
+    ...(ai.agent ? { agent: ai.agent } : {}),
   };
 }
 
@@ -69,12 +81,25 @@ function systemOf(system: unknown): Json[] | string {
 /** The body for the API as the skill wants it: its instructions first in the system, its model and
   * settings, `max_tokens` at most what the skill (and MAX_TOKENS) allows - and only its tools. */
 export function requestBody(bytes: Uint8Array, ai: AiConfig, skill: Skill): Json | string {
+  const obj = jsonOf(bytes);
+  if (typeof obj === 'string') return obj;
+  if (!isObject(obj.value)) return 'the body is no JSON object';
+  return skillRequest(obj.value, ai, skill);
+}
+
+/** The body as JSON - or what it is not. */
+function jsonOf(bytes: Uint8Array): { value: unknown } | string {
   const text = (() => { try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return undefined; } })();
   if (text === undefined) return 'the body is no UTF-8';
-  const json = (() => { try { return { value: JSON.parse(text) as unknown }; } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; } })();
-  if ('error' in json) return `the body is no JSON: ${json.error}`;
-  const obj = json.value;
-  if (!isObject(obj)) return 'the body is no JSON object';
+  try {
+    return { value: JSON.parse(text) as unknown };
+  } catch (e) {
+    return `the body is no JSON: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+/** A request of the Messages API as the skill wants it - see requestBody. */
+export function skillRequest(obj: Json, ai: AiConfig, skill: Skill): Json | string {
   // the answer goes back as one JSON - a stream would be buffered and sent as JSON, which the SDK cannot read
   if (obj.stream === true) return 'the studio does not stream (stream: true)';
   const system = systemOf(obj.system);
@@ -186,18 +211,85 @@ async function readBody(req: Request, max: number): Promise<Uint8Array | undefin
   return size === undefined ? undefined : Buffer.concat(chunks, size);
 }
 
+type Called = { answer: Answer } | { aborted: true } | { failed: { status: number; type: string; text: string } };
+
+/** One request to the Claude API with the key, the workspace and the betas the skill needs - at most
+  * MAX_PARALLEL at the same time, at most `timeoutMs` including the wait. One line in the log: skill,
+  * model, status, time and tokens - no content. */
+async function callApi(o: {
+  ai: AiConfig; skill: Skill; url: URL; body: Json; betas: string[]; version: string; signal: AbortSignal;
+  timeoutMs: number; limit: ReturnType<typeof limiter>; log: Log; path: string;
+}): Promise<Called> {
+  const betas = [...new Set([...o.betas, ...(o.skill.fallbacks ? [FALLBACK_BETA] : [])])];
+  const headers: Record<string, string> = {
+    'x-api-key': o.ai.apiKey,
+    'anthropic-version': o.version,
+    'content-type': 'application/json',
+    ...(betas.length ? { 'anthropic-beta': betas.join(',') } : {}),
+    ...(o.ai.workspaceId ? { 'anthropic-workspace-id': o.ai.workspaceId } : {}),
+  };
+  // the timeout covers the wait for a turn too, so a request behind slow ones does not wait without end
+  const timeout = AbortSignal.timeout(o.timeoutMs);
+  const signal = AbortSignal.any([timeout, o.signal]);
+  const start = Date.now();
+  try {
+    const answer = await o.limit(() => post(o.url, headers, JSON.stringify(o.body), signal), signal);
+    // who asked comes with the login; no content - only skill, model, status, time and tokens
+    o.log.info(`${o.path} - ${skillLabel(o.skill)}, ${modelOf(o.ai, o.skill)}: ${answer.status} in ${Date.now() - start} ms${usageText(answer.body)}`);
+    return { answer };
+  } catch (e) {
+    // the browser went away: nobody waits for an answer - no warning
+    if (o.signal.aborted) return { aborted: true };
+    const failed = timeout.aborted
+      ? { status: 504, type: 'timeout_error', text: `no answer of the Claude API within ${o.timeoutMs / 60000} minutes` }
+      : { status: 502, type: 'api_error', text: 'the Claude API cannot be reached from the studio' };
+    o.log.warn(`${o.path} - ${failed.text}: ${e instanceof Error ? e.message : String(e)}`);
+    return { failed };
+  }
+}
+
+/** `send` of the loop on the studio: the request as orch-spec's loop in the browser sends it (client.ts),
+  * with the skill applied - the message of the API, or a TurnError (thrown) that orch-spec reads as one
+  * of the API. */
+function turnSender(o: Omit<Parameters<typeof callApi>[0], 'body' | 'signal'>): Send {
+  const refused = (status: number, type: string, message: string) => ({ status, body: apiErrorBody(type, message) });
+  return async (request: AgentRequest, signal?: AbortSignal) => {
+    const body = skillRequest({
+      model: modelOf(o.ai, o.skill), max_tokens: TURN_MAX_TOKENS, cache_control: { type: 'ephemeral' },
+      system: request.system, tools: request.tools, messages: request.messages,
+    }, o.ai, o.skill);
+    if (typeof body === 'string') throw refused(400, 'invalid_request_error', body);
+    const called = await callApi({ ...o, body, signal: signal ?? new AbortController().signal });
+    if ('aborted' in called) throw new Error('the turn was stopped');
+    if ('failed' in called) throw refused(called.failed.status, called.failed.type, called.failed.text);
+    const parsed = (() => { try { return { value: JSON.parse(called.answer.body.toString('utf8')) as unknown }; } catch { return undefined; } })();
+    if (called.answer.status !== 200) throw { status: called.answer.status, body: parsed?.value };
+    if (!parsed || !isObject(parsed.value)) throw refused(502, 'api_error', 'the answer of the Claude API is no JSON object');
+    return parsed.value;
+  };
+}
+
+/** The limits of a turn from the skill. */
+const limitsOf = (skill: Skill) => ({
+  ...(skill.limits?.stepsPerTurn !== undefined ? { maxSteps: skill.limits.stepsPerTurn } : {}),
+  ...(skill.limits?.correctionsPerTurn !== undefined ? { maxCorrections: skill.limits.correctionsPerTurn } : {}),
+  ...(skill.limits?.usdPerTurn !== undefined ? { maxUsd: skill.limits.usdPerTurn } : {}),
+});
+
 /** `skills`: the skills of the tasks - none count if the AI is off. */
 export function aiRoutes(app: Hono, ai: AiConfig | undefined, skills: Skill[], log: Log, timeoutMs = TIMEOUT_MS) {
   const active = ai ? skills : [];
   const config = JSON.stringify(configJson(ai, active));
   const limit = limiter(MAX_PARALLEL);
   const tooLarge = () => apiError(413, 'request_too_large', `the body is larger than ${MAX_BODY} bytes`);
+  // the tools of the loop on the studio write BPMN - XML as in the browser
+  installNodeDom(DOMParser);
 
   app.get('/ai/config', () => new Response(config, { headers: { 'content-type': 'application/json' } }));
 
-  app.post('/ai/:task/v1/messages', async (c) => {
-    const req = c.req.raw;
-    const task = c.req.param('task');
+  /** What both routes check first: the AI on, a skill for the task, the body not too large - the skill
+    * and the body, or the answer that refuses. */
+  const accept = async (req: Request, task: string): Promise<{ ai: AiConfig; skill: Skill; bytes: Uint8Array; base: URL } | Response> => {
     const skill = active.find((s) => s.task === task);
     if (!ai) return apiError(404, 'not_found_error', OFF_MESSAGE);
     if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return tooLarge();
@@ -205,49 +297,81 @@ export function aiRoutes(app: Hono, ai: AiConfig | undefined, skills: Skill[], l
     const bytes = await readBody(req, MAX_BODY).catch(() => null);
     if (bytes === null) return apiError(400, 'invalid_request_error', 'the body cannot be read');
     if (bytes === undefined) return tooLarge();
-    const body = requestBody(bytes, ai, skill);
-    if (typeof body === 'string') return apiError(400, 'invalid_request_error', body);
     const base = apiUrl(ai.baseUrl);
     if (typeof base === 'string') {
       log.warn(base);
       return apiError(502, 'api_error', base);
     }
-    // `?beta=true` of the SDK
-    const url = new URL(`${base.href}${new URL(req.url).search}`);
-    // the betas of the browser and the one the skill needs
-    const betas = [...new Set([
-      ...(req.headers.get('anthropic-beta') ?? '').split(',').map((b) => b.trim()).filter(Boolean),
-      ...(skill.fallbacks ? [FALLBACK_BETA] : []),
-    ])];
-    const headers: Record<string, string> = {
-      'x-api-key': ai.apiKey,
-      'anthropic-version': req.headers.get('anthropic-version') ?? ANTHROPIC_VERSION,
-      'content-type': 'application/json',
-      ...(betas.length ? { 'anthropic-beta': betas.join(',') } : {}),
-      ...(ai.workspaceId ? { 'anthropic-workspace-id': ai.workspaceId } : {}),
-    };
-    const path = `POST /ai/${task}/v1/messages`;
-    // the timeout covers the wait for a turn too, so a request behind slow ones does not wait without end
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const signal = AbortSignal.any([timeout, req.signal]);
+    return { ai, skill, bytes, base };
+  };
+
+  app.post('/ai/:task/v1/messages', async (c) => {
+    const req = c.req.raw;
+    const task = c.req.param('task');
+    const ok = await accept(req, task);
+    if (ok instanceof Response) return ok;
+    const body = requestBody(ok.bytes, ok.ai, ok.skill);
+    if (typeof body === 'string') return apiError(400, 'invalid_request_error', body);
+    const called = await callApi({
+      ai: ok.ai, skill: ok.skill, body, limit, log, timeoutMs, signal: req.signal,
+      // `?beta=true` of the SDK; the betas of the browser and the one the skill needs
+      url: new URL(`${ok.base.href}${new URL(req.url).search}`),
+      betas: (req.headers.get('anthropic-beta') ?? '').split(',').map((b) => b.trim()).filter(Boolean),
+      version: req.headers.get('anthropic-version') ?? ANTHROPIC_VERSION,
+      path: `POST /ai/${task}/v1/messages`,
+    });
+    if ('aborted' in called) return new Response(null, { status: 499 });
+    if ('failed' in called) return apiError(called.failed.status, called.failed.type, called.failed.text);
+    const requestId = called.answer.headers['request-id'];
+    return new Response(new Uint8Array(called.answer.body), {
+      status: called.answer.status,
+      headers: { 'content-type': 'application/json', ...(typeof requestId === 'string' ? { 'request-id': requestId } : {}) },
+    });
+  });
+
+  app.post('/ai/:task/turn', async (c) => {
+    const req = c.req.raw;
+    const task = c.req.param('task');
+    const ok = await accept(req, task);
+    if (ok instanceof Response) return ok;
+    const json = jsonOf(ok.bytes);
+    if (typeof json === 'string') return apiError(400, 'invalid_request_error', json);
+    const turn = turnRequest(task, json.value);
+    if (typeof turn === 'string') return apiError(400, 'invalid_request_error', turn);
+    const path = `POST /ai/${task}/turn`;
+    // the browser goes away (or stops the turn): the loop ends, and its request to the API with it
+    const stopped = new AbortController();
+    const signal = AbortSignal.any([req.signal, stopped.signal]);
+    const send = turnSender({
+      ai: ok.ai, skill: ok.skill, limit, log, timeoutMs, path,
+      url: new URL(`${ok.base.href}?beta=true`), betas: [], version: ANTHROPIC_VERSION,
+    });
+    const encoder = new TextEncoder();
     const start = Date.now();
-    try {
-      const answer = await limit(() => post(url, headers, JSON.stringify(body), signal), signal);
-      // who asked comes with the login; no content - only skill, model, status, time and tokens
-      log.info(`${path} - ${skillLabel(skill)}, ${modelOf(ai, skill)}: ${answer.status} in ${Date.now() - start} ms${usageText(answer.body)}`);
-      const requestId = answer.headers['request-id'];
-      return new Response(new Uint8Array(answer.body), {
-        status: answer.status,
-        headers: { 'content-type': 'application/json', ...(typeof requestId === 'string' ? { 'request-id': requestId } : {}) },
-      });
-    } catch (e) {
-      // the browser went away: nobody waits for an answer - no 502, no warning
-      if (req.signal.aborted) return new Response(null, { status: 499 });
-      const [status, type, text] = timeout.aborted
-        ? [504, 'timeout_error', `no answer of the Claude API within ${timeoutMs / 60000} minutes`]
-        : [502, 'api_error', 'the Claude API cannot be reached from the studio'];
-      log.warn(`${path} - ${text}: ${e instanceof Error ? e.message : String(e)}`);
-      return apiError(status, type, text);
-    }
+    const stream = new ReadableStream<Uint8Array>({
+      async start(lines) {
+        const write = (line: TurnLine) => {
+          if (signal.aborted) return;
+          try { lines.enqueue(encoder.encode(`${JSON.stringify(line)}\n`)); } catch { /* the stream is closed */ }
+        };
+        // the costs so far - for a turn that a defect ends
+        const spent: { usage?: Usage } = {};
+        const onEvent = (e: AgentEvent) => {
+          if (e.kind === 'usage') spent.usage = e.usage as Usage;
+          write(e);
+        };
+        const result = await serverTurn(turn, { send, limits: limitsOf(ok.skill), onEvent, signal })
+          .catch((e: unknown): TurnResult => {
+            // a defect of the loop - still a result, so orch-spec says what happened, not «no connection»
+            log.warn(`${path} - the turn failed: ${e instanceof Error ? e.message : String(e)}`);
+            return failedTurn(turn, e, spent.usage);
+          });
+        log.info(`${path} - ${skillLabel(ok.skill)}, ${modelOf(ok.ai, ok.skill)}: ${result.stop} in ${Date.now() - start} ms, ${result.usage.requests} requests, ${costUsd(result.usage).toFixed(3)} USD`);
+        write({ kind: 'result', result: outcomeOf(result) });
+        try { lines.close(); } catch { /* the browser went away */ }
+      },
+      cancel() { stopped.abort(); },
+    });
+    return new Response(stream, { headers: { 'content-type': TURN_CONTENT_TYPE, 'cache-control': 'no-store' } });
   });
 }

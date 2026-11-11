@@ -2,8 +2,9 @@
 // and its provider: `<skills>/<task>/<provider>/SKILL.md`. The skill holds the constraints, the steps
 // and the instructions for the model - written to be reviewed by a bank.
 //
-// The studio applies what it can per request (see ai.ts): the instructions, the model, the settings of
-// `request` and the tools. The limits per turn and per person come with the agent on the server.
+// The studio applies per request (see ai.ts) the instructions, the model, the settings of `request`
+// and the tools; per turn on the studio (`POST /ai/<task>/turn`) also `limits` - steps, corrections and
+// costs. The limit per person and day comes with the login.
 //
 // The studio brings its skills (skills/ next to src/); a company adds one - or replaces one - with the
 // same path in its own folder (`STUDIO_SKILLS_DIR`), which comes first.
@@ -44,9 +45,14 @@ export type Skill = {
   fallbacks?: string;
   /** the only tools a request may offer the model */
   tools: string[];
+  /** `limits` - for a turn on the studio; none: those of orch-spec's loop (24 steps, 2 corrections), no cost limit */
+  limits?: SkillLimits;
   /** the section `## Instructions` - the first part of the system of every request */
   instructions: string;
 };
+
+/** The limits of a turn - and of a person per day (`usd_per_person_day`, with the login; read, not applied yet). */
+export type SkillLimits = { stepsPerTurn?: number; correctionsPerTurn?: number; usdPerTurn?: number; usdPerPersonDay?: number };
 
 export const skillLabel = (s: Skill) => `${s.name} v${s.version}`;
 
@@ -98,6 +104,9 @@ export function parseSkill(task: Task, provider: string, text: string): Skill | 
   const request = c.request ?? null;
   if (request !== null && !isFields(request)) return '«request» is no object';
   const r: Fields = isFields(request) ? request : {};
+  const limits = c.limits ?? null;
+  if (limits !== null && !isFields(limits)) return '«limits» is no object';
+  const l: Fields = isFields(limits) ? limits : {};
 
   const wrong = (field: string, v: unknown) => `«${field}» has the wrong type: ${JSON.stringify(v)}`;
   type Read<T> = { ok: T | undefined } | { error: string };
@@ -112,11 +121,19 @@ export function parseSkill(task: Task, provider: string, text: string): Skill | 
     if (v === undefined || v === null) return { ok: undefined };
     return Number.isInteger(v) ? { ok: v as number } : { error: wrong(prefix + field, v) };
   };
+  // a number - also with decimals (USD), not a text with one
+  const num = (fields: Fields, field: string, prefix = ''): Read<number> => {
+    const v = fields[field];
+    if (v === undefined || v === null) return { ok: undefined };
+    return typeof v === 'number' && Number.isFinite(v) ? { ok: v } : { error: wrong(prefix + field, v) };
+  };
   const value = <T,>(read: Read<T>) => ('ok' in read ? read.ok : undefined);
   const reads = {
     task: text_(c, 'task'), provider: text_(c, 'provider'), version: int(c, 'version'), model: text_(c, 'model'),
     maxTokens: int(r, 'max_tokens', 'request.'), thinking: text_(r, 'thinking', 'request.'),
     effort: text_(r, 'effort', 'request.'), fallbacks: text_(r, 'fallbacks', 'request.'),
+    stepsPerTurn: int(l, 'steps_per_turn', 'limits.'), correctionsPerTurn: int(l, 'corrections_per_turn', 'limits.'),
+    usdPerTurn: num(l, 'usd_per_turn', 'limits.'), usdPerPersonDay: num(l, 'usd_per_person_day', 'limits.'),
   };
 
   if (typeof c.name !== 'string' || !c.name.trim()) return 'no name in the front matter';
@@ -130,11 +147,23 @@ export function parseSkill(task: Task, provider: string, text: string): Skill | 
   if (maxTokens !== undefined && maxTokens <= 0) return `«request.max_tokens» must be more than 0: ${maxTokens}`;
   const thinking = value(reads.thinking);
   if (thinking !== undefined && !THINKING_TYPES.includes(thinking)) return `«request.thinking» is «${thinking}» - only ${THINKING_TYPES.join(' or ')}`;
+  const steps = value(reads.stepsPerTurn);
+  if (steps !== undefined && steps <= 0) return `«limits.steps_per_turn» must be more than 0: ${steps}`;
+  const corrections = value(reads.correctionsPerTurn);
+  if (corrections !== undefined && corrections < 0) return `«limits.corrections_per_turn» must not be below 0: ${corrections}`;
+  const usd = value(reads.usdPerTurn);
+  if (usd !== undefined && usd <= 0) return `«limits.usd_per_turn» must be more than 0: ${usd}`;
+  const usdDay = value(reads.usdPerPersonDay);
+  if (usdDay !== undefined && usdDay <= 0) return `«limits.usd_per_person_day» must be more than 0: ${usdDay}`;
   if (!Array.isArray(c.tools) || !c.tools.every((t) => typeof t === 'string')) return 'no list of tools in the front matter';
   const instructions = instructionsOf(lines.slice(end + 1));
   if (!instructions) return 'no text in the section ## Instructions';
 
   const optional = <K extends string, V>(key: K, v: V | undefined) => (v === undefined ? {} : { [key]: v } as Record<K, V>);
+  const skillLimits: SkillLimits = {
+    ...optional('stepsPerTurn', steps), ...optional('correctionsPerTurn', corrections),
+    ...optional('usdPerTurn', usd), ...optional('usdPerPersonDay', usdDay),
+  };
   return {
     task, provider, name: c.name.trim(), version: value(reads.version) ?? 1,
     ...optional('model', value(reads.model)),
@@ -143,6 +172,7 @@ export function parseSkill(task: Task, provider: string, text: string): Skill | 
     ...optional('effort', value(reads.effort)),
     ...optional('fallbacks', value(reads.fallbacks)),
     tools: c.tools as string[],
+    ...(Object.keys(skillLimits).length ? { limits: skillLimits } : {}),
     instructions,
   };
 }

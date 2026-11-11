@@ -1,1 +1,3 @@
 node_modules
+# orch-spec's core, bundled from 04-orch-spec/src/core (npm run core) - its types are core/orch-spec-core.d.mts
+core/orch-spec-core.mjs

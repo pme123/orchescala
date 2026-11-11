@@ -41,6 +41,7 @@ export function ProcessAiPanel({ isDark, spec, xml, model, specs, serviceMode = 
     <AiChat<ProcessDraft> isDark={isDark} task={serviceMode ? 'serviceOrchestrator' : 'processCreator'} draft={draft} onDraft={onDraft} onBusy={onBusy}
       system={() => (serviceMode ? orchestrationSystem(services) : processSystem({ ...targets, messages: [], userTasks: [] }))}
       kit={processToolKit({ model, serviceMode, services })}
+      context={{ model, services }}
       start={() => startProcessDraft(spec, xml)}
       changed={processDraftChanged}
       openPoints={(d) => d.openPoints}

@@ -37,6 +37,10 @@ export type AiConfig = {
   tasks: AiTask[];
   /** the skill of each of these tasks */
   skills: Partial<Record<AiTask, AiSkill>>;
+  /** `server`: the loop of the agent runs on the studio (`POST /ai/<task>/turn`, turn.ts) - without it,
+    * in the browser, each request through the studio (E28, step 5: the browser's stays until the
+    * studio's runs stable) */
+  agent?: 'server';
 };
 
 export const AI_OFF: AiConfig = { enabled: false, tasks: [], skills: {} };
@@ -60,7 +64,7 @@ export function parseConfig(json: unknown): AiConfig {
     const name = text(s.name);
     return name ? [[t, { name, version: typeof s.version === 'number' ? s.version : undefined, model: text(s.model) }]] : [];
   })) as Partial<Record<AiTask, AiSkill>>;
-  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks, skills };
+  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks, skills, ...(o.agent === 'server' ? { agent: 'server' as const } : {}) };
 }
 
 /** Asks the studio - every failure (no studio, 404, no JSON) is «off». */

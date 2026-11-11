@@ -18,6 +18,7 @@ export * from '../ai/context';
 export * from '../ai/cost';
 export * from '../ai/diff';
 export * from '../ai/config';
+export * from '../ai/turn';
 
 // the specification: types, BPMN, findings, the data model of a page and of a service orchestration
 export * from '../types';

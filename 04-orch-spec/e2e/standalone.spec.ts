@@ -158,6 +158,41 @@ test('while Claude works on a draft, the process stays as it is - editing again 
   await expect(title).toBeEnabled();
 });
 
+test('the loop on the studio (agent: server): one request /ai/<task>/turn, its events and its draft as from the loop here', async ({ page }) => {
+  const w = watch(page);
+  await page.route('**/ai/config', (route) => route.fulfill({
+    json: { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['processCreator'], agent: 'server', skills: { processCreator: { name: 'processCreator-anthropic', version: 2 } } },
+  }));
+  const sent: Record<string, unknown>[] = [];
+  await page.route('**/ai/processCreator/turn', (route) => {
+    const body = route.request().postDataJSON() as { history: unknown[]; prompt: string; draft: { spec: { title: string } } };
+    sent.push(body);
+    const draft = { ...body.draft, spec: { ...body.draft.spec, title: 'Bestellung freigeben' } };
+    const usage = { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, requests: 1, fallbacks: [] };
+    const lines = [
+      { kind: 'usage', usage },
+      { kind: 'text', text: 'Ich habe den Titel geändert.' },
+      { kind: 'result', result: {
+        history: [...body.history, { role: 'user', content: body.prompt }, { role: 'assistant', content: [{ type: 'text', text: 'Ich habe den Titel geändert.' }] }],
+        draft, usage, stop: 'done', text: 'Ich habe den Titel geändert.', errors: [],
+      } },
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/x-ndjson', body: lines.map((l) => JSON.stringify(l)).join('\n') + '\n' });
+  });
+  await openFolder(page);
+  await openProcess(page);
+  await page.locator(AI.process).click();
+  await page.getByPlaceholder('Was soll sich am Ablauf ändern?').fill('Nenne den Prozess «Bestellung freigeben»');
+  await page.getByTitle('Senden (Enter)').click();
+  await expect(page.getByText('Ich habe den Titel geändert.').first()).toBeVisible();
+  await expect(page.getByText('Entwurf – Unterschiede')).toBeVisible();
+  // the context of the tools went along - the catalog of the folder; the loop here sent nothing
+  expect(Object.keys(sent[0])).toEqual(['context', 'system', 'history', 'prompt', 'draft']);
+  expect(Object.keys(sent[0].context as object)).toEqual(['model', 'services']);
+  expect(w.studio).toEqual(['GET /ai/config', 'POST /ai/processCreator/turn']);
+  expect(w.errors).toEqual([]);
+});
+
 /** A page of the folder as saved - its JSON. */
 const savedPage = (page: Page, slug: string) =>
   page.evaluate(async (s) => {

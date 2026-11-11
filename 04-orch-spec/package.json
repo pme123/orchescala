@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit && tsc --noEmit -p e2e",
     "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --log-level=warning && node --test \"dist-tests/*.test.mjs\"",
     "check:core": "node tests/checkCore.ts",
+    "build:core": "esbuild src/core/index.ts --bundle --format=esm --platform=node --outfile=../06-orch-studio/core/orch-spec-core.mjs --log-level=warning",
     "build:standalone": "vite build --base=./ --outDir dist-standalone --emptyOutDir --logLevel warn",
     "test:standalone": "tsc --noEmit -p e2e && npm run build:standalone && playwright test",
     "build:tools": "esbuild tools/openapi2catalog.ts tools/domain2catalog.ts tools/site2catalog.ts tools/spec2export.ts tools/spec2diff.ts tools/xmlformat.ts --bundle --platform=node --format=esm --outdir=dist-tools --log-level=warning",

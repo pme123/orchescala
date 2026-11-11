@@ -7,11 +7,12 @@ import { AlertTriangle, Check, CircleStop, Info, Loader2, MessageSquarePlus, Sen
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../ui';
 import { runTurn, type AgentEvent, type Stop } from './agent';
-import { claudeSender, errorText } from './client';
+import { claudeSender, errorText, turnOnStudio } from './client';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
 import type { AiTask } from './config';
 import { useAiConfig } from './useAiConfig';
 import type { ToolKit } from './toolkit';
+import type { TurnContext } from './turn';
 
 type Entry =
   | { kind: 'user'; text: string }
@@ -23,6 +24,7 @@ type Entry =
 
 const STOP_TEXT: Partial<Record<Stop, string>> = {
   max_steps: 'Claude hat zu viele Schritte gebraucht und wurde angehalten.',
+  max_cost: 'Dieser Wunsch hat so viel gekostet, wie der Skill erlaubt – Claude wurde angehalten.',
   max_tokens: 'Die Antwort war zu lang und wurde abgeschnitten.',
   refusal: 'Claude hat die Anfrage abgelehnt.',
   cancelled: 'Abgebrochen.',
@@ -40,6 +42,8 @@ export type AiChatProps<D> = {
   /** the system of a conversation - built at its start and then kept (cache) */
   system: () => BetaTextBlockParam[];
   kit: ToolKit<D>;
+  /** what the kit knows besides the draft - sent along when the loop runs on the studio (`agent: server`) */
+  context: TurnContext;
   draft: D | null;
   onDraft: (d: D | null) => void;
   /** a new draft from what is saved now */
@@ -131,10 +135,11 @@ export function AiChat<D>(p: AiChatProps<D>) {
     };
     try {
       const before = draft ?? p.start();
-      const r = await runTurn({
-        send: claudeSender(ai, p.task), system: sys, kit: p.kit,
-        history: history.current, prompt, draft: before, onEvent, signal: controller.signal,
-      });
+      const input = { system: sys, kit: p.kit, history: history.current, prompt, draft: before, onEvent, signal: controller.signal };
+      // the loop on the studio, with the limits of the skill - or here, each request through the studio
+      const r = ai.agent === 'server'
+        ? await turnOnStudio(p.task, p.context, input)
+        : await runTurn({ ...input, send: claudeSender(ai, p.task) });
       if (!current()) return;
       history.current = r.history;
       setTotal((t) => addUsage(t, r.usage));
