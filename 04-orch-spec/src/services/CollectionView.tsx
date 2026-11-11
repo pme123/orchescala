@@ -89,6 +89,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const [syncBlocked, setSyncBlocked] = useState<string[] | null>(null);
   // what reading the chosen folder or ZIP gave — shown in the dialog, not behind it
   const [blockedNote, setBlockedNote] = useState<{ text: string; ok: boolean } | null>(null);
+  /** why the folder is asked for when it is readable: the domain found has nothing to compare with */
+  const [syncReason, setSyncReason] = useState<string | null>(null);
   // the part of the service in view — marked in the outline on the left
   const pane = useRef<HTMLDivElement>(null);
   const [activePart, setActivePart] = useState<ServicePart | null>(null);
@@ -170,15 +172,27 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
 
   // Abgleich with the catalog: what changes is shown first, nothing is deleted without asking
   // as the process sync: the own project folder first (it has the current state), the catalog otherwise
-  /** opens the preview of the changes — or gives the note why there is none */
-  const syncFrom = (hit: DomainHit | null): string | undefined => {
+  /** a collection with only classes: the package whose classes the Abgleich takes */
+  const classesOf = (cur: ServiceCollectionSpec) => (cur.services.some(s => s.name.trim()) ? null : `${collectionPackage(cur)}.schema`);
+  /**
+   * opens the preview of the changes — or gives the note why there is none; `missing`: the domain
+   * has nothing to compare with - another folder may have it
+   */
+  const syncFrom = (hit: DomainHit | null): { text: string; missing?: true } | undefined => {
     const cur = latest.current;
     if (!cur) return undefined;
     const source = hit?.source ?? 'Katalog';
     const m = hit && source !== 'Katalog' ? withProjectDomain(model, hit.domain) : model;
     const r = syncWithCatalog(cur, m);
-    if (!r) return hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt';
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern`;
+    const classes = classesOf(cur);
+    if (!r) {
+      return {
+        missing: true,
+        text: classes ? `${hit ? source : 'Der Katalog'} hat keine Klassen in ${classes}`
+          : hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt',
+      };
+    }
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return { text: `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern` };
     setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}), rerun: keep => syncWithCatalog(cur, m, keep) ?? r });
     return undefined;
   };
@@ -188,8 +202,11 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     setSyncNote(''); setSyncBlocked(null); setBlockedNote(null); setSyncBusy('Domain wird gesucht …');
     try {
       const hit = await findSyncDomainFor(serviceProjectTarget(cur.project), model, setSyncBusy);
-      if (hit && 'blocked' in hit) { setSyncBlocked(hit.unreadable); return; }
-      setSyncNote(syncFrom(hit) ?? '');
+      if (hit && 'blocked' in hit) { setSyncReason(null); setSyncBlocked(hit.unreadable); return; }
+      const r = syncFrom(hit);
+      // nothing there to compare with: another project folder (or a ZIP) may have it
+      if (r?.missing) { setSyncReason(r.text); setSyncBlocked([]); return; }
+      setSyncNote(r?.text ?? '');
     } catch (e) {
       setSyncNote(e instanceof Error ? e.message : String(e));
     } finally { setSyncBusy(''); }
@@ -206,14 +223,15 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     setSyncBusy(`${source} wird gelesen …`);
     try {
       const domain = scanDomain(await read());
-      if (!serviceProjectTarget(cur.project).has(domain)) {
-        setBlockedNote({ text: `In ${source} gibt es keine Services von ${cur.project} — den Ordner dieses Projekts wählen.`, ok: false });
+      const classes = classesOf(cur);
+      if (classes ? !domain.some(t => t.pkg === classes) : !serviceProjectTarget(cur.project).has(domain)) {
+        setBlockedNote({ text: classes ? `In ${source} gibt es keine Klassen in ${classes} — den Ordner des Projekts wählen.` : `In ${source} gibt es keine Services von ${cur.project} — den Ordner dieses Projekts wählen.`, ok: false });
         return;
       }
       const remembered = dir ? await rememberOwnFolder(model, cur.project, dir) : false;
       const note = syncFrom({ domain, source });
       if (!note) { setSyncBlocked(null); return; }
-      setBlockedNote({ text: `${note}.${remembered ? ' Der Ordner ist gemerkt — der nächste Abgleich liest ihn direkt.' : ''}`, ok: true });
+      setBlockedNote({ text: `${note.text}.${remembered ? ' Der Ordner ist gemerkt — der nächste Abgleich liest ihn direkt.' : ''}`, ok: !note.missing });
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setBlockedNote({ text: e instanceof Error ? e.message : String(e), ok: false });
     } finally { setSyncBusy(''); }
@@ -253,7 +271,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
             <FileUp size={12} /> OpenAPI importieren
           </button>
         )}
-        <button onClick={() => setExportOpen(true)} disabled={!spec.services.length}
+        <button onClick={() => setExportOpen(true)} disabled={!spec.services.length && !schemaTypes.length}
           title="Scala-Code der Services und der Befehl für den Helper"
           className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>
           <FileCode2 size={12} /> Export
@@ -266,8 +284,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
       )}
 
       {syncBlocked && (
-        <SyncBlocked unreadable={syncBlocked} busy={syncBusy} note={blockedNote} isDark={isDark}
-          onCancel={() => { if (blockedNote?.ok) setSyncNote(blockedNote.text); setSyncBlocked(null); setBlockedNote(null); }}
+        <SyncBlocked unreadable={syncBlocked} reason={syncReason} busy={syncBusy} note={blockedNote} isDark={isDark}
+          onCancel={() => { if (blockedNote?.ok) setSyncNote(blockedNote.text); setSyncBlocked(null); setBlockedNote(null); setSyncReason(null); }}
           onFolder={async () => {
             if (!('showDirectoryPicker' in window)) { setBlockedNote({ text: 'Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.', ok: false }); return; }
             const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
@@ -551,8 +569,10 @@ const adoptedNote = (adopted: Adopted[]) =>
 
 /** What the Abgleich with the catalog changes — before it applies. */
 /** The own project folder is remembered but not readable — as in the process sync: choose it, or a ZIP. */
-function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip }: {
+function SyncBlocked({ unreadable, reason, busy, note, isDark, onCancel, onFolder, onZip }: {
   unreadable: string[]; busy: string; note: { text: string; ok: boolean } | null; isDark: boolean;
+  /** the folder was read, but has nothing to compare with - instead of «not readable» */
+  reason?: string | null;
   onCancel: () => void; onFolder: () => void; onZip: (f: File) => void;
 }) {
   const c = cls(isDark);
@@ -563,8 +583,10 @@ function SyncBlocked({ unreadable, busy, note, isDark, onCancel, onFolder, onZip
         <div className={`flex items-center gap-2 text-xs font-semibold ${c.text}`}><RefreshCw size={13} /> Abgleich</div>
         <p className={`text-[11px] ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
           <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />
-          Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich den Zugriff je
-          Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt — Projekt-Ordner oder ZIP wählen.
+          {reason
+            ? <>{reason} — einen anderen Projekt-Ordner oder ein ZIP wählen. Ein gewählter Ordner wird für das Projekt gemerkt.</>
+            : <>Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich den Zugriff je
+              Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt — Projekt-Ordner oder ZIP wählen.</>}
         </p>
         {busy && <p className={`text-[11px] flex items-center gap-1.5 ${c.muted}`}><Loader2 size={11} className="animate-spin" /> {busy}</p>}
         {!busy && note && (
