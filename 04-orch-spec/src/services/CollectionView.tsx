@@ -163,7 +163,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
 
   const service = selection.kind === 'service' ? spec.services.find(s => s.id === selection.id) : undefined;
   const type = selection.kind === 'type' ? spec.types.find(t => t.id === selection.id) : undefined;
-  const schemaTypes = spec.types.filter(t => !t.interactionId);
+  // the types of the API by name - the list is easier to search that way
+  const schemaTypes = spec.types.filter(t => !t.interactionId).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'de'));
   const patchService = (id: string, patch: Partial<CollectionService>) =>
     update(s => ({ ...s, services: s.services.map(x => (x.id === id ? { ...x, ...patch } : x)) }));
 
@@ -1019,7 +1020,7 @@ function TypeSelect({ value, spec, disabled, className, onChange, self }: {
   self?: Array<{ id: string; label: string }>;
 }) {
   const model = useTypeModel();
-  const own = spec.types.filter(t => !t.interactionId);
+  const own = spec.types.filter(t => !t.interactionId).sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "de"));
   const known = (SCALA_TYPES as readonly string[]).includes(value) || own.some(t => t.id === value) || !!self?.some(x => x.id === value);
   // a type of the domain (`dom:<id>`, from the catalog): its name — the project has it already
   const dom = parseDomainRef(value);
