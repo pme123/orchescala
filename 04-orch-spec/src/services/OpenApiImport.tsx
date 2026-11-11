@@ -2,8 +2,7 @@
 //
 // The collection covers the whole OpenAPI or a sub path (`/clients`) — the
 // filter at the top, remembered with the collection. The operations are grouped
-// by the sub path that names their API (see suggestApis): per group the API and
-// its version, as the new services get them (`client v1`, `crm v2`).
+// by their sub path (see suggestApis); the new services all get the API of the collection.
 //
 // Each operation shows whether it is already there:
 //   · «da» — in the collection (same operationId, or same method and path); it
@@ -22,7 +21,7 @@ import { ownFolders } from '../projectImport';
 import { projectOpenApis } from './projectOpenApis';
 import type { Model } from '../types';
 import { cls } from '../ui';
-import { API_NAME, apiName, apiOf, sameApi, serviceTopic } from './collection';
+import { API_NAME, serviceTopic } from './collection';
 import { readOpenApiFile, type OpenApiFile } from './openApiFile';
 import { useServices } from './store';
 import { addOperations, inPathPrefix, isIncomplete, readApi, serviceOf, suggestApis, type ApiImport, type ApiOperation } from './openApiRest';
@@ -36,8 +35,6 @@ export function catalogTopics(model: Model | null): Set<string> {
   for (const s of model?.services ?? []) { out.add(s.id); if (s.topic) out.add(s.topic); }
   return out;
 }
-
-type ApiChoice = { api: string; apiVersion: number };
 
 export default function OpenApiImport({ spec, model, isDark, initial, onClose, onApply }: {
   spec: ServiceCollectionSpec;
@@ -62,8 +59,6 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [prefix, setPrefix] = useState(spec.pathPrefix ?? '');
-  /** the API per sub path, as the user changed it */
-  const [apis, setApis] = useState<Record<string, ApiChoice>>({});
   const known = useMemo(() => catalogTopics(model), [model]);
 
   // the OpenAPIs of the project folder — the same folder the Abgleich reads
@@ -90,7 +85,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
     setCurrent({ o, origin });
   };
   const read = async (f: File, origin: 'project' | 'chosen' = 'chosen') => {
-    setError(''); setApi(null); setPicked(new Set()); setApis({});
+    setError(''); setApi(null); setPicked(new Set());
     const r = await readOpenApiFile(f);
     if (r.ok) open(r.value, origin);
     else setError(r.message);
@@ -118,17 +113,10 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   // eslint-disable-next-line react-hooks/exhaustive-deps -- when the project folder or the stored file is read
   }, [looked, project]);
 
-  // the suggestion per operation: an existing service under the same sub path gives its API
+  // the sub path of each operation - the groups of the list
   const suggested = useMemo(() => api ? suggestApis(api.operations, { api: spec.api, apiVersion: spec.apiVersion }) : new Map(), [api, spec.api, spec.apiVersion]);
-  const choiceFor = (subPath: string, fallback: ApiChoice): ApiChoice => {
-    if (apis[subPath]) return apis[subPath];
-    const there = spec.services.find(s => s.path && inPathPrefix(s.path, subPath));
-    return there ? { api: apiOf(spec, there).api, apiVersion: apiOf(spec, there).apiVersion } : fallback;
-  };
-  const apiOfOp = (op: ApiOperation): ApiChoice => {
-    const s = suggested.get(op.key);
-    return s ? choiceFor(s.subPath, { api: s.api, apiVersion: s.apiVersion }) : { api: spec.api, apiVersion: spec.apiVersion };
-  };
+  /** the API of every new service: the one of the collection */
+  const apiOfOp = (_op?: ApiOperation) => ({ api: spec.api, apiVersion: spec.apiVersion });
 
   const groups = useMemo(() => {
     if (!api) return [];
@@ -148,7 +136,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   const toggle = (keys: string[], on: boolean) => setPicked(p => { const n = new Set(p); for (const k of keys) { if (on) n.add(k); else n.delete(k); } return n; });
   /** the file shown is not the one the collection keeps - it is kept on «übernehmen» */
   const fresh = !!current && current.origin !== 'stored';
-  const badApi = groups.some(([, rows]) => rows.some(r => picked.has(r.op.key) && !API_NAME.test(apiOfOp(r.op).api)));
+  const badApi = !API_NAME.test(spec.api);
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 flex items-start justify-center pt-16" onClick={onClose}>
@@ -232,24 +220,14 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
               </div>
               <div className={`flex-1 min-h-0 overflow-y-auto rounded border ${c.border2}`}>
                 {groups.map(([subPath, rows]) => {
-                  const choice = apiOfOp(rows[0].op);
                   const keys = rows.filter(r => !r.here).map(r => r.op.key);
                   const all = keys.length > 0 && keys.every(k => picked.has(k));
-                  const setChoice = (patch: Partial<ApiChoice>) => setApis(a => ({ ...a, [subPath]: { ...choice, ...patch } }));
-                  const mixed = spec.services.some(s => s.path && inPathPrefix(s.path, subPath) && !sameApi(apiOf(spec, s), choice));
                   return (
                     <div key={subPath}>
                       <div className={`sticky top-0 z-10 flex items-center gap-2 px-2 py-1 border-b ${c.border} ${c.panelStrong}`}>
                         <input type="checkbox" disabled={!keys.length} checked={all} onChange={() => toggle(keys, !all)} title="alle dieses Teilpfads" />
                         <span className={`text-[11px] font-mono font-semibold ${c.text}`}>{subPath}</span>
                         <span className={`text-[10px] ${c.muted}`}>{rows.length}</span>
-                        <span className={`ml-auto text-[10px] ${c.muted}`} title="API (Paket) und Version der neuen Services dieses Teilpfads">API</span>
-                        <input value={choice.api} onChange={e => setChoice({ api: apiName(e.target.value) })}
-                          className={`w-32 px-1.5 py-0.5 rounded border text-[11px] font-mono outline-none ${API_NAME.test(choice.api) ? c.input : 'border-rose-400 text-rose-500'}`} />
-                        <span className={`text-[10px] ${c.muted}`}>v</span>
-                        <input type="number" min={1} value={choice.apiVersion} onChange={e => setChoice({ apiVersion: Math.max(1, Number(e.target.value) || 1) })}
-                          className={`w-12 px-1.5 py-0.5 rounded border text-[11px] font-mono outline-none ${c.input}`} />
-                        {mixed && <span title="In der Collection haben Services dieses Teilpfads eine andere API" className={isDark ? 'text-amber-300' : 'text-amber-600'}><AlertTriangle size={10} /></span>}
                       </div>
                       {rows.map(({ op, here, completes }) => {
                         const topic = serviceTopic({ project: spec.project, ...apiOfOp(op) }, op);
@@ -283,7 +261,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
 
         <div className={`flex items-center gap-2 px-4 py-2.5 border-t ${c.border}`}>
           <span className={`text-[10px] ${badApi ? 'text-rose-500' : c.muted}`}>
-            {badApi ? 'Eine API ist kein gültiger Paketname (klein, camelCase, Ebenen mit «.»).'
+            {badApi ? `Die API der Collection «${spec.api}» ist kein gültiger Paketname (klein, camelCase, Ebenen mit «.») — in der Übersicht ändern.`
               : api ? `${picked.size} gewählt — je Operation ein Service mit In, Out und den ersten Mappings; Typen aus den Schemas${fresh ? ' · die Datei wird bei der Collection hinterlegt' : ''}` : 'OpenAPI 3 als YAML oder JSON'}
           </span>
           <button onClick={onClose} className={`ml-auto text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>

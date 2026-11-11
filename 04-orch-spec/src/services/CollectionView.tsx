@@ -447,7 +447,6 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
   const catalog = useMemo(() => catalogProjects(model), [model]);
   const prefixes = useMemo(() => knownProjects(model, services.map(s => s.data.project), specs.map(s => s.data.project)), [model, specs, services]);
   const knownApis = useMemo(() => [...new Set((catalog.find(p => p.project === spec.project)?.apis ?? []).map(a => a.api))].sort(), [catalog, spec.project]);
-  const apis = apisOf(spec).length ? apisOf(spec) : [{ project: spec.project, api: spec.api, apiVersion: spec.apiVersion }];
   // where the OpenAPI brings no URL (Swagger 2.0 without host): what the other collections of the project have
   const fromProject = useMemo(() => projectSuggestions(spec, services.map(s => s.data).filter(isCollection)), [spec, services]);
   const setServiceBasePath = (a: { api: string; apiVersion: number }, value: string) => {
@@ -471,12 +470,10 @@ function Overview({ spec, canEdit, onChange, onUpdate }: {
           </div>
         </div>
         <div className={`flex-[2_1_14rem] rounded border px-2 py-1 ${c.border2}`}>
-          <div className={`text-[9px] uppercase tracking-widest ${c.muted}`} title="Name und Version je API — ein Wechsel gilt für alle Services dieser API">APIs</div>
+          <div className={`text-[9px] uppercase tracking-widest ${c.muted}`} title="Name und Version der API — eine Collection hat eine API; ein Wechsel gilt für alle ihre Services">API</div>
           <datalist id="collection-apis">{knownApis.map(a => <option key={a} value={a} />)}</datalist>
-          {apis.map(a => (
-            <ApiField key={apiKey(a)} value={a} canEdit={canEdit}
-              onCommit={to => onUpdate(s => renameApi(s, a, to))} />
-          ))}
+          <ApiField value={{ api: spec.api, apiVersion: spec.apiVersion }} canEdit={canEdit}
+            onCommit={to => onUpdate(s => renameApi(s, s, to))} />
         </div>
         <div className="flex-[1_1_6rem]"><Info label="Status" value={STATUS_META[collectionStatus(spec)].label} isDark={isDark} /></div>
       </div>
@@ -745,14 +742,10 @@ function ServiceEditor({ spec, service: s, canEdit, onPatch, onTypes, onOpenType
             className={`w-full bg-transparent outline-none text-sm font-semibold font-mono ${c.text}`} />
           <div className={`text-[10px] font-mono ${c.muted}`} title="Topic des Workers — auch die Kennung im Service-Katalog">{serviceTopic(apiOf(spec, s), s)}</div>
         </div>
-        <label className={`flex items-center gap-1 text-[10px] ${c.muted}`} title={`API (Paket ${collectionPackage(apiOf(spec, s))}) und Version des Services`}>
-          API
-          <input value={s.api} disabled={!canEdit} onChange={e => onPatch({ api: apiName(e.target.value) })}
-            className={`w-28 font-mono ${input} ${API_NAME.test(s.api) ? '' : 'text-rose-500'}`} />
-          v
-          <input type="number" min={1} value={s.apiVersion} disabled={!canEdit} onChange={e => onPatch({ apiVersion: Math.max(1, Number(e.target.value) || 1) })}
-            className={`w-14 font-mono ${input}`} />
-        </label>
+        {/* the API of the collection - changed in its overview, for all its services */}
+        <span className={`flex items-center gap-1 text-[10px] ${c.muted}`} title={`API der Collection (Paket ${collectionPackage(apiOf(spec, s))}) — in der Übersicht ändern`}>
+          API <span className={`font-mono ${c.text}`}>{apiOf(spec, s).api}</span> v<span className={`font-mono ${c.text}`}>{apiOf(spec, s).apiVersion}</span>
+        </span>
         <select value={s.status} disabled={!canEdit} onChange={e => onPatch({ status: e.target.value as Status })} className={input}>
           {STATUSES.map(x => <option key={x} value={x}>{STATUS_META[x].label}</option>)}
         </select>

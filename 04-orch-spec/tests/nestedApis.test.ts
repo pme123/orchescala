@@ -5,9 +5,9 @@ import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
 import { catalogProjects, collectionFromCatalog, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
 import {
-  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceIssues, serviceTopic, workerPackage,
+  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
 } from '../src/services/collection';
-import { adoptHierarchyTypes, commonParents, schemaHomes, searchGroups } from '../src/services/hierarchy';
+import { adoptHierarchyTypes, commonParents, searchGroups } from '../src/services/hierarchy';
 import { addOperations, readApi } from '../src/services/openApiRest';
 import { collectionFiles } from '../src/services/scalaCollection';
 import type { ServiceCollectionSpec } from '../src/services/types';
@@ -51,29 +51,6 @@ function twoApis(): ServiceCollectionSpec {
   const apiFor = (op: { path: string }) => ({ api: op.path === '/naturalPersons' ? 'clientMaster.naturalPersons' : 'clientMaster.legalPersons', apiVersion: 1 });
   return addOperations(c0, api, api.operations.map(o => o.key), apiFor).spec;
 }
-
-test('the export: a type the APIs of a level share lives in the schema of that level', () => {
-  const c = twoApis();
-  const homes = schemaHomes(c);
-  const homeOf = (name: string) => homes.get(c.types.find(t => t.name === name)!.id)?.pkg;
-  assert.equal(homeOf('Address'), 'acme.crm.domain.clientMaster.schema');
-  assert.equal(homeOf('Gender'), 'acme.crm.domain.clientMaster.naturalPersons.v1.schema');
-  const files = collectionFiles(c);
-  const address = files.find(f => f.path.endsWith('/Address.scala'))!;
-  assert.equal(address.path, '01-domain/src/main/scala/acme/crm/domain/clientMaster/schema/Address.scala');
-  assert.match(address.content, /^package acme\.crm\.domain\npackage clientMaster\.schema\n/);
-  const trait = files.find(f => f.path.endsWith('/NaturalPersonsV1.scala'))!;
-  assert.equal(trait.path, '01-domain/src/main/scala/acme/crm/domain/clientMaster/naturalPersons/v1/NaturalPersonsV1.scala');
-  assert.match(trait.content, /package clientMaster\.naturalPersons\.v1\n/);
-  const get = files.find(f => f.path.endsWith('/naturalPersons/v1/GetNaturalPersons.scala'))!;
-  assert.match(get.content, /object GetNaturalPersons extends NaturalPersonsV1:/);
-  assert.match(get.content, /"acme-crm-naturalPersonsV1\.GetNaturalPersons"/);
-  // the type of its own schema reaches into the shared one: both imported
-  const person = files.find(f => f.path.endsWith('/NaturalPerson.scala'))!;
-  assert.match(person.content, /import acme\.crm\.domain\.clientMaster\.schema\.\*/);
-  // each schema file once
-  assert.equal(files.filter(f => f.path.endsWith('/Address.scala')).length, 1);
-});
 
 /** the project has `Address` in the root of the hierarchy — `clientMaster.schema` */
 const sharedAddress = `package acme.crm.domain
@@ -326,15 +303,6 @@ test('two APIs with the same last level: the catalog marks them, the Abgleich do
   assert.deepEqual(r.renamedApis, []);
   assert.deepEqual(r.ambiguousApis, ['multipleNaturalPersons v1: clientMaster.multipleNaturalPersons, other.multipleNaturalPersons']);
   assert.equal(r.spec, c);
-  // in a collection: both APIs with the same topics
-  const both: ServiceCollectionSpec = {
-    ...c0,
-    services: [
-      { id: 's1', name: 'GetPersons', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/persons', params: [] },
-      { id: 's2', name: 'GetOther', api: 'other.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/others', params: [] },
-    ],
-  };
-  assert.ok(serviceIssues(both, both.services[0]).some(i => /Topic «acme-crm-multipleNaturalPersonsV1» hat auch die API «other\.multipleNaturalPersons»/.test(i)));
 });
 
 const getClients = `package acme.coreBanking.domain

@@ -23,14 +23,19 @@ const collection = (): ServiceCollectionSpec => ({
   types: [
     t('get-in', 'In', [['clientKey', 'Long']], 'get'), t('get-out', 'Out', [['name', 'String'], ['etag', 'String', true]], 'get'),
     t('put-in', 'In', [['clientKey', 'Long'], ['etag', 'String'], ['name', 'String']], 'put'), t('put-out', 'Out', [], 'put'),
-    t('crm-in', 'In', [['clientKey', 'Long']], 'crm'), t('crm-out', 'Out', [['segment', 'Int']], 'crm'),
   ],
   services: [
     svc('get', 'GetClient', 'GET'),
     svc('put', 'PutClient', 'PUT', { noOut: true }),
-    svc('crm', 'GetSegment', 'GET', { api: 'crm', apiVersion: 2 }),
   ],
 });
+// a collection has one API - the segment comes from another one (crm v2)
+const crm = (): ServiceCollectionSpec => ({
+  ...newCollection({ title: 'CRM', project: 'acme-crm', api: 'crm', apiVersion: 2 }),
+  types: [t('crm-in', 'In', [['clientKey', 'Long']], 'crm'), t('crm-out', 'Out', [['segment', 'Int']], 'crm')],
+  services: [svc('crm', 'GetSegment', 'GET', { api: 'crm', apiVersion: 2 })],
+});
+const collections = () => [collection(), crm()];
 
 const task = (id: string, name: string, kind = 'serviceTask') => `<bpmn:${kind} id="${id}" name="${name}" />`;
 const flow = (id: string, from: string, to: string, cond?: string) =>
@@ -87,7 +92,7 @@ test('the flow comes from the BPMN — only service and script tasks, parallel a
 
 test('what is known before a step: the In, the results before it — optional after an exclusive branch', () => {
   const o = orchestration();
-  const services = servicesByTopic([collection()]);
+  const services = servicesByTopic(collections());
   const steps = flowOf(o).steps;
   assert.deepEqual(varsAt(o, steps, services, 'Get').map(v => v.name), ['clientKey', 'name']);
   assert.deepEqual(varsAt(o, steps, services, 'Put').map(v => v.name), ['clientKey', 'name', 'getClient', 'crm', 'marker']);
@@ -100,7 +105,7 @@ test('what is known before a step: the In, the results before it — optional af
 });
 
 test('the CustomTask and the CustomWorker: one for in runWorkZIO', () => {
-  const files = orchestrationFiles(orchestration(), [collection()]);
+  const files = orchestrationFiles(orchestration(), collections());
   assert.deepEqual(files.map(f => f.path), [
     '01-domain/src/main/scala/acme/crm/domain/client/v1/UpdateClient.scala',
     '03-worker/src/main/scala/acme/crm/worker/client/v1/UpdateClientWorker.scala',
@@ -163,7 +168,7 @@ test('an Out with cases (ADT): one step that takes the first case whose conditio
       { name: 'Changed', condition: '= getClient.name != name', mappings: [{ name: 'etag', expression: '= getClient.etag' }, { name: 'segment', expression: '= crm.segment' }] },
       { name: 'Unchanged', mappings: [{ name: 'segment', expression: '= crm.segment' }] },
     ],
-  }, [collection()])[1].content;
+  }, collections())[1].content;
   assert.match(w, /out(\d+) <- \(\n\s+if getClient\.name != in\.name then\n\s+\(for \{\n\s+etag\d+ <- ZIO\.fromOption\(getClient\.etag\)\.orElseFail\(CustomError\("UpdateClient: etag fehlt"\)\)\n\s+\} yield Out\.Changed\(\n\s+segment = crm\.segment,\n\s+etag = etag\d+\n\s+\)\)\n\s+else\n\s+ZIO\.succeed\(Out\.Unchanged\(\n\s+segment = crm\.segment\n\s+\)\)\n\s+\)/, w);
   assert.match(w, /yield out\d+\n/, w);
 });
@@ -174,7 +179,7 @@ test('an Out that is an enum without cases yet: a TODO to choose the case - no c
   out.kind = 'enum';
   out.fields = [];
   out.values = [];
-  const w = orchestrationFiles({ ...o, outMappings: [] }, [collection()])[1].content;
+  const w = orchestrationFiles({ ...o, outMappings: [] }, collections())[1].content;
   assert.match(w, /\?\?\? \/\* TODO Out ist eine Auswahl \(enum\) — den Fall wählen: noch keine Fälle \*\//, w);
   assert.doesNotMatch(w, /out\d+ <- \(/, w);
 });
