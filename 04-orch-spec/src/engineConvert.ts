@@ -116,13 +116,18 @@ function toFeelSource(text: string, where: string, issue: Issue): string {
  * `….prop("username").stringValue()`.
  */
 function toJuel(text: string, where: string, issue: Issue, juel: JuelOptions): string {
+  return tryJuel(text, where, issue, juel) ?? text.trim();
+}
+
+/** Like `toJuel`, but null if the FEEL is not translatable (reported as an issue) */
+function tryJuel(text: string, where: string, issue: Issue, juel: JuelOptions): string | null {
   const t = text.trim();
   const body = feelBody(t);
   if (body == null) return t;
   const r = feelToJuel(body, juel);
   if (r.ok) return `\${${r.juel}}`;
   issue(where, `«${t}» ist nicht nach JUEL übersetzbar (${r.reason}) — von Hand anpassen.`);
-  return t;
+  return null;
 }
 
 /** Value of a `camunda:inputParameter` from a zeebe source: a FEEL string becomes fixed text again */
@@ -582,10 +587,10 @@ function toC8(defs: Element, ctx: Ctx) {
 function setVariableListener(el: Element, p: Element, event: 'start' | 'end', issue: Issue, ctx: Ctx, nullSafe = false): Element | null {
   const target = p.getAttribute('target') ?? '';
   const source = p.getAttribute('source') ?? '';
-  const juel = toJuel(source, `Ausgabe «${target}»`, issue, nullSafe ? { ...ctx.juel, allOptional: true } : ctx.juel);
-  // not translatable (toJuel reported it and returns the FEEL): no listener that would
-  // set the FEEL as a text — the output stays as a comment
-  if (feelBody(source.trim()) != null && !juel.startsWith('${')) {
+  const juel = tryJuel(source, `Ausgabe «${target}»`, issue, nullSafe ? { ...ctx.juel, allOptional: true } : ctx.juel);
+  // not translatable (reported as an issue): no listener that would set the FEEL
+  // as a text — the output stays as a comment
+  if (juel == null) {
     prependEl(el, el.ownerDocument.createComment(` ${C8_LABEL}, nicht übernommen: ${commentSafe(`zeebe:output source="${source}" target="${target}"`)} `) as unknown as Element);
     return null;
   }
@@ -666,7 +671,9 @@ function toC7(defs: Element, ctx: Ctx, opts: { timeToLive?: string }) {
       }
       const target = (p: Element) => p.getAttribute('target') ?? '';
       const names = (ps: Element[]) => ps.map(p => `«${target(p)}»`).join(', ');
-      if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.`);
+      // at a join the conditions of the gateway are evaluated before the end listener
+      const late = join ? ' Bedingungen am Gateway sehen noch den alten Wert.' : '';
+      if (outs.length) issue('Mapping', `Ausgabe ${names(outs)} als ${join ? 'End' : 'Start'}-Listener am ${name} — ${C7_LABEL} erlaubt dort kein Output-Mapping. ${C8_LABEL} hatte es dort ignoriert: prüfen, ob die Variable so gesetzt werden soll.${late}`);
       if (ins.length) issue('Mapping', `Eingabe ${names(ins)} NICHT übernommen — ein Gateway hat keine lokalen Variablen: von Hand umsetzen.`);
       // an output that reads a dropped input reads the process variable instead
       const read = ins.filter(i => outs.some(o => readsVariable(o.getAttribute('source') ?? '', target(i))));

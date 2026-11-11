@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { convertBpmn } from '../src/engineConvert';
+import { feelToJuel } from '../src/feelJuel';
 import { importExpression, juelToFeel } from '../src/juelFeel';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -66,6 +67,8 @@ for (const kind of ['parallelGateway', 'inclusiveGateway']) {
     const r = convertBpmn(c8(gateway(kind, ioMapping(COUNT), true), { join: true }), 'c7');
     assert.deepEqual(listeners(r.xml), ['end: ${execution.setVariable("count", execution.getVariable("count") + 1)}']);
     assert.ok(mappingIssues(r)[0].includes('als End-Listener'), JSON.stringify(r.issues));
+    // the conditions at a join are evaluated before the end listener - the issue says so
+    assert.ok(mappingIssues(r)[0].includes('Bedingungen am Gateway sehen noch den alten Wert'), JSON.stringify(r.issues));
   });
 }
 
@@ -83,7 +86,8 @@ test('C8 -> C7: a parallel gateway that joins and forks - the end listener, once
   assert.deepEqual(listeners(r.xml).map(l => l.split(':')[0]), ['end']);
 });
 
-test('C8 -> C7: an untranslatable output on an end event - a comment, not the FEEL as a text', () => {
+// not a gateway, but the same setVariableListener: events changed with it
+test('C8 -> C7 (event, not gateway): an untranslatable output on an end event - a comment, not the FEEL as a text', () => {
   const xml = c8('<bpmn:exclusiveGateway id="gw"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:exclusiveGateway>')
     .replace('<bpmn:endEvent id="e"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>',
       `<bpmn:endEvent id="e"><bpmn:extensionElements>${ioMapping('<zeebe:output source="=some x in xs satisfies x &gt; 1" target="any" />')}</bpmn:extensionElements><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>`);
@@ -193,6 +197,20 @@ test('C7 -> C8: execution.getVariable in arithmetic is null-safe - a missing cou
   assert.equal(importExpression('${execution.getVariable("a").prop("b") + 1}'), '= a.b + 1');
   // unary minus without getVariable stays
   assert.equal(importExpression('${-(a + b)}'), '= -(a + b)');
+});
+
+test('C7 -> C8: a marker does not leak through a method call', () => {
+  const r = juelToFeel('execution.getVariable("a").concat("x")');
+  assert.ok(r.ok && !r.feel.includes('\u0001'), JSON.stringify(r));
+  assert.equal(importExpression('${execution.getVariable("a").concat("x")}'), '= string(a) + "x"');
+});
+
+test('C8 -> C7: allOptional never rewrites a name bound in the expression', () => {
+  // `item` of a filter is `@` in JSONPath; for/some have no JUEL counterpart (rejected); a context key stays JSON
+  assert.deepEqual(feelToJuel('xs[item.x = 1]', { allOptional: true }), { ok: true, juel: 'S(execution.getVariable("xs")).jsonPath("$[?(@.x == 1)]").elementList()' });
+  for (const f of ['for x in xs return x + n', 'some x in xs satisfies x > n']) assert.equal(feelToJuel(f, { allOptional: true }).ok, false, f);
+  const ctx = feelToJuel('{a: 1}.a', { allOptional: true });
+  assert.ok(ctx.ok && !ctx.juel.includes('getVariable'), JSON.stringify(ctx));
 });
 
 test('C7 -> C8: a nested getVariable is a computed name - rejected, no marker leaks', () => {
