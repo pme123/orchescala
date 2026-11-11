@@ -54,6 +54,8 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
   /** the file shown - and where it comes from: kept with the collection, found in the project, or chosen now */
   const [current, setCurrent] = useState<{ o: OpenApiFile; origin: 'stored' | 'project' | 'chosen' } | null>(null);
   const { saveOpenApi, loadOpenApi } = useServices();
+  /** a file the user chose - the kept one or the one of the project folder (read in the background) must not replace it */
+  const chosen = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -85,10 +87,14 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
     setCurrent({ o, origin });
   };
   const read = async (f: File, origin: 'project' | 'chosen' = 'chosen') => {
-    setError(''); setApi(null); setPicked(new Set());
+    if (origin === 'chosen') chosen.current = true;
+    else if (chosen.current) return;
+    if (origin === 'chosen') { setError(''); setApi(null); setPicked(new Set()); }
     const r = await readOpenApiFile(f);
+    // chosen while the project's file was read: that one is dropped
+    if (origin === 'project' && chosen.current) return;
     if (r.ok) open(r.value, origin);
-    else setError(r.message);
+    else if (origin === 'chosen') setError(r.message);
   };
   // the file chosen at «Neue Collection» — read already, shown right away; otherwise the one the
   // collection keeps; without one the file of its name in the project folder (below)
@@ -100,7 +106,7 @@ export default function OpenApiImport({ spec, model, isDark, initial, onClose, o
     let alive = true;
     // not readable (access revoked, file gone): as without one - the project folder is looked in next
     void loadOpenApi(stored, spec.source.file)
-      .then(o => { if (alive && o) open(o, 'stored'); })
+      .then(o => { if (alive && o && !chosen.current) open(o, 'stored'); })
       .catch(e => console.warn('[orch-spec] hinterlegtes OpenAPI nicht lesbar:', e))
       .finally(() => { if (alive) setLooked(true); });
     return () => { alive = false; };
