@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { importBpmn } from '../src/bpmn';
 import { checkFeel, processVariables } from '../src/feel';
+import { feelToJuel } from '../src/feelJuel';
 import type { ProcessSpec } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -30,28 +31,35 @@ const knowsKey = (topic: string, engine: ProcessSpec['engine']): boolean => {
   return processVariables(spec, null).some(v => v.name === 'processInstanceId');
 };
 
-test('Camunda 8: processInstanceId is unknown - also with an InitWorker, it no longer sets it', () => {
-  assert.ok(!knowsKey(PID, 'c8'));
-  assert.ok(!knowsKey('acme-other-topic', 'c8'));
-});
-
-test('Camunda 8: camunda.processInstance.key is known - with and without an InitWorker', () => {
-  for (const topic of [PID, 'acme-other-topic']) {
-    const spec = { ...importBpmn(bpmn(topic), 'key.bpmn').spec, engine: 'c8' as const };
-    for (const expr of ['= camunda.processInstance.key', '= string(camunda.processInstance.key)', '= "cancel-" + string(camunda.processInstance.key)', '= camunda.processInstance.businessId'])
-      assert.deepEqual(checkFeel(expr, processVariables(spec, null)).issues.filter(i => i.level === 'error'), [], `${topic}: ${expr}`);
+test('C7 and C8: processInstanceId is unknown - also with an InitWorker, the own instance is the context', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    assert.ok(!knowsKey(PID, engine), engine);
+    assert.ok(!knowsKey('acme-other-topic', engine), engine);
   }
 });
 
-test('Camunda 7: processInstanceId is always known - the export uses execution.processInstanceId', () => {
-  assert.ok(knowsKey('acme-other-topic', 'c7'));
+test('C7 and C8: camunda.processInstance.key is known - with and without an InitWorker', () => {
+  for (const engine of ['c7', 'c8'] as const) for (const topic of [PID, 'acme-other-topic']) {
+    const spec = { ...importBpmn(bpmn(topic), 'key.bpmn').spec, engine };
+    for (const expr of ['= camunda.processInstance.key', '= string(camunda.processInstance.key)', '= "cancel-" + string(camunda.processInstance.key)', '= camunda.processInstance.businessId'])
+      assert.deepEqual(checkFeel(expr, processVariables(spec, null)).issues.filter(i => i.level === 'error'), [], `${engine} ${topic}: ${expr}`);
+  }
 });
 
-test('Camunda 8: the old variables processInstanceId and processInstanceKey are reported with the own key', () => {
-  const spec = { ...importBpmn(bpmn(PID), 'key.bpmn').spec, engine: 'c8' as const };
-  for (const old of ['processInstanceId', 'processInstanceKey']) {
-    const r = checkFeel(`= ${old}`, processVariables(spec, null));
-    assert.ok(r.issues.some(i => i.level === 'error' && i.text.includes('camunda.processInstance.key')), old);
+test('export to C7: only the context is execution.processInstanceId - a variable processInstanceId stays a variable', () => {
+  const own = feelToJuel('string(camunda.processInstance.key)');
+  assert.ok(own.ok && own.juel === 'execution.processInstanceId', JSON.stringify(own));
+  const plain = feelToJuel('processInstanceId');
+  assert.ok(plain.ok && !plain.juel.includes('execution.'), JSON.stringify(plain));
+});
+
+test('C7 and C8: the old variables processInstanceId and processInstanceKey are reported with the own key', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const spec = { ...importBpmn(bpmn(PID), 'key.bpmn').spec, engine };
+    for (const old of ['processInstanceId', 'processInstanceKey']) {
+      const r = checkFeel(`= ${old}`, processVariables(spec, null));
+      assert.ok(r.issues.some(i => i.level === 'error' && i.text.includes('camunda.processInstance.key')), `${engine}: ${old}`);
+    }
   }
 });
 

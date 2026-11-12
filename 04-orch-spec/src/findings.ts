@@ -506,7 +506,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (isEventBoundary(e) && e.eventKind === 'message' && !e.pattern) {
       const corr = correlationOf(e.correlationKey, spec.engine);
       if (corr.missing) warnings.push(`Nachricht «${e.code}»: kein Korrelationsschlüssel — in ${C8_LABEL} findet sie keine wartende Instanz.`);
-      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: ${corr.expression?.replace(/^=\s*/, '')} setzt der InitWorker nicht mehr — «processInstanceId» wählen (string(camunda.processInstance.key), ${C8_LABEL} ab 8.10).`);
+      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: ${corr.expression?.replace(/^=\s*/, '')} ist keine Variable der Instanz — «processInstanceId» wählen (string(camunda.processInstance.key), ${C8_LABEL} ab 8.10; ${C7_LABEL}: execution.processInstanceId).`);
     }
   });
 

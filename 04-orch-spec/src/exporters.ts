@@ -323,7 +323,7 @@ function exportOrchescala(spec: ProcessSpec, model: Model | null): string {
         : corr.missing
           ? 'Kein Korrelationsschlüssel — die Nachricht findet so keine wartende Instanz.'
           : corr.misnamed
-            ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: die Variable setzt der InitWorker nicht mehr, die eigene Instanz ist \`string(camunda.processInstance.key)\`.`
+            ? `Korrelationsschlüssel \`${corr.expression}\` — **falsch**: das ist keine Variable der Instanz, die eigene Instanz ist \`string(camunda.processInstance.key)\` (${C7_LABEL}: \`execution.processInstanceId\`).`
             : corr.choice
               ? `Korreliert über \`${corr.param}\`${spec.engine === 'c8' ? ` (Korrelationsschlüssel \`${corr.expression}\`)` : ''}.`
               : `Korrelationsschlüssel \`${corr.expression}\` — gesendet mit \`${corr.param}\`.`, '');

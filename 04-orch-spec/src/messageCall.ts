@@ -26,7 +26,7 @@ const OWN_KEY = /^(string\(\s*camunda\.processInstance\.key\s*\)|camunda\.proces
 /** The business id of the instance in FEEL (Camunda 8.10) */
 const BUSINESS_ID = /^camunda\.processInstance\.businessId$/;
 
-/** The old variables of the InitWorker — in Camunda 8 no worker sets them any more */
+/** Old names of the own instance — no variable of the instance; it is the context `camunda.processInstance.key` */
 const OLD_ID = new Set(['processInstanceId', 'processInstanceKey']);
 
 export interface MessageCorrelation {
@@ -45,9 +45,9 @@ export interface MessageCorrelation {
   /** a fixed value instead of `= …` — all instances share it */
   fixed?: boolean;
   /**
-   * Camunda 8 `= processInstanceId` (or the older `= processInstanceKey`) — the
-   * InitWorker no longer sets it: the key stays empty, the event an incident.
-   * The own instance is `camunda.processInstance.key`.
+   * `= processInstanceId` (or the older `= processInstanceKey`) — no variable of the
+   * instance (in Camunda 8 the key stays empty, the event an incident). The own instance
+   * is always `camunda.processInstance.key` (in Camunda 7 exported as `execution.processInstanceId`).
    */
   misnamed?: boolean;
 }
@@ -73,8 +73,6 @@ export function correlationOf(expression: string | undefined, engine: EngineId |
   const body = expression.replace(/^=\s*/, '').trim();
   if (BUSINESS_ID.test(body)) return of('businessKey');
   if (OWN_KEY.test(body)) return of('processInstanceId');
-  // Camunda 7 has no correlation key in the BPMN — an older choice stays a choice
-  if (body === 'processInstanceId' && (engine ?? 'c7') !== 'c8') return of('processInstanceId');
   if (OLD_ID.has(body)) return { ...of('processInstanceId'), choice: null, misnamed: true };
   // another variable: its value is the key; otherwise an expression the sender computes
   const value = /^[A-Za-z_][\w.]*$/.test(body) ? `{{${body.split('.').pop()}}}` : `<${body}>`;

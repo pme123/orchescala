@@ -55,7 +55,9 @@ test('one of the two ways is chosen - in C8 as the key of the message', () => {
   assert.equal(messageCorrelation(step(), 'c8')?.missing, true);
   // Camunda 7: without a choice the sender takes one of the two — with a choice, that applies
   assert.equal(messageCorrelation(step(), 'c7')?.either, true);
-  assert.equal(messageCorrelation(step('=processInstanceId'), 'c7')?.choice, 'processInstanceId');
+  // the own instance is always the context - in C7 too
+  assert.equal(messageCorrelation(step('=string(camunda.processInstance.key)'), 'c7')?.choice, 'processInstanceId');
+  assert.equal(messageCorrelation(step('=processInstanceId'), 'c7')?.misnamed, true);
   assert.equal(messageCorrelation(step('=camunda.processInstance.businessId'), 'c7')?.choice, 'businessKey');
   // a throwing event waits for nothing
   assert.equal(messageCorrelation({ ...step('=businessKey'), eventDirection: 'throw' }, 'c8'), null);
