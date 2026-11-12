@@ -68,7 +68,8 @@ function tokenize(src: string): Tok[] {
   return out;
 }
 
-const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/** A FEEL text literal — a raw line break is no valid FEEL text, so it is escaped too */
+const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
 
 /** A JSON value as a FEEL literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
 export function jsonToFeel(v: unknown): string {
@@ -129,6 +130,9 @@ export function groovyToFeel(script: string): string | null {
     }
     return null;
   };
+  // deeper nesting than any mapping has: a script from a foreign BPMN, not read further
+  const MAX_DEPTH = 50;
+  let depth = 0;
   const value = (): string | null => {
     ws();
     const ch = src[i];
@@ -145,6 +149,7 @@ export function groovyToFeel(script: string): string | null {
   };
   // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
   const collection = (): string | null => {
+    if (++depth > MAX_DEPTH) return null;
     i++; ws();
     if (src.startsWith(':]', i)) { i += 2; return '{}'; }
     if (src[i] === ']') { i++; return '[]'; }
@@ -178,6 +183,7 @@ export function groovyToFeel(script: string): string | null {
       if (src[i] === ']') { i++; break; }
       return null;
     }
+    depth--;
     return map ? `{${items.join(', ')}}` : `[${items.join(', ')}]`;
   };
   const feel = value();

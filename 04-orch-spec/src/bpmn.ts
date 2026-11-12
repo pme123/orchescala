@@ -194,11 +194,14 @@ function fachlich(p: Element): string {
   const fromFeel = script ? /^\s*\/\/ FEEL: (.+)$/m.exec(text(script).split('\n').find(l => l.trim()) ?? '') : null;
   if (fromFeel) return `= ${fromFeel[1].trim()}`;
   // a Groovy literal (`[fileIdLetter, docLink]`) reads the same in FEEL — no script to rewrite
-  const literal = script && (attr(script, 'scriptFormat') ?? '').toLowerCase() === 'groovy' ? groovyToFeel(text(script)) : null;
+  const literal = script && isGroovy(script) ? groovyToFeel(text(script)) : null;
   if (literal) return `= ${literal}`;
   if (script || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
   return importExpression(text(p));
 }
+
+/** A script in Groovy — the format in any case */
+const isGroovy = (script: Element): boolean => (attr(script, 'scriptFormat') ?? '').toLowerCase() === 'groovy';
 
 function paramValue(p: Element): string {
   const script = firstNamed(p, 'script');

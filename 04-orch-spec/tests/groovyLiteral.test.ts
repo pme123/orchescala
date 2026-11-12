@@ -8,6 +8,8 @@ import { allSteps, importBpmn } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
 import { groovyToFeel, outputSource } from '../src/juelFeel';
 import { feelRef, isPlainFeelName } from '../src/feelNames';
+import type { VarNode } from '../src/feel';
+import { stepFindings } from '../src/findings';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 (globalThis as unknown as { XMLSerializer: unknown }).XMLSerializer = class { serializeToString(n: Node) { return String(n); } };
@@ -27,6 +29,8 @@ test('anything else stays a script', () => {
     '[a.b]', '[a()]', 'a + b', '"x ${a}"', '[a ? b : c]', '[1L]', 'def x = 1; [x]', '[a: 1, b]', '[a',
     // triple-quoted text, a unicode escape, a comment, a bare `return`
     "'''x'''", '"""x"""', "'\\u00e9'", '[a] // the letters', '/* x */ [a]', 'return', 'return ',
+    // a list entry and a map entry mixed
+    '[a, b: 1]', '[b: 1, a]',
   ]) {
     assert.equal(groovyToFeel(s), null, s);
   }
@@ -79,9 +83,19 @@ test('feelRef: plain names as they are, the rest in backticks (also «+ aus Kata
 });
 
 test('non-ASCII names convert like ASCII ones', () => {
-  assert.equal(groovyToFeel('[Gebühr, Straße: 1]'), null); // a list entry and a map entry mixed
   assert.equal(groovyToFeel('[Gebühr, Straße]'), '[Gebühr, Straße]');
   assert.equal(groovyToFeel('[Straße: Gebühr]'), '{Straße: Gebühr}');
+});
+
+test('line breaks and tabs in a text are escaped in FEEL', () => {
+  assert.equal(groovyToFeel("['a\\nb', \"c\\td\", 'e\\\\f', 'say \"hi\"']"), '["a\\nb", "c\\td", "e\\\\f", "say \\"hi\\""]');
+});
+
+test('nesting deeper than 50 stays a script', () => {
+  assert.equal(groovyToFeel(`${'['.repeat(50)}a${']'.repeat(50)}`), `${'['.repeat(50)}a${']'.repeat(50)}`);
+  assert.equal(groovyToFeel(`${'['.repeat(51)}a${']'.repeat(51)}`), null);
+  // no stack overflow on a hostile file
+  assert.equal(groovyToFeel('['.repeat(100000)), null);
 });
 
 test('Spin and the script binding stay a script', () => {
@@ -132,6 +146,23 @@ test('import: the script format decides, and a FEEL line from the export wins', 
   assert.equal(expr(bpmn('[a, b]', 'x', ' scriptFormat="javascript"')), '«javascript» [a, b]');
   // the script the export wrote from FEEL: its `// FEEL:` line, not the literal after it
   assert.equal(expr(bpmn('// FEEL: [a, b, c]\n[a, b]', 'x')), '= [a, b, c]');
+});
+
+test('C7 export: every unchanged literal stays the script it was', () => {
+  for (const script of ['return [a];', "['x', \"y\"]", '[a: \'Gebühr\']', '// FEEL: [a, b, c]\n[a, b]']) {
+    const xml = bpmn(script);
+    const { spec } = row(xml);
+    const out = writeBpmn(xml, spec).xml.replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    assert.ok(out.includes(`<camunda:script scriptFormat="groovy">${script}</camunda:script>`), `${script}\n${out}`);
+  }
+});
+
+test('an unknown variable in the list is a finding of the step (Groovy fails there, FEEL gives null)', () => {
+  const { spec, step } = row(bpmn('[fileIdLetter, docLink]'));
+  const errors = stepFindings(step, spec, null, [{ name: 'fileIdLetter', type: 'string' } as VarNode]).errors;
+  assert.ok(errors.some(e => e.startsWith('«lettersToSend»') && e.includes('Variable «docLink» ist nicht bekannt')), errors.join('\n'));
+  // the known one is fine
+  assert.ok(!errors.some(e => e.includes('Variable «fileIdLetter» ist nicht bekannt')), errors.join('\n'));
 });
 
 test('import and C7 export of a Groovy map', () => {
