@@ -1413,7 +1413,8 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       })).concat(extra(step.inputs, inParams)), vin, 'inputs'),
       outputs: ofCase(outParams.map(pm => ({
         name: pm.name,
-        expression: oldOut.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
+        // without a source of its own the field of the result of the same name — as «+ aus Katalog»
+        expression: oldOut.get(pm.name)?.expression || feelIfPossible(pm.expression ?? '') || `= ${pm.name}`,
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
         ...(oldOut.get(pm.name)?.disabled ? { disabled: true } : {}),
       })).concat(extra(step.outputs, outParams)), vout, 'outputs'),
