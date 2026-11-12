@@ -42,13 +42,13 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Datenmodells oder eine der Domain (etwa das Out eines Services). Das In und Out einer Interaktion
   (Benutzer-Task, Worker) bleibt beim RE.
 
-  Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/v1/messages`); eine Aufgabe
+  Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/turn`); eine Aufgabe
   ohne Skill lehnt das Studio ab (403).
 - **Der Skill bestimmt, nicht der Browser:** Das Studio setzt die Anweisungen des Skills
   (Abschnitt «Instructions») an den Anfang jeder Anfrage; orch-spec schickt nur den Kontext
   (Katalog, Datenmodell, Seiten). Modell, Denken, Aufwand und Fallback nimmt das Studio aus dem
-  Skill, und es lässt nur die Werkzeuge des Skills zu. Die Grenzen pro Wunsch und Person
-  (`limits`) kommen mit dem Agent auf dem Server.
+  Skill, und es lässt nur die Werkzeuge des Skills zu. Es hält auch die Grenzen pro Wunsch ein
+  (`limits`); die Grenze pro Person kommt mit dem Login.
 - **Ohne Freigabe ist von KI nichts zu sehen:** kein Symbol, keine Panels, keine
   Buttons, und der KI-Code (samt SDK von Anthropic) wird gar nicht geladen. So
   ist es auch ohne Studio, etwa für die Doku als Ordner oder auf GitHub Pages.
@@ -56,9 +56,9 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
 - **Mit Freigabe ist der KI-Modus an.** Oben rechts erscheint das violette
   Symbol ✦ (Dialog **KI-Modus**: Anbieter, Modell und die Aufgaben mit Skill),
   und an den Stellen dieser Aufgaben der Button **Claude**.
-- **Im Browser liegt kein Key.** Die Anfragen gehen an das Studio
-  (`/ai/<Aufgabe>/v1/messages`), und das Studio schickt sie mit seinem Key
-  weiter. Das Modell bestimmt der Skill, `max_tokens` ist begrenzt. Ein Key,
+- **Im Browser liegt kein Key.** Ein Wunsch geht an das Studio
+  (`/ai/<Aufgabe>/turn`), und das Studio schickt jede Anfrage mit seinem Key
+  an die Claude API. Das Modell bestimmt der Skill, `max_tokens` ist begrenzt. Ein Key,
   den eine frühere Version im Browser gespeichert hat
   (`orch-spec.anthropicKey`), wird beim Laden gelöscht.
 - **Die Kosten trägt, wem der Key des Studios gehört:** die Firma, nicht die
@@ -153,22 +153,16 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 ## Technik
 
-- **Ablauf über das Studio:** Wo die Agent-Schleife läuft, sagt das Studio
-  (`STUDIO_AI_AGENT`, in `GET /ai/config` als `agent`):
-  - **im Browser** (`STUDIO_AI_AGENT=browser`, der Rückweg): mit dem TypeScript-SDK von Anthropic. Dessen
-    Basis-URL ist die Adresse der Aufgabe im Studio (`/ai/uiCreator`); das Studio
-    wendet den Skill an, setzt Key und Workspace und gibt die Antwort unverändert
-    zurück, auch Fehler der API.
-  - **im Studio** (`agent: server`, die Vorgabe, E28 Schritt 5): orch-spec schickt Wunsch,
-    Entwurf und Kontext an `POST /ai/<Aufgabe>/turn`. Das Studio führt dieselbe
-    Schleife aus (`src/ai/turn.ts` im Kern, mit den Werkzeugen der Aufgabe) und
-    hält dabei die Grenzen des Skills ein (`limits`: Anfragen, Korrekturen, Kosten
-    pro Wunsch). Die Ereignisse kommen laufend, eine JSON-Zeile je Ereignis, am
-    Ende der Entwurf. Derselbe Wunsch gibt denselben Entwurf wie im Browser.
-    Hält der RE an, endet der Zug auch im Studio; was dort schon geschah, fällt
-    weg, und der Entwurf bleibt, wie er war.
-  Die Schleife im Browser bleibt als Rückweg, bis die im Studio stabil läuft; ein
-  Studio, das `agent` nicht nennt (älter als Schritt 5), hat nur sie.
+- **Die Schleife läuft im Studio** (E28 Schritt 5): orch-spec schickt Wunsch,
+  Entwurf und Kontext an `POST /ai/<Aufgabe>/turn`. Das Studio führt die
+  Schleife aus (`src/ai/turn.ts` im Kern, mit den Werkzeugen der Aufgabe), wendet
+  bei jeder Anfrage den Skill an, setzt Key und Workspace und hält die Grenzen des
+  Skills ein (`limits`: Anfragen, Korrekturen, Kosten pro Wunsch). Die Ereignisse
+  kommen laufend, eine JSON-Zeile je Ereignis, am Ende der Entwurf. Fehler der API
+  kommen in der Form der API zurück; orch-spec liest sie mit dem SDK von Anthropic.
+  Hält der RE an, endet der Zug auch im Studio; was dort schon geschah, fällt
+  weg, und der Entwurf bleibt, wie er war. Die frühere Schleife im Browser
+  (`/ai/<Aufgabe>/v1/messages`, `STUDIO_AI_AGENT`) gibt es nicht mehr.
 - **Anfrage:** wie im Skill – heute bei allen drei `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
@@ -190,7 +184,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 |---|---|
 | `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, die Aufgaben mit Skill, `useAiFor` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
-| `src/ai/client.ts` | `send` mit dem SDK über das Studio, der Zug im Studio (`turnOnStudio`), Fehlertexte |
+| `src/ai/client.ts` | der Zug im Studio (`turnOnStudio`), Fehlertexte |
 | `src/ai/turn.ts` | der Zug im Studio: die Aufgaben mit Zug, ihre Werkzeuge, die Anfrage, die Zeilen der Antwort (im Kern – dasselbe für orch-spec und Studio) |
 | `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen sind in den Skills des Studios) |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
@@ -201,7 +195,7 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 | `src/ai/AiChat.tsx`, `AiPanel.tsx`, `ProcessAiPanel.tsx` | der Chat, für Seiten und Prozesse |
 
 Tests: `tests/aiPages.test.ts`, `tests/aiProcess.test.ts` und `tests/aiTurn.test.ts`
-(der Zug im Studio: derselbe Entwurf wie im Browser, die Grenzen, der Client). Sie
+(der Zug im Studio: derselbe Entwurf wie mit der Schleife allein, die Grenzen, der Client). Sie
 laufen ohne Netz, Claude ist darin gemockt. Geprüft werden die Werkzeuge, Übernehmen und
 Verwerfen, die Selbstkorrektur, der Schalter über das Studio, die Kosten und die
 Unterschiede.

@@ -1,12 +1,10 @@
 // One turn of the agent on the studio (E28, step 5): orch-spec sends the request of the RE, the draft
 // and what the tools need; the studio runs the loop (agent.ts) with the tools of the task and the limits
-// of its skill, and answers with the events as they come and the result at the end. The loop in the
-// browser stays (the studio's `agent` says which one runs) - both run the same code from here, so the
-// same request gives the same draft.
+// of its skill, and answers with the events as they come and the result at the end.
 //
-// What is the same on both sides lives here: the tasks with a turn, the tools of each, the body of the
-// request and the lines of the answer. The studio only transports - it sends each request of the loop
-// to the Claude API with its key and the skill applied, as it does for the loop in the browser.
+// What both sides need lives here: the tasks with a turn, the tools of each, the body of the request and
+// the lines of the answer. The studio only transports - it sends each request of the loop to the Claude
+// API with its key and the skill applied.
 import type { BetaMessageParam, BetaTextBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Targets } from '../pages/designer/model';
 import type { Page } from '../pages/runtime/spec';

@@ -5,7 +5,7 @@ import { statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
 /** The AI of the studio (E23) - the key stays on the server. orch-spec only learns that the AI is on
-  * and which model answers (`GET /ai/config`); its requests go through the studio (see ai.ts). */
+  * and which model answers (`GET /ai/config`); its agent runs on the studio (see ai.ts). */
 export type AiConfig = {
   /** the key of the Claude API - the company's, not a person's */
   apiKey: string;
@@ -15,14 +15,7 @@ export type AiConfig = {
   model: string;
   /** the Claude API - another one for a gateway of the company (or a test) */
   baseUrl: string;
-  /** `server` (the default of STUDIO_AI_AGENT): orch-spec runs the loop of the agent on the studio
-    * (`POST /ai/<task>/turn`, with the limits of the skill); without it in the browser, each request
-    * through the studio - the way back while the studio's loop is new (E28, step 5) */
-  agent?: 'server';
 };
-
-/** Where the loop of the agent runs - `STUDIO_AI_AGENT`. */
-export const AGENTS = ['server', 'browser'] as const;
 
 export type StudioConfig = {
   port: number;
@@ -64,8 +57,7 @@ export function apiUrl(baseUrl: string): URL | string {
   *   - `STUDIO_AI_ANTHROPIC_API_KEY` the key (the switch)
   *   - `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` only if the API asks for it
   *   - `STUDIO_AI_MODEL` default DEFAULT_MODEL
-  *   - `STUDIO_AI_ANTHROPIC_URL` default ANTHROPIC_URL - one that is no http(s) URL ends the start
-  *   - `STUDIO_AI_AGENT` `server` (default) or `browser` - where the loop of the agent runs */
+  *   - `STUDIO_AI_ANTHROPIC_URL` default ANTHROPIC_URL - one that is no http(s) URL ends the start */
 export function aiFromEnv(env: Env): AiConfig | undefined {
   const get = (name: string) => env[name]?.trim() || undefined;
   const apiKey = get('STUDIO_AI_ANTHROPIC_API_KEY');
@@ -74,9 +66,7 @@ export function aiFromEnv(env: Env): AiConfig | undefined {
   const url = apiUrl(baseUrl);
   if (typeof url === 'string') throw new Error(url);
   const workspaceId = get('STUDIO_AI_ANTHROPIC_WORKSPACE_ID');
-  const agent = get('STUDIO_AI_AGENT') ?? 'server';
-  if (!(AGENTS as readonly string[]).includes(agent)) throw new Error(`STUDIO_AI_AGENT is «${agent}» - only ${AGENTS.join(' or ')}`);
-  return { apiKey, ...(workspaceId ? { workspaceId } : {}), model: get('STUDIO_AI_MODEL') ?? DEFAULT_MODEL, baseUrl, ...(agent === 'server' ? { agent: 'server' as const } : {}) };
+  return { apiKey, ...(workspaceId ? { workspaceId } : {}), model: get('STUDIO_AI_MODEL') ?? DEFAULT_MODEL, baseUrl };
 }
 
 /** The settings from the environment: `STUDIO_PORT`, `STUDIO_HOST`, `STUDIO_APPS_DIR`, `STUDIO_SITE_DIR`,
@@ -115,4 +105,4 @@ export function configFromEnv(env: Env = process.env, cwd = process.cwd()): Stud
 
 /** The AI for the log - never the key. */
 export const describeAi = (ai: AiConfig) =>
-  `anthropic, ${ai.model}${ai.workspaceId ? `, workspace ${ai.workspaceId}` : ''}, ${ai.baseUrl}, the agent ${ai.agent === 'server' ? 'on the studio' : 'in the browser'}`;
+  `anthropic, ${ai.model}${ai.workspaceId ? `, workspace ${ai.workspaceId}` : ''}, ${ai.baseUrl}`;
