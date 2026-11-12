@@ -88,9 +88,16 @@ export function jsonToFeel(v: unknown): string {
  * and the Groovy keywords: a list of them stays a script
  */
 const GROOVY_ONLY = new Set([
-  // the bindings of a Camunda 7 script and Spin
+  // the bindings of a Camunda 7 script and of a Groovy script
   'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'externalTask', 'caseExecution',
-  'connector', 'authenticatedUserId', 'variableScope', 'S', 'JSON', 'XML',
+  'connector', 'authenticatedUserId', 'variableScope', 'binding', 'out', 'log', 'args',
+  // classes a Groovy script knows without an import (java.lang, java.util, java.math …) and
+  // Spin — a bare name of them is the class, no variable. Not every capitalised name:
+  // `Gebühr` is a variable
+  'S', 'JSON', 'XML', 'Spin', 'Math', 'System', 'Runtime', 'Thread', 'Object', 'Objects', 'Class',
+  'String', 'Integer', 'Long', 'Short', 'Byte', 'Double', 'Float', 'Boolean', 'Character', 'Number',
+  'BigDecimal', 'BigInteger', 'Collections', 'Arrays', 'List', 'Map', 'Set', 'ArrayList', 'HashMap',
+  'LinkedHashMap', 'HashSet', 'Optional', 'UUID', 'Date', 'Calendar', 'Locale', 'Exception',
   'abstract', 'as', 'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
   'do', 'else', 'enum', 'extends', 'final', 'finally', 'goto', 'implements', 'import', 'instanceof',
   'interface', 'native', 'new', 'package', 'private', 'protected', 'public', 'static', 'switch',
@@ -142,7 +149,7 @@ export function groovyToFeel(script: string): string | null {
       if (ch === '$' && q === '"') return null;
       if (ch === '\\') {
         const next = src[++i];
-        const esc: Record<string, string> = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"', $: '$' };
+        const esc: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', '\\': '\\', "'": "'", '"': '"', $: '$' };
         if (!(next in esc)) return null;
         out += esc[next];
       } else out += ch;
@@ -169,7 +176,7 @@ export function groovyToFeel(script: string): string | null {
   const collection = (): string | null => {
     if (++depth > MAX_DEPTH) return null;
     i++; ws();
-    if (src.startsWith(':]', i)) { i += 2; return '{}'; }
+    if (src[i] === ':') { i++; ws(); if (src[i] !== ']') return null; i++; return '{}'; }
     if (src[i] === ']') { i++; return '[]'; }
     const items: string[] = [];
     const keys = new Set<string>();

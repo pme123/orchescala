@@ -99,7 +99,22 @@ test('nesting deeper than 50 stays a script', () => {
 });
 
 test('the bindings of a Camunda 7 script stay a script', () => {
-  for (const s of ['[externalTask]', '[caseExecution]', '[connector]', '[authenticatedUserId]', '[variableScope]']) assert.equal(groovyToFeel(s), null, s);
+  for (const s of ['[externalTask]', '[caseExecution]', '[connector]', '[authenticatedUserId]', '[variableScope]', '[binding]', '[out]', '[log]']) assert.equal(groovyToFeel(s), null, s);
+});
+
+test('a class name stays a script, a capitalised variable does not', () => {
+  for (const s of ['[Math]', 'System', '[Collections]', '[a: Integer]', '[UUID]']) assert.equal(groovyToFeel(s), null, s);
+  assert.equal(groovyToFeel('[Gebühr, Kunde]'), '[Gebühr, Kunde]');
+});
+
+test('the empty map with spaces', () => {
+  for (const s of ['[ : ]', '[:\n]', '[\n:\n]']) assert.equal(groovyToFeel(s), '{}', JSON.stringify(s));
+  assert.equal(groovyToFeel('[: a]'), null);
+});
+
+test('control characters other than line breaks and tabs stay raw — FEEL reads them, its \\u escape is greedy', () => {
+  // Groovy `\b` / `\f` (backspace, form feed): the character itself in the FEEL text
+  assert.equal(groovyToFeel("['a\\bb', 'c\\fd']"), '["a\bb", "c\fd"]');
 });
 
 test('a long flat list is read in linear time', () => {
