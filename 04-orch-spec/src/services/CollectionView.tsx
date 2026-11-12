@@ -192,6 +192,7 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
         missing: true,
         text: classes ? `${hit ? source : 'Der Katalog'} hat keine Klassen in ${classes}`
           : gap?.missing.length ? `${hit ? source : 'Der Katalog'} kennt ${gap.missing.length === 1 ? 'die API' : 'die APIs'} ${gap.missing.join(', ')} nicht — das Projekt hat ${gap.known.join(', ') || 'keine REST-Services'}`
+          : gap ? `${hit ? source : 'Der Katalog'} ordnet ${gap.apis.length === 1 ? 'die API' : 'die APIs'} ${gap.apis.join(', ')} keiner API des Projekts eindeutig zu — das Projekt hat ${gap.known.join(', ') || 'keine REST-Services'}`
           : hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt',
       };
     }

@@ -428,6 +428,7 @@ test('Abgleich without a match: the APIs the project lacks are named - with the 
   const c = twoApis();
   assert.equal(syncWithCatalog(c, model), null);
   assert.deepEqual(missingApis(c, model), {
+    apis: ['clientMaster.naturalPersons v1'],
     missing: ['clientMaster.naturalPersons v1 (acme-crm-naturalPersonsV1)'],
     known: ['naturalPerson v1'],
   });
@@ -469,4 +470,28 @@ test('Abgleich: own types no service uses and the domain does not know are liste
   const d = syncWithCatalog(c, model, new Set(), new Set(left.map(x => x.id)))!;
   assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
   assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson'));
+});
+
+test('Abgleich: deleting a service keeps an In or Out another service still uses', () => {
+  const c0 = twoApis();
+  const [natural, legal] = c0.services;
+  assert.ok(natural.inTypeId);
+  const c = { ...c0, services: [natural, { ...legal, inTypeId: natural.inTypeId }] };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.spec.types.some(t => t.id === natural.inTypeId), 'the shared In stays');
+  // its own Out goes
+  if (legal.outTypeId) assert.ok(!d.spec.types.some(t => t.id === legal.outTypeId));
+});
+
+test('Abgleich: an id to delete that is not missing in the project changes nothing', () => {
+  const c = twoApis();
+  const [natural] = c.services;
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const kept = syncWithCatalog(c, model)!;
+  const odd = syncWithCatalog(c, model, new Set(), new Set([natural.id, natural.inTypeId ?? '', 'no-such-id']))!;
+  assert.deepEqual(odd.spec, kept.spec);
 });
