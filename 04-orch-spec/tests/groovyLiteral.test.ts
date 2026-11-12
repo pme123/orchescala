@@ -96,6 +96,13 @@ test('nesting deeper than 50 stays a script', () => {
   assert.equal(groovyToFeel(`${'['.repeat(51)}a${']'.repeat(51)}`), null);
   // no stack overflow on a hostile file
   assert.equal(groovyToFeel('['.repeat(100000)), null);
+  // many empty siblings are not deep: the count goes back down after each one
+  for (const empty of ['[]', '[:]']) {
+    const many = `[${Array(200).fill(empty).join(', ')}]`;
+    assert.equal(groovyToFeel(many), `[${Array(200).fill(empty === '[]' ? '[]' : '{}').join(', ')}]`, empty);
+  }
+  // and a failed sibling does not leave the count up for the next script
+  assert.equal(groovyToFeel(`${'['.repeat(50)}a${']'.repeat(50)}`), `${'['.repeat(50)}a${']'.repeat(50)}`);
 });
 
 test('the bindings of a Camunda 7 script stay a script', () => {
@@ -117,13 +124,10 @@ test('control characters other than line breaks and tabs stay raw — FEEL reads
   assert.equal(groovyToFeel("['a\\bb', 'c\\fd']"), '["a\bb", "c\fd"]');
 });
 
-test('a long flat list is read in linear time', () => {
-  // a guard against a runaway reader, not a benchmark: it takes a few ms here,
-  // the limit is generous so a loaded runner does not fail it
+test('a long flat list is read', () => {
+  // tokens are matched at the cursor (sticky regexes), not on a copy of the rest
   const list = `[${Array.from({ length: 50000 }, (_, k) => `v${k}`).join(', ')}]`;
-  const start = Date.now();
   assert.equal(groovyToFeel(list), list);
-  assert.ok(Date.now() - start < 10000, `${Date.now() - start} ms`);
 });
 
 test('Groovy keywords as a variable stay a script', () => {

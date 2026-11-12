@@ -172,9 +172,14 @@ export function groovyToFeel(script: string): string | null {
     if (id === 'true' || id === 'false' || id === 'null') return id;
     return isPlainFeelName(id) && !GROOVY_ONLY.has(id) ? id : null;
   };
-  // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
+  // the nesting counts on the way in and out — on every return, also `[]` and `[:]`
   const collection = (): string | null => {
-    if (++depth > MAX_DEPTH) return null;
+    if (depth >= MAX_DEPTH) return null;
+    depth++;
+    try { return collectionBody(); } finally { depth--; }
+  };
+  // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
+  const collectionBody = (): string | null => {
     i++; ws();
     if (src[i] === ':') { i++; ws(); if (src[i] !== ']') return null; i++; return '{}'; }
     if (src[i] === ']') { i++; return '[]'; }
@@ -208,7 +213,6 @@ export function groovyToFeel(script: string): string | null {
       if (src[i] === ']') { i++; break; }
       return null;
     }
-    depth--;
     return map ? `{${items.join(', ')}}` : `[${items.join(', ')}]`;
   };
   const feel = value();
