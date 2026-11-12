@@ -513,7 +513,9 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
       if (t) types.set(t.id, fieldTypes(t, mapType));
     }
   }
-  const stillUsed = new Set(services.flatMap(s => [s.inTypeId, s.outTypeId]));
+  // used by a service that stays - also through the fields of its types
+  const all = [...types.values()];
+  const stillUsed = new Set(services.flatMap(s => [s.inTypeId, s.outTypeId, ...typesOf({ ...s, noIn: false, noOut: false }, all)]));
   for (const id of freed) if (!stillUsed.has(id)) types.delete(id);
   // the types of the API: the domain's version, under the id the collection gives it
   const addedTypes: string[] = [];

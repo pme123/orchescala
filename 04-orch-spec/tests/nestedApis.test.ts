@@ -475,7 +475,7 @@ test('Abgleich: own types no service uses and the domain does not know are liste
 test('Abgleich: deleting a service keeps an In or Out another service still uses', () => {
   const c0 = twoApis();
   const [natural, legal] = c0.services;
-  assert.ok(natural.inTypeId);
+  assert.ok(natural.inTypeId && legal.outTypeId);
   const c = { ...c0, services: [natural, { ...legal, inTypeId: natural.inTypeId }] };
   const topic = serviceTopic(apiOf(c, natural), natural);
   const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
@@ -483,7 +483,20 @@ test('Abgleich: deleting a service keeps an In or Out another service still uses
   assert.ok(!d.spec.services.some(s => s.id === legal.id));
   assert.ok(d.spec.types.some(t => t.id === natural.inTypeId), 'the shared In stays');
   // its own Out goes
-  if (legal.outTypeId) assert.ok(!d.spec.types.some(t => t.id === legal.outTypeId));
+  assert.ok(!d.spec.types.some(t => t.id === legal.outTypeId));
+});
+
+test('Abgleich: deleting a service keeps its Out when a type of a service that stays refers to it', () => {
+  const c0 = twoApis();
+  const [natural, legal] = c0.services;
+  assert.ok(natural.inTypeId && legal.outTypeId);
+  const types = c0.types.map(t => (t.id === natural.inTypeId ? { ...t, fields: [...(t.fields ?? []), { id: 'ref', name: 'legal', type: legal.outTypeId! }] } : t));
+  const c = { ...c0, types };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.spec.types.some(t => t.id === legal.outTypeId), 'referred to by a field - it stays');
 });
 
 test('Abgleich: an id to delete that is not missing in the project changes nothing', () => {
