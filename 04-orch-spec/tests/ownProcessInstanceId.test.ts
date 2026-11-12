@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn } from '../src/bpmn';
+import { exportBpmn } from '../src/exporters';
 import { convertBpmn } from '../src/engineConvert';
 import { feelToJuel } from '../src/feelJuel';
 import { juelToFeel } from '../src/juelFeel';
@@ -74,10 +75,31 @@ test('JUEL <-> FEEL: the own instance - execution.processInstanceId and camunda.
 
 test('C7 and C8: the check knows camunda.processInstance - the import of C7 writes it for execution.processInstanceId', () => {
   for (const engine of ['c7', 'c8'] as const) {
-    const spec = { id: 'p', name: 'p', engine, steps: [{ id: 's1', kind: 'service', name: 'S' }], types: [] } as unknown as ProcessSpec;
+    const spec = { processId: 'p', slug: 'p', name: 'p', title: 'p', version: 1, engine, steps: [{ id: 's1', kind: 'service', name: 'S' }], types: [] } as unknown as ProcessSpec;
     const vars = processVariables(spec, null);
     for (const body of ['string(camunda.processInstance.key)', 'camunda.processInstance.businessId']) {
       assert.deepEqual(checkFeel(`= ${body}`, vars).issues, [], `${engine}: ${body}`);
     }
+  }
+});
+
+test('C7 -> import -> export C7: the own instance and the business key come back as execution.*', () => {
+  const xml = c7.replace('<camunda:inputParameter name="processInstanceId">',
+    '<camunda:inputParameter name="ref">${execution.processBusinessKey}</camunda:inputParameter>\n        <camunda:inputParameter name="processInstanceId">');
+  const spec = importBpmn(xml, 'escalation').spec;
+  const init = allSteps(spec.steps).find(s => s.id === 'InitProcessTask');
+  const feel = (name: string) => init?.inputs?.find(m => m.name === name)?.expression.replace(/^=\s*/, '');
+  assert.equal(feel('processInstanceId'), 'string(camunda.processInstance.key)');
+  assert.equal(feel('ref'), 'camunda.processInstance.businessId');
+  const out = exportBpmn(spec, xml).xml;
+  const juel = (name: string) => new RegExp(`<camunda:inputParameter name="${name}">([^<]*)<`).exec(out)?.[1];
+  assert.equal(juel('processInstanceId'), '${execution.processInstanceId}', out);
+  assert.equal(juel('ref'), '${execution.processBusinessKey}', out);
+});
+
+test('export to C7: a reason names camunda.processInstance as written - not the placeholder', () => {
+  for (const body of ['items[item.x = camunda.processInstance.key]', 'items[item.x = camunda.processInstance.businessId]']) {
+    const r = feelToJuel(body);
+    assert.ok(!r.ok && !r.reason.includes('__own') && r.reason.includes('camunda.processInstance.'), `${body}: ${JSON.stringify(r)}`);
   }
 });

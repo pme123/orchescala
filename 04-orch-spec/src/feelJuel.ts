@@ -122,6 +122,9 @@ const ownInstance = (body: string): string =>
   body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
     : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, OWN_KEY)
       .replace(/(?<![\w.])camunda\.processInstance\.businessId(?![\w])/g, OWN_BUSINESS_ID))).join('');
+/** A reason names the expression as written - not the placeholders of `ownInstance`. */
+const ownBack = (reason: string): string =>
+  reason.replaceAll(OWN_KEY, 'camunda.processInstance.key').replaceAll(OWN_BUSINESS_ID, 'camunda.processInstance.businessId');
 
 /** Translate a FEEL body to JUEL (without `${}`). */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
@@ -476,8 +479,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? tr(top) : undefined;
     return { ok: true, juel, ...(plain ? { plain } : {}), ...(value ? { value } : {}) };
   } catch (e) {
-    if (e instanceof Unsupported) return { ok: false, reason: e.message };
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: ownBack(e instanceof Error ? e.message : String(e)) };
   }
 }
 

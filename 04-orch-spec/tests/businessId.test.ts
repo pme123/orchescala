@@ -164,6 +164,9 @@ test('import of C7: the business key is always the context camunda.processInstan
 });
 
 test('export to C7: a variable named businessKey stays a variable - only the context is execution.processBusinessKey', () => {
-  const r = feelToJuel('businessKey');
-  assert.ok(r.ok && !r.juel.includes('execution.processBusinessKey'), JSON.stringify(r));
+  for (const name of ['businessKey', 'processInstanceId']) {
+    const r = feelToJuel(name);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(r.juel, name);
+  }
 });
