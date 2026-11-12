@@ -11,7 +11,7 @@
 // (see `mergeSpec`) — the implementation only updates the structure.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, MultiInstanceSpec, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
-import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe, unguard } from './juelFeel.ts';
+import { feelIfPossible, groovyToFeel, importExpression, jsonToFeel, stripNullSafe, unguard } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -187,6 +187,9 @@ function fachlich(p: Element): string {
   const script = firstNamed(p, 'script');
   const fromFeel = script ? /^\s*\/\/ FEEL: (.+)$/m.exec(text(script).split('\n').find(l => l.trim()) ?? '') : null;
   if (fromFeel) return `= ${fromFeel[1].trim()}`;
+  // a Groovy literal (`[fileIdLetter, docLink]`) reads the same in FEEL — no script to rewrite
+  const literal = script && (attr(script, 'scriptFormat') ?? '').toLowerCase() === 'groovy' ? groovyToFeel(text(script)) : null;
+  if (literal) return `= ${literal}`;
   if (script || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
   return importExpression(text(p));
 }

@@ -82,6 +82,92 @@ export function jsonToFeel(v: unknown): string {
 }
 
 /**
+ * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
+ * map (`[key: x, 'b': 1]`), a variable, a text, a number, true/false/null, nested
+ * as well — the same as FEEL: the FEEL for it, otherwise null. Anything else
+ * (a call, an operator, a GString with `$`, several statements) stays a script.
+ */
+export function groovyToFeel(script: string): string | null {
+  const src = script.trim().replace(/^return\s+/, '').replace(/;\s*$/, '');
+  let i = 0;
+  const ws = () => { while (i < src.length && /\s/.test(src[i])) i++; };
+  const ident = (): string | null => {
+    const m = /^[A-Za-z_]\w*/.exec(src.slice(i));
+    if (!m) return null;
+    i += m[0].length;
+    return m[0];
+  };
+  const text = (): string | null => {
+    const q = src[i];
+    if (q !== "'" && q !== '"') return null;
+    let out = '';
+    for (i++; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === q) { i++; return out; }
+      // a GString interpolates — not a literal
+      if (ch === '$' && q === '"') return null;
+      if (ch === '\\') {
+        const next = src[++i];
+        const esc: Record<string, string> = { n: '\n', t: '\t', r: '\r', '\\': '\\', "'": "'", '"': '"', $: '$' };
+        if (!(next in esc)) return null;
+        out += esc[next];
+      } else out += ch;
+    }
+    return null;
+  };
+  const value = (): string | null => {
+    ws();
+    const ch = src[i];
+    if (ch === "'" || ch === '"') { const t = text(); return t == null ? null : feelString(t); }
+    if (ch === '[') return collection();
+    const num = /^-?\d+(?:\.\d+)?(?![\w.])/.exec(src.slice(i));
+    if (num) { i += num[0].length; return num[0]; }
+    // a variable, also true/false/null — no path or call (`a.b`, `a()`)
+    const id = ident();
+    if (!id || /^\s*[.(\[]/.test(src.slice(i))) return null;
+    return id;
+  };
+  // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
+  const collection = (): string | null => {
+    i++; ws();
+    if (src.startsWith(':]', i)) { i += 2; return '{}'; }
+    if (src[i] === ']') { i++; return '[]'; }
+    const items: string[] = [];
+    let map: boolean | null = null;
+    for (;;) {
+      ws();
+      const start = i;
+      // a key: a name or a text, followed by `:`
+      const key = src[i] === "'" || src[i] === '"' ? text() : ident();
+      ws();
+      const isEntry = key != null && src[i] === ':';
+      if (map != null && map !== isEntry) return null;
+      map = isEntry;
+      let v: string | null;
+      if (isEntry) {
+        i++;
+        v = value();
+        if (v == null) return null;
+        items.push(`${/^[A-Za-z_]\w*$/.test(key!) ? key : feelString(key!)}: ${v}`);
+      } else {
+        i = start;
+        v = value();
+        if (v == null) return null;
+        items.push(v);
+      }
+      ws();
+      if (src[i] === ',') { i++; continue; }
+      if (src[i] === ']') { i++; break; }
+      return null;
+    }
+    return map ? `{${items.join(', ')}}` : `[${items.join(', ')}]`;
+  };
+  const feel = value();
+  ws();
+  return feel != null && i === src.length ? feel : null;
+}
+
+/**
  * The argument of `JSON('…')` / `S('…')` (as FEEL text `"[6026, 102]"`): if the
  * text is a JSON list or a JSON object, the FEEL literal for it — otherwise null.
  */
