@@ -22,10 +22,10 @@
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { DomainField, DomainType, Field, Mapping, Model, Step, TypeDef } from '../types';
+import type { DomainField, DomainType, Field, FieldMapping, Mapping, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
-import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala.ts';
+import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
@@ -33,6 +33,7 @@ import {
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
+import { linkPaths } from '../fieldMapping.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -84,6 +85,8 @@ interface ScriptMethod {
   /** what the test checks: the lists it concatenates, the cases it converts into */
   concat?: string[];
   cases: string[];
+  /** a mapping: per mapped field what the test expects (`result.firstName` == `client.firstName`) */
+  checks?: { field: string; value: string }[];
 }
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
@@ -331,6 +334,45 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
   return { scala: v.needed ? `${v.scala}.getOrElse(throw IllegalArgumentException(${JSON.stringify(`${where}: ${target.name} fehlt`)}))` : v.scala, cases };
 }
 
+/**
+ * A mapping as Scala: the class field by field (`Client(…)`), or a copy of the base with the
+ * mapped fields (`existingClient.copy(…)`). Several paths: the first one set (`orElse`).
+ */
+function mappingScala(m: FieldMapping, scope: Map<string, ScalaVar>, target: Field, ctx: Ctx, where: string): { scala: string; cases: string[]; checks: { field: string; value: string }[] } {
+  const to = typeOf(target.type, ctx);
+  if (!to || to.kind !== 'case' || target.collection) return { scala: todo(`${where}: ein Mapping baut eine Klasse - ${target.name} ist keine`), cases: [], checks: [] };
+  const missing = (what: string) => `throw IllegalArgumentException(${JSON.stringify(`${where}: ${what} fehlt`)})`;
+  const base = m.base?.trim() ? scope.get(m.base.trim()) : undefined;
+  if (m.base?.trim() && (!base || base.type !== target.type)) return { scala: todo(`${where}: Basis ${m.base} ist kein ${to.name}`), cases: [], checks: [] };
+  const checks: { field: string; value: string }[] = [];
+  const args: string[] = [];
+  for (const f of (to.fields ?? []).filter(x => x.name && isFinished(x, ctx.idx))) {
+    const l = m.fields.find(x => x.field === f.name);
+    const paths = l ? linkPaths(l) : [];
+    const expr = l?.expression?.trim();
+    if (!expr && !paths.length) {
+      if (!base) args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : f.collection ? 'Seq.empty' : todo(`${f.name}: nicht zugeordnet`)}`);
+      continue;
+    }
+    let value: Translated;
+    if (expr) value = feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
+    else {
+      const parts = paths.map(p => feelToScala(`= ${p}`, scope, ctx.types, f));
+      value = parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
+        : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
+    }
+    const v = forTarget(value, !!f.optional);
+    const scala = v.needed ? `${v.scala}.getOrElse(${missing(f.name)})` : v.scala;
+    args.push(`${scalaName(f.name)} = ${scala}`);
+    if (!value.todo && !v.needed) checks.push({ field: scalaName(f.name), value: scala });
+  }
+  const from = base ? (base.optional ? `${base.scala}.getOrElse(${missing(m.base!.trim())})` : base.scala) : null;
+  const built = from
+    ? (args.length ? `${from}.copy(\n${indent(args.join(',\n'), '  ')}\n)` : from)
+    : `${to.name}(\n${indent(args.join(',\n'), '  ')}\n)`;
+  return { scala: target.optional ? `Some(${built})` : built, cases: [], checks: target.optional ? [] : checks };
+}
+
 /** The variables a FEEL expression reads - of those known, in the order it names them. */
 function readVars(body: string, known: OrchVar[]): OrchVar[] {
   const code = body.replace(/"(?:[^"\\]|\\.)*"/g, '""');
@@ -373,7 +415,9 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
     ...(produced.optional ? { optional: true } : {}), ...(produced.collection ? { collection: true } : {}),
   };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
-  const t = scriptScala(body, scope, result, ctx, where);
+  const t: { scala: string; concat?: string[]; cases: string[]; checks?: { field: string; value: string }[] } = task.mapping
+    ? mappingScala(task.mapping, scope, result, ctx, where)
+    : scriptScala(body, scope, result, ctx, where);
   const used = new Set(ctx.scripts.map(x => x.method));
   const base = camelName((s.name || s.id).replace(/Task$/, ''));
   let method = base;
@@ -381,6 +425,7 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
+    ...(t.checks?.length ? { checks: t.checks } : {}),
   });
   const call = `${method}(${reads.map(v => v.scala).join(', ')})`;
   return {
@@ -402,7 +447,9 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   const call = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
   const list = (f: Field) => (!f.collection ? (f.optional ? `${scalaIdent(f.name)}.size` : '1') : f.optional ? `${scalaIdent(f.name)}.getOrElse(Seq.empty).size` : `${scalaIdent(f.name)}.size`);
   const got = m.result.optional ? 'result.getOrElse(Seq.empty)' : 'result';
-  const checks = m.concat
+  const checks = m.checks?.length
+    ? m.checks.map(c => `    assertEquals(result.${c.field}, ${c.value.replace(/\n\s*/g, ' ')})`)
+    : m.concat
     ? [
       `    assertEquals(${got}.size, ${m.concat.map(n => list(m.params.find(f => f.name === n)!)).join(' + ')})`,
       ...m.cases.map(c => `    assert(${got}.exists(_.isInstanceOf[${c}]), result)`),

@@ -220,6 +220,7 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
         ...(s.script?.trim() ? {
           script: s.script, ...(s.resultVariable?.trim() ? { resultVariable: s.resultVariable.trim() } : {}),
           ...(s.resultType ? { resultType: s.resultType, ...(s.resultCollection ? { resultCollection: true } : {}) } : {}),
+          ...(s.fieldMapping ? { mapping: s.fieldMapping } : {}),
         } : {}),
       };
     }
@@ -349,6 +350,7 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
         ...(t.script?.trim() ? {
           script: t.script, ...(t.resultVariable ? { resultVariable: t.resultVariable } : {}),
           ...(t.resultType ? { resultType: t.resultType, ...(t.resultCollection ? { resultCollection: true } : {}) } : {}),
+          ...(t.mapping ? { fieldMapping: t.mapping } : {}),
         } : {}),
       };
     }

@@ -1029,6 +1029,12 @@ function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode | null {
   return f ? { ...nodeOfField(f, source, b, 0, new Set()), source } : { name, type: 'any', label: '?', source };
 }
 
+/** A field as a node of the variable tree, with its subfields - the result of a mapping. */
+export function fieldVarNode(f: Field, spec: ProcessSpec, model: Model | null, source: string): VarNode {
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  return nodeOfField(f, source, b, 0, new Set());
+}
+
 /**
  * The field a script task's result is: the field of the Out of its name (`clients: Seq[Client]`),
  * otherwise the type the step names (`resultType`, a list of it with `resultCollection`).

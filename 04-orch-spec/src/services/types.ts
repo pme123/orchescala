@@ -14,7 +14,7 @@
 // app; the export translates them to Scala.
 //
 // File: `services/<slug>.json`.
-import type { CommentThread, Mapping, Status, Step, TypeDef } from '../types';
+import type { CommentThread, FieldMapping, Mapping, Status, Step, TypeDef } from '../types';
 
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
@@ -184,6 +184,8 @@ export interface OrchTask {
   /** the type of `resultVariable` when it is no field of the Out - and whether a list of it */
   resultType?: string;
   resultCollection?: boolean;
+  /** script task: its implementation as a mapping - field by field (then `script` is its FEEL) */
+  mapping?: FieldMapping;
   [key: string]: unknown;
 }
 
