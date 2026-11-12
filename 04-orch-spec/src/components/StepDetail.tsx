@@ -21,7 +21,7 @@ import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from 
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
 import FeelInput from './FeelInput';
 import FieldMappingEditor from './FieldMappingEditor';
-import { emptyMapping, inOutIssues, mappingFeel, varFeel } from '../fieldMapping';
+import { emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
 import MappingInOut from './MappingInOut';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
@@ -2136,7 +2136,7 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   const listId = `script-result-${step.id}`;
   const confirm = useConfirm();
   // as a mapping: its In and Out, the fields of the Out drawn from the In - its FEEL written along
-  const mapping = step.fieldMapping;
+  const mapping = useMemo(() => (step.fieldMapping ? mappingOf(step.fieldMapping) : undefined), [step.fieldMapping]);
   const nodes = useMemo(() => (mapping ? mappingVarNodes(mapping, spec, model) : null), [mapping, spec, model]);
   const ioIssues = useMemo(() => (mapping ? inOutIssues(mapping, variables) : []), [mapping, variables]);
   const toMapping = async () => {

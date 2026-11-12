@@ -33,7 +33,7 @@ import {
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
-import { hasInner, linkPaths } from '../fieldMapping.ts';
+import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -403,7 +403,8 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
 }
 
 /** A script task as a mapping: its method - In the parameters, Out the result (a tuple for several) - and its call. */
-function mappingCall(s: Step, m: FieldMapping, known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar[] } {
+function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar[] } {
+  const m = mappingOf(stored);
   const where = s.name || s.id;
   const params = m.in.filter(f => f.name.trim() && f.type);
   const outs = m.out.filter(f => f.name.trim() && f.type);

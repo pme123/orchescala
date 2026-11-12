@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn, mergeSpec } from '../src/bpmn';
+import { variableOverview } from '../src/feel';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 
@@ -26,4 +27,10 @@ test('a change of the diagram keeps the script, its result and the mapping', () 
   const t = allSteps(merged.steps).find(s => s.id === 'MapTask')!;
   assert.equal(t.name, 'Map the client');
   assert.deepEqual({ script: t.script, resultVariable: t.resultVariable, resultType: t.resultType, fieldMapping: t.fieldMapping }, impl);
+});
+
+test('a mapping stored without an In or Out: the overview of the variables still works', () => {
+  const spec = importBpmn(bpmn('Map Client'), 'p').spec;
+  Object.assign(allSteps(spec.steps).find(s => s.id === 'MapTask')!, { fieldMapping: { fields: [{ field: 'name', from: ['client.name'] }] } });
+  assert.doesNotThrow(() => variableOverview(spec, null));
 });

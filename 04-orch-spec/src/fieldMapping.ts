@@ -20,6 +20,9 @@ const key = (n: string) => (NAME.test(n) ? n : JSON.stringify(n));
 /** An empty mapping - nothing read, nothing set. */
 export const emptyMapping = (): FieldMapping => ({ in: [], out: [], fields: [] });
 
+/** A mapping as stored - what is missing (an In, an Out) empty, so nothing reads past it. */
+export const mappingOf = (m: Partial<FieldMapping>): FieldMapping => ({ in: m.in ?? [], out: m.out ?? [], fields: m.fields ?? [] });
+
 /** The paths of a link that count. */
 export const linkPaths = (l: FieldLink): string[] => l.from.map(p => p.trim()).filter(Boolean);
 
@@ -154,7 +157,8 @@ export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[])
 export interface MappingIssue { level: 'error' | 'warn'; text: string; field?: string }
 
 /** What is wrong with the In and Out: a name missing or twice, no type, an In not known before the step. */
-export function inOutIssues(m: FieldMapping, known: VarNode[] | null): MappingIssue[] {
+export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): MappingIssue[] {
+  const m = mappingOf(stored);
   const out: MappingIssue[] = [];
   const check = (list: Field[], side: 'In' | 'Out') => {
     const seen = new Set<string>();

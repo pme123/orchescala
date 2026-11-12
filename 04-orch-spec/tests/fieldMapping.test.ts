@@ -158,3 +158,15 @@ test('in Scala several variables in the Out: a tuple - its call sets each one', 
   assert.match(worker, /def mapClient\(existingClient: Client, client: Client\): \(Client, Boolean\) =\n\s+\(\n\s+existingClient,\n\s+true\n\s+\)/, worker);
   assert.match(t, /assertEquals\(result\._1, existingClient\)\n\s+assertEquals\(result\._2, true\)/, t);
 });
+
+test('a mapping stored without an In or Out reads as empty - nothing breaks on it', async () => {
+  const { mappingOf } = await import('../src/fieldMapping');
+  const { mappingVarNodes } = await import('../src/feel');
+  const old = { fields: [{ field: 'name', from: ['client.name'] }] } as unknown as FieldMapping;
+  assert.deepEqual(mappingOf(old), { in: [], out: [], fields: [{ field: 'name', from: ['client.name'] }] });
+  assert.equal(inOutIssues(old, []).length, 1);
+  const spec = { ...orchestration(merge), steps: [] } as unknown as Parameters<typeof mappingVarNodes>[1];
+  assert.deepEqual(mappingVarNodes(old, spec, null).sources, []);
+  const { worker } = files(old);
+  assert.match(worker, /TODO «Map Client»: das Mapping hat kein Out/);
+});

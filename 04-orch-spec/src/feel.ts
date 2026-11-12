@@ -20,6 +20,7 @@
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
 import { C7_LABEL } from './engineLabels.ts';
+import { mappingOf } from './fieldMapping.ts';
 import type { DomainType, EngineId, Field, FieldMapping, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
 import { SCALA_TYPES, isAdt } from './types.ts';
@@ -1032,7 +1033,7 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
 function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode[] {
   if (s.kind !== 'script') return [];
   const source = `Ergebnis von ${s.name || s.id}`;
-  if (s.fieldMapping) return s.fieldMapping.out.filter(f => f.name.trim()).map(f => ({ ...nodeOfField(f, source, b, 0, new Set()), source }));
+  if (s.fieldMapping) return mappingOf(s.fieldMapping).out.filter(f => f.name.trim()).map(f => ({ ...nodeOfField(f, source, b, 0, new Set()), source }));
   const name = s.script?.trim() ? s.resultVariable?.trim() : undefined;
   if (!name) return [];
   const f = scriptResultField(s, spec);
@@ -1046,7 +1047,8 @@ export function fieldVarNode(f: Field, spec: ProcessSpec, model: Model | null, s
 }
 
 /** The In and Out of a mapping as nodes of the variable tree - the two sides of its panel. */
-export function mappingVarNodes(m: FieldMapping, spec: ProcessSpec, model: Model | null): { sources: VarNode[]; target: VarNode } {
+export function mappingVarNodes(stored: FieldMapping, spec: ProcessSpec, model: Model | null): { sources: VarNode[]; target: VarNode } {
+  const m = mappingOf(stored);
   const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
   const nodes = (list: Field[], source: string) => list.filter(f => f.name.trim() && f.type).map(f => nodeOfField(f, source, b, 0, new Set()));
   return { sources: nodes(m.in, 'In'), target: { name: 'Out', type: 'context', label: 'Out', source: '', children: nodes(m.out, 'Out') } };
@@ -1080,7 +1082,7 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
-    if (s.kind === 'script' && s.fieldMapping) for (const f of s.fieldMapping.out) { if (f.name.trim()) names.add(f.name.trim()); }
+    if (s.kind === 'script' && s.fieldMapping) for (const f of mappingOf(s.fieldMapping).out) { if (f.name.trim()) names.add(f.name.trim()); }
     else if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) names.add(s.resultVariable.trim());
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
