@@ -299,7 +299,7 @@ export function orchestrationIssues(o: ServiceOrchestrationSpec, services: Map<s
       else if (!services.has(task.service)) out.push(`«${s.name || s.id}»: den Service ${task.service} gibt es in keiner Collection.`);
     }
     if (s.kind === 'script' && !task?.script?.trim() && !(task?.assignments ?? []).some(a => a.name.trim())) out.push(`«${s.name || s.id}»: keine Implementierung (FEEL).`);
-    if (s.kind === 'script' && task?.script?.trim() && !task.resultVariable?.trim()) out.push(`«${s.name || s.id}»: keine Ergebnis-Variable für die Implementierung.`);
+    if (s.kind === 'script' && !task?.mapping && task?.script?.trim() && !task.resultVariable?.trim()) out.push(`«${s.name || s.id}»: keine Ergebnis-Variable für die Implementierung.`);
     if (s.kind === 'gateway' && s.gatewayType === 'exclusive') {
       const fallback = elseBranch(o, s);
       for (const b of s.branches ?? []) {

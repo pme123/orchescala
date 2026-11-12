@@ -19,7 +19,7 @@ test('a change of the diagram keeps the script, its result and the mapping', () 
   const prev = importBpmn(bpmn('Map Client'), 'p').spec;
   const impl = {
     script: '= context merge([existingClient, {name: client.name}])', resultVariable: 'newClient', resultType: 'client',
-    fieldMapping: { base: 'existingClient', fields: [{ field: 'name', from: ['client.name'] }] },
+    fieldMapping: { in: [{ id: 'i', name: 'client', type: 'client' }], out: [{ id: 'o', name: 'newClient', type: 'client' }], fields: [{ field: 'newClient.name', from: ['client.name'] }] },
   };
   Object.assign(allSteps(prev.steps).find(s => s.id === 'MapTask')!, impl);
   const merged = mergeSpec(importBpmn(bpmn('Map the client'), 'p').spec, prev, importBpmn(bpmn('Map Client'), 'p').spec).spec;

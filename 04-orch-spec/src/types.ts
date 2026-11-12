@@ -160,21 +160,26 @@ export interface ErrorHandling {
 export type DecisionResult = 'singleEntry' | 'singleResult' | 'collectEntries' | 'resultList';
 
 /**
- * The fields of a result from the variables before it - a class built field by field
- * (`Client(…)`), or a copy of one of the same type (`base`) where only the mapped fields change.
+ * A script task as a mapping: what it reads (`in`, variables before it by name), what it sets
+ * (`out`, variables after it by name) - and per field of the Out where its value comes from.
  */
 export interface FieldMapping {
-  /** the variable the result starts from - the fields not mapped keep its value (`existingClient`) */
-  base?: string;
-  /** per field of the result: where its value comes from */
+  /** what the mapping reads - variables known before the step (`existingClient: Client`) */
+  in: Field[];
+  /** what it sets - variables after the step (`newClient: Client`) */
+  out: Field[];
+  /** per field of the Out: where its value comes from */
   fields: FieldLink[];
 }
 
 /** Where one field of a mapping gets its value. */
 export interface FieldLink {
-  /** the field of the result (`firstName`) */
+  /**
+   * the path in the Out (`newClient`, `newClient.firstName`) - a line onto an object is what its
+   * fields with lines of their own are set on (a copy of it)
+   */
   field: string;
-  /** paths of the variables before (`client.name`, `existingClient.name`) - the first one set wins */
+  /** paths in the In (`client.name`, `existingClient.name`) - the first one set wins */
   from: string[];
   /** instead of the paths: a FEEL expression (`= lower case(client.email)`) */
   expression?: string;
@@ -226,8 +231,9 @@ export interface Step {
   /** … a list of it */
   resultCollection?: boolean;
   /**
-   * Script task of a service orchestration: its implementation as a mapping - per field of the
-   * result where its value comes from, drawn as lines. `script` is then its FEEL, written along.
+   * Script task of a service orchestration: its implementation as a mapping - its In and Out,
+   * per field of the Out where its value comes from, drawn as lines. `script` is then its FEEL,
+   * written along; `resultVariable` and `resultType` are not used.
    */
   fieldMapping?: FieldMapping;
   /**

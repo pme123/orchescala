@@ -1,13 +1,12 @@
-// The mapping of a script task, drawn: left the variables before the step, right the fields of
-// the result - a line from a field to a field. Drag it (or click the one, then the other); a
-// second line onto the same field is its fallback (`??`, the first one set wins). With a base
-// the fields not drawn keep its value (dashed). A field of the result that is an object opens
-// too: its fields get lines of their own (`master.clientType`).
+// The mapping of a script task, drawn: left its In, right its Out - a line from a field to a
+// field. Drag it (or click the one, then the other); a second line onto the same field is its
+// fallback (`??`, the first one set wins). An object of the Out opens: a line onto it is what its
+// fields with lines of their own are set on (dashed, «Basis» - a copy of it).
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Maximize2, Minimize2, Trash2, Wand2 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VarNode } from '../feel';
-import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink } from '../fieldMapping';
+import { autoMapped, hasInner, linkPaths, linked, mappingIssues, resolvePath, withLink } from '../fieldMapping';
 import type { FieldLink, FieldMapping } from '../types';
 import { cls } from '../ui';
 import FeelInput from './FeelInput';
@@ -21,9 +20,9 @@ const opens = (n: VarNode) => n.type !== 'list' && !!n.children?.length;
 
 export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, onChange }: {
   mapping: FieldMapping;
-  /** the result - its fields are the right side */
-  target: VarNode | null;
-  /** what is known before the step */
+  /** the Out - its variables (children) are the right side */
+  target: VarNode;
+  /** the In - the left side */
   sources: VarNode[];
   isDark: boolean;
   canEdit: boolean;
@@ -53,18 +52,14 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
 }
 
 function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, onLarge }: {
-  mapping: FieldMapping; target: VarNode | null; sources: VarNode[]; isDark: boolean; canEdit: boolean;
+  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean;
   onChange: (m: FieldMapping) => void; large: boolean; onLarge: (v: boolean) => void;
 }) {
   const c = cls(isDark);
   const err = isDark ? 'text-rose-400' : 'text-rose-600';
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
-  const fields = useMemo(() => target?.children ?? [], [target]);
+  const fields = useMemo(() => target.children ?? [], [target]);
   const issues = useMemo(() => mappingIssues(mapping, target, sources), [mapping, target, sources]);
-  const base = mapping.base?.trim() || undefined;
-  const baseNode = base ? sources.find(s => s.name === base) : undefined;
-  // the variables that can be the base: of the result's type
-  const bases = useMemo(() => (target ? sources.filter(s => s.type === 'context' && plainType(s) === plainType(target)) : []), [sources, target]);
   const linkOf = (field: string): FieldLink | undefined => mapping.fields.find(l => l.field === field);
 
   // open nodes of the left tree: the variables, and what a line leaves from
@@ -192,13 +187,6 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
   if (geo) {
     const { x1, x2 } = geo;
     const knot = x2 - Math.min(28, (x2 - x1) / 3);
-    // the fields the base keeps: no line onto them
-    for (const f of fields) {
-      if (linkOf(f.name) || !baseNode || !(baseNode.children ?? []).some(x => x.name === f.name)) continue;
-      const y1 = geo.left.get(visible(`${base}.${f.name}`));
-      const y2 = geo.right.get(f.name);
-      if (y1 != null && y2 != null) lines.push(<path key={`b-${f.name}`} d={curve(x1, y1, x2, y2)} stroke={GRAY} strokeWidth={1.2} strokeDasharray="4 4" fill="none" />);
-    }
     for (const l of mapping.fields) {
       const y2 = geo.right.get(tVisible(l.field));
       if (y2 == null) continue;
@@ -206,9 +194,11 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
       const color = issueOf(l.field) ? AMBER : TEAL;
       const width = selected === l.field ? 2.5 : 1.5;
       const pick = (e: React.MouseEvent) => { e.stopPropagation(); setSelected(l.field); };
+      // onto an object whose fields have lines of their own: its base - dashed
+      const isBase = hasInner(mapping, l.field);
       if (paths.length === 1) {
         const y1 = geo.left.get(visible(paths[0]));
-        if (y1 != null) lines.push(<path key={`l-${l.field}`} d={curve(x1, y1, x2, y2)} stroke={color} strokeWidth={width} fill="none" className="cursor-pointer" style={{ pointerEvents: 'stroke' }} onClick={pick} />);
+        if (y1 != null) lines.push(<path key={`l-${l.field}`} d={curve(x1, y1, x2, y2)} stroke={isBase && !issueOf(l.field) ? GRAY : color} strokeWidth={width} strokeDasharray={isBase ? '4 4' : undefined} fill="none" className="cursor-pointer" style={{ pointerEvents: 'stroke' }} onClick={pick} />);
       } else if (paths.length > 1) {
         paths.forEach((p, k) => {
           const y1 = geo.left.get(visible(p));
@@ -265,7 +255,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     const iss = issueOf(path);
     const isOpen = tOpen.has(path);
     const inner = hasInner(mapping, path);
-    const fromBase = depth === 0 && !l && !!baseNode && (baseNode.children ?? []).some(x => x.name === f.name);
+    const isBase = !!l && inner;
     const dot = l || (inner && !isOpen) ? (iss ? AMBER : TEAL) : null;
     return (
       <div key={path}>
@@ -283,7 +273,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
             : depth > 0 && <span className="w-[10px] flex-shrink-0" />}
           <span className="font-mono truncate">{f.name}</span>
           {l?.expression?.trim() && <span className={`text-[8px] px-1 rounded ${isDark ? 'bg-teal-400/15 text-teal-300' : 'bg-teal-600/10 text-teal-700'}`}>fx</span>}
-          {fromBase && <span className={`text-[8px] ${c.muted}`} title={`Behält den Wert von ${base}.${f.name}`}>Basis</span>}
+          {isBase && <span className={`text-[8px] ${c.muted}`} title={`Eine Kopie von ${linkPaths(l!).join(' ?? ') || 'dem Ausdruck'} - die Felder mit eigener Linie geändert`}>Basis</span>}
           <span className={`ml-auto pl-1 truncate text-[9px] ${c.muted}`}>{f.label}</span>
         </div>
         {isOpen && opens(f) && (
@@ -293,16 +283,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     );
   };
 
-  const mapped = fields.filter(f => linkOf(f.name) || hasInner(mapping, f.name) || (baseNode && (baseNode.children ?? []).some(x => x.name === f.name))).length;
+  const mapped = fields.filter(f => linkOf(f.name) || hasInner(mapping, f.name)).length;
   const sel = selected ? resolvePath(fields, selected) ?? undefined : undefined;
   const selLink = selected ? linkOf(selected) : undefined;
 
-  if (!target || target.type !== 'context' || !fields.length) {
+  if (!fields.length) {
     return (
-      <p className={`text-[10px] flex items-start gap-1 ${err}`}>
-        <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-        <span>Erst Ergebnis und Typ wählen - eine Klasse mit Feldern. Dann lassen sich ihre Felder zuordnen.</span>
-      </p>
+      <p className={`text-[10px] ${c.muted}`}>Erst im Out die Variable angeben, die der Schritt setzt - dann lässt sie sich zuordnen.</p>
     );
   }
 
@@ -310,21 +297,12 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     <div className="space-y-2" onClick={() => setPending(null)}>
       {/* toolbar */}
       <div className={`flex items-center gap-2 flex-wrap ${text}`}>
-        <label className={`flex items-center gap-1 ${c.muted}`} title="Die Felder ohne Linie behalten den Wert dieser Variablen - im Scala ein copy(…)">
-          Basis
-          <select value={base ?? ''} disabled={!canEdit} onChange={e => onChange({ ...mapping, base: e.target.value || undefined })}
-            className={`text-[10px] px-1 py-0.5 rounded border outline-none font-mono ${c.input}`}>
-            <option value="">- keine -</option>
-            {bases.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-            {base && !bases.some(b => b.name === base) && <option value={base}>{base} (?)</option>}
-          </select>
-        </label>
         <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(autoMapped(mapping, target, sources)); }}
-          title="Die Felder ohne Wert bekommen ein Feld gleichen Namens und Typs"
+          title="Die Variablen des Out ohne Wert bekommen eine des In gleichen Namens und Typs - ein Objekt eine Basis seines Typs, seine Felder die gleichnamigen der anderen"
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn} disabled:opacity-40`}>
           <Wand2 size={10} /> Automatisch zuordnen
         </button>
-        <span className={`ml-auto ${c.muted}`}>{mapped} von {fields.length} Feldern</span>
+        <span className={`ml-auto ${c.muted}`}>{mapped} von {fields.length} zugeordnet</span>
         <button type="button" onClick={e => { e.stopPropagation(); onLarge(!large); }} title={large ? 'Verkleinern (Esc)' : 'Gross öffnen'}
           className={`p-1 rounded border ${c.btn}`} aria-label={large ? 'Verkleinern' : 'Gross öffnen'}>
           {large ? <Minimize2 size={10} /> : <Maximize2 size={10} />}
@@ -334,12 +312,12 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
       {/* the two sides and the lines between them */}
       <div ref={box} className="relative grid items-start" style={{ gridTemplateColumns: large ? 'minmax(0,1fr) 180px minmax(0,1fr)' : 'minmax(0,1fr) 56px minmax(0,1fr)' }}>
         <div ref={leftCol} className="space-y-0.5 min-w-0">
-          <div className={`text-[9px] uppercase tracking-wide mb-1 ${c.muted}`}>Davor bekannt</div>
-          {sources.length ? sources.map(s => sourceRow(s, s.name, 0)) : <p className={`text-[10px] ${c.muted}`}>Vor dem Schritt ist nichts bekannt.</p>}
+          <div className={`text-[9px] uppercase tracking-wide mb-1 ${c.muted}`}>In</div>
+          {sources.length ? sources.map(s => sourceRow(s, s.name, 0)) : <p className={`text-[10px] ${c.muted}`}>Das In ist leer - oben angeben, was der Schritt liest.</p>}
         </div>
         <div />
         <div ref={rightCol} className="space-y-0.5 min-w-0">
-          <div className={`text-[9px] uppercase tracking-wide mb-1 ${c.muted}`}>{target.name}: {plainType(target)}</div>
+          <div className={`text-[9px] uppercase tracking-wide mb-1 ${c.muted}`}>Out</div>
           {fields.map(f => targetRow(f, f.name, 0))}
         </div>
         {geo && (
@@ -355,7 +333,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
       {sel && (
         <div className={`rounded border p-2 space-y-1.5 ${c.border}`} onClick={e => e.stopPropagation()}>
           <div className={`flex items-center gap-2 ${text}`}>
-            <span className="font-mono font-semibold">{target.name}.{selected}</span>
+            <span className="font-mono font-semibold">{selected}</span>
             <span className={`text-[9px] ${c.muted}`}>{sel.label}</span>
             {selLink && canEdit && (
               <button type="button" onClick={() => { onChange(withLink(mapping, selected!, null)); }} title="Zuordnung entfernen"
@@ -387,13 +365,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
                   })}
                   {linkPaths(selLink).length > 1 && <p className={`text-[9px] ${c.muted}`}>Der erste gesetzte Wert gewinnt (nicht null).</p>}
                 </div>
-              : <p className={`text-[10px] ${c.muted}`}>{base && !selected!.includes('.') ? `Ohne Linie: der Wert von ${base}.${selected}.` : 'Noch keine Linie - links ein Feld hierher ziehen.'}</p>
+              : <p className={`text-[10px] ${c.muted}`}>Noch keine Linie - links ein Feld hierher ziehen.</p>
           )}
           {opens(sel) && (
             <p className={`text-[9px] ${c.muted}`}>
               {hasInner(mapping, selected!)
-                ? `Die Felder darin mit eigener Linie werden gesetzt - der Rest kommt ${selLink ? 'von der Linie auf das Objekt' : base ? `von ${base}.${selected}` : 'nirgends her: die Pflichtfelder brauchen eine Linie'}.`
-                : 'Aufklappen, um die Felder darin einzeln zuzuordnen.'}
+                ? `Die Felder darin mit eigener Linie werden gesetzt - ${selLink ? 'der Rest kommt von der Linie auf das Objekt (Basis).' : 'ohne Linie auf das Objekt (Basis) brauchen die Pflichtfelder eine Linie.'}`
+                : 'Aufklappen, um die Felder darin einzeln zuzuordnen - eine Linie auf das Objekt ist dann ihre Basis.'}
             </p>
           )}
           <div className="flex items-center gap-2 text-[10px]">
