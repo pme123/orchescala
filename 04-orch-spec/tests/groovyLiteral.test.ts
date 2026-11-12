@@ -6,9 +6,9 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
-import { groovyToFeel, outputSource } from '../src/juelFeel';
+import { groovyToFeel, jsonToFeel, outputSource } from '../src/juelFeel';
 import { feelRef, isPlainFeelName } from '../src/feelNames';
-import type { VarNode } from '../src/feel';
+import { checkFeel, type VarNode } from '../src/feel';
 import { stepFindings } from '../src/findings';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
@@ -98,18 +98,34 @@ test('nesting deeper than 50 stays a script', () => {
   assert.equal(groovyToFeel('['.repeat(100000)), null);
 });
 
+test('Groovy keywords as a variable stay a script', () => {
+  for (const s of ['def', '[new]', '[class]', '[a: as]', '[instanceof]', '[while]', '[assert]', '[import]']) assert.equal(groovyToFeel(s), null, s);
+});
+
+test('JSON values: a line break in a text is escaped as well', () => {
+  assert.equal(jsonToFeel({ text: 'a\nb', list: ['c\td'] }), '{text: "a\\nb", list: ["c\\td"]}');
+});
+
+test('backtick names: the FEEL check reads them as variables', () => {
+  const vars = [{ name: 'letter-id', type: 'string' }, { name: 'for', type: 'string' }] as VarNode[];
+  assert.deepEqual(checkFeel(`= ${feelRef('letter-id')}`, vars, null).issues, []);
+  assert.deepEqual(checkFeel(`= ${feelRef('for')}`, vars, null).issues, []);
+  // an unknown one is reported by its name, without the backticks
+  assert.ok(checkFeel(`= ${feelRef('other-id')}`, vars, null).issues.some(i => i.text.includes('Variable «other-id» ist nicht bekannt')));
+});
+
 test('Spin and the script binding stay a script', () => {
   for (const s of ['[S]', '[JSON]', '[XML]']) assert.equal(groovyToFeel(s), null, s);
 });
 
-const bpmn = (script: string, name = 'lettersToSend', format = ' scriptFormat="groovy"') => `<?xml version="1.0" encoding="UTF-8"?>
+const bpmn = (script: string, name = 'lettersToSend', format = ' scriptFormat="groovy"', param = 'inputParameter') => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d" targetNamespace="t">
   <bpmn:process id="letters" isExecutable="true">
     <bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:serviceTask id="SendTask" name="Send" camunda:type="external" camunda:topic="send-letters">
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="${name}"><camunda:script${format}>${script}</camunda:script></camunda:inputParameter>
+          <camunda:${param} name="${name}"><camunda:script${format}>${script}</camunda:script></camunda:${param}>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>
@@ -163,6 +179,13 @@ test('an unknown variable in the list is a finding of the step (Groovy fails the
   assert.ok(errors.some(e => e.startsWith('«lettersToSend»') && e.includes('Variable «docLink» ist nicht bekannt')), errors.join('\n'));
   // the known one is fine
   assert.ok(!errors.some(e => e.includes('Variable «fileIdLetter» ist nicht bekannt')), errors.join('\n'));
+});
+
+test('an output row: the literal is FEEL too, and stays the script on C7 export', () => {
+  const xml = bpmn('[fileIdLetter, docLink]', 'letters', ' scriptFormat="groovy"', 'outputParameter');
+  const { spec, step } = row(xml);
+  assert.equal(step.outputs?.[0].expression, '= [fileIdLetter, docLink]');
+  assert.ok(writeBpmn(xml, spec).xml.includes('<camunda:outputParameter name="letters"><camunda:script scriptFormat="groovy">[fileIdLetter, docLink]</camunda:script></camunda:outputParameter>'));
 });
 
 test('import and C7 export of a Groovy map', () => {

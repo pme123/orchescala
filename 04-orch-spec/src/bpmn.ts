@@ -200,7 +200,7 @@ function fachlich(p: Element): string {
   return importExpression(text(p));
 }
 
-/** A script in Groovy — the format in any case */
+/** A script in Groovy — `scriptFormat` compared case-insensitively (`Groovy`, `groovy`) */
 const isGroovy = (script: Element): boolean => (attr(script, 'scriptFormat') ?? '').toLowerCase() === 'groovy';
 
 function paramValue(p: Element): string {

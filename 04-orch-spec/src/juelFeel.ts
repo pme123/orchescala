@@ -83,8 +83,17 @@ export function jsonToFeel(v: unknown): string {
   return String(v);
 }
 
-/** Groovy names that mean nothing in FEEL (the script binding, Spin) — a list of them stays a script */
-const GROOVY_ONLY = new Set(['it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'S', 'JSON', 'XML']);
+/**
+ * Groovy names that are no variable FEEL could read — the script binding, Spin,
+ * and the Groovy keywords: a list of them stays a script
+ */
+const GROOVY_ONLY = new Set([
+  'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'S', 'JSON', 'XML',
+  'abstract', 'as', 'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
+  'do', 'else', 'enum', 'extends', 'final', 'finally', 'goto', 'implements', 'import', 'instanceof',
+  'interface', 'native', 'new', 'package', 'private', 'protected', 'public', 'static', 'switch',
+  'synchronized', 'throw', 'throws', 'trait', 'transient', 'try', 'var', 'void', 'volatile', 'while',
+]);
 
 /**
  * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
