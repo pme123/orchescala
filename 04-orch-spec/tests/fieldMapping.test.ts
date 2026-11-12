@@ -19,13 +19,13 @@ const client: TypeDef = {
 };
 
 /** In: the client as it is and as it should be - the script builds the new one, the Out returns it */
-const orchestration = (m: FieldMapping): ServiceOrchestrationSpec => {
+const orchestration = (m: FieldMapping, more: TypeDef[] = []): ServiceOrchestrationSpec => {
   const o = newOrchestration({ title: 'Kunde ändern', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'UpdateClient' });
   o.types.find(x => x.id === o.inTypeId)!.fields = [f('existingClient', 'client'), f('client', 'client')];
   o.types.find(x => x.id === o.outTypeId)!.fields = [f('newClient', 'client')];
   return {
     ...o,
-    types: [...o.types, client],
+    types: [...o.types, ...more.filter(t => t.id === 'client'), ...(more.some(t => t.id === 'client') ? [] : [client]), ...more.filter(t => t.id !== 'client')],
     bpmn: `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="x">
   <bpmn:process id="acme-crm-clientV1-UpdateClient" isExecutable="false">
@@ -38,8 +38,8 @@ const orchestration = (m: FieldMapping): ServiceOrchestrationSpec => {
     outMappings: [{ name: 'newClient', expression: '= newClient' }],
   };
 };
-const files = (m: FieldMapping) => {
-  const fs = orchestrationFiles(orchestration(m), [], null);
+const files = (m: FieldMapping, more: TypeDef[] = []) => {
+  const fs = orchestrationFiles(orchestration(m, more), [], null);
   return {
     worker: fs.find(x => x.path.endsWith('/UpdateClientWorker.scala'))!.content,
     test: fs.find(x => x.path.endsWith('/UpdateClientWorkerTest.scala'))!.content,
@@ -114,4 +114,42 @@ test('in Scala without a base: the class field by field - optional not mapped No
 test('in Scala: a FEEL expression of a field translated like a mapping', () => {
   const { worker } = files({ base: 'existingClient', fields: [{ field: 'etag', from: [], expression: '= "*"' }] });
   assert.match(worker, /existingClient\.copy\(\n\s+etag = "\*"\n\s+\)/, worker);
+});
+
+// a client with its master data: a field of the result whose own fields get lines
+const master: TypeDef = { id: 'master', name: 'Master', kind: 'case', fields: [f('clientType', 'String'), f('segment', 'String', true)] };
+const withMaster = (optional: boolean): TypeDef[] => [{ ...client, fields: [...client.fields!, f('master', 'master', optional)] }, master];
+const masterNode = (optional = false) => ({ ...node('master', [node('clientType'), node('segment', undefined, true)]), label: optional ? 'Option[Master]' : 'Master', ...(optional ? { optional: true } : {}) });
+const withMasterNode = (n: VarNode) => ({ ...n, children: [...n.children!, masterNode()] });
+
+test('a field of a field: built from its fields - on the line onto it or on the base, otherwise a context of its own', () => {
+  assert.equal(mappingFeel({ base: 'existingClient', fields: [{ field: 'master.clientType', from: ['client.clientType'] }] }),
+    '= context merge([existingClient, {master: context merge([existingClient.master, {clientType: client.clientType}])}])');
+  assert.equal(mappingFeel({ fields: [{ field: 'master', from: ['client.master'] }, { field: 'master.clientType', from: ['clientType'] }] }),
+    '= {master: context merge([client.master, {clientType: clientType}])}');
+  assert.equal(mappingFeel({ fields: [{ field: 'master.clientType', from: ['clientType'] }] }), '= {master: {clientType: clientType}}');
+});
+
+test('the checks of a field of a field: its path known in the result, its required fields without a base', () => {
+  const t = withMasterNode(target);
+  const srcs = [withMasterNode(sources[0]), sources[1], sources[2], node('clientType')];
+  const texts = (m: FieldMapping) => mappingIssues(m, t, srcs).map(i => `${i.level}: ${i.text}`);
+  assert.deepEqual(texts({ base: 'existingClient', fields: [{ field: 'master.clientType', from: ['clientType'] }] }), []);
+  assert.deepEqual(texts({ base: 'existingClient', fields: [{ field: 'master.kind', from: ['clientType'] }] }), ['warn: «master.kind» gibt es im Ergebnis nicht (mehr).']);
+  // without a base: the master built from its fields needs its required ones - a line onto it is its base
+  const without = (more: FieldMapping['fields']) => texts({ fields: [{ field: 'clientKey', from: ['client.clientKey'] }, { field: 'firstName', from: ['client.firstName'] }, { field: 'etag', from: ['etag'] }, ...more] });
+  assert.deepEqual(without([{ field: 'master.segment', from: ['clientType'] }]), ['error: «master.clientType» bekommt keinen Wert - eine Linie ziehen oder eine Basis wählen.']);
+  assert.deepEqual(without([{ field: 'master', from: ['existingClient.master'] }, { field: 'master.segment', from: ['clientType'] }]), []);
+});
+
+test('in Scala a field of a field: a copy of the base\'s - an optional one mapped into, a required one built field by field', () => {
+  const m: FieldMapping = { base: 'existingClient', fields: [{ field: 'master.clientType', from: ['client.firstName'] }] };
+  const req = files(m, withMaster(false));
+  assert.match(req.worker, /existingClient\.copy\(\n\s+master = existingClient\.master\.copy\(\n\s+clientType = client\.firstName\n\s+\)\n\s+\)/, req.worker);
+  assert.match(req.test, /assertEquals\(result\.master\.clientType, client\.firstName\)/, req.test);
+  const opt = files(m, withMaster(true));
+  assert.match(opt.worker, /master = existingClient\.master\.map\(master =>\n\s+master\.copy\(\n\s+clientType = client\.firstName\n\s+\)\n\s+\)/, opt.worker);
+  assert.doesNotMatch(opt.test, /result\.master/);
+  const own = files({ fields: [{ field: 'clientKey', from: ['existingClient.clientKey'] }, { field: 'firstName', from: ['client.firstName'] }, { field: 'etag', from: ['client.etag'] }, { field: 'master.clientType', from: ['client.firstName'] }] }, withMaster(true));
+  assert.match(own.worker, /master = Some\(Master\(\n\s+clientType = client\.firstName,\n\s+segment = None\n\s+\)\)/, own.worker);
 });

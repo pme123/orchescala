@@ -22,7 +22,7 @@
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { DomainField, DomainType, Field, FieldMapping, Mapping, Model, Step, TypeDef } from '../types';
+import type { DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
@@ -33,7 +33,7 @@ import {
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
-import { linkPaths } from '../fieldMapping.ts';
+import { hasInner, linkPaths } from '../fieldMapping.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -336,7 +336,9 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
 
 /**
  * A mapping as Scala: the class field by field (`Client(…)`), or a copy of the base with the
- * mapped fields (`existingClient.copy(…)`). Several paths: the first one set (`orElse`).
+ * mapped fields (`existingClient.copy(…)`). Several paths: the first one set (`orElse`). A field
+ * whose own fields are mapped (`master.clientType`) is built the same way - a copy of what the
+ * line onto it gives (or of the base's), otherwise its class field by field.
  */
 function mappingScala(m: FieldMapping, scope: Map<string, ScalaVar>, target: Field, ctx: Ctx, where: string): { scala: string; cases: string[]; checks: { field: string; value: string }[] } {
   const to = typeOf(target.type, ctx);
@@ -345,32 +347,58 @@ function mappingScala(m: FieldMapping, scope: Map<string, ScalaVar>, target: Fie
   const base = m.base?.trim() ? scope.get(m.base.trim()) : undefined;
   if (m.base?.trim() && (!base || base.type !== target.type)) return { scala: todo(`${where}: Basis ${m.base} ist kein ${to.name}`), cases: [], checks: [] };
   const checks: { field: string; value: string }[] = [];
-  const args: string[] = [];
-  for (const f of (to.fields ?? []).filter(x => x.name && isFinished(x, ctx.idx))) {
-    const l = m.fields.find(x => x.field === f.name);
-    const paths = l ? linkPaths(l) : [];
-    const expr = l?.expression?.trim();
-    if (!expr && !paths.length) {
-      if (!base) args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : f.collection ? 'Seq.empty' : todo(`${f.name}: nicht zugeordnet`)}`);
-      continue;
+  const rows = (args: string[]) => `(\n${indent(args.join(',\n'), '  ')}\n)`;
+
+  /** what a link gives the field: its FEEL expression, or its paths - the first one set */
+  const linkValue = (l: FieldLink, f: Field): Translated => {
+    const expr = l.expression?.trim();
+    if (expr) return feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
+    const parts = linkPaths(l).map(p => feelToScala(`= ${p}`, scope, ctx.types, f));
+    return parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
+      : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
+  };
+  const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
+
+  /**
+   * The class `t` from the links below `prefix`: a copy of `on`, or field by field. `check`: its
+   * fields are reached from the result in the test (no Option on the way).
+   */
+  const build = (t: TypeDef, prefix: string, on: string | null, check: boolean): string => {
+    const args: string[] = [];
+    for (const f of (t.fields ?? []).filter(x => x.name && isFinished(x, ctx.idx))) {
+      const path = `${prefix}${f.name}`;
+      const l = m.fields.find(x => x.field === path);
+      const sub = hasInner(m, path) && !f.collection ? typeOf(f.type, ctx) : undefined;
+      if (sub?.kind === 'case') {
+        const whole = l ? linkValue(l, f) : null;
+        if (whole?.todo) { args.push(`${scalaName(f.name)} = ${whole.scala}`); continue; }
+        const it = whole ?? (on ? { scala: `${on}.${scalaName(f.name)}`, optional: !!f.optional } : null);
+        const inner = `${prefix}${f.name}.`;
+        let v: string;
+        if (!it) v = build(sub, inner, null, check && !f.optional);
+        else if (!it.optional) v = build(sub, inner, /^[\w.]+$/.test(it.scala) ? it.scala : `(${it.scala})`, check && !f.optional);
+        else if (f.optional) v = `${it.scala}.map(${lambda(f)} =>\n${indent(build(sub, inner, lambda(f), false), '  ')}\n)`;
+        else v = build(sub, inner, `${it.scala}.getOrElse(${missing(path)})`, check);
+        args.push(`${scalaName(f.name)} = ${f.optional && !(it?.optional) ? `Some(${v})` : v}`);
+        continue;
+      }
+      if (!l || (!l.expression?.trim() && !linkPaths(l).length)) {
+        if (!on) args.push(`${scalaName(f.name)} = ${f.optional ? 'None' : f.collection ? 'Seq.empty' : todo(`${path}: nicht zugeordnet`)}`);
+        continue;
+      }
+      const value = linkValue(l, f);
+      const v = forTarget(value, !!f.optional);
+      const scala = v.needed ? `${v.scala}.getOrElse(${missing(path)})` : v.scala;
+      args.push(`${scalaName(f.name)} = ${scala}`);
+      if (check && !value.todo && !v.needed) checks.push({ field: path.split('.').map(scalaName).join('.'), value: scala });
     }
-    let value: Translated;
-    if (expr) value = feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
-    else {
-      const parts = paths.map(p => feelToScala(`= ${p}`, scope, ctx.types, f));
-      value = parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
-        : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
-    }
-    const v = forTarget(value, !!f.optional);
-    const scala = v.needed ? `${v.scala}.getOrElse(${missing(f.name)})` : v.scala;
-    args.push(`${scalaName(f.name)} = ${scala}`);
-    if (!value.todo && !v.needed) checks.push({ field: scalaName(f.name), value: scala });
-  }
+    if (on) return args.length ? `${on}.copy${rows(args)}` : on;
+    return `${t.name}${rows(args)}`;
+  };
+
   const from = base ? (base.optional ? `${base.scala}.getOrElse(${missing(m.base!.trim())})` : base.scala) : null;
-  const built = from
-    ? (args.length ? `${from}.copy(\n${indent(args.join(',\n'), '  ')}\n)` : from)
-    : `${to.name}(\n${indent(args.join(',\n'), '  ')}\n)`;
-  return { scala: target.optional ? `Some(${built})` : built, cases: [], checks: target.optional ? [] : checks };
+  const built = build(to, '', from, !target.optional);
+  return { scala: target.optional ? `Some(${built})` : built, cases: [], checks };
 }
 
 /** The variables a FEEL expression reads - of those known, in the order it names them. */
