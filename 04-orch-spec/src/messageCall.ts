@@ -46,8 +46,8 @@ export interface MessageCorrelation {
   fixed?: boolean;
   /**
    * `= processInstanceId` (or the older `= processInstanceKey`) — no variable of the
-   * instance: the key stays empty, the event an incident. The own instance is always
-   * `camunda.processInstance.key` (in Camunda 7 exported as `execution.processInstanceId`).
+   * instance (in Camunda 8 the key stays empty, the event an incident). The own instance
+   * is always `camunda.processInstance.key` (in Camunda 7 exported as `execution.processInstanceId`).
    */
   misnamed?: boolean;
 }

@@ -112,3 +112,13 @@ test('export to C7: a path after the own instance names execution.* - no placeho
     assert.ok(!JSON.stringify(r).includes('__own'), JSON.stringify(r));
   }
 });
+
+test('export to C7: the context inside a larger expression - execution.*, no placeholder anywhere', () => {
+  const body = 'if camunda.processInstance.businessId = null then "none" else string(camunda.processInstance.key)';
+  for (const opts of [{}, { allOptional: true }]) {
+    const r = feelToJuel(body, opts);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(r.juel, '(execution.processBusinessKey == null ? "none" : execution.processInstanceId)');
+    assert.ok(!JSON.stringify(r).includes('__own'), JSON.stringify(r));
+  }
+});
