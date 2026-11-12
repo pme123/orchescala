@@ -83,6 +83,13 @@ const domainOf = (c: ServiceCollectionSpec, model: Model | null): DomainType[] =
 };
 
 /**
+ * The ids of the classes the collections export — what an orchestration refers to and never
+ * copies, also in the «Mit Domain abgleichen» of its CustomTask.
+ */
+export const collectionClassIds = (collections: ServiceCollectionSpec[], model: Model | null): Set<string> =>
+  new Set(collections.flatMap(c => domainOf(c, model)).map(d => d.id));
+
+/**
  * The catalog with the classes of the collections of this folder (but `except`) as domain —
  * what a process or another collection can refer to, e.g. a copied class to its original.
  * Only added, tagged with the collection (`DomainType.collection`): the catalog wins, the

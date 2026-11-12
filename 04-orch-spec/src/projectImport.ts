@@ -261,6 +261,8 @@ export class Converter {
     private readonly interactionOwners: Set<string> = new Set(),
     /** the process object itself (`OrderCard`) — what is in it belongs to the specification */
     private readonly processOwner?: string,
+    /** classes that are only referred to, never copied — those of the collections an orchestration calls */
+    private readonly refer: ReadonlySet<string> = new Set(),
   ) {}
 
   /** Does the type belong to the project of the process (same package root)? */
@@ -276,6 +278,7 @@ export class Converter {
    * exist: they are referenced (otherwise the export would write them again).
    */
   private ownProcess(t: DomainType): boolean {
+    if (this.refer.has(t.id)) return false;
     const inProcessObject = !!t.owner && t.owner === this.processOwner;
     return (!t.owner || inProcessObject) && (t.pkg === this.pkg || t.pkg.startsWith(`${this.pkg}.`));
   }
@@ -660,18 +663,31 @@ export function isFixed(name: string): boolean {
 }
 
 /**
+ * A service orchestration (a process in service mode) in the domain: its CustomTask, by topic
+ * (`acme-crm-clientV1.UpdateClient`). `refer`: the classes of the collections it calls — they
+ * are referred to, not copied into the orchestration.
+ */
+export interface ServiceObject { topic: string; refer?: ReadonlySet<string> }
+
+/** The domain object of a service orchestration: the CustomTask with its topic. */
+export const serviceObjectOf = (domain: DomainType[], topic: string): DomainType | undefined =>
+  domain.find(t => !!t.owner && t.topicName === topic && objectKind(t) === 'customTask');
+
+/**
  * Complete a specification read from the BPMN with data model and interactions
  * from the domain. `null` if the domain does not know the process.
+ * `service`: a service orchestration — its In, Out and own classes from its CustomTask;
+ * it has no interactions (its steps call services of the collections).
  */
-export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model | null): Enriched | null {
+export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model | null, service?: ServiceObject): Enriched | null {
   const warnings: string[] = [];
-  const procType = domain.find(t => t.processName === spec.processId && t.owner);
+  const procType = service ? serviceObjectOf(domain, service.topic) : domain.find(t => t.processName === spec.processId && t.owner);
   if (!procType) return null;
   const owner = procType.owner!;
   const pkg = procType.pkg;
   // Objects with an interaction kind — their In/Out stay a type with full name
   const interactionOwners = new Set(domain.filter(t => t.owner && objectKind(t)).map(t => t.owner!));
-  const conv = new Converter(domain, pkg, model, interactionOwners, owner);
+  const conv = new Converter(domain, pkg, model, interactionOwners, owner, service?.refer);
   const member = (obj: string, name: string) => domain.find(t => t.id === `${pkg}.${obj}.${name}`) ?? null;
 
   // Process: In · InitIn · Out · InConfig
@@ -688,9 +704,24 @@ export function enrichSpec(spec: ProcessSpec, domain: DomainType[], model: Model
   if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
 
   // The classes in the `schema` package of the process always belong to it — even those
-  // that In and Out do not need (yet)
+  // that In and Out do not need (yet). An orchestration shares that package with the
+  // collections and the other orchestrations of its API: only the classes it has itself.
+  const ownNames = new Set((spec.types ?? []).filter(t => !t.interactionId && !t.root && !t.processOut).map(t => t.name));
   for (const d of domain) {
-    if (!d.owner && d.pkg === `${pkg}.schema` && (d.kind === 'case' || d.kind === 'enum')) conv.convert(d, {});
+    if (d.owner || d.pkg !== `${pkg}.schema` || (d.kind !== 'case' && d.kind !== 'enum')) continue;
+    if (service && (!ownNames.has(d.name) || service.refer?.has(d.id))) continue;
+    conv.convert(d, {});
+  }
+  if (service) {
+    return {
+      spec: {
+        ...spec,
+        ...(procType.ownerDescr && !spec.description ? { description: procType.ownerDescr } : {}),
+        types: conv.types,
+        interactions: [],
+      },
+      object: owner, matched: [], unmatched: [], unresolved: [...conv.unresolved].sort(), warnings, notes: conv.notes, prepared: [],
+    };
   }
 
   // Interactions: the objects with an interaction kind — those of the own package

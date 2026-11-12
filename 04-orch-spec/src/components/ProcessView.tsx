@@ -50,7 +50,7 @@ import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements 
 import { collectDiagram, overlayPasted } from '../copyPaste';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
-import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, type ServiceProcess } from '../services/serviceProcess';
+import { collectionClassIds, isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, type ServiceProcess } from '../services/serviceProcess';
 import { useFolderModel } from '../useFolderModel';
 
 // The modeler is big — it is only loaded once the diagram is shown.
@@ -196,6 +196,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   // the folder as a whole: the catalog with the folder's collections (services and classes), its service
   // orchestrations and its other processes - a step can call them before they are released (folderCatalog)
   const model = useFolderModel(slug);
+  // «Mit Domain abgleichen» of an orchestration: its CustomTask, the classes of the collections only referred to
+  const syncService = useMemo(() => (isServiceProcess(spec) ? { topic: serviceProcessTopic(spec), refer: collectionClassIds(collections, model) } : undefined), [spec, collections, model]);
   const [serviceExportOpen, setServiceExportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -1145,9 +1147,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                       className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
                   </>
                 )}
-                {xml && !serviceMode && (
+                {xml && (
                   <button onClick={() => setSync({ raw: xml, from: 'Domain', mode: 'domain' })}
-                    title="Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt"
+                    title={serviceMode
+                      ? 'Mit Domain abgleichen — In, Out und eigene Klassen aus dem CustomTask im Code, der Ablauf bleibt'
+                      : 'Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt'}
                     className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncDataIcon size={14} /></button>
                 )}
                 {clip.diagram && (() => {
@@ -1246,6 +1250,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
       {sync && canEdit && (
         <SyncPanel raw={sync.raw} from={sync.from} mode={sync.mode} current={spec} model={model} isDark={isDark} plan={planXml}
+          service={syncService}
           onClose={() => setSync(null)}
           onApply={async p => {
             setSync(null);

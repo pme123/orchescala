@@ -24,8 +24,11 @@ import { AlertTriangle, Database, FolderOpen, Loader2, MessageSquare, RefreshCw,
 import { allSteps, patternDiff, type MergeReport, type MergeStatus } from '../bpmn';
 import { commentTargets } from '../comments';
 import { mergeDomain, type DomainMergeReport } from '../domainMerge';
-import { enrichSpec, findSyncDomain, prepareInteractions, readProjectDir, readProjectZip, rememberOwnFolder, scanDomain, type DomainHit } from '../projectImport';
-import { STATUSES, STATUS_META, type Model, type ProcessSpec, type Status } from '../types';
+import {
+  enrichSpec, findSyncDomain, findSyncDomainFor, prepareInteractions, readProjectDir, readProjectZip, rememberOwnFolder, scanDomain, serviceObjectOf,
+  type DomainHit, type ServiceObject,
+} from '../projectImport';
+import { STATUSES, STATUS_META, type DomainType, type Model, type ProcessSpec, type Status } from '../types';
 import { cls } from '../ui';
 import { patternDefs } from '../patterns';
 
@@ -47,6 +50,8 @@ interface Props {
   plan: (raw: string, from: string, st: MergeStatus) => SyncPlan | null;
   /** `domain`: only the data model — the BPMN is the stored one */
   mode?: 'bpmn' | 'domain';
+  /** a service orchestration: its domain object is the CustomTask with this topic (only `domain`) */
+  service?: ServiceObject;
   onApply: (plan: SyncPlan) => void;
   onClose: () => void;
 }
@@ -75,7 +80,7 @@ function StatusSelect({ label, value, onChange, isDark }: { label: string; value
   );
 }
 
-export default function SyncPanel({ raw, from, current, model, isDark, plan, mode = 'bpmn', onApply, onClose }: Props) {
+export default function SyncPanel({ raw, from, current, model, isDark, plan, mode = 'bpmn', service, onApply, onClose }: Props) {
   const domainOnly = mode === 'domain';
   const c = cls(isDark);
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
@@ -90,25 +95,32 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
   const [st, setSt] = useState<MergeStatus>({ added: domainOnly ? 'implemented' : 'draft', changed: 'changed' });
   const [withDomain, setWithDomain] = useState(true);
   const [removeStale, setRemoveStale] = useState(false);
-  const [prepare, setPrepare] = useState(true);
+  // an orchestration has no interactions to prepare - its steps call services
+  const [prepare, setPrepare] = useState(!service);
 
   // Search the domain via the process ID of the chosen diagram
   const processId = useMemo(() => {
     try { return plan(raw, from, st)?.spec.processId ?? current.processId ?? ''; } catch { return current.processId ?? ''; }
     // only per file — the status does not change the process ID
   }, [raw, from]); // eslint-disable-line react-hooks/exhaustive-deps
+  // what is searched for: the process by its ID - an orchestration by the topic of its CustomTask
+  const topic = service?.topic;
+  const key = topic ?? processId;
+  const knows = (domain: DomainType[]) =>
+    topic ? !!serviceObjectOf(domain, topic) : domain.some(t => t.processName === processId && t.owner);
   // a folder or ZIP chosen here stays for this process — a change of the data (model)
   // must not throw it away and block the sync again
   const picked = useRef<string | null>(null);
   useEffect(() => {
-    if (picked.current === processId) return;
+    if (picked.current === key) return;
     picked.current = null;
     let alive = true;
     setHit(undefined);
     setUnreadable([]);
     setError('');
     setBusy('Domain wird gesucht …');
-    (processId ? findSyncDomain(processId, model, t => alive && setBusy(t)) : Promise.resolve(null))
+    const progress = (t: string) => alive && setBusy(t);
+    (topic ? findSyncDomainFor({ id: topic, has: knows }, model, progress) : processId ? findSyncDomain(processId, model, progress) : Promise.resolve(null))
       .then(h => {
         if (!alive) return;
         if (h && 'blocked' in h) { setHit(null); setUnreadable(h.unreadable); } else setHit(h);
@@ -116,18 +128,18 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
       .catch(e => { if (alive) { setHit(null); setError(e instanceof Error ? e.message : String(e)); } })
       .finally(() => { if (alive) setBusy(null); });
     return () => { alive = false; };
-  }, [processId, model]);
+  }, [key, model]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Supply the domain later from a chosen folder or ZIP — a chosen folder with the process is remembered as its project folder. */
   const domainFrom = async (read: () => Promise<Array<{ path: string; text: string }>>, source: string, dir?: FileSystemDirectoryHandle) => {
     try {
       setBusy(`${source} wird gelesen …`);
       const domain = scanDomain(await read());
-      if (!domain.some(t => t.processName === processId && t.owner)) {
-        setError(`In ${source} gibt es kein Objekt mit \`val processName = "${processId}"\`.`);
+      if (!knows(domain)) {
+        setError(topic ? `In ${source} gibt es keinen CustomTask mit \`topicName = "${topic}"\`.` : `In ${source} gibt es kein Objekt mit \`val processName = "${processId}"\`.`);
       } else {
-        if (dir && processId) await rememberOwnFolder(model, processId, dir);
-        setError(''); setUnreadable([]); setHit({ domain, source }); picked.current = processId;
+        if (dir && key) await rememberOwnFolder(model, key, dir);
+        setError(''); setUnreadable([]); setHit({ domain, source }); picked.current = key;
       }
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
@@ -146,9 +158,9 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     try {
       const p = plan(raw, from, st);
       if (!p) return null;
-      const enriched = hit && withDomain ? enrichSpec(p.spec, hit.domain, model) : null;
+      const enriched = hit && withDomain ? enrichSpec(p.spec, hit.domain, model, service) : null;
       const dom = enriched ? mergeDomain(p.spec, enriched.spec, { status: st, removeStale, prepare }) : null;
-      const bare = !enriched && prepare ? prepareInteractions(p.spec, model) : null;
+      const bare = !enriched && prepare && !service ? prepareInteractions(p.spec, model) : null;
       const spec = dom?.spec ?? bare?.spec ?? p.spec;
       // Comments on spots that no longer exist afterwards — they stay
       const vorher = new Set(commentTargets(current, allSteps(current.steps)).map(t => t.key));
@@ -158,7 +170,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
     } catch (e) {
       return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
     }
-  }, [plan, raw, from, st, hit, withDomain, removeStale, prepare, model, current]);
+  }, [plan, raw, from, st, hit, withDomain, removeStale, prepare, model, current, service]);
 
   const r = result?.ok ? result : null;
   const steps = r?.plan.report;
@@ -239,7 +251,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                     </button>
                   </p>
                 )}
-                {withDomain && !r?.enriched && <p className={`text-[10px] ${warn}`}>Die Domain kennt <span className="font-mono">{processId}</span> nicht.</p>}
+                {withDomain && !r?.enriched && <p className={`text-[10px] ${warn}`}>Die Domain kennt <span className="font-mono">{key}</span> nicht.</p>}
                 {dom && (
                   <>
                     <p className={`text-[10px] ${c.muted2}`}>
@@ -277,7 +289,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                     Der Projekt-Ordner {unreadable.map(n => `«${n}»`).join(', ')} liess sich nicht lesen — der Browser merkt sich
                     den Zugriff je Adresse der App. Mit dem Katalog wird nicht abgeglichen, er kann älter sein als das Projekt
                   </> : <>
-                    Kein Domain-Objekt mit <span className="font-mono">val processName = "{processId}"</span> im Katalog oder in den
+                    Kein Domain-Objekt mit <span className="font-mono">{topic ? `topicName = "${topic}"` : `val processName = "${processId}"`}</span> im Katalog oder in den
                     gemerkten Projekt-Ordnern
                   </>} — Projekt-Ordner oder ZIP wählen{domainOnly ? '.' : ', oder nur den Ablauf abgleichen.'}
                 </p>
@@ -299,7 +311,7 @@ export default function SyncPanel({ raw, from, current, model, isDark, plan, mod
                 </div>
               </div>
             )}
-            {r && (r.prepared.length > 0 || !prepare) && (
+            {r && (r.prepared.length > 0 || (!prepare && !service)) && (
               <label className={`flex items-start gap-1.5 text-[10px] ${c.muted2}`}>
                 <input type="checkbox" className="mt-0.5" checked={prepare} onChange={e => setPrepare(e.target.checked)} />
                 <span>Schritte ohne Interaktion als Entwurf mit In/Out vorbereiten

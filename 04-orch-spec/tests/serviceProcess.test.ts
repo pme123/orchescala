@@ -12,6 +12,10 @@ import {
 } from '../src/services/serviceProcess';
 import { removeOld, takeOver, type TakeOverStore } from '../src/services/takeOver';
 import { folderCatalog } from '../src/folderCatalog';
+import { scanScala } from '../src/domainScan';
+import { enrichSpec } from '../src/projectImport';
+import { mergeDomain } from '../src/domainMerge';
+import type { ScalaFile } from '../src/scala';
 import type { CollectionService, ServiceCollectionSpec, ServiceOrchestrationSpec } from '../src/services/types';
 import type { Step, TypeDef } from '../src/types';
 
@@ -280,4 +284,80 @@ test('the folder catalog: an orchestrator finds the classes another one exports 
   assert.ok(ids.includes('acme.crm.domain.client.v1.GetClient.In'), ids.join(', '));
   // its own classes are not in it - they are its own types
   assert.ok(!(folderCatalog(null, { specs: [a], collections: [] }, a.slug)?.domainTypes ?? []).some(d => d.name === 'Client'));
+});
+
+// ── «Mit Domain abgleichen» of an orchestration: its CustomTask in the code ─────────────────
+
+/** an own class `Note`, used by the In - all implemented (synced before) */
+function withNote(): ServiceProcess {
+  const spec = described();
+  const types = spec.types!.map(x => (x.root ? { ...x, fields: [...x.fields!, { id: 'nf', name: 'note', type: 'n' }] } : x));
+  return { ...spec, types: [...types, { id: 'n', name: 'Note', kind: 'case' as const, fields: [{ id: 'nt', name: 'text', type: 'String' }] }].map(x => ({ ...x, status: 'implemented' as const })) };
+}
+const codeOf = (spec: ServiceProcess) => orchestrationFiles(asOrchestration(spec), [collection()], null);
+const edit = (files: ScalaFile[], file: string, from: string, to: string) => files.map(f => {
+  if (!f.path.endsWith(file)) return f;
+  assert.ok(f.content.includes(from), `${file}: ${from}\n${f.content}`);
+  return { ...f, content: f.content.replace(from, to) };
+});
+const syncDomain = (spec: ServiceProcess, files: ScalaFile[], refer?: Set<string>) => {
+  const domain = files.flatMap(f => scanScala(f.content, f.path));
+  const fresh = enrichSpec(spec, domain, null, { topic: serviceProcessTopic(spec), refer });
+  assert.ok(fresh, 'the CustomTask is found by its topic');
+  return mergeDomain(spec, fresh.spec, { status: { added: 'implemented', changed: 'changed' } });
+};
+const inOf = (spec: ServiceProcess) => spec.types!.find(x => x.root)!;
+
+test('Mit Domain abgleichen, an orchestration: In, Out and its own classes from its CustomTask - its own code changes nothing', () => {
+  const spec = withNote();
+  const { spec: after, report } = syncDomain(spec, codeOf(spec));
+  assert.deepEqual([report.added, report.changed, report.stale, report.foreign], [[], [], [], []]);
+  assert.deepEqual(inOf(after).fields!.map(f => [f.id, f.name, f.type]), [['k', 'clientKey', 'Long'], ['nf', 'note', 'n']]);
+  assert.deepEqual(after.types!.find(x => x.processOut)!.fields!.map(f => f.name), ['etag']);
+  assert.deepEqual(after.types!.filter(x => !x.root && !x.processOut).map(x => [x.id, x.name]), [['n', 'Note']]);
+  // the flow stays as it is, and there are no interactions
+  assert.deepEqual(allSteps(after.steps).map(x => x.topic), allSteps(spec.steps).map(x => x.topic));
+  assert.deepEqual(after.interactions ?? [], []);
+});
+
+test('Mit Domain abgleichen, an orchestration: a field added in the code comes in - the ids of the specification stay', () => {
+  const spec = withNote();
+  let files = edit(codeOf(spec), '/UpdateClient.scala', '      clientKey: Long,', '      clientKey: Long,\n      reason: Option[String] = None,');
+  files = edit(files, '/schema/Note.scala', '    text: String', '    text: String,\n    author: String');
+  const { spec: after, report } = syncDomain(spec, files);
+  assert.deepEqual(report.changed.sort(), ['In', 'Note']);
+  const reason = inOf(after).fields!.find(f => f.name === 'reason');
+  assert.ok(reason?.optional, JSON.stringify(inOf(after).fields));
+  assert.equal(inOf(after).fields!.find(f => f.name === 'clientKey')?.id, 'k');
+  assert.deepEqual(after.types!.find(x => x.id === 'n')!.fields!.map(f => f.name), ['text', 'author']);
+});
+
+test('Mit Domain abgleichen, an orchestration: a class of a collection is referred to - only an own one is copied', () => {
+  const spec = described();
+  const client = `package acme.crm.domain\npackage client.v1.schema\n\ncase class Client(\n    name: String\n)\n`;
+  const files = [...edit(codeOf(spec), '/UpdateClient.scala', '      clientKey: Long\n', '      clientKey: Long,\n      client: Option[schema.Client] = None\n'),
+    { path: '01-domain/src/main/scala/acme/crm/domain/client/v1/schema/Client.scala', content: client }];
+  const id = 'acme.crm.domain.client.v1.schema.Client';
+  // the class of a collection: a reference, no own type
+  const referred = syncDomain(spec, files, new Set([id])).spec;
+  assert.equal(inOf(referred).fields!.find(f => f.name === 'client')?.type, `dom:${id}`);
+  assert.ok(!referred.types!.some(x => x.name === 'Client'));
+  // a class the orchestration has itself: synced as its own
+  const own = { ...spec, types: [...spec.types!, { id: 'c', name: 'Client', kind: 'case' as const, fields: [{ id: 'cn', name: 'name', type: 'String' }] }] };
+  const mine = syncDomain(own, files).spec;
+  assert.equal(inOf(mine).fields!.find(f => f.name === 'client')?.type, 'c');
+});
+
+test('Mit Domain abgleichen, an orchestration: a draft In and Out the code has are changed - with the status chosen for it', () => {
+  const spec = described();
+  assert.deepEqual(spec.types!.map(x => x.status), ['draft', 'draft']);
+  const { spec: after, report } = syncDomain(spec, codeOf(spec));
+  assert.deepEqual(report.changed.sort(), ['In', 'Out']);
+  assert.deepEqual(after.types!.map(x => x.status), ['changed', 'changed']);
+});
+
+test('Mit Domain abgleichen, an orchestration: without its CustomTask in the domain there is nothing to sync', () => {
+  const spec = described();
+  const domain = codeOf(spec).flatMap(f => scanScala(f.content, f.path));
+  assert.equal(enrichSpec(spec, domain, null, { topic: 'acme-crm-clientV1.Other' }), null);
 });
