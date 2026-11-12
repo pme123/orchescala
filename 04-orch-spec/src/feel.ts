@@ -781,16 +781,50 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
   return out;
 }
 
+/** `= result.basicData` → `['result', 'basicData']` — null for anything but a plain path. */
+const sourcePath = (expression: string): string[] | null =>
+  /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(expression.trim())?.[1].split('.').map(x => x.trim()) ?? null;
+
+/**
+ * The variable an output reads, when its source is a plain path (`= composedClient`,
+ * `= result.basicData`) — null for any other expression or a path nobody knows.
+ */
+export function outputSource(expression: string, vars: readonly VarNode[]): VarNode | null {
+  const path = sourcePath(expression);
+  if (!path) return null;
+  let node = vars.find(n => n.name === path[0]) ?? null;
+  for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  return node;
+}
+
+/**
+ * The type a variable holds, in the form of the chip of a mapping row — null when it
+ * is unknown (`any`). An ADT (enum with fields) is an object in FEEL; it is recognised
+ * by its Scala name in the data model or the domain catalog.
+ */
+export function expectedOfNode(n: VarNode, types: TypeDef[] = [], model: Model | null = null): ExpectedType | null {
+  if (n.type === 'any') return null;
+  const accepts: FeelType[] = n.optional ? [n.type, 'nil'] : [n.type];
+  const values = n.values?.length ? { values: n.values } : {};
+  if (n.type === 'list') return { accepts, label: n.label, kind: 'list' };
+  if (n.type === 'context') {
+    if (n.open) return { accepts, label: n.label, kind: 'map' };
+    const base = typeShape(n.label).base;
+    const enumish = types.some(t => t.name === base && t.kind === 'enum')
+      || (model?.domainTypes ?? []).some(t => t.name === base && t.kind === 'enum');
+    return { accepts, label: n.label, kind: enumish ? 'enum' : 'class' };
+  }
+  return { accepts, label: n.label, kind: n.values?.length ? 'enum' : 'scalar', ...values };
+}
+
 /**
  * The type of an output: if it reads a path from the result of the step
  * (`= debitCardDetail`, `= result.basicData`), the process variable has its
  * type with fields — otherwise it stays unknown.
  */
 function outputNode(o: Mapping, results: () => VarNode[], b?: Builder): VarNode | null {
-  const path = /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(o.expression.trim())?.[1].split('.').map(x => x.trim());
-  if (!path) return null;
-  let node = results().find(n => n.name === path[0]) ?? null;
-  for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  if (!sourcePath(o.expression)) return null;
+  const node = outputSource(o.expression, results());
   // converted into another type (`mapTo`): that type - a list stays a list
   if (o.mapTo && b) {
     return nodeOfField({

@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, expectedOfNode, isFeel, outputSource, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
@@ -35,6 +35,7 @@ import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, rout
 import { resultLocals, resultNameIssue } from '../miResult';
 import { uid } from '../util';
 import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
+import { typeShape } from '../scalaTypes';
 
 // a process in service mode: how its Out is filled — only loaded there
 const ServiceOutSection = lazy(() => import('../services/ServiceOutSection'));
@@ -407,6 +408,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const insideVariables = useMemo(() => miInsideVariables(step, spec, model, outerVariables), [step, spec, model, outerVariables]);
   const insideNames = useMemo(() => (step.multiInstance?.result ? namesWrittenInside(step, spec, model) : undefined), [step, spec, model]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
+  // process variables with a fixed type (In, InitIn, InConfig) — what an output writing one of them must deliver
+  const declaredVars = useMemo(() => baseVariables.filter(v => DECLARED_SOURCES.has(v.source)), [baseVariables]);
   // The Scala types of the service object from the domain catalog — the yardstick for
   // type and required, where the step has no In/Out class of its own
   const domainIn = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'In')), [initWorker, step, spec, model]);
@@ -744,7 +747,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
         typeMapping={!!spec.service && step.kind === 'service'}
-        variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
+        variables={resultVars} declared={declaredVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
         implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternTimes={fromPattern.times.outputs} patternName={patternName}
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
@@ -1484,7 +1487,10 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
 // can do — what this process does not need is deselected (stays visible)
 // or deleted (comes back via «+ N aus Katalog»). A new sync
 // does not restore deselected rows.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert, typeMapping = false }: {
+/** Where a process variable gets a fixed type — an output writing it must deliver that type. */
+const DECLARED_SOURCES: ReadonlySet<string> = new Set(['In', 'InitIn', 'InConfig']);
+
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, declared, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert, typeMapping = false }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** an output of a service orchestration may be converted into another type (`mapTo`) */
   typeMapping?: boolean;
@@ -1503,6 +1509,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   service: ServiceDef | null;
   /** what the expression may see: process variables — for outputs first the result of the service */
   variables: VarNode[] | null;
+  /** outputs: the process variables with a fixed type — the yardstick for an output writing one */
+  declared?: VarNode[];
   /** fields of the In or Out class — from them the expected type per row */
   refFields: Field[] | null;
   /** `<Objekt>.In` or `.Out` from the domain catalog — the yardstick without an own class */
@@ -1715,13 +1723,25 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             : !off && list === 'inputs' && !refFields && m.name === inConfigField(domain) ? inConfigWarning(m.name)
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
           // FEEL (Camunda 8): `= …` is checked while typing — syntax, paths, type
-          // Expected type: the own class first, otherwise the domain catalog
-          // a different type per case and none chosen («alle Ausprägungen»): no yardstick
-          const expected = typeUnknown(variants, chosen, m.name) ? null
+          // Input: the expected type of the field of the In — the own class first, otherwise
+          // the domain catalog; a different type per case and none chosen («alle Ausprägungen»): no yardstick.
+          // Output: the name is a process variable, not a field of the Out — measured against the
+          // process variable if it has a fixed type (In, InitIn, InConfig); its type otherwise
+          // comes from the source (`= composedClient`), as the process variables take it
+          const declaredVar = list === 'outputs' ? declared?.find(v => v.name === m.name) : undefined;
+          const expected = list === 'outputs' ? (declaredVar ? expectedOfNode(declaredVar, types, model) : null)
+            : typeUnknown(variants, chosen, m.name) ? null
             : refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model)
             : expectedFromDomain(domain, m.name, model, caseOf(variants, chosen));
+          const source = list === 'outputs' && !off ? outputSource(m.expression, variables ?? []) : null;
+          const sourceType = source ? expectedOfNode(source, types, model) : null;
           const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
+          // same FEEL type, other class: `context` fits `context` — the Scala types must match too
+          const otherClass = !!expected && !!sourceType && !m.mapTo
+            && (expected.kind === 'class' || expected.kind === 'enum') && expected.kind === sourceType.kind
+            && typeShape(expected.label).base !== typeShape(sourceType.label).base;
           const feelIssues: FeelIssue[] = [
+            ...(otherClass ? [{ level: 'warn' as const, text: `Die Quelle ist ${sourceType!.label}, die Prozessvariable «${m.name}» ist als ${expected!.label} definiert (${declaredVar!.source}).` }] : []),
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             // a parameter (not a `camunda:in` on the subprocess) can carry JSON as a script
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine, step.kind !== 'call')] : []),
@@ -1766,7 +1786,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     <Asterisk size={10} />
                   </span>
                 )}
-                {expected && <ExpectedChip expected={expected} list={list} isDark={isDark} />}
+                {expected ? <ExpectedChip expected={expected} list={list} isDark={isDark} />
+                  : sourceType && <ExpectedChip expected={sourceType} list={list} isDark={isDark} fromSource={m.expression.replace(/^=\s*/, '').trim()} />}
                 <FeelInput value={m.expression} disabled={!canEdit || off} isDark={isDark}
                   variables={variables}
                   onChange={v => onChange(list, i, { expression: v })}
@@ -1777,7 +1798,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     m.expression ? `Aktuell: ${m.expression}` : '',
                   ].filter(Boolean).join('\n\n')}
                   className="flex-[3] min-w-0" />
-                {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
+                {/* the type of the source is already shown — without a yardstick the grey FEEL kind adds nothing */}
+                {feel && (expected || !sourceType) && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
                 {typeMapping && !off && (
                   <button onClick={() => setMapOpen(mapOpen === i ? null : i)} disabled={!canEdit && !m.mapTo}
                     title={m.mapTo ? `Wird umgewandelt in ${mapToLabel(m, types, model)} - anklicken zum Ändern` : 'In einen anderen Typ umwandeln - z. B. in den Typ des Out (der passende Fall, Feld für Feld)'}
@@ -2072,12 +2094,19 @@ function MiResultSection({ mi, isDark, canEdit, engine, inside, insideNames, onC
   );
 }
 
-function ExpectedChip({ expected, list, isDark }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean }) {
+/**
+ * The type of a mapping row. With `fromSource` it is no yardstick but the type of the
+ * source path of an output — the new process variable takes it over.
+ */
+function ExpectedChip({ expected, list, isDark, fromSource }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean; fromSource?: string }) {
   const st = kindStyle(expected.kind, isDark);
   const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');
   const optional = expected.accepts.includes('nil') ? ' · optional' : '';
+  const title = fromSource
+    ? `${st.what} ${expected.label}${optional} — der Typ von «${fromSource}»; die Prozessvariable übernimmt ihn.`
+    : `${st.what} ${expected.label}${optional} — ${list === 'inputs' ? 'so erwartet es der Service' : 'so ist die Prozessvariable definiert'}.\nDer Ausdruck muss ${soll} liefern.`;
   return (
-    <span title={`${st.what} ${expected.label}${optional} — ${list === 'inputs' ? 'so erwartet es der Service' : 'so ist die Prozessvariable definiert'}.\nDer Ausdruck muss ${soll} liefern.`}
+    <span title={title}
       className={`flex-shrink-0 max-w-[9rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${st.cls}`}>
       {st.icon}<span className="truncate">{expected.label}</span>
     </span>
