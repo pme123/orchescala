@@ -544,8 +544,9 @@ export function syncWithCatalog(given: ServiceCollectionSpec, model: Model | nul
   const orphans = h.spec.types.filter(t => !t.interactionId && usedBefore.has(t.id) && !usedNow.has(t.id));
   // own types no service uses and the domain does not know: deleted or moved in the project —
   // they stay, unless the user deletes them (a type without a service may be the collection's own)
+  // without a domain there is nothing to compare a type with - none is listed
   const inDomain = new Set((model?.domainTypes ?? []).map(t => t.id));
-  for (const t of h.spec.types) {
+  if (inDomain.size) for (const t of h.spec.types) {
     if (t.interactionId || orphans.includes(t) || usedNow.has(t.id) || (t.domainId && inDomain.has(t.domainId))) continue;
     stale.push({ id: t.id, name: t.name, kind: 'type' });
   }

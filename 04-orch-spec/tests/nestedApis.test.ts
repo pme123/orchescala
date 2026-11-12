@@ -461,7 +461,11 @@ test('Abgleich: own types no service uses and the domain does not know are liste
   // the service was deleted in the collection before - its types stayed behind
   const c = { ...c0, services: [natural] };
   const topic = serviceTopic(apiOf(c, natural), natural);
-  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const services = [{ id: topic, name: natural.name, kind: 'service', topic }];
+  // without a domain: nothing to compare with - no type is listed
+  assert.deepEqual(syncWithCatalog(c, { version: 1, services } as never)!.stale, []);
+  const domainTypes = scanScala('package acme.other.domain\n\ncase class Unrelated(\n    x: String\n)\n', 'Unrelated.scala');
+  const model = { version: 1, services, domainTypes } as never;
   const r = syncWithCatalog(c, model)!;
   const left = r.stale.filter(x => x.kind === 'type');
   assert.ok(left.some(x => x.name === 'LegalPerson'), JSON.stringify(r.stale));
