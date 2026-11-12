@@ -103,3 +103,12 @@ test('export to C7: a reason names camunda.processInstance as written - not the 
     assert.ok(!r.ok && !r.reason.includes('__own') && r.reason.includes('camunda.processInstance.'), `${body}: ${JSON.stringify(r)}`);
   }
 });
+
+test('export to C7: a path after the own instance names execution.* - no placeholder in juel or plain', () => {
+  for (const [body, juel] of [['camunda.processInstance.key.x', 'execution.processInstanceId.x'], ['camunda.processInstance.businessId.x', 'execution.processBusinessKey.x']]) {
+    const r = feelToJuel(body);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(r.juel, juel);
+    assert.ok(!JSON.stringify(r).includes('__own'), JSON.stringify(r));
+  }
+});
