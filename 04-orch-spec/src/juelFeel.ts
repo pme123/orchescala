@@ -88,12 +88,21 @@ export function jsonToFeel(v: unknown): string {
  * and the Groovy keywords: a list of them stays a script
  */
 const GROOVY_ONLY = new Set([
-  'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'S', 'JSON', 'XML',
+  // the bindings of a Camunda 7 script and Spin
+  'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'externalTask', 'caseExecution',
+  'connector', 'authenticatedUserId', 'variableScope', 'S', 'JSON', 'XML',
   'abstract', 'as', 'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
   'do', 'else', 'enum', 'extends', 'final', 'finally', 'goto', 'implements', 'import', 'instanceof',
   'interface', 'native', 'new', 'package', 'private', 'protected', 'public', 'static', 'switch',
   'synchronized', 'throw', 'throws', 'trait', 'transient', 'try', 'var', 'void', 'volatile', 'while',
 ]);
+
+// the tokens of `groovyToFeel` (Groovy and FEEL both allow letters beyond ASCII, `Gebühr`)
+const IDENT = /[\p{L}_][\p{L}\p{N}_]*/uy;
+// no leading zero: Groovy reads `010` as octal 8, FEEL as 10
+const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])/y;
+/** a path or a call after a name (`a.b`, `a()`, `a[0]`) */
+const ACCESS = /\s*[.(\[]/y;
 
 /**
  * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
@@ -113,10 +122,11 @@ const GROOVY_ONLY = new Set([
 export function groovyToFeel(script: string): string | null {
   const src = script.trim().replace(/^return\s+/, '').replace(/;\s*$/, '');
   let i = 0;
+  // sticky (`y`): matched at the cursor, without copying the rest of the text per token
+  const at = (re: RegExp): RegExpExecArray | null => { re.lastIndex = i; return re.exec(src); };
   const ws = () => { while (i < src.length && /\s/.test(src[i])) i++; };
   const ident = (): string | null => {
-    // Groovy and FEEL both allow letters beyond ASCII (`Gebühr`)
-    const m = /^[\p{L}_][\p{L}\p{N}_]*/u.exec(src.slice(i));
+    const m = at(IDENT);
     if (!m) return null;
     i += m[0].length;
     return m[0];
@@ -147,12 +157,11 @@ export function groovyToFeel(script: string): string | null {
     const ch = src[i];
     if (ch === "'" || ch === '"') { const t = text(); return t == null ? null : feelString(t); }
     if (ch === '[') return collection();
-    // no leading zero: Groovy reads `010` as octal 8, FEEL as 10
-    const num = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])/.exec(src.slice(i));
+    const num = at(NUMBER);
     if (num) { i += num[0].length; return num[0]; }
     // a variable, also true/false/null — no path or call (`a.b`, `a()`)
     const id = ident();
-    if (!id || /^\s*[.(\[]/.test(src.slice(i))) return null;
+    if (!id || at(ACCESS)) return null;
     if (id === 'true' || id === 'false' || id === 'null') return id;
     return isPlainFeelName(id) && !GROOVY_ONLY.has(id) ? id : null;
   };

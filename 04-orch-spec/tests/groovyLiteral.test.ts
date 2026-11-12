@@ -98,6 +98,17 @@ test('nesting deeper than 50 stays a script', () => {
   assert.equal(groovyToFeel('['.repeat(100000)), null);
 });
 
+test('the bindings of a Camunda 7 script stay a script', () => {
+  for (const s of ['[externalTask]', '[caseExecution]', '[connector]', '[authenticatedUserId]', '[variableScope]']) assert.equal(groovyToFeel(s), null, s);
+});
+
+test('a long flat list is read in linear time', () => {
+  const list = `[${Array.from({ length: 200000 }, (_, k) => `v${k}`).join(', ')}]`;
+  const start = Date.now();
+  assert.equal(groovyToFeel(list), list);
+  assert.ok(Date.now() - start < 2000, `${Date.now() - start} ms`);
+});
+
 test('Groovy keywords as a variable stay a script', () => {
   for (const s of ['def', '[new]', '[class]', '[a: as]', '[instanceof]', '[while]', '[assert]', '[import]']) assert.equal(groovyToFeel(s), null, s);
 });
