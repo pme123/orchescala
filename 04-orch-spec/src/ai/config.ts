@@ -37,19 +37,12 @@ export type AiConfig = {
   tasks: AiTask[];
   /** the skill of each of these tasks */
   skills: Partial<Record<AiTask, AiSkill>>;
-  /** `server`: the loop of the agent runs on the studio (`POST /ai/<task>/turn`, turn.ts) - without it,
-    * in the browser, each request through the studio (E28, step 5: the browser's stays until the
-    * studio's runs stable) */
-  agent?: 'server';
 };
 
 export const AI_OFF: AiConfig = { enabled: false, tasks: [], skills: {} };
 
 /** On the origin of the page - the studio serves orch-spec and these paths. */
 export const CONFIG_PATH = '/ai/config';
-/** The base URL of the Messages API for the SDK - one per task; the studio applies its skill and
-  * sends it on with its key. A task without a skill is refused (403). */
-export const messagesBase = (task: AiTask) => `/ai/${task}`;
 
 /** The answer of `GET /ai/config` - anything unexpected counts as off. */
 export function parseConfig(json: unknown): AiConfig {
@@ -64,7 +57,7 @@ export function parseConfig(json: unknown): AiConfig {
     const name = text(s.name);
     return name ? [[t, { name, version: typeof s.version === 'number' ? s.version : undefined, model: text(s.model) }]] : [];
   })) as Partial<Record<AiTask, AiSkill>>;
-  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks, skills, ...(o.agent === 'server' ? { agent: 'server' as const } : {}) };
+  return { enabled: true, provider: text(o.provider), model: text(o.model), tasks, skills };
 }
 
 /** Asks the studio - every failure (no studio, 404, no JSON) is «off». */

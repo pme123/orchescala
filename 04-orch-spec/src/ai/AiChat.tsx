@@ -6,11 +6,10 @@ import type { BetaMessageParam, BetaTextBlockParam } from '@anthropic-ai/sdk/res
 import { AlertTriangle, Check, CircleStop, Info, Loader2, MessageSquarePlus, Send as SendIcon, Sparkles, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../ui';
-import { runTurn, type AgentEvent, type Stop } from './agent';
-import { claudeSender, errorText, turnOnStudio } from './client';
+import type { AgentEvent, Stop } from './agent';
+import { errorText, turnOnStudio } from './client';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
 import type { AiTask } from './config';
-import { useAiConfig } from './useAiConfig';
 import type { ToolKit } from './toolkit';
 import type { TurnContext } from './turn';
 
@@ -42,7 +41,7 @@ export type AiChatProps<D> = {
   /** the system of a conversation - built at its start and then kept (cache) */
   system: () => BetaTextBlockParam[];
   kit: ToolKit<D>;
-  /** what the kit knows besides the draft - sent along when the loop runs on the studio (`agent: server`) */
+  /** what the kit knows besides the draft - sent along to the loop on the studio */
   context: TurnContext;
   draft: D | null;
   onDraft: (d: D | null) => void;
@@ -74,7 +73,6 @@ export type AiChatProps<D> = {
 export function AiChat<D>(p: AiChatProps<D>) {
   const { isDark, draft } = p;
   const c = cls(isDark);
-  const ai = useAiConfig();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -135,11 +133,8 @@ export function AiChat<D>(p: AiChatProps<D>) {
     };
     try {
       const before = draft ?? p.start();
-      const input = { system: sys, kit: p.kit, history: history.current, prompt, draft: before, onEvent, signal: controller.signal };
-      // the loop on the studio, with the limits of the skill - or here, each request through the studio
-      const r = ai.agent === 'server'
-        ? await turnOnStudio(p.task, p.context, input)
-        : await runTurn({ ...input, send: claudeSender(ai, p.task) });
+      // the loop on the studio, with the limits of the skill
+      const r = await turnOnStudio(p.task, p.context, { system: sys, kit: p.kit, history: history.current, prompt, draft: before, onEvent, signal: controller.signal });
       if (!current()) return;
       history.current = r.history;
       setTotal((t) => addUsage(t, r.usage));
@@ -156,7 +151,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
       // for measuring the costs: token counts only, no content (docs/KI-MODUS.md)
       console.info('[orch-spec KI]', usageLine(r.usage), r.usage);
     } catch (e) {
-      // not from the API (runTurn turns those into a stop) - a bug in the app; the chat stays usable
+      // not from the API (turnOnStudio turns those into a stop) - a bug in the app; the chat stays usable
       if (current()) add({ kind: 'note', text: `Unerwarteter Fehler: ${errorText(e)}`, tone: 'error' });
     } finally {
       if (current()) {

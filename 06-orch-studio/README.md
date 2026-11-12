@@ -12,8 +12,7 @@ the folders of orch-spec and orch-ops, its skills and the key of the AI. It buil
 | `/site/ops/` | orch-ops | the apps |
 | `/`, `/spec`, `/ops` | redirect there | – |
 | `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
-| `POST /ai/<task>/v1/messages` | a request of orch-spec's agent for `<task>` (e.g. `uiCreator`), with the skill applied and sent on to the Claude API with the studio's key and workspace; a task without a skill is refused (403), a tool that is not in the skill too (400) | `STUDIO_AI_*`, the skills |
-| `POST /ai/<task>/turn` | a whole turn of the agent on the studio, for `uiCreator`, `processCreator` and `serviceOrchestrator`: orch-spec sends the request of the RE, the draft and the context of the tools; the studio runs the loop of orch-spec's core with the tools of the task and the `limits` of the skill, each request as above. The answer: one JSON per line (`application/x-ndjson`) - the events as they come, then the result. orch-spec uses it unless `STUDIO_AI_AGENT=browser` | `STUDIO_AI_*`, the skills, orch-spec's core |
+| `POST /ai/<task>/turn` | a whole turn of the agent on the studio, for `uiCreator`, `processCreator` and `serviceOrchestrator`: orch-spec sends the request of the RE, the draft and the context of the tools; the studio runs the loop of orch-spec's core with the tools of the task and the `limits` of the skill; each request goes to the Claude API with the skill applied and the studio's key and workspace. A task without a skill is refused (403), a tool that is not in the skill too (400). The answer: one JSON per line (`application/x-ndjson`) - the events as they come, then the result | `STUDIO_AI_*`, the skills, orch-spec's core |
 
 **Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceOrchestrator`, `serviceRegistration`, `serviceCreator`)
 is offered only with a skill for it and its provider: `<skills>/<task>/<provider>/SKILL.md` - its
@@ -28,7 +27,7 @@ What the studio applies of a skill, per request:
 |---|---|
 | `## Instructions` | the first block of the system - orch-spec sends only the context (catalog, data model) |
 | `model` | the model - without one, `STUDIO_AI_MODEL` |
-| `request.max_tokens`, `thinking`, `effort`, `fallbacks` | the same settings - those of the browser do not count; `max_tokens` at most 32000 |
+| `request.max_tokens`, `thinking`, `effort`, `fallbacks` | the same settings - those of the loop do not count; `max_tokens` at most 32000 |
 | `tools` | the only tools a request may offer - another one is refused (400) |
 
 And per turn on the studio (`POST /ai/<task>/turn`):
@@ -45,8 +44,8 @@ turn on the studio: how it stopped, time, requests and costs. At most 8 requests
 same time; one waits at most 10 minutes (a request with thinking can take that long), including its
 wait for a turn. The browser goes away (or the RE stops): the turn ends, and its request to the API.
 
-**orch-spec's core:** the loop of the agent and its tools come from `04-orch-spec/src/core`, the same
-code orch-spec runs in the browser - bundled for the studio with `npm run core` (to
+**orch-spec's core:** the loop of the agent and its tools come from `04-orch-spec/src/core`, the logic
+orch-spec shares with the studio - bundled for the studio with `npm run core` (to
 `core/orch-spec-core.mjs`, not in Git; `core/orch-spec-core.d.mts` holds the types the studio uses).
 `npm run lint`, `npm test` and the image need it.
 
@@ -93,7 +92,6 @@ docker run -p 127.0.0.1:8881:8880 \
 | `STUDIO_AI_ANTHROPIC_WORKSPACE_ID` | – | only if the API asks for it (a key without a workspace) |
 | `STUDIO_AI_MODEL` | `claude-opus-5-5` | the model of a skill that names none - whatever orch-spec sends |
 | `STUDIO_AI_ANTHROPIC_URL` | `https://api.anthropic.com` | e.g. a gateway of the company |
-| `STUDIO_AI_AGENT` | `server` | where orch-spec's agent runs: `server` - its loop on the studio (`POST /ai/<task>/turn`), with the limits of the skill; `browser` - the loop in the browser, each request through `POST /ai/<task>/v1/messages`, without the limits per turn - the way back while the studio's loop is new |
 
 A wrong setting - also a folder of the company that is set but not there, or a port that is taken -
 ends the start with one line that names it. `docker stop` ends the studio at once (SIGTERM).
