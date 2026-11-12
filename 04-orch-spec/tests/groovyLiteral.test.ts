@@ -7,6 +7,7 @@ import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
 import { groovyToFeel, outputSource } from '../src/juelFeel';
+import { feelRef, isPlainFeelName } from '../src/feelNames';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 (globalThis as unknown as { XMLSerializer: unknown }).XMLSerializer = class { serializeToString(n: Node) { return String(n); } };
@@ -62,16 +63,39 @@ test('choosing a service: the source of an output', () => {
   // a name FEEL does not read as it is: in backticks
   assert.equal(outputSource('letter-id', undefined, undefined), '= `letter-id`');
   assert.equal(outputSource('for', undefined, undefined), '= `for`');
+  // a catalog expression of only whitespace is none
+  assert.equal(outputSource('client', undefined, '   '), '= client');
+  // a source that is set stays exactly as it was
+  assert.equal(outputSource('client', ' = result.client ', undefined), ' = result.client ');
 });
 
-const bpmn = (script: string, name = 'lettersToSend') => `<?xml version="1.0" encoding="UTF-8"?>
+test('feelRef: plain names as they are, the rest in backticks (also «+ aus Katalog»)', () => {
+  assert.equal(feelRef('client'), 'client');
+  assert.equal(feelRef('_x1'), '_x1');
+  assert.equal(feelRef('Gebühr'), 'Gebühr');
+  for (const n of ['letter-id', 'a.b', 'two words', '1st', 'for', 'null', 'item']) assert.equal(feelRef(n), `\`${n}\``, n);
+  assert.ok(isPlainFeelName('Gebühr'));
+  assert.ok(!isPlainFeelName('in'));
+});
+
+test('non-ASCII names convert like ASCII ones', () => {
+  assert.equal(groovyToFeel('[Gebühr, Straße: 1]'), null); // a list entry and a map entry mixed
+  assert.equal(groovyToFeel('[Gebühr, Straße]'), '[Gebühr, Straße]');
+  assert.equal(groovyToFeel('[Straße: Gebühr]'), '{Straße: Gebühr}');
+});
+
+test('Spin and the script binding stay a script', () => {
+  for (const s of ['[S]', '[JSON]', '[XML]']) assert.equal(groovyToFeel(s), null, s);
+});
+
+const bpmn = (script: string, name = 'lettersToSend', format = ' scriptFormat="groovy"') => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id="d" targetNamespace="t">
   <bpmn:process id="letters" isExecutable="true">
     <bpmn:startEvent id="Start"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:serviceTask id="SendTask" name="Send" camunda:type="external" camunda:topic="send-letters">
       <bpmn:extensionElements>
         <camunda:inputOutput>
-          <camunda:inputParameter name="${name}"><camunda:script scriptFormat="groovy">${script}</camunda:script></camunda:inputParameter>
+          <camunda:inputParameter name="${name}"><camunda:script${format}>${script}</camunda:script></camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>
@@ -97,6 +121,17 @@ test('C7 export: the unchanged list stays the script it was', () => {
   const { spec } = row(xml);
   const out = writeBpmn(xml, spec).xml;
   assert.ok(out.includes('<camunda:script scriptFormat="groovy">[fileIdLetter, docLink]</camunda:script>'), out);
+});
+
+test('import: the script format decides, and a FEEL line from the export wins', () => {
+  const expr = (xml: string) => row(xml).step.inputs?.[0].expression;
+  // the format in any case
+  assert.equal(expr(bpmn('[a, b]', 'x', ' scriptFormat="Groovy"')), '= [a, b]');
+  // without a format or another language: no Groovy, stays described
+  assert.equal(expr(bpmn('[a, b]', 'x', '')), '«script» [a, b]');
+  assert.equal(expr(bpmn('[a, b]', 'x', ' scriptFormat="javascript"')), '«javascript» [a, b]');
+  // the script the export wrote from FEEL: its `// FEEL:` line, not the literal after it
+  assert.equal(expr(bpmn('// FEEL: [a, b, c]\n[a, b]', 'x')), '= [a, b, c]');
 });
 
 test('import and C7 export of a Groovy map', () => {

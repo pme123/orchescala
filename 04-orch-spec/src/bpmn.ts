@@ -183,9 +183,10 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
 // ── Inputs/outputs ───────────────────────────────────────────────────────────
 /**
  * A business parameter value: text becomes JUEL → FEEL; script, list and map stay descriptive —
- * except a Groovy script that is only a literal (`groovyToFeel`). This is the only place
- * for business rows: `paramValue` elsewhere reads the technical parameters
- * (`_handledErrors`, mocks …), which are not mappings and get no FEEL.
+ * except a Groovy script that is only a literal (`groovyToFeel`). Every business
+ * input and output row is read here; the other callers of `paramValue` read only
+ * the technical parameters (`_handledErrors`, mocks …), which are not mappings
+ * and so stay as they are.
  */
 function fachlich(p: Element): string {
   // a script the export made from FEEL (JSON for Camunda 7): the FEEL is in the first line

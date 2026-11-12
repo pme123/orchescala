@@ -82,24 +82,31 @@ export function jsonToFeel(v: unknown): string {
   return String(v);
 }
 
-/** Groovy names that mean nothing in FEEL — a list of them stays a script */
-const GROOVY_ONLY = new Set(['it', 'this', 'super', 'delegate', 'owner', 'execution', 'task']);
+/** Groovy names that mean nothing in FEEL (the script binding, Spin) — a list of them stays a script */
+const GROOVY_ONLY = new Set(['it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'S', 'JSON', 'XML']);
 
 /**
  * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
  * map (`[key: x, 'b': 1]`), a variable, a text, a number, true/false/null, nested
- * as well — the same as FEEL: the FEEL for it, otherwise null. Anything else
+ * as well — the same value in FEEL: the FEEL for it, otherwise null. One difference
+ * remains: an unknown variable fails in Groovy (MissingPropertyException) and is
+ * null in FEEL — the FEEL check reports it. Anything else
  * stays a script: a call, a path, an operator, a GString with `$`, a triple-quoted
  * text, a `\u` escape, a comment, several statements; also what would read
  * differently in FEEL — an octal number (`010`), a reserved word or a Groovy-only
  * name (`it`, `this`) as a variable, a map key given twice (Groovy keeps the last).
+ *
+ * A small recursive reader over the literal grammar only, with one cursor `i`:
+ * a regex cannot match nested brackets, and the JUEL tokenizer here knows no
+ * Groovy lists, maps or single-quoted texts.
  */
 export function groovyToFeel(script: string): string | null {
   const src = script.trim().replace(/^return\s+/, '').replace(/;\s*$/, '');
   let i = 0;
   const ws = () => { while (i < src.length && /\s/.test(src[i])) i++; };
   const ident = (): string | null => {
-    const m = /^[A-Za-z_]\w*/.exec(src.slice(i));
+    // Groovy and FEEL both allow letters beyond ASCII (`Gebühr`)
+    const m = /^[\p{L}_][\p{L}\p{N}_]*/u.exec(src.slice(i));
     if (!m) return null;
     i += m[0].length;
     return m[0];
@@ -665,4 +672,4 @@ export const feelIfPossible = (text: string): string => (isJuel(text) ? importEx
  * without a source writes nothing — so it is filled as well.
  */
 export const outputSource = (name: string, had: string | undefined, catalog: string | undefined): string =>
-  had?.trim() || feelIfPossible(catalog ?? '') || `= ${feelRef(name)}`;
+  (had?.trim() ? had : '') || feelIfPossible(catalog ?? '').trim() || `= ${feelRef(name)}`;

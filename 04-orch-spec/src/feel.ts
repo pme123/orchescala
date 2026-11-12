@@ -1521,7 +1521,6 @@ export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
   return out;
 }
 
-
 /**
  * The variables a FEEL expression accesses — the first name part
  * of a path (`consultant.name` → `consultant`), in order of
