@@ -170,3 +170,11 @@ test('export to C7: a variable named businessKey stays a variable - only the con
     assert.equal(r.juel, name);
   }
 });
+
+test('import of C7: a bare businessKey or processInstanceId is a variable - only execution.* is the context', () => {
+  for (const name of ['businessKey', 'processInstanceId']) {
+    const r = juelToFeel(name);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(r.feel, name);
+  }
+});
