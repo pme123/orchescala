@@ -18,7 +18,8 @@ import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockSt
 import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
-import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
+import { feelIfPossible, importExpression, isJuel, outputSource, untranslatableText } from '../juelFeel';
+import { feelRef } from '../feelNames';
 import FeelInput from './FeelInput';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
@@ -453,7 +454,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     ]);
     const add = ref.names.filter(n => !have.has(n)).map(name => ({
       name,
-      expression: `= ${name}`,
+      expression: `= ${feelRef(name)}`,
       ...(descr.get(name) ? { description: descr.get(name) } : {}),
     }));
     if (add.length) onPatch(step.id, { [list]: [...(step[list] ?? []), ...add] });
@@ -1413,8 +1414,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       })).concat(extra(step.inputs, inParams)), vin, 'inputs'),
       outputs: ofCase(outParams.map(pm => ({
         name: pm.name,
-        // without a source of its own the field of the result of the same name — as «+ aus Katalog»
-        expression: oldOut.get(pm.name)?.expression || feelIfPossible(pm.expression ?? '') || `= ${pm.name}`,
+        expression: outputSource(pm.name, oldOut.get(pm.name)?.expression, pm.expression),
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
         ...(oldOut.get(pm.name)?.disabled ? { disabled: true } : {}),
       })).concat(extra(step.outputs, outParams)), vout, 'outputs'),

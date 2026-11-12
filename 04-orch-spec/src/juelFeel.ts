@@ -23,6 +23,7 @@
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
+import { feelRef, isPlainFeelName } from './feelNames.ts';
 
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 
@@ -81,11 +82,17 @@ export function jsonToFeel(v: unknown): string {
   return String(v);
 }
 
+/** Groovy names that mean nothing in FEEL — a list of them stays a script */
+const GROOVY_ONLY = new Set(['it', 'this', 'super', 'delegate', 'owner', 'execution', 'task']);
+
 /**
  * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
  * map (`[key: x, 'b': 1]`), a variable, a text, a number, true/false/null, nested
  * as well — the same as FEEL: the FEEL for it, otherwise null. Anything else
- * (a call, an operator, a GString with `$`, several statements) stays a script.
+ * stays a script: a call, a path, an operator, a GString with `$`, a triple-quoted
+ * text, a `\u` escape, a comment, several statements; also what would read
+ * differently in FEEL — an octal number (`010`), a reserved word or a Groovy-only
+ * name (`it`, `this`) as a variable, a map key given twice (Groovy keeps the last).
  */
 export function groovyToFeel(script: string): string | null {
   const src = script.trim().replace(/^return\s+/, '').replace(/;\s*$/, '');
@@ -120,12 +127,14 @@ export function groovyToFeel(script: string): string | null {
     const ch = src[i];
     if (ch === "'" || ch === '"') { const t = text(); return t == null ? null : feelString(t); }
     if (ch === '[') return collection();
-    const num = /^-?\d+(?:\.\d+)?(?![\w.])/.exec(src.slice(i));
+    // no leading zero: Groovy reads `010` as octal 8, FEEL as 10
+    const num = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])/.exec(src.slice(i));
     if (num) { i += num[0].length; return num[0]; }
     // a variable, also true/false/null — no path or call (`a.b`, `a()`)
     const id = ident();
     if (!id || /^\s*[.(\[]/.test(src.slice(i))) return null;
-    return id;
+    if (id === 'true' || id === 'false' || id === 'null') return id;
+    return isPlainFeelName(id) && !GROOVY_ONLY.has(id) ? id : null;
   };
   // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
   const collection = (): string | null => {
@@ -133,6 +142,7 @@ export function groovyToFeel(script: string): string | null {
     if (src.startsWith(':]', i)) { i += 2; return '{}'; }
     if (src[i] === ']') { i++; return '[]'; }
     const items: string[] = [];
+    const keys = new Set<string>();
     let map: boolean | null = null;
     for (;;) {
       ws();
@@ -147,8 +157,9 @@ export function groovyToFeel(script: string): string | null {
       if (isEntry) {
         i++;
         v = value();
-        if (v == null) return null;
-        items.push(`${/^[A-Za-z_]\w*$/.test(key!) ? key : feelString(key!)}: ${v}`);
+        if (v == null || keys.has(key!)) return null;
+        keys.add(key!);
+        items.push(`${isPlainFeelName(key!) ? key : feelString(key!)}: ${v}`);
       } else {
         i = start;
         v = value();
@@ -646,3 +657,12 @@ function importJuel(t: string): FeelResult {
 
 /** Translatable JUEL to FEEL — what cannot be translated stays JUEL. */
 export const feelIfPossible = (text: string): string => (isJuel(text) ? importExpression(text) : text);
+
+/**
+ * The source of an output when a service is chosen: what the row already had,
+ * otherwise the expression of the catalog, otherwise the field of the result of
+ * the same name (as «+ aus Katalog»). An empty source is no choice — an output
+ * without a source writes nothing — so it is filled as well.
+ */
+export const outputSource = (name: string, had: string | undefined, catalog: string | undefined): string =>
+  had?.trim() || feelIfPossible(catalog ?? '') || `= ${feelRef(name)}`;
