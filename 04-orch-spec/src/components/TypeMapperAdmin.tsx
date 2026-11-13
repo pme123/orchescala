@@ -184,7 +184,7 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
             <Plus size={12} /> Typ-Mapper
           </button>
           <button onClick={() => fileRef.current?.click()} disabled={unsaved}
-            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiche ID oder gleiches Von → Nach wird ersetzt, die übrigen bleiben'}
+            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiches Von → Nach wird ersetzt, die übrigen bleiben. Scala-Ausdrücke und Imports der Datei kommen so in den Worker - nur Dateien aus bekannter Quelle.'}
             className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
             <Upload size={12} /> Importieren
           </button>
