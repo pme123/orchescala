@@ -121,3 +121,25 @@ test('type mappers: an export file imports again - same id or From → To replac
   assert.equal(importedMappers([], file).added, 2);
   assert.throws(() => importedMappers(have, '{"patterns": []}'), /Keine Typ-Mapper/);
 });
+
+test('type mappers: an import file with an entry twice keeps the last one; a broken file says so', () => {
+  const a: TypeMapper = { id: 'a', from: 'dom:A', to: 'dom:B', kind: 'decoder' };
+  const file = JSON.stringify({ typeMappers: [a, { ...a, id: 'a2', description: 'last' }, { ...a, from: 'dom:C' }, { ...a, from: 'dom:C', id: 'c' }] });
+  const r = importedMappers([], file);
+  assert.deepEqual(r.all.map(m => `${m.id} ${m.description ?? ''}`.trim()), ['a2 last', 'c']);
+  assert.equal(r.added, 2);
+  assert.throws(() => importedMappers([], '{oops'), /Kein JSON/);
+  assert.throws(() => importedMappers([], 'null'), /Keine Typ-Mapper/);
+  assert.throws(() => importedMappers([], '[1, "x", null]'), /Keine Typ-Mapper/);
+});
+
+test('type mappers: the same names in other packages - no match by name, and the mapper says so', () => {
+  const nameOf = (ref: string) => ({ a1: 'p1.Kind', a2: 'p2.Kind', b: 'q.ClientType' } as Record<string, string>)[ref] ?? ref;
+  const one: TypeMapper = { id: 'one', from: 'a1', to: 'b', kind: 'decoder' };
+  const two: TypeMapper = { id: 'two', from: 'a2', to: 'b', kind: 'decoder' };
+  const node = (label: string): VarNode => ({ name: 'x', label, type: 'string', source: 'In' });
+  assert.equal(converter([one], nameOf)(node('Kind'), node('ClientType')), 'Kind → ClientType');
+  assert.equal(converter([one, two], nameOf)(node('Kind'), node('ClientType')), null);
+  const idx = { ...indexTypes([], null), nameOf };
+  assert.match(mapperIssues(one, [one, two], idx).join(), /dieselben Namen \(kindToClientType\)/);
+});

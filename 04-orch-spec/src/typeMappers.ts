@@ -28,13 +28,14 @@ export function findMapper(mappers: TypeMapper[] | undefined, from: string, to: 
   if (!mappers?.length || !from || !to) return undefined;
   const exact = mappers.find(m => m.from === from && m.to === to);
   if (exact) return exact;
-  const [f, t] = [short(nameOf(from)), short(nameOf(to))];
-  return mappers.find(m => short(nameOf(m.from)) === f && short(nameOf(m.to)) === t);
+  return mapperByName(mappers, nameOf(from), nameOf(to), nameOf);
 }
 
 /** The mapper between two types by their names (as the variables of a mapping show them). */
+/** Only when it is the one: two mappers with the same names (other packages) are no match - mapperIssues says so. */
 export function mapperByName(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string): TypeMapper | undefined {
-  return (mappers ?? []).find(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to));
+  const hits = (mappers ?? []).filter(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to));
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 /** The cases of an enum - of the model's classes or the catalog. */
@@ -102,6 +103,11 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
   if (!m.from || !m.to) return ['Von und Nach brauchen einen Typ.'];
   if (m.from === m.to) out.push('Von und Nach sind derselbe Typ.');
   if (all.some(o => o.id !== m.id && o.from === m.from && o.to === m.to)) out.push('Diesen Mapper gibt es zweimal.');
+  // other types with the same names (another package): a mapping shows only the names, the worker
+  // method is named after them - neither tells them apart
+  else if (all.some(o => o.id !== m.id && o.from && o.to && mapperMethod(o, idx.nameOf) === mapperMethod(m, idx.nameOf))) {
+    out.push(`Ein anderer Mapper hat dieselben Namen (${mapperMethod(m, idx.nameOf)}) - im Mapping und im Worker nicht zu unterscheiden; keiner der beiden wandelt.`);
+  }
   if (m.kind === 'table') {
     const from = enumCases(m.from, idx);
     const to = enumCases(m.to, idx);
@@ -163,12 +169,18 @@ export const mapperFile = (all: TypeMapper[]): string =>
  * replaces it, new ones are added, the others stay. A file without mappers is an error.
  */
 export function importedMappers(have: TypeMapper[], text: string): { all: TypeMapper[]; added: number; replaced: number } {
-  const raw = JSON.parse(text) as { typeMappers?: TypeMapper[] } | TypeMapper[];
-  const list = (Array.isArray(raw) ? raw : raw?.typeMappers ?? [])
-    .map(m => cleanMapper({ ...m, id: m?.id || `tm-${m?.from}-${m?.to}` }))
-    .filter((m): m is TypeMapper => !!m);
-  if (!list.length) throw new Error('Keine Typ-Mapper in der Datei.');
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { throw new Error('Kein JSON - keine Typ-Mapper-Datei.'); }
+  const entries: unknown[] = Array.isArray(raw) ? raw
+    : raw && typeof raw === 'object' && Array.isArray((raw as { typeMappers?: unknown }).typeMappers) ? (raw as { typeMappers: unknown[] }).typeMappers : [];
   const same = (a: TypeMapper, b: TypeMapper) => a.id === b.id || (a.from === b.from && a.to === b.to);
+  // within the file the last one wins - one mapper per id and per From → To
+  const list = entries
+    .filter((m): m is TypeMapper => !!m && typeof m === 'object')
+    .map(m => cleanMapper({ ...m, id: typeof m.id === 'string' && m.id ? m.id : `tm-${m.from}-${m.to}` }))
+    .filter((m): m is TypeMapper => !!m)
+    .filter((m, i, l) => !l.slice(i + 1).some(o => same(m, o)));
+  if (!list.length) throw new Error('Keine Typ-Mapper in der Datei.');
   const replaced = have.filter(a => list.some(b => same(a, b))).length;
   const added = list.filter(b => !have.some(a => same(a, b))).length;
   return { all: [...have.filter(a => !list.some(b => same(a, b))), ...list], added, replaced };
