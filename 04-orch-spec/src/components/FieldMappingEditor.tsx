@@ -3,8 +3,8 @@
 // fallback (`??`, the first one set wins). An object of the Out opens: a line onto it is what its
 // fields with lines of their own are set on (dashed, «Basis» - a copy of it). A filter shows only
 // the fields whose name holds a text, or only those with one of the same name and type on the other
-// side - what they are in opened.
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Maximize2, Minimize2, Search, Trash2, Wand2, X } from 'lucide-react';
+// side - what they are in opened. A stepper goes from field to field of the Out in sight.
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Search, Trash2, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VarNode } from '../feel';
@@ -167,6 +167,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
   const tVisible = shownIn(outOpen);
 
   const [selected, setSelected] = useState<string | null>(null);
+  // a jump of the stepper: the field chosen comes into sight
+  const [jump, setJump] = useState(0);
+  useEffect(() => {
+    if (!jump || !selected) return;
+    const row = box.current?.querySelector(`[data-target="${CSS.escape(selected)}"]`);
+    row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [jump]); // eslint-disable-line react-hooks/exhaustive-deps
   // click-click: the source chosen first
   const [pending, setPending] = useState<string | null>(null);
   // dragging a line: from where, to the pointer
@@ -377,6 +384,25 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     );
   };
 
+  // ── the stepper: from field to field of the Out in sight, in their order ──
+  const steps: string[] = [];
+  const walkOut = (nodes: VarNode[], prefix: string) => {
+    for (const f of nodes) {
+      const path = `${prefix}${f.name}`;
+      if (!showsRight(path)) continue;
+      steps.push(path);
+      if (outOpen.has(path) && opens(f)) walkOut(f.children ?? [], `${path}.`);
+    }
+  };
+  walkOut(fields, '');
+  const at = selected ? steps.indexOf(selected) : -1;
+  const step = (by: 1 | -1) => {
+    if (!steps.length) return;
+    const next = at < 0 ? (by > 0 ? 0 : steps.length - 1) : (at + by + steps.length) % steps.length;
+    setSelected(steps[next]);
+    setJump(j => j + 1);
+  };
+
   /** of the lines just added, those whose two ends are in sight - the filter hides the others */
   const inSight = (next: FieldMapping): FieldMapping => {
     if (!filtering) return next;
@@ -405,8 +431,11 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
         <label className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.border} ${c.input}`} onClick={e => e.stopPropagation()}>
           <Search size={10} className={c.muted} />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Feld filtern"
-            onKeyDown={e => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
-            title="Nur die Felder, deren Name den Text enthält - mit dem Weg zu ihnen (aufgeklappt)"
+            onKeyDown={e => {
+              if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); }
+              if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+            }}
+            title="Nur die Felder, deren Name den Text enthält - mit dem Weg zu ihnen (aufgeklappt). Enter: zum nächsten Feld, Shift+Enter: zum vorherigen"
             className="w-28 bg-transparent outline-none font-mono" />
           {query && <button type="button" onClick={() => setQuery('')} className={c.muted} aria-label="Filter leeren"><X size={10} /></button>}
         </label>
@@ -414,6 +443,12 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
           title="Nur die Felder, die es auf der anderen Seite mit gleichem Namen und Typ gibt - und die schon eine Linie haben">
           <input type="checkbox" checked={fitting} onChange={e => setFitting(e.target.checked)} /> nur passende
         </label>
+        <span className={`flex items-center rounded border ${c.border}`} onClick={e => e.stopPropagation()}
+          title="Von Feld zu Feld des Out, das in Sicht ist - es wird gewählt und kommt in Sicht">
+          <button type="button" disabled={!steps.length} onClick={() => step(-1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Vorheriges Feld"><ChevronLeft size={11} /></button>
+          <span className={`px-1 tabular-nums ${c.muted}`}>{at >= 0 ? at + 1 : '-'} / {steps.length}</span>
+          <button type="button" disabled={!steps.length} onClick={() => step(1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Nächstes Feld"><ChevronRight size={11} /></button>
+        </span>
         <span className={`ml-auto ${c.muted}`}>{mapped} von {fields.length} zugeordnet</span>
         <button type="button" onClick={e => { e.stopPropagation(); onLarge(!large); }} title={large ? 'Verkleinern (Esc)' : 'Gross öffnen'}
           className={`p-1 rounded border ${c.btn}`} aria-label={large ? 'Verkleinern' : 'Gross öffnen'}>
