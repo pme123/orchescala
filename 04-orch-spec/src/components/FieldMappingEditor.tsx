@@ -464,7 +464,8 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
           <button type="button" disabled={!selected} onClick={() => setJump(j => j + 1)}
             title={selected ? `${selected} - hinspringen` : 'Noch kein Feld gewählt'}
             className={`px-1 flex items-center gap-1 max-w-[16rem] ${selected ? 'hover:underline' : ''} disabled:cursor-default`}>
-            {selected && <span className="font-mono truncate">{selected.split('.').slice(-2).join('.')}</span>}
+            {/* rtl cuts at the start: the end of the path (the field itself) stays visible */}
+            {selected && <span className="font-mono truncate" dir="rtl"><bdi dir="ltr">{selected}</bdi></span>}
             <span className={`tabular-nums flex-shrink-0 ${c.muted}`}>{at >= 0 ? at + 1 : '-'} / {steps.length}</span>
           </button>
           <button type="button" disabled={!steps.length} onClick={() => step(1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Nächstes Feld"><ChevronRight size={11} /></button>
