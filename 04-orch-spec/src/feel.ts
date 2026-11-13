@@ -853,24 +853,36 @@ function otherClass(declared: string, source: string, model: Model | null): bool
   return !alias(d.base) && !alias(s.base);
 }
 
-/** `acme.domain.Client`, `GetClient.Client` and `Client` name the same class — `A.Out` and `B.Out` do not. */
+/** The members every service object has — `Out` alone does not say which object's. */
+const GENERIC_MEMBERS: ReadonlySet<string> = new Set(['In', 'Out', 'InitIn', 'InConfig']);
+
+/**
+ * Do two Scala names mean the same class? The package (`acme.domain.`) does not count:
+ * `acme.domain.Client` is `Client`. An object prefix counts only for a specific name —
+ * `GetClient.Client` is `Client`, but `GetA.Out` is not `Out` (every object has an `Out`)
+ * and not `GetB.Out`. So an unqualified `Out` against a qualified one warns, rather than
+ * hiding a real mismatch.
+ */
 const sameClass = (a: string, b: string): boolean => {
-  const x = a.replace(/`/g, '');
-  const y = b.replace(/`/g, '');
-  return x === y || x.endsWith(`.${y}`) || y.endsWith(`.${x}`);
+  const unpack = (t: string) => t.replace(/`/g, '').replace(/^(?:[a-z_]\w*\.)+/, '');
+  const x = unpack(a);
+  const y = unpack(b);
+  if (x === y) return true;
+  const [long, short] = x.length > y.length ? [x, y] : [y, x];
+  return !GENERIC_MEMBERS.has(short) && long.endsWith(`.${short}`);
 };
 
 /** What a row of the outputs shows and checks about its type (see `outputRowType`). */
 export interface OutputRowType {
   /** the yardstick: the process variable with a fixed type the output writes — null for a new variable */
   expected: ExpectedType | null;
-  /** the type of the source path — what a new process variable takes over */
+  /** the type of the source path — what a new process variable takes over; null with a conversion (`mapTo`) */
   source: ExpectedType | null;
   /** the source path, normalised (`composedClient.client`) — null if the source is no plain path */
   path: string | null;
   /** the source has another class than the declared process variable */
   issue: string | null;
-  /** show the FEEL kind of the result: there is a yardstick, or no source type says more */
+  /** show the FEEL kind of the result: there is a yardstick, or neither the source nor a conversion says more */
   showResult: boolean;
 }
 
@@ -886,13 +898,15 @@ export function outputRowType(m: Pick<Mapping, 'name' | 'expression' | 'mapTo'>,
   const declaredVar = declared.find(v => v.name === m.name);
   const expected = declaredVar ? expectedOfNode(declaredVar, types, model) : null;
   const parsed = sourcePath(m.expression);
-  const node = parsed ? nodeOfPath(parsed, vars) : null;
+  // converted (`mapTo`): the variable gets the type of the conversion, which its own chip
+  // shows — the type of the source is not what the variable takes over
+  const node = parsed && !m.mapTo ? nodeOfPath(parsed, vars) : null;
   const source = node ? expectedOfNode(node, types, model) : null;
   const path = parsed?.join('.') ?? null;
-  const issue = declaredVar && expected && source && !m.mapTo && otherClass(expected.label, source.label, model)
+  const issue = declaredVar && expected && source && otherClass(expected.label, source.label, model)
     ? `Die Quelle ist ${source.label}, die Prozessvariable «${m.name}» ist als ${expected.label} definiert (${declaredVar.source}).`
     : null;
-  return { expected, source, path, issue, showResult: !!expected || !source };
+  return { expected, source, path, issue, showResult: !!expected || (!source && !m.mapTo) };
 }
 
 /**

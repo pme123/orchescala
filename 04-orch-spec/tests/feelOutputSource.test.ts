@@ -91,6 +91,11 @@ test('outputRowType: the same class with its prefix is no other class - an alias
   assert.equal(outputRowType({ name: 'client', expression: '= client' }, results, declared).issue, null);
   assert.equal(outputRowType({ name: 'client', expression: '= other' }, results, declared).issue, null);
   assert.match(outputRowType({ name: 'a', expression: '= other' }, results, declared).issue ?? '', /GetClient\.Client.*GetA\.Out/);
+  // every object has an `Out`: an unqualified one is not the `Out` of GetA - that of GetB neither
+  const outs = [node('out', 'Out', 'context', 'Ergebnis'), node('b', 'GetB.Out', 'context', 'Ergebnis'), node('pkgOut', 'acme.a.GetA.Out', 'context', 'Ergebnis')];
+  assert.match(outputRowType({ name: 'a', expression: '= out' }, outs, declared).issue ?? '', /Die Quelle ist Out/);
+  assert.match(outputRowType({ name: 'a', expression: '= b' }, outs, declared).issue ?? '', /Die Quelle ist GetB\.Out/);
+  assert.equal(outputRowType({ name: 'a', expression: '= pkgOut' }, outs, declared).issue, null);
   const alias = { domainTypes: [{ id: 'acme.domain.Clients', name: 'Clients', pkg: 'acme.domain', kind: 'alias', importPath: 'acme.domain.Clients' }] } as unknown as Model;
   assert.equal(outputRowType({ name: 'client', expression: '= clients' }, results, declared, [], alias).issue, null);
 });
@@ -135,4 +140,21 @@ test('wiring: the chosen case of an enum Out types the source - a declared In va
   const row = outputRowType(step.outputs![0], resultVariables(step, spec, clientModel, null), declared, spec.types, clientModel);
   assert.equal(row.expected?.label, 'String');
   assert.equal(row.showResult, true);
+});
+
+test('outputRowType: a conversion (mapTo) - its type is the type of the variable, not the source', () => {
+  const row = outputRowType({ name: 'existingClient', expression: '= composedClient', mapTo: 'Client' }, vars, []);
+  assert.deepEqual([row.source, row.expected, row.issue, row.showResult], [null, null, null, false]);
+  assert.equal(row.path, 'composedClient');
+});
+
+test('wiring: the result of the step comes before a process variable of the same name', () => {
+  const step = { ...getClient('PersonOut'), outputs: [{ name: 'client', expression: '= client' }] } as Step;
+  // the In has `client: String` - the source `client` is the field of the Out (Person)
+  const spec = clientSpec(step, [{ id: 'f', name: 'client', type: 'String' }]);
+  const results = resultVariables(step, spec, clientModel, null);
+  assert.equal(results.filter(v => v.name === 'client').length, 1);
+  const row = outputRowType(step.outputs![0], results, declaredVariables(processVariables(spec, clientModel)), spec.types, clientModel);
+  assert.equal(row.source?.label, 'Person');
+  assert.equal(row.expected?.label, 'String');
 });
