@@ -34,7 +34,7 @@ import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
 import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
-import { enumCases, findMapper, mapperCode, mapperExtension, mapperHome, mapperImports, type MapperHome } from '../typeMappers.ts';
+import { enumCases, findMapper, mapperCode, mapperExtension, mapperHome, mapperImports, modelMappers, type MapperHome } from '../typeMappers.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -572,8 +572,9 @@ function typeImport(ref: string, ctx: Ctx, pkg: string): string | null {
   return at && at !== pkg ? `import ${at}.${ctx.idx.nameOf(ref).replace(/^.*\./, '')}` : null;
 }
 
-/** Where a mapper lives in the code - see mapperHome. */
+/** Where a mapper lives in the code - one of the code where it is, one of the model see mapperHome. */
 function homeOf(m: TypeMapper, ctx: Ctx): MapperHome {
+  if (m.code) return { pkg: m.code.pkg, object: m.code.object };
   const api = orchestrationApi(ctx.o);
   const root = `${ctx.o.project.split('-').filter(Boolean).join('.')}.domain`;
   return mapperHome([typePackage(m.from, ctx), typePackage(m.to, ctx)], root, [...api.api.split('.'), `v${api.apiVersion}`]);
@@ -599,6 +600,8 @@ function useMapper(m: TypeMapper, ctx: Ctx): { home: MapperHome; explicit: boole
 function mapperFiles(ctx: Ctx): ScalaFile[] {
   const byObject = new Map<string, { home: MapperHome; mappers: TypeMapper[] }>();
   for (const { mapper, home } of ctx.usedMappers.values()) {
+    // one of the code is there already
+    if (mapper.code) continue;
     const k = `${home.pkg}.${home.object}`;
     byObject.set(k, { home, mappers: [...(byObject.get(k)?.mappers ?? []), mapper] });
   }
@@ -1099,7 +1102,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
-    mappers: model?.typeMappers ?? [], usedMappers: new Map(),
+    mappers: modelMappers(model), usedMappers: new Map(),
   };
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {

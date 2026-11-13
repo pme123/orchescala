@@ -24,7 +24,7 @@ import FeelInput from './FeelInput';
 import FieldMappingEditor from './FieldMappingEditor';
 import { emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
 import MappingInOut from './MappingInOut';
-import { converter } from '../typeMappers';
+import { converter, modelMappers } from '../typeMappers';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
 import { domainRef } from '../serviceTypes';
@@ -2163,7 +2163,7 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   const nodes = useMemo(() => (mapping ? mappingVarNodes(mapping, spec, model) : null), [mapping, spec, model]);
   const ioIssues = useMemo(() => (mapping ? inOutIssues(mapping, variables) : []), [mapping, variables]);
   // the type mappers of the model: a line between their types converts
-  const convert = useMemo(() => converter(model?.typeMappers, indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  const convert = useMemo(() => converter(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
   const toMapping = async () => {
     if (value.trim() && !(await confirm({ title: 'Als Mapping beschreiben?', confirmLabel: 'Mapping', text: 'Der FEEL-Ausdruck wird durch das Mapping ersetzt - es beginnt leer.' }))) return;
     // the result so far is its Out

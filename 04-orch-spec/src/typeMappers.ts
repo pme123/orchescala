@@ -13,7 +13,7 @@
 import type { VarNode } from './feel';
 import type { Converter } from './fieldMapping';
 import { caseIdent, type TypeIndex } from './scala.ts';
-import type { TypeMapper } from './types';
+import type { DomainMapper, Model, TypeMapper } from './types';
 
 export const MAPPER_KINDS: Array<{ kind: TypeMapper['kind']; label: string; hint: string }> = [
   { kind: 'table', label: 'Tabelle', hint: 'Ein Enum in ein Enum - Fall für Fall' },
@@ -77,9 +77,40 @@ export function mapperMethod(m: TypeMapper, nameOf: (ref: string) => string): st
   return `${from.charAt(0).toLowerCase()}${from.slice(1)}To${name(m.to)}`;
 }
 
-/** The name of its extension method - `toClientType`: `existing.kind.toClientType`. */
+/** The name of its extension method - `toClientType`: `existing.kind.toClientType`; one of the code keeps its own. */
 export function mapperExtension(m: TypeMapper, nameOf: (ref: string) => string): string {
+  if (m.code) return m.code.method;
   return `to${short(nameOf(m.to)).replace(/[^A-Za-z0-9]/g, '')}`;
+}
+
+/** A type mapper of the code (catalog) as one of the model - converting with its extension, not editable. */
+export function codeMapper(d: DomainMapper): TypeMapper {
+  return {
+    id: `code:${d.id}`, from: d.from, to: d.to, kind: 'decoder',
+    code: { pkg: d.pkg, object: d.object, method: d.method },
+    ...(d.descr ? { description: d.descr } : {}),
+  };
+}
+
+/**
+ * The type mappers a mapping converts with: those of the model (Administration), then those of
+ * the code (catalog) - one of the code with the names of one of the model steps back (the model's
+ * is the definition, its export updates the code), of two of the code the one read first applies.
+ */
+export function modelMappers(model: Pick<Model, 'typeMappers' | 'domainMappers'> | null | undefined): TypeMapper[] {
+  const own = model?.typeMappers ?? [];
+  const key = (from: string, to: string) => `${short(from)}→${short(to)}`;
+  const taken = new Set<string>();
+  const code: TypeMapper[] = [];
+  for (const d of model?.domainMappers ?? []) {
+    const k = key(d.from, d.to);
+    if (taken.has(k)) continue;
+    taken.add(k);
+    code.push(codeMapper(d));
+  }
+  // the model's name its types by reference - compared by the short names the code has
+  const ownKeys = new Set(own.map(m => key(m.from.replace(/^dom:/, ''), m.to.replace(/^dom:/, ''))));
+  return [...own, ...code.filter(m => !ownKeys.has(key(m.from, m.to)))];
 }
 
 /** Where a mapper lives in the code - the package of a `schema` and the object in it. */

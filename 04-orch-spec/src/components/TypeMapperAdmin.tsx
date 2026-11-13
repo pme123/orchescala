@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, Download, Plus, Repeat, Trash2, Upload, Wand2 } from 'lucide-react';
 import type { Model, TypeMapper } from '../types';
 import { indexTypes } from '../scala';
-import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperCode, mapperFile, mapperIssues, prefilledCases } from '../typeMappers';
+import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperCode, mapperFile, mapperIssues, modelMappers, prefilledCases } from '../typeMappers';
 import { cls } from '../ui';
 import { uid } from '../util';
 import { AdminSection, SaveRow, flashOf, useFlash, type AdminTone } from './adminUi';
@@ -16,11 +16,13 @@ type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>
 
 /** State for the status bar and the card header */
 export function typeMapperState(model: Model): { tone: AdminTone; label: string; detail?: string } {
-  const all = model.typeMappers ?? [];
+  // the model's and those of the code (catalog)
+  const all = modelMappers(model);
   if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Typ-Mapper' };
   const idx = indexTypes([], model);
   const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
-  return { tone: 'ok', label: `${all.length}`, detail: all.map(m => `${name(m.from)} → ${name(m.to)}`).join(', ') };
+  const code = all.filter(m => m.code).length;
+  return { tone: 'ok', label: `${all.length}`, detail: `${all.map(m => `${name(m.from)} → ${name(m.to)}`).join(', ')}${code ? ` (${code} aus dem Code)` : ''}` };
 }
 
 export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
@@ -182,6 +184,24 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
           );
         })}
         {!draft.length && <p className={`text-[11px] ${c.muted}`}>Noch keine Typ-Mapper.</p>}
+        {/* those of the code - the catalog read them (extensions in the domain), not editable here */}
+        {!!(model.domainMappers ?? []).length && (
+          <div className={`rounded-lg border px-3 py-2 space-y-1 ${c.border2}`}>
+            <p className={`text-[10px] uppercase tracking-wide ${c.muted}`}>Aus dem Code (Katalog)</p>
+            {(model.domainMappers ?? []).map(d => {
+              const own = draft.some(m => name(m.from) === d.from && name(m.to) === d.to);
+              return (
+                <div key={d.id} className="flex items-baseline gap-2 flex-wrap text-[11px]" title={d.source ?? d.pkg}>
+                  <span className="font-mono">{d.from}</span><ArrowRight size={10} className={c.muted} /><span className="font-mono">{d.to}</span>
+                  <span className={`font-mono text-[10px] ${c.muted}`}>{d.object}.{d.method}</span>
+                  <span className={`font-mono text-[10px] ${c.muted} break-all`}>{d.pkg}</span>
+                  {d.descr && <span className={`text-[10px] ${c.muted}`}>{d.descr}</span>}
+                  {own && <span className={`text-[10px] ${c.muted}`}>· der eigene oben gilt</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <SaveRow onSave={() => void save()} flash={flash} isDark={isDark}>
           <button onClick={add} className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
             <Plus size={12} /> Typ-Mapper

@@ -12,7 +12,7 @@ import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import type { ServiceOrchestrationSpec } from '../src/services/types';
 import { converter, findMapper, importedMappers, mapperBody, mapperFile, mapperHome, mapperIssues, prefilledCases } from '../src/typeMappers';
 import { indexTypes } from '../src/scala';
-import type { DomainType, Field, FieldMapping, Model, TypeDef, TypeMapper } from '../src/types';
+import type { DomainMapper, DomainType, Field, FieldMapping, Model, TypeDef, TypeMapper } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser ??= DOMParser;
 
@@ -27,9 +27,9 @@ const types: TypeDef[] = [
 ];
 const table: TypeMapper = { id: 'm1', from: 'mainType', to: 'clientType', kind: 'table', cases: [{ from: 'Person', to: 'PERSON' }, { from: 'Company', to: 'COMPANY' }] };
 const wrapper: TypeMapper = { id: 'm2', from: 'bdw', to: 'BigDecimal', kind: 'field', path: 'value' };
-const model = (mappers: TypeMapper[], domainTypes: DomainType[] = []): Model => ({ version: 1, services: [], typeMappers: mappers, domainTypes });
+const model = (mappers: TypeMapper[], domainTypes: DomainType[] = [], domainMappers: DomainMapper[] = []): Model => ({ version: 1, services: [], typeMappers: mappers, domainTypes, domainMappers });
 
-const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client', domain: DomainType[] = []) => {
+const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client', domain: DomainType[] = [], code: DomainMapper[] = []) => {
   const o = newOrchestration({ title: 'Kunde lesen', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'ReadClient' });
   o.types.find(x => x.id === o.inTypeId)!.fields = [f('existing', 'composed')];
   o.types.find(x => x.id === o.outTypeId)!.fields = [f('client', 'read')];
@@ -44,7 +44,7 @@ const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client', doma
 </bpmn:definitions>`,
     tasks: { MapTask: { script: mappingFeel(m), mapping: m } }, conditions: {}, outMappings: [{ name: 'client', expression: '= client' }],
   };
-  const fs = orchestrationFiles(spec, [], model(mappers, domain));
+  const fs = orchestrationFiles(spec, [], model(mappers, domain, code));
   return {
     worker: fs.find(x => x.path.endsWith('/ReadClientWorker.scala'))!.content,
     test: fs.find(x => x.path.endsWith('/ReadClientWorkerTest.scala'))!.content,
@@ -251,4 +251,19 @@ test('a table with a case the source no longer has, or a case twice - flagged; t
     'Gibt es in ClientMainType nicht mehr: Gone - wird im Code weggelassen.',
     'Mehrfach: Person - die erste Zeile gilt.',
   ]);
+});
+
+test('a mapper of the code (catalog): the worker imports its object and calls its extension - no file for it', () => {
+  const inCode: DomainMapper = {
+    id: 'acme.crm.domain.clientMaster.schema.ClientMasterTypeMappers.toKind(ClientMainType)', pkg: 'acme.crm.domain.clientMaster.schema',
+    object: 'ClientMasterTypeMappers', method: 'toKind', from: 'ClientMainType', to: 'ClientType',
+  };
+  const { worker, test: t, mappers } = files(all, [wrapper], 'Map Client', [], [inCode]);
+  assert.match(worker, /kind = existing\.kind\.toKind,/, worker);
+  assert.match(worker, /tags = existing\.tags\.map\(_\.toKind\),/, worker);
+  assert.match(worker, /^import acme\.crm\.domain\.clientMaster\.schema\.ClientMasterTypeMappers\.\*$/m, worker);
+  assert.match(t, /^import acme\.crm\.domain\.clientMaster\.schema\.ClientMasterTypeMappers\.\*$/m, t);
+  // only the model's mapper comes as a file
+  assert.deepEqual(mappers.map(f => f.path.split('/').pop()), ['ClientV1TypeMappers.scala']);
+  assert.doesNotMatch(mappers[0].content, /def (toKind|toClientType)/);
 });
