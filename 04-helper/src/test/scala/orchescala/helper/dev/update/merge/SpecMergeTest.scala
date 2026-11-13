@@ -788,6 +788,11 @@ class SpecMergeTest extends FunSuite:
           s"$nestedDomain/GetPersons.scala"                                -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1\n\nobject GetPersons\nend GetPersons",
           s"$nestedDomain/schema/Person.scala"                             -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1.schema\n\ncase class Person(name: String)",
           "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala" -> "package acme.demo.domain\npackage clientMaster.schema\n\ncase class Address(city: String)",
+          // the type mappers of a level and of the project (Orch Spec: the level both types share)
+          "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/ClientMasterTypeMappers.scala" ->
+            "package acme.demo.domain\npackage clientMaster.schema\n\nobject ClientMasterTypeMappers:\n  extension (x: Address) def toText: String = x.city\nend ClientMasterTypeMappers",
+          "01-domain/src/main/scala/acme/demo/domain/schema/TypeMappers.scala" ->
+            "package acme.demo.domain\npackage schema\n\nobject TypeMappers:\n  extension (x: Int) def toText: String = x.toString\nend TypeMappers",
           "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala" ->
             "package acme.demo.worker.clientMaster.naturalPersons.v1\n\nclass GetPersonsWorker:\n  def run = ???\nend GetPersonsWorker",
           // the base paths of the project and of the level
@@ -798,11 +803,13 @@ class SpecMergeTest extends FunSuite:
       )
       val (plan, _) = run(project, Seq.empty, Seq(nested))
       assertEquals(plan.notes, Seq.empty)
-      for name <- Seq("NaturalPersonsV1.scala", "GetPersons.scala", "Person.scala", "Address.scala", "GetPersonsWorker.scala")
+      for name <- Seq("NaturalPersonsV1.scala", "GetPersons.scala", "Person.scala", "Address.scala", "ClientMasterTypeMappers.scala", "TypeMappers.scala", "GetPersonsWorker.scala")
       do assertEquals(actionOf(plan, project, name), Action.create, name)
       assertEquals(path(project, "GetPersons.scala"), s"$nestedDomain/GetPersons.scala")
       assertEquals(path(project, "Person.scala"), s"$nestedDomain/schema/Person.scala")
       assertEquals(path(project, "Address.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala")
+      assertEquals(path(project, "ClientMasterTypeMappers.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/ClientMasterTypeMappers.scala")
+      assertEquals(path(project, "TypeMappers.scala"), "01-domain/src/main/scala/acme/demo/domain/schema/TypeMappers.scala")
       assertEquals(path(project, "GetPersonsWorker.scala"), "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala")
       val bases = plan.files.map(_.path).filter(_.endsWith("exports.scala")).sorted
       assertEquals(bases, Seq(
