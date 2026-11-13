@@ -3,8 +3,8 @@
 // name `existingClient` does not exist and is no yardstick.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { expectedOfNode, outputSource, type VarNode } from '../src/feel';
-import type { TypeDef } from '../src/types';
+import { expectedOfNode, outputRowType, outputSource, type VarNode } from '../src/feel';
+import type { DomainType, Model, TypeDef } from '../src/types';
 
 const composed: VarNode = {
   name: 'composedClient', type: 'context', label: 'ComposedClient', source: 'Ergebnis (GetClient.Out)',
@@ -28,4 +28,58 @@ test('expectedOfNode: the kind of the chip from the node', () => {
   assert.equal(expectedOfNode({ name: 'xs', type: 'list', label: 'Seq[Client]', source: 'In' })?.kind, 'list');
   assert.equal(expectedOfNode({ name: 'm', type: 'context', label: 'Map[String, Json]', source: 'In', open: true })?.kind, 'map');
   assert.equal(expectedOfNode({ name: 'x', type: 'any', label: '?', source: 'Ausgabe' }), null);
+});
+
+test('expectedOfNode: an ADT from the domain catalog is an enum', () => {
+  const clientDom = { id: 'acme.domain.Client', name: 'Client', pkg: 'acme.domain', kind: 'enum', importPath: 'acme.domain.Client' } as DomainType;
+  const model = { domainTypes: [clientDom] } as unknown as Model;
+  assert.equal(expectedOfNode(composed.children![0], [], model)?.kind, 'enum');
+  assert.equal(expectedOfNode(composed.children![0], [], null)?.kind, 'class');
+});
+
+// the row of an output: the name is a process variable, the source path gives the type
+const node = (name: string, label: string, type: VarNode['type'] = 'context', source = 'In'): VarNode => ({ name, type, label, source });
+
+test('outputRowType: a new variable takes the type of its source - no yardstick, no grey FEEL chip', () => {
+  const row = outputRowType({ name: 'existingClient', expression: '= composedClient' }, vars, []);
+  assert.equal(row.expected, null);
+  assert.equal(row.source?.label, 'ComposedClient');
+  assert.equal(row.path, 'composedClient');
+  assert.equal(row.issue, null);
+  assert.equal(row.showResult, false);
+});
+
+test('outputRowType: no plain path - the FEEL kind is all there is', () => {
+  const row = outputRowType({ name: 'existingClient', expression: '= if true then composedClient else null' }, vars, []);
+  assert.deepEqual([row.source, row.path, row.showResult], [null, null, true]);
+});
+
+test('outputRowType: a declared variable is the yardstick - another class is a warning', () => {
+  const declared = [node('client', 'Client')];
+  const same = outputRowType({ name: 'client', expression: '= composedClient.client' }, vars, declared);
+  assert.equal(same.expected?.label, 'Client');
+  assert.equal(same.issue, null);
+  assert.equal(same.showResult, true);
+  const other = outputRowType({ name: 'client', expression: '= composedClient' }, vars, declared);
+  assert.equal(other.issue, 'Die Quelle ist ComposedClient, die Prozessvariable «client» ist als Client definiert (In).');
+  // converted into another type: the class of the source does not count
+  assert.equal(outputRowType({ name: 'client', expression: '= composedClient', mapTo: 'Client' }, vars, declared).issue, null);
+});
+
+test('outputRowType: lists compare their elements - scalars and other shapes are the FEEL check', () => {
+  const results = [node('persons', 'Seq[Person]', 'list', 'Ergebnis'), node('names', 'Seq[String]', 'list', 'Ergebnis'), node('one', 'Person', 'context', 'Ergebnis')];
+  const declared = [node('clients', 'Seq[Client]', 'list')];
+  assert.match(outputRowType({ name: 'clients', expression: '= persons' }, results, declared).issue ?? '', /Seq\[Person\].*Seq\[Client\]/);
+  assert.equal(outputRowType({ name: 'clients', expression: '= names' }, results, declared).issue, null);
+  assert.equal(outputRowType({ name: 'clients', expression: '= one' }, results, declared).issue, null);
+  // Option does not count
+  assert.equal(outputRowType({ name: 'client', expression: '= one' }, results, [node('client', 'Option[Person]')]).issue, null);
+});
+
+test('outputRowType: the source reads the result of the step even where a declared variable has the same name', () => {
+  // `status` of the result (OtherStatus) shadows the In variable `status` (Status) in the source
+  const results = [node('status', 'OtherStatus', 'context', 'Ergebnis'), node('status', 'Status')];
+  const row = outputRowType({ name: 'status', expression: '= status' }, results, [node('status', 'Status')]);
+  assert.equal(row.source?.label, 'OtherStatus');
+  assert.match(row.issue ?? '', /Die Quelle ist OtherStatus/);
 });

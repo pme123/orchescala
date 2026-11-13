@@ -818,6 +818,53 @@ export function expectedOfNode(n: VarNode, types: TypeDef[] = [], model: Model |
 }
 
 /**
+ * Two Scala types of the same shape (both a list, both a map or neither) with
+ * different classes: `ComposedClient` and `Client`, `Seq[A]` and `Seq[B]`. FEEL sees
+ * `context` = `context` there. A scalar on either side and a different shape are left
+ * to the FEEL check (`checkFeel`), which already says text vs number or list vs object.
+ */
+function otherClass(declared: string, source: string): boolean {
+  const d = typeShape(declared);
+  const s = typeShape(source);
+  if (isScalar(d.base) || isScalar(s.base) || s.base === '?') return false;
+  return d.collection === s.collection && d.map === s.map && d.base !== s.base;
+}
+
+/** What a row of the outputs shows and checks about its type (see `outputRowType`). */
+export interface OutputRowType {
+  /** the yardstick: the process variable with a fixed type the output writes — null for a new variable */
+  expected: ExpectedType | null;
+  /** the type of the source path — what a new process variable takes over */
+  source: ExpectedType | null;
+  /** the source path, normalised (`composedClient.client`) — null if the source is no plain path */
+  path: string | null;
+  /** the source has another class than the declared process variable */
+  issue: string | null;
+  /** show the FEEL kind of the result: there is a yardstick, or no source type says more */
+  showResult: boolean;
+}
+
+/**
+ * The type of an output row. Its name is a process variable, not a field of the Out:
+ * measured against that variable if it has a fixed type (`declared`: In, InitIn,
+ * InConfig); otherwise the type comes from the source path (`= composedClient`), as the
+ * process variables take it. `vars` is what the source may read (the result of the
+ * step and the process variables). A conversion (`mapTo`) changes the type — no class check then.
+ */
+export function outputRowType(m: Pick<Mapping, 'name' | 'expression' | 'mapTo'>, vars: readonly VarNode[], declared: readonly VarNode[],
+  types: TypeDef[] = [], model: Model | null = null): OutputRowType {
+  const declaredVar = declared.find(v => v.name === m.name);
+  const expected = declaredVar ? expectedOfNode(declaredVar, types, model) : null;
+  const node = outputSource(m.expression, vars);
+  const source = node ? expectedOfNode(node, types, model) : null;
+  const path = sourcePath(m.expression)?.join('.') ?? null;
+  const issue = declaredVar && expected && source && !m.mapTo && otherClass(expected.label, source.label)
+    ? `Die Quelle ist ${source.label}, die Prozessvariable «${m.name}» ist als ${expected.label} definiert (${declaredVar.source}).`
+    : null;
+  return { expected, source, path, issue, showResult: !!expected || !source };
+}
+
+/**
  * The type of an output: if it reads a path from the result of the step
  * (`= debitCardDetail`, `= result.basicData`), the process variable has its
  * type with fields — otherwise it stays unknown.

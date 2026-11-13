@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, expectedOfNode, isFeel, outputSource, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, outputRowType, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
@@ -35,7 +35,6 @@ import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, rout
 import { resultLocals, resultNameIssue } from '../miResult';
 import { uid } from '../util';
 import { CORRELATION_KEY, carriesMessage, correlationOf, messageCorrelation, withMessageName, type MessageCorrelation } from '../messageCall';
-import { typeShape } from '../scalaTypes';
 
 // a process in service mode: how its Out is filled — only loaded there
 const ServiceOutSection = lazy(() => import('../services/ServiceOutSection'));
@@ -1728,20 +1727,16 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           // Output: the name is a process variable, not a field of the Out — measured against the
           // process variable if it has a fixed type (In, InitIn, InConfig); its type otherwise
           // comes from the source (`= composedClient`), as the process variables take it
-          const declaredVar = list === 'outputs' ? declared?.find(v => v.name === m.name) : undefined;
-          const expected = list === 'outputs' ? (declaredVar ? expectedOfNode(declaredVar, types, model) : null)
+          // (the Out holds the source, not the target: a field of the same name is no yardstick)
+          const out = list === 'outputs' ? outputRowType(m, off ? [] : variables ?? [], declared ?? [], types, model) : null;
+          const expected = out ? out.expected
             : typeUnknown(variants, chosen, m.name) ? null
             : refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model)
             : expectedFromDomain(domain, m.name, model, caseOf(variants, chosen));
-          const source = list === 'outputs' && !off ? outputSource(m.expression, variables ?? []) : null;
-          const sourceType = source ? expectedOfNode(source, types, model) : null;
           const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
-          // same FEEL type, other class: `context` fits `context` — the Scala types must match too
-          const otherClass = !!expected && !!sourceType && !m.mapTo
-            && (expected.kind === 'class' || expected.kind === 'enum') && expected.kind === sourceType.kind
-            && typeShape(expected.label).base !== typeShape(sourceType.label).base;
           const feelIssues: FeelIssue[] = [
-            ...(otherClass ? [{ level: 'warn' as const, text: `Die Quelle ist ${sourceType!.label}, die Prozessvariable «${m.name}» ist als ${expected!.label} definiert (${declaredVar!.source}).` }] : []),
+            // same FEEL type, other class: `context` fits `context` — the Scala types must match too
+            ...(out?.issue ? [{ level: 'warn' as const, text: out.issue }] : []),
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             // a parameter (not a `camunda:in` on the subprocess) can carry JSON as a script
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine, step.kind !== 'call')] : []),
@@ -1787,7 +1782,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   </span>
                 )}
                 {expected ? <ExpectedChip expected={expected} list={list} isDark={isDark} />
-                  : sourceType && <ExpectedChip expected={sourceType} list={list} isDark={isDark} fromSource={m.expression.replace(/^=\s*/, '').trim()} />}
+                  : out?.source && <ExpectedChip expected={out.source} list={list} isDark={isDark} fromSource={out.path ?? undefined} />}
                 <FeelInput value={m.expression} disabled={!canEdit || off} isDark={isDark}
                   variables={variables}
                   onChange={v => onChange(list, i, { expression: v })}
@@ -1799,7 +1794,7 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   ].filter(Boolean).join('\n\n')}
                   className="flex-[3] min-w-0" />
                 {/* the type of the source is already shown — without a yardstick the grey FEEL kind adds nothing */}
-                {feel && (expected || !sourceType) && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
+                {feel && (!out || out.showResult) && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
                 {typeMapping && !off && (
                   <button onClick={() => setMapOpen(mapOpen === i ? null : i)} disabled={!canEdit && !m.mapTo}
                     title={m.mapTo ? `Wird umgewandelt in ${mapToLabel(m, types, model)} - anklicken zum Ändern` : 'In einen anderen Typ umwandeln - z. B. in den Typ des Out (der passende Fall, Feld für Feld)'}
