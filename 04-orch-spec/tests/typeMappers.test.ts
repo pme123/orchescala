@@ -9,7 +9,7 @@ import { autoMapped, mappingFeel, mappingIssues } from '../src/fieldMapping';
 import { newOrchestration } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import type { ServiceOrchestrationSpec } from '../src/services/types';
-import { converter, importedMappers, mapperBody, mapperFile, mapperIssues, prefilledCases } from '../src/typeMappers';
+import { converter, findMapper, importedMappers, mapperBody, mapperFile, mapperIssues, prefilledCases } from '../src/typeMappers';
 import { indexTypes } from '../src/scala';
 import type { Field, FieldMapping, Model, TypeDef, TypeMapper } from '../src/types';
 
@@ -153,4 +153,32 @@ test('in Scala the mapper method gets a name of its own - next to a script metho
   assert.match(worker, /kind = clientMainTypeToClientType\(existing\.kind\)/, worker);
   assert.doesNotMatch(worker, /\uE000|Mocked\(\)\.clientMainType/, worker);
   assert.match(t, /assertEquals\(result\.kind, Mocked\(\)\.clientMainTypeToClientType\(existing\.kind\)\)/, t);
+});
+
+test('type mappers: an import with fields of the wrong type - such a field counts as missing, no raw TypeError', () => {
+  const file = JSON.stringify({ typeMappers: [
+    { id: 'a', from: 'dom:A', to: 'dom:B', kind: 'table', cases: { from: 'X' } },
+    { id: 'b', from: 'dom:C', to: 'dom:D', kind: 'field', path: 42, description: ['x'] },
+    { id: 'c', from: 'dom:E', to: 'dom:F', kind: 'scala', scala: ' x.y ', imports: 'java.time.LocalDate' },
+    { id: 'd', from: 7, to: 'dom:H', kind: 'decoder' },
+  ] });
+  assert.deepEqual(importedMappers([], file).all, [
+    { id: 'a', from: 'dom:A', to: 'dom:B', kind: 'table', cases: [] },
+    { id: 'b', from: 'dom:C', to: 'dom:D', kind: 'field' },
+    { id: 'c', from: 'dom:E', to: 'dom:F', kind: 'scala', scala: 'x.y' },
+  ]);
+});
+
+test('a table mapper writes its cases as Scala identifiers - a keyword or a dash in backticks', () => {
+  const nameOf = (ref: string) => ({ a: 'Kind', b: 'Other' } as Record<string, string>)[ref] ?? ref;
+  assert.equal(mapperBody({ id: 't', from: 'a', to: 'b', kind: 'table', cases: [{ from: 'type', to: 'output-mocked' }] }, nameOf),
+    'x match\n  case Kind.`type` => Other.`output-mocked`');
+});
+
+test('the editor and the export find the same mapper - by names; two with the same names: neither', () => {
+  const nameOf = (ref: string) => ({ a1: 'p1.Kind', a2: 'p2.Kind', b: 'q.ClientType' } as Record<string, string>)[ref] ?? ref;
+  const one: TypeMapper = { id: 'one', from: 'a1', to: 'b', kind: 'decoder' };
+  const two: TypeMapper = { id: 'two', from: 'a2', to: 'b', kind: 'decoder' };
+  assert.equal(findMapper([one], 'a1', 'b', nameOf), one);
+  assert.equal(findMapper([one, two], 'a1', 'b', nameOf), undefined);
 });

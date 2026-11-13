@@ -10,7 +10,7 @@
 // In the worker each mapper used is a method of its own; an Option or a list of it is mapped along.
 import type { VarNode } from './feel';
 import type { Converter } from './fieldMapping';
-import type { TypeIndex } from './scala';
+import { caseIdent, type TypeIndex } from './scala.ts';
 import type { TypeMapper } from './types';
 
 export const MAPPER_KINDS: Array<{ kind: TypeMapper['kind']; label: string; hint: string }> = [
@@ -23,11 +23,12 @@ export const MAPPER_KINDS: Array<{ kind: TypeMapper['kind']; label: string; hint
 /** the name of a type without the package - what a mapping shows (`ClientType`) */
 const short = (n: string) => n.replace(/^.*\./, '');
 
-/** The mapper from one type into another - by reference, otherwise by name (`ClientMainType`). */
+/**
+ * The mapper from one type into another - by their names (`ClientMainType`), as the mapping
+ * editor finds it too: a mapping knows only the names. Two with the same names find none.
+ */
 export function findMapper(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string): TypeMapper | undefined {
   if (!mappers?.length || !from || !to) return undefined;
-  const exact = mappers.find(m => m.from === from && m.to === to);
-  if (exact) return exact;
   return mapperByName(mappers, nameOf(from), nameOf(to), nameOf);
 }
 
@@ -83,7 +84,7 @@ export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string): stri
       const all = (m.cases ?? []).length > 0 && rows.length === (m.cases ?? []).length;
       return [
         'x match',
-        ...rows.map(c => `  case ${from}.${c.from} => ${to}.${c.to}`),
+        ...rows.map(c => `  case ${from}.${caseIdent(c.from)} => ${to}.${caseIdent(c.to)}`),
         ...(all ? [] : [`  case other => ${fail(`s"${from} $other: kein Fall in ${to}"`)}`]),
       ].join('\n');
     }
@@ -149,14 +150,20 @@ export function converter(mappers: TypeMapper[] | undefined, nameOf: (ref: strin
 
 /** A mapper as it is stored - only what its kind uses, trimmed; null without both types */
 export function cleanMapper(m: TypeMapper): TypeMapper | null {
-  if (!m?.from || !m?.to || !MAPPER_KINDS.some(k => k.kind === m.kind)) return null;
+  // read from a file: every field checked for its type - a wrong one counts as missing
+  const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+  if (!m || typeof m !== 'object' || !str(m.from) || !str(m.to) || !MAPPER_KINDS.some(k => k.kind === m.kind)) return null;
+  const cases = (Array.isArray(m.cases) ? m.cases : [])
+    .filter(x => x && typeof x === 'object' && str(x.from))
+    .map(x => ({ from: str(x.from), to: str(x.to) }));
+  const imports = (Array.isArray(m.imports) ? m.imports : []).map(str).filter(Boolean);
   return {
-    id: m.id, from: m.from, to: m.to, kind: m.kind,
-    ...(m.kind === 'table' ? { cases: (m.cases ?? []).filter(x => x?.from) } : {}),
-    ...(m.kind === 'field' && m.path?.trim() ? { path: m.path.trim() } : {}),
-    ...(m.kind === 'scala' && m.scala?.trim() ? { scala: m.scala.trim() } : {}),
-    ...(m.kind === 'scala' && m.imports?.some(i => i.trim()) ? { imports: m.imports.map(i => i.trim()).filter(Boolean) } : {}),
-    ...(m.description?.trim() ? { description: m.description.trim() } : {}),
+    id: str(m.id), from: str(m.from), to: str(m.to), kind: m.kind,
+    ...(m.kind === 'table' ? { cases } : {}),
+    ...(m.kind === 'field' && str(m.path) ? { path: str(m.path) } : {}),
+    ...(m.kind === 'scala' && str(m.scala) ? { scala: str(m.scala) } : {}),
+    ...(m.kind === 'scala' && imports.length ? { imports } : {}),
+    ...(str(m.description) ? { description: str(m.description) } : {}),
   };
 }
 
@@ -177,7 +184,7 @@ export function importedMappers(have: TypeMapper[], text: string): { all: TypeMa
   // within the file the last one wins - one mapper per id and per From → To
   const list = entries
     .filter((m): m is TypeMapper => !!m && typeof m === 'object')
-    .map(m => cleanMapper({ ...m, id: typeof m.id === 'string' && m.id ? m.id : `tm-${m.from}-${m.to}` }))
+    .map(m => cleanMapper({ ...m, id: typeof m.id === 'string' && m.id.trim() ? m.id : `tm-${m.from}-${m.to}` }))
     .filter((m): m is TypeMapper => !!m)
     .filter((m, i, l) => !l.slice(i + 1).some(o => same(m, o)));
   if (!list.length) throw new Error('Keine Typ-Mapper in der Datei.');
