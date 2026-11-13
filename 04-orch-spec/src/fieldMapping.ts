@@ -108,7 +108,9 @@ export function renamedVar(m: FieldMapping, side: 'in' | 'out', from: string, to
   // (the list may have the new name already, then it is there twice)
   if (to !== null) {
     const named = (n: string) => m[side].filter(f => f.name.trim() === n).length;
-    if (named(to) > (named(from) ? 0 : 1)) return m;
+    // the list still has `from`: any `to` is another variable; it has the new name already: a second one is
+    const others = named(from) ? named(to) : named(to) - 1;
+    if (others > 0) return m;
   }
   const move = (p: string) => (p === from || p.startsWith(`${from}.`) ? (to === null ? null : `${to}${p.slice(from.length)}`) : p);
   const fields = side === 'out'
@@ -192,22 +194,23 @@ export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[],
   const visit = (nodes: VarNode[], prefix: string[], base: string | null) => {
     for (const f of nodes) {
       const path = [...prefix, f.name];
-      const key = path.join('.');
+      const at = path.join('.');
       const kept = base ? `${base}.${f.name}` : null;
-      const own = next.fields.find(l => l.field === key);
-      if (open.has(key) && f.type === 'context' && f.children?.length) {
+      const own = next.fields.find(l => l.field === at);
+      if (open.has(at) && f.type === 'context' && f.children?.length) {
         let on = own ? linkPaths(own)[0] ?? null : kept;
-        if (!own && !kept) {
+        // a base of the same type - not onto an object already built field by field
+        if (!own && !kept && !hasInner(next, at)) {
           on = best(path, sameType(f), null);
-          if (on) next = linked(next, key, on);
+          if (on) next = linked(next, at, on);
         }
         visit(f.children, path, on);
         continue;
       }
-      if (own || hasInner(next, key)) continue;
+      if (own || hasInner(next, at)) continue;
       // the same name - of the same type, or one a type mapper converts
       const p = best(path, n => n.name === f.name && (sameType(f)(n) || !!convert?.(n, f)), kept);
-      if (p) next = linked(next, key, p);
+      if (p) next = linked(next, at, p);
     }
   };
   visit(target.children ?? [], [], null);

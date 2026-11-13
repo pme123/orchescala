@@ -117,6 +117,13 @@ test('automatically: what is open on the right - a field of the same name and ty
   assert.deepEqual(kept.fields.filter(l => l.field.startsWith('newClient')), [{ field: 'newClient.etag', from: ['etag'] }]);
 });
 
+test('automatically: an open object already built field by field gets no line onto it as a whole', () => {
+  const built = mapping([{ field: 'newClient.name', from: ['client.name'] }]);
+  const auto = autoMapped(built, target, sources, new Set(['newClient']));
+  assert.ok(!auto.fields.some(l => l.field === 'newClient'), JSON.stringify(auto.fields));
+  assert.deepEqual(auto.fields.find(l => l.field === 'newClient.name'), { field: 'newClient.name', from: ['client.name'] });
+});
+
 test('the checks: a name of In or Out is a plain variable name - a path splits at its dots', () => {
   assert.deepEqual(inOutIssues({ in: [], out: [f('new.client', 'client'), f('ok_1', 'client')], fields: [] }, null).map(i => i.text),
     ['Out: «new.client» ist kein Variablenname - nur Buchstaben, Ziffern und _.']);
