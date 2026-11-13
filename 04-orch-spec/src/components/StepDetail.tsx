@@ -15,7 +15,7 @@ import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, outputRowType, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, declaredVariables, expectedFromDomain, isFeel, outputRowType, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
@@ -408,7 +408,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const insideNames = useMemo(() => (step.multiInstance?.result ? namesWrittenInside(step, spec, model) : undefined), [step, spec, model]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
   // process variables with a fixed type (In, InitIn, InConfig) — what an output writing one of them must deliver
-  const declaredVars = useMemo(() => baseVariables.filter(v => DECLARED_SOURCES.has(v.source)), [baseVariables]);
+  const declaredVars = useMemo(() => declaredVariables(baseVariables), [baseVariables]);
   // The Scala types of the service object from the domain catalog — the yardstick for
   // type and required, where the step has no In/Out class of its own
   const domainIn = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'In')), [initWorker, step, spec, model]);
@@ -1486,9 +1486,6 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
 // can do — what this process does not need is deselected (stays visible)
 // or deleted (comes back via «+ N aus Katalog»). A new sync
 // does not restore deselected rows.
-/** Where a process variable gets a fixed type — an output writing it must deliver that type. */
-const DECLARED_SOURCES: ReadonlySet<string> = new Set(['In', 'InitIn', 'InConfig']);
-
 function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, declared, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert, typeMapping = false }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
   /** an output of a service orchestration may be converted into another type (`mapTo`) */

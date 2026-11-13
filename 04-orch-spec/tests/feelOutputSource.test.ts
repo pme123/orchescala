@@ -3,8 +3,9 @@
 // name `existingClient` does not exist and is no yardstick.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { expectedOfNode, outputRowType, outputSource, type VarNode } from '../src/feel';
-import type { DomainType, Model, TypeDef } from '../src/types';
+import { scanScala } from '../src/domainScan';
+import { declaredVariables, expectedOfNode, outputRowType, outputSource, processVariables, resultVariables, type VarNode } from '../src/feel';
+import type { DomainType, Model, ProcessSpec, Step, TypeDef } from '../src/types';
 
 const composed: VarNode = {
   name: 'composedClient', type: 'context', label: 'ComposedClient', source: 'Ergebnis (GetClient.Out)',
@@ -82,4 +83,56 @@ test('outputRowType: the source reads the result of the step even where a declar
   const row = outputRowType({ name: 'status', expression: '= status' }, results, [node('status', 'Status')]);
   assert.equal(row.source?.label, 'OtherStatus');
   assert.match(row.issue ?? '', /Die Quelle ist OtherStatus/);
+});
+
+test('outputRowType: the same class with its prefix is no other class - an alias gives no verdict', () => {
+  const results = [node('client', 'acme.domain.Client', 'context', 'Ergebnis'), node('other', 'GetClient.Client', 'context', 'Ergebnis'), node('clients', 'Clients', 'context', 'Ergebnis')];
+  const declared = [node('client', 'Client'), node('a', 'GetA.Out'), node('c', 'Seq[Client]')];
+  assert.equal(outputRowType({ name: 'client', expression: '= client' }, results, declared).issue, null);
+  assert.equal(outputRowType({ name: 'client', expression: '= other' }, results, declared).issue, null);
+  assert.match(outputRowType({ name: 'a', expression: '= other' }, results, declared).issue ?? '', /GetClient\.Client.*GetA\.Out/);
+  const alias = { domainTypes: [{ id: 'acme.domain.Clients', name: 'Clients', pkg: 'acme.domain', kind: 'alias', importPath: 'acme.domain.Clients' }] } as unknown as Model;
+  assert.equal(outputRowType({ name: 'client', expression: '= clients' }, results, declared, [], alias).issue, null);
+});
+
+// the wiring in the app: the result variables of the step are the source, the
+// declared process variables of the spec the yardstick
+const clientSource = `package acme.client.domain.v1
+
+object GetClient extends CompanyBpmnServiceTaskDsl:
+  val topicName = "acme-client-get"
+  val descr: String = ""
+  case class In(clientKey: Long)
+  case class Person(name: String)
+  case class Company(uid: String)
+  enum Out:
+    case PersonOut(client: Person)
+    case CompanyOut(client: Company)
+end GetClient
+`;
+const clientModel = { domainTypes: scanScala(clientSource, 'GetClient.scala') } as unknown as Model;
+const getClient = (outVariant?: string): Step => ({
+  id: 'GetClient', name: 'Get Client', kind: 'service', topic: 'acme-client-get', ...(outVariant ? { outVariant } : {}),
+  outputs: [{ name: 'existingClient', expression: '= client' }],
+} as Step);
+const clientSpec = (step: Step, rootFields: TypeDef['fields'] = []): ProcessSpec => ({
+  processId: 'acme-clientV1', name: 'acme-clientV1', engine: 'c8', steps: [step],
+  types: [{ id: 't-in', name: 'In', kind: 'case', root: true, fields: rootFields }],
+} as unknown as ProcessSpec);
+
+test('wiring: the chosen case of an enum Out types the source - a declared In variable is the yardstick', () => {
+  for (const [variant, label] of [['PersonOut', 'Person'], ['CompanyOut', 'Company']] as const) {
+    const step = getClient(variant);
+    const spec = clientSpec(step);
+    const row = outputRowType(step.outputs![0], resultVariables(step, spec, clientModel, null), declaredVariables(processVariables(spec, clientModel)), spec.types, clientModel);
+    assert.equal(row.source?.label, label, variant);
+    assert.equal(row.expected, null);
+  }
+  const step = getClient('CompanyOut');
+  const spec = clientSpec(step, [{ id: 'f', name: 'existingClient', type: 'String' }]);
+  const declared = declaredVariables(processVariables(spec, clientModel));
+  assert.deepEqual(declared.map(v => [v.name, v.source]), [['existingClient', 'In']]);
+  const row = outputRowType(step.outputs![0], resultVariables(step, spec, clientModel, null), declared, spec.types, clientModel);
+  assert.equal(row.expected?.label, 'String');
+  assert.equal(row.showResult, true);
 });

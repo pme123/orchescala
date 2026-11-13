@@ -419,6 +419,20 @@ function declaredNode(v: Variable, spec: ProcessSpec, model: Model | null, b: Bu
     : { name: v.name.trim(), type: 'any', label: t || '?', source: 'Variable', ...(v.description ? { description: v.description } : {}) };
 }
 
+/** The sources that give a process variable a fixed type — the `source` of its VarNode. */
+const SOURCE_IN = 'In';
+const SOURCE_INIT_IN = 'InitIn';
+const SOURCE_IN_CONFIG = 'InConfig';
+const DECLARED_SOURCES: ReadonlySet<string> = new Set([SOURCE_IN, SOURCE_INIT_IN, SOURCE_IN_CONFIG]);
+
+/**
+ * The process variables with a fixed type: from the In, the InitIn or the InConfig. An
+ * output writing one of them must deliver that type (see `outputRowType`). The InitIn
+ * without a type (only the names of the init worker) is `any` and gives no yardstick.
+ */
+export const declaredVariables = (vars: readonly VarNode[]): VarNode[] =>
+  vars.filter(v => DECLARED_SOURCES.has(v.source) && v.type !== 'any');
+
 /**
  * Every place that creates a process variable, in priority order — a name may come
  * several times. `all`: also the outputs whose name a source before already typed
@@ -433,15 +447,15 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
 
   // The InitIn — described as a type; otherwise only the names are known (below, after the In)
   const initIn = types.find(t => t.initIn);
-  if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, 'InitIn', b, 0, new Set()));
+  if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, SOURCE_INIT_IN, b, 0, new Set()));
 
   // The InConfig — own tuning knobs and those of the loops; all with
   // a default, so always present
   const inConfig = types.find(t => t.inConfig);
-  for (const f of inConfig?.fields ?? []) add(nodeOfField(f, 'InConfig', b, 0, new Set()));
+  for (const f of inConfig?.fields ?? []) add(nodeOfField(f, SOURCE_IN_CONFIG, b, 0, new Set()));
   for (const l of loopSettings(spec)) {
     const t = l.kind === 'timer' ? 'Iso8601Duration' : 'Int';
-    add(nodeOf(l.name, t, { optional: false, collection: false, source: 'InConfig', label: t }, b, 0, new Set()));
+    add(nodeOf(l.name, t, { optional: false, collection: false, source: SOURCE_IN_CONFIG, label: t }, b, 0, new Set()));
   }
 
   // The In — as an ADT the shared fields and those of all cases (in JSON
@@ -450,7 +464,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
   const rootFields = root?.kind === 'enum'
     ? [...(root.fields ?? []), ...(root.values ?? []).flatMap(v => v.fields ?? [])]
     : (root?.fields ?? []);
-  for (const f of rootFields) add(nodeOfField(f, 'In', b, 0, new Set()));
+  for (const f of rootFields) add(nodeOfField(f, SOURCE_IN, b, 0, new Set()));
 
   // without an InitIn type: the outputs of the init worker, type unknown — after the
   // In, so that its type is not lost
@@ -791,7 +805,11 @@ const sourcePath = (expression: string): string[] | null =>
  */
 export function outputSource(expression: string, vars: readonly VarNode[]): VarNode | null {
   const path = sourcePath(expression);
-  if (!path) return null;
+  return path ? nodeOfPath(path, vars) : null;
+}
+
+/** The node at a path (`['result', 'basicData']`) — null if a segment is unknown. */
+function nodeOfPath(path: readonly string[], vars: readonly VarNode[]): VarNode | null {
   let node = vars.find(n => n.name === path[0]) ?? null;
   for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
   return node;
@@ -822,13 +840,25 @@ export function expectedOfNode(n: VarNode, types: TypeDef[] = [], model: Model |
  * different classes: `ComposedClient` and `Client`, `Seq[A]` and `Seq[B]`. FEEL sees
  * `context` = `context` there. A scalar on either side and a different shape are left
  * to the FEEL check (`checkFeel`), which already says text vs number or list vs object.
+ * The same class written with its prefix (`acme.domain.Client`, `GetClient.Client`)
+ * is the same; an alias of the domain catalog (`type Clients = Seq[Client]`) is not resolved — no verdict.
  */
-function otherClass(declared: string, source: string): boolean {
+function otherClass(declared: string, source: string, model: Model | null): boolean {
   const d = typeShape(declared);
   const s = typeShape(source);
-  if (isScalar(d.base) || isScalar(s.base) || s.base === '?') return false;
-  return d.collection === s.collection && d.map === s.map && d.base !== s.base;
+  if (isScalar(d.base) || isScalar(s.base) || s.base === '?' || d.base === '?') return false;
+  if (d.collection !== s.collection || d.map !== s.map) return false;
+  if (sameClass(d.base, s.base)) return false;
+  const alias = (name: string) => (model?.domainTypes ?? []).some(t => t.kind === 'alias' && sameClass(t.name, name));
+  return !alias(d.base) && !alias(s.base);
 }
+
+/** `acme.domain.Client`, `GetClient.Client` and `Client` name the same class — `A.Out` and `B.Out` do not. */
+const sameClass = (a: string, b: string): boolean => {
+  const x = a.replace(/`/g, '');
+  const y = b.replace(/`/g, '');
+  return x === y || x.endsWith(`.${y}`) || y.endsWith(`.${x}`);
+};
 
 /** What a row of the outputs shows and checks about its type (see `outputRowType`). */
 export interface OutputRowType {
@@ -855,10 +885,11 @@ export function outputRowType(m: Pick<Mapping, 'name' | 'expression' | 'mapTo'>,
   types: TypeDef[] = [], model: Model | null = null): OutputRowType {
   const declaredVar = declared.find(v => v.name === m.name);
   const expected = declaredVar ? expectedOfNode(declaredVar, types, model) : null;
-  const node = outputSource(m.expression, vars);
+  const parsed = sourcePath(m.expression);
+  const node = parsed ? nodeOfPath(parsed, vars) : null;
   const source = node ? expectedOfNode(node, types, model) : null;
-  const path = sourcePath(m.expression)?.join('.') ?? null;
-  const issue = declaredVar && expected && source && !m.mapTo && otherClass(expected.label, source.label)
+  const path = parsed?.join('.') ?? null;
+  const issue = declaredVar && expected && source && !m.mapTo && otherClass(expected.label, source.label, model)
     ? `Die Quelle ist ${source.label}, die Prozessvariable «${m.name}» ist als ${expected.label} definiert (${declaredVar.source}).`
     : null;
   return { expected, source, path, issue, showResult: !!expected || !source };
@@ -870,8 +901,9 @@ export function outputRowType(m: Pick<Mapping, 'name' | 'expression' | 'mapTo'>,
  * type with fields — otherwise it stays unknown.
  */
 function outputNode(o: Mapping, results: () => VarNode[], b?: Builder): VarNode | null {
-  if (!sourcePath(o.expression)) return null;
-  const node = outputSource(o.expression, results());
+  const path = sourcePath(o.expression);
+  if (!path) return null;
+  const node = nodeOfPath(path, results());
   // converted into another type (`mapTo`): that type - a list stays a list
   if (o.mapTo && b) {
     return nodeOfField({
