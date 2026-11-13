@@ -85,7 +85,9 @@ export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string, fromC
   const fail = (what: string) => `throw IllegalArgumentException(${what})`;
   switch (m.kind) {
     case 'table': {
-      const rows = (m.cases ?? []).filter(c => c.from && c.to);
+      // a row per case of the source that is still there - the first one counts
+      const rows = (m.cases ?? []).filter((c, i, l) => c.from && c.to && (!fromCases || fromCases.includes(c.from))
+        && l.findIndex(o => o.from === c.from) === i);
       const all = fromCases
         ? fromCases.length > 0 && fromCases.every(f => rows.some(c => c.from === f))
         : (m.cases ?? []).length > 0 && rows.length === (m.cases ?? []).length;
@@ -125,6 +127,10 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
       if (open.length) out.push(`Ohne Fall: ${open.join(', ')} - zur Laufzeit ein Fehler.`);
       const unknown = (m.cases ?? []).filter(c => c.to && !to.includes(c.to)).map(c => c.to);
       if (unknown.length) out.push(`Gibt es in ${short(idx.nameOf(m.to))} nicht: ${unknown.join(', ')}.`);
+      const gone = (m.cases ?? []).filter(c => c.from && !from.includes(c.from)).map(c => c.from);
+      if (gone.length) out.push(`Gibt es in ${short(idx.nameOf(m.from))} nicht mehr: ${gone.join(', ')} - wird im Worker weggelassen.`);
+      const twice = (m.cases ?? []).map(c => c.from).filter((f, i, l) => f && l.indexOf(f) !== i);
+      if (twice.length) out.push(`Mehrfach: ${[...new Set(twice)].join(', ')} - die erste Zeile gilt.`);
     }
   }
   if (m.kind === 'field' && !m.path?.trim()) out.push('Welches Feld?');
@@ -163,7 +169,9 @@ export function cleanMapper(m: TypeMapper): TypeMapper | null {
   if (!m || typeof m !== 'object' || !str(m.from) || !str(m.to) || !MAPPER_KINDS.some(k => k.kind === m.kind)) return null;
   const cases = (Array.isArray(m.cases) ? m.cases : [])
     .filter(x => x && typeof x === 'object' && str(x.from))
-    .map(x => ({ from: str(x.from), to: str(x.to) }));
+    .map(x => ({ from: str(x.from), to: str(x.to) }))
+    // one row per case - the first one counts, as in the worker
+    .filter((x, i, l) => l.findIndex(o => o.from === x.from) === i);
   const imports = (Array.isArray(m.imports) ? m.imports : []).map(str).filter(Boolean);
   return {
     id: str(m.id) || `tm-${str(m.from)}-${str(m.to)}`, from: str(m.from), to: str(m.to), kind: m.kind,

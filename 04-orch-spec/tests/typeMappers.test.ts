@@ -206,3 +206,15 @@ test('a table covering only some cases of the source gets the default that fails
   const { worker } = files(all, [part, wrapper]);
   assert.match(worker, /case ClientMainType\.Person => ClientType\.PERSON\n\s+case other => throw/, worker);
 });
+
+test('a table with a case the source no longer has, or a case twice - flagged; the worker leaves the stale one out, the first one counts', () => {
+  const nameOf = (ref: string) => ({ mainType: 'ClientMainType', clientType: 'ClientType' } as Record<string, string>)[ref] ?? ref;
+  const stale: TypeMapper = { ...table, cases: [{ from: 'Person', to: 'PERSON' }, { from: 'Person', to: 'COMPANY' }, { from: 'Company', to: 'COMPANY' }, { from: 'Gone', to: 'PERSON' }] };
+  assert.equal(mapperBody(stale, nameOf, ['Person', 'Company']),
+    'x match\n  case ClientMainType.Person => ClientType.PERSON\n  case ClientMainType.Company => ClientType.COMPANY');
+  const idx = indexTypes(types, null);
+  assert.deepEqual(mapperIssues(stale, [stale], idx), [
+    'Gibt es in ClientMainType nicht mehr: Gone - wird im Worker weggelassen.',
+    'Mehrfach: Person - die erste Zeile gilt.',
+  ]);
+});
