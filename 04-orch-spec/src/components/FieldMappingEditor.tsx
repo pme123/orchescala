@@ -1,12 +1,14 @@
 // The mapping of a script task, drawn: left its In, right its Out - a line from a field to a
 // field. Drag it (or click the one, then the other); a second line onto the same field is its
 // fallback (`??`, the first one set wins). An object of the Out opens: a line onto it is what its
-// fields with lines of their own are set on (dashed, «Basis» - a copy of it).
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Maximize2, Minimize2, Trash2, Wand2 } from 'lucide-react';
+// fields with lines of their own are set on (dashed, «Basis» - a copy of it). A filter shows only
+// the fields whose name holds a text, or only those with one of the same name and type on the other
+// side - what they are in opened.
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, Maximize2, Minimize2, Search, Trash2, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VarNode } from '../feel';
-import { autoMapped, hasInner, linkPaths, linked, mappingIssues, resolvePath, withLink } from '../fieldMapping';
+import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink } from '../fieldMapping';
 import type { FieldLink, FieldMapping } from '../types';
 import { cls } from '../ui';
 import FeelInput from './FeelInput';
@@ -108,8 +110,61 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     }
     return path;
   };
-  const visible = shownIn(open);
-  const tVisible = shownIn(tOpen);
+
+  // ── the filter: a text in the name, only the fields with a counterpart on the other side ──
+  const [query, setQuery] = useState('');
+  const [fitting, setFitting] = useState(false);
+  const q = query.trim().toLowerCase();
+  const filtering = !!q || fitting;
+  const sig = (n: VarNode) => `${n.name}:${plainType(n)}`;
+  const sigs = (nodes: VarNode[]) => {
+    const out = new Set<string>();
+    const walk = (n: VarNode) => { out.add(sig(n)); if (n.type !== 'list') (n.children ?? []).forEach(walk); };
+    nodes.forEach(walk);
+    return out;
+  };
+  const inSigs = useMemo(() => sigs(sources), [sources]);
+  const outSigs = useMemo(() => sigs(fields), [fields]);
+  /**
+   * Per path what the filter says: `self` it fits, `inner` something inside it does (then it is
+   * open). Without the filter: nothing.
+   */
+  const hits = (nodes: VarNode[], other: Set<string>, mapped: (path: string) => boolean): Map<string, 'self' | 'inner'> => {
+    const out = new Map<string, 'self' | 'inner'>();
+    if (!filtering) return out;
+    const walk = (n: VarNode, path: string): boolean => {
+      const self = (!q || n.name.toLowerCase().includes(q)) && (!fitting || other.has(sig(n)) || mapped(path));
+      let inner = false;
+      if (opens(n)) for (const ch of n.children ?? []) if (walk(ch, `${path}.${ch.name}`)) inner = true;
+      if (self) out.set(path, 'self'); else if (inner) out.set(path, 'inner');
+      return self || inner;
+    };
+    for (const n of nodes) walk(n, n.name);
+    return out;
+  };
+  const usedPaths = new Set(mapping.fields.flatMap(l => (l.expression?.trim() ? [] : linkPaths(l))));
+  const inHits = hits(sources, outSigs, p => usedPaths.has(p) || [...usedPaths].some(u => u.startsWith(`${p}.`)));
+  const outHits = hits(fields, inSigs, p => !!linkOf(p) || hasInner(mapping, p));
+  /** what is open: opened by hand, or by the filter for what is inside */
+  const opened = (set: Set<string>, h: Map<string, 'self' | 'inner'>) => {
+    const out = new Set(set);
+    for (const [p, k] of h) if (k === 'inner') out.add(p);
+    return out;
+  };
+  const inOpen = opened(open, inHits);
+  const outOpen = opened(tOpen, outHits);
+  /** a row the filter shows: one it hits - or below one whose name hits the text (only fitting not chosen) */
+  const showsIn = (h: Map<string, 'self' | 'inner'>) => (path: string): boolean => {
+    if (!filtering || h.has(path)) return true;
+    if (fitting) return false;
+    const parts = path.split('.');
+    for (let i = parts.length - 1; i > 0; i--) if (h.get(parts.slice(0, i).join('.')) === 'self') return true;
+    return false;
+  };
+  const showsLeft = showsIn(inHits);
+  const showsRight = showsIn(outHits);
+  const visible = shownIn(inOpen);
+  const tVisible = shownIn(outOpen);
 
   const [selected, setSelected] = useState<string | null>(null);
   // click-click: the source chosen first
@@ -138,7 +193,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
       w: at.width, h: at.height,
     });
   }, []);
-  useLayoutEffect(measure, [measure, open, tOpen, mapping, fields, sources, large]);
+  useLayoutEffect(measure, [measure, open, tOpen, mapping, fields, sources, large, query, fitting]);
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -259,9 +314,10 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
   // ── the rows ──
   const text = large ? 'text-[12px]' : 'text-[10px]';
   const rowH = large ? 'h-7' : 'h-6';
-  const linkedPaths = new Set(mapping.fields.flatMap(l => (l.expression?.trim() ? [] : linkPaths(l))));
+  const linkedPaths = usedPaths;
   const sourceRow = (n: VarNode, path: string, depth: number): React.ReactNode => {
-    const isOpen = open.has(path);
+    if (!showsLeft(path)) return null;
+    const isOpen = inOpen.has(path);
     const used = linkedPaths.has(path) || [...linkedPaths].some(p => p.startsWith(`${path}.`) && !isOpen);
     return (
       <div key={path}>
@@ -288,9 +344,10 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
   };
 
   const targetRow = (f: VarNode, path: string, depth: number): React.ReactNode => {
+    if (!showsRight(path)) return null;
     const l = linkOf(path);
     const iss = issueOf(path);
-    const isOpen = tOpen.has(path);
+    const isOpen = outOpen.has(path);
     const inner = hasInner(mapping, path);
     const isBase = !!l && inner;
     const dot = l || (inner && !isOpen) ? (iss ? AMBER : TEAL) : null;
@@ -320,6 +377,12 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     );
   };
 
+  /** of the lines just added, those whose two ends are in sight - the filter hides the others */
+  const inSight = (next: FieldMapping): FieldMapping => {
+    if (!filtering) return next;
+    const before = new Set(mapping.fields.map(l => l.field));
+    return { ...next, fields: next.fields.filter(l => before.has(l.field) || (showsRight(l.field) && linkPaths(l).every(showsLeft))) };
+  };
   const mapped = fields.filter(f => linkOf(f.name) || hasInner(mapping, f.name)).length;
   const sel = selected ? resolvePath(fields, selected) ?? undefined : undefined;
   const selLink = selected ? linkOf(selected) : undefined;
@@ -334,11 +397,23 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     <div className="space-y-2" onClick={() => setPending(null)}>
       {/* toolbar */}
       <div className={`flex items-center gap-2 flex-wrap ${text}`}>
-        <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(autoMapped(mapping, target, sources, tOpen, open)); }}
+        <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(inSight(autoMapped(mapping, target, sources, outOpen, inOpen))); }}
           title="Was rechts offen ist, bekommt Linien: jedes Feld ohne Wert eines gleichen Namens und Typs aus dem, was links offen ist - auch in tieferen Ebenen. Zugeklappt als Ganzes; ein offenes Objekt ohne Basis eine Variable seines Typs als Basis"
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn} disabled:opacity-40`}>
           <Wand2 size={10} /> Automatisch zuordnen
         </button>
+        <label className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.border} ${c.input}`} onClick={e => e.stopPropagation()}>
+          <Search size={10} className={c.muted} />
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Feld filtern"
+            onKeyDown={e => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
+            title="Nur die Felder, deren Name den Text enthält - mit dem Weg zu ihnen (aufgeklappt)"
+            className="w-28 bg-transparent outline-none font-mono" />
+          {query && <button type="button" onClick={() => setQuery('')} className={c.muted} aria-label="Filter leeren"><X size={10} /></button>}
+        </label>
+        <label className={`flex items-center gap-1 ${c.muted}`} onClick={e => e.stopPropagation()}
+          title="Nur die Felder, die es auf der anderen Seite mit gleichem Namen und Typ gibt - und die schon eine Linie haben">
+          <input type="checkbox" checked={fitting} onChange={e => setFitting(e.target.checked)} /> nur passende
+        </label>
         <span className={`ml-auto ${c.muted}`}>{mapped} von {fields.length} zugeordnet</span>
         <button type="button" onClick={e => { e.stopPropagation(); onLarge(!large); }} title={large ? 'Verkleinern (Esc)' : 'Gross öffnen'}
           className={`p-1 rounded border ${c.btn}`} aria-label={large ? 'Verkleinern' : 'Gross öffnen'}>
@@ -351,11 +426,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
         <div ref={leftCol} className="space-y-0.5 min-w-0">
           <div className={`text-[9px] uppercase tracking-wide mb-1 ${c.muted}`}>In</div>
           {sources.length ? sources.map(s => sourceRow(s, s.name, 0)) : <p className={`text-[10px] ${c.muted}`}>Das In ist leer - oben angeben, was der Schritt liest.</p>}
+          {filtering && sources.length > 0 && !inHits.size && <p className={`text-[10px] ${c.muted}`}>Nichts passt zum Filter.</p>}
         </div>
         <div />
         <div ref={rightCol} className="space-y-0.5 min-w-0">
           <div className={`text-[9px] uppercase tracking-wide mb-1 ${c.muted}`}>Out</div>
           {fields.map(f => targetRow(f, f.name, 0))}
+          {filtering && !outHits.size && <p className={`text-[10px] ${c.muted}`}>Nichts passt zum Filter.</p>}
         </div>
         {geo && (
           <svg className="absolute inset-0 pointer-events-none overflow-visible" width={geo.w} height={geo.h}>
