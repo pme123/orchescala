@@ -198,7 +198,7 @@ test('a skill of the company replaces the studio\'s with the same path; its erro
     writeFileSync(join(dir, 'uiCreator', 'anthropic', 'SKILL.md'), '---\nname: uiCreator-bank\nversion: 7\ntools: [read_page]\n---\n\n## Instructions\n\nThe bank says.\n');
     const skills = loadSkills('anthropic', [dir, BUILT_IN_SKILLS]) as Skill[];
     assert.deepEqual(skills.map((s) => `${s.task} ${s.name} v${s.version}`), [
-      'uiCreator uiCreator-bank v7', 'processCreator processCreator-anthropic v2', 'serviceOrchestrator serviceOrchestrator-anthropic v2',
+      'uiCreator uiCreator-bank v7', 'processCreator processCreator-anthropic v3', 'serviceOrchestrator serviceOrchestrator-anthropic v3',
     ]);
     writeFileSync(join(dir, 'uiCreator', 'anthropic', 'SKILL.md'), '---\ntools: [read_page]\n---\n');
     assert.match(String(loadSkills('anthropic', [dir, BUILT_IN_SKILLS])), /uiCreator\/anthropic\/SKILL\.md: no name/);

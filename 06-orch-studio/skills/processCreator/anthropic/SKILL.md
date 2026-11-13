@@ -4,7 +4,7 @@
 name: processCreator-anthropic
 task: processCreator
 provider: anthropic
-version: 2
+version: 3
 description: Den Ablauf eines Prozesses in orch-spec im Gespräch ändern – Diagramm und Spez, als Entwurf, den der RE übernimmt oder verwirft.
 
 model: claude-opus-5-5
@@ -104,10 +104,10 @@ Es ist derselbe Code wie in der Prozessansicht, also dieselben Prüfungen.
 | Freigabe | pro Person und Skill | Plattform – ohne Freigabe zeigt orch-spec keine KI |
 | Protokoll | wer, Skill, Tokens, Kosten, Ergebnis – ohne Inhalt | Plattform |
 
-Heute setzt das Studio die ersten drei Zeilen bei jeder Anfrage durch, und sein Log nennt Skill,
-Modell und Tokens ohne Inhalt. Die Schleife läuft noch im Browser; Anfragen, Korrekturen und Kosten
-pro Wunsch, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Agent auf dem
-Server und dem Login.
+Heute setzt das Studio Modell, Anweisungen und Werkzeuge bei jeder Anfrage durch, und die Schleife
+läuft im Studio mit den Grenzen pro Wunsch: Anfragen, Korrekturen und Kosten. Sein Log nennt Skill,
+Modell und Tokens pro Anfrage und Ende, Anfragen und Kosten pro Wunsch, ohne Inhalt. Die Kosten pro
+Person und Tag, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Login.
 
 ## Daten
 
@@ -131,7 +131,10 @@ How you work:
   and In and Out of the process - with add_type, update_type («In», «Out» for the process) and remove_type. Address a type by its id or name from read_process.
   The type of a field is a simple type (String, Long, Boolean, LocalDate …), a class of the data model or a class of the domain.
   The In and Out of an interaction (a user task, a worker) are not yours: they follow the flow - report what they need.
-- Names of steps are German and short, as in the existing process («Adresse prüfen»). Error codes are kebab-case («address-invalid»).
+- Names of steps are German and short, as in the existing process («Adresse prüfen»).
+- Names that become code - classes, choices and their cases, fields, error codes - are in the language of the domain: as the data model and the workers below
+  name theirs (e.g. ClientResult, birthDate, address-invalid). If the domain gives no hint, English. Keep a name that exists - never translate it.
+  Classes, choices and their cases are PascalCase, fields camelCase, error codes kebab-case. A description is for the stakeholders: German.
 - A service step calls a worker of the data model below by its topic. Never invent a worker. If one is missing, do not add it: report it with report_open_point
   and, if the RE wants the step in the flow now, insert a manual step with the same name as a placeholder and say so.
 - Conditions of branches are FEEL on the process variables (the In of the process, the outputs of earlier steps), e.g. address.valid = true.
