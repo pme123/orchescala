@@ -206,6 +206,12 @@ test('a rename of an In follows into the FEEL expressions of the lines; removed,
   const q: FieldMapping = { in: [], out: [], fields: [{ field: 'a', from: [], expression: 'if client.kind = "client \\" client" then client else "client"' }] };
   assert.equal(renamedVar(q, 'in', 'client', 'c').fields[0].expression, 'if c.kind = "client \\" client" then c else "client"');
   assert.equal(renamedVar(q, 'in', '', 'c'), q);
+  // onto a name another In has: the lines stay - before and after the list has the new name
+  const two: FieldMapping = { in: [f('a', 'client'), f('b', 'client')], out: [], fields: [{ field: 'x', from: ['a.id'] }, { field: 'y', from: ['b.id'] }] };
+  assert.equal(renamedVar(two, 'in', 'a', 'b'), two);
+  const listed = { ...two, in: [f('b', 'client'), f('b', 'client')] };
+  assert.equal(renamedVar(listed, 'in', 'a', 'b'), listed);
+  assert.deepEqual(renamedVar({ ...two, in: [f('c', 'client'), f('b', 'client')] }, 'in', 'a', 'c').fields[0], { field: 'x', from: ['c.id'] });
   // a new name is taken as it is - no replacement pattern
   assert.equal(renamedVar({ in: [], out: [], fields: [{ field: 'a', from: [], expression: 'client + 1' }] }, 'in', 'client', '$&x').fields[0].expression, '$&x + 1');
   assert.deepEqual(renamedVar({ in: [], out: [], fields: [{ field: 'a', from: [], expression: '"client"' }] }, 'in', 'client', null).fields, [{ field: 'a', from: [], expression: '"client"' }]);

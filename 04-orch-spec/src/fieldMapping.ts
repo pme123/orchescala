@@ -104,6 +104,12 @@ export function linked(m: FieldMapping, field: string, path: string): FieldMappi
  */
 export function renamedVar(m: FieldMapping, side: 'in' | 'out', from: string, to: string | null): FieldMapping {
   if (!from.trim()) return m;
+  // onto a name another variable of the side has: the lines stay - they would merge with its own
+  // (the list may have the new name already, then it is there twice)
+  if (to !== null) {
+    const named = (n: string) => m[side].filter(f => f.name.trim() === n).length;
+    if (named(to) > (named(from) ? 0 : 1)) return m;
+  }
   const move = (p: string) => (p === from || p.startsWith(`${from}.`) ? (to === null ? null : `${to}${p.slice(from.length)}`) : p);
   const fields = side === 'out'
     ? m.fields.flatMap(l => { const f = move(l.field); return f === null ? [] : [{ ...l, field: f }]; })
@@ -259,7 +265,8 @@ export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode
       const path = `${prefix}${f.name}`;
       const whole = m.fields.some(l => l.field === path);
       if (hasInner(m, path)) required(f.children ?? [], `${path}.`, built || whole);
-      else if (!built && !whole && !f.optional && f.type !== 'list') {
+      // a list without a line is empty (`Seq.empty` in the worker) - no error
+      else if (!built && !whole && !f.optional && f.type !== 'list' && !f.field?.collection) {
         out.push({ level: 'error', text: `«${path}» bekommt keinen Wert - eine Linie ziehen.`, field: path });
       }
     }

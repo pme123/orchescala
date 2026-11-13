@@ -1161,7 +1161,7 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
 function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode[] {
   if (s.kind !== 'script') return [];
   const source = `Ergebnis von ${s.name || s.id}`;
-  if (s.fieldMapping) return mappingOf(s.fieldMapping).out.filter(f => f.name.trim()).map(f => ({ ...nodeOfField(f, source, b, 0, new Set()), source }));
+  if (s.fieldMapping) return mappingOf(s.fieldMapping).out.filter(f => f.name.trim() && f.type).map(f => ({ ...nodeOfField(f, source, b, 0, new Set()), source }));
   const name = s.script?.trim() ? s.resultVariable?.trim() : undefined;
   if (!name) return [];
   const f = scriptResultField(s, spec);
@@ -1211,7 +1211,8 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
     if (s.kind === 'script' && s.fieldMapping) {
-      for (const f of mappingOf(s.fieldMapping).out) if (f.name.trim()) names.add(f.name.trim());
+      // as the worker sets them: named and typed (see mappingCall)
+      for (const f of mappingOf(s.fieldMapping).out) if (f.name.trim() && f.type) names.add(f.name.trim());
     } else if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) {
       names.add(s.resultVariable.trim());
     }
