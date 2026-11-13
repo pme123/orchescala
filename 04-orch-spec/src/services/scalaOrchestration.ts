@@ -435,10 +435,7 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const values = outs.map((f, i) => (value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '').replaceAll(MOCKED, ''));
   const checks = raw.map(c => ({ ...c, value: c.value.replaceAll(MOCKED, 'Mocked().') }));
   const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
-  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
-  const base = camelName((s.name || s.id).replace(/Task$/, ''));
-  let method = base;
-  for (let i = 2; used.has(method); i++) method = `${base}${i}`;
+  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result: outs[0], ...(one ? {} : { results: outs }), body, cases: [], ...(checks.length ? { checks } : {}),
@@ -497,10 +494,7 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const t = scriptScala(body, scope, result, ctx, where);
-  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
-  const base = camelName((s.name || s.id).replace(/Task$/, ''));
-  let method = base;
-  for (let i = 2; used.has(method); i++) method = `${base}${i}`;
+  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
@@ -539,6 +533,14 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
 }
 
+/** `base`, or numbered - a name no method of the worker has yet (script tasks, type mappers) */
+function uniqueMethod(ctx: Ctx, base: string): string {
+  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
+  let name = base;
+  for (let i = 2; used.has(name); i++) name = `${base}${i}`;
+  return name;
+}
+
 /** Where a mapper's method is called - the worker calls it as it is, the test on Mocked(). */
 const MOCKED = '\uE000';
 
@@ -549,9 +551,7 @@ const MOCKED = '\uE000';
 function mapperName(mapper: TypeMapper, ctx: Ctx): string {
   for (const [name, m] of ctx.usedMappers) if (m.id === mapper.id) return name;
   const base = mapperMethod(mapper, ctx.idx.nameOf);
-  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
-  let name = base;
-  for (let i = 2; used.has(name); i++) name = `${base}${i}`;
+  const name = uniqueMethod(ctx, base);
   ctx.usedMappers.set(name, mapper);
   return name;
 }
