@@ -32,8 +32,10 @@ export function findMapper(mappers: TypeMapper[] | undefined, from: string, to: 
   return mapperByName(mappers, nameOf(from), nameOf(to), nameOf);
 }
 
-/** The mapper between two types by their names (as the variables of a mapping show them). */
-/** Only when it is the one: two mappers with the same names (other packages) are no match - mapperIssues says so. */
+/**
+ * The mapper between two types by their names (as the variables of a mapping show them) - only
+ * when it is the one: two with the same names (other packages) are no match, mapperIssues says so.
+ */
 export function mapperByName(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string): TypeMapper | undefined {
   const hits = (mappers ?? []).filter(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to));
   return hits.length === 1 ? hits[0] : undefined;
@@ -159,7 +161,7 @@ export function cleanMapper(m: TypeMapper): TypeMapper | null {
     .map(x => ({ from: str(x.from), to: str(x.to) }));
   const imports = (Array.isArray(m.imports) ? m.imports : []).map(str).filter(Boolean);
   return {
-    id: str(m.id), from: str(m.from), to: str(m.to), kind: m.kind,
+    id: str(m.id) || `tm-${str(m.from)}-${str(m.to)}`, from: str(m.from), to: str(m.to), kind: m.kind,
     ...(m.kind === 'table' ? { cases } : {}),
     ...(m.kind === 'field' && str(m.path) ? { path: str(m.path) } : {}),
     ...(m.kind === 'scala' && str(m.scala) ? { scala: str(m.scala) } : {}),
@@ -189,18 +191,20 @@ export function importedMappers(have: TypeMapper[], text: string): { all: TypeMa
   const entries: unknown[] = Array.isArray(raw) ? raw
     : raw && typeof raw === 'object' && Array.isArray((raw as { typeMappers?: unknown }).typeMappers) ? (raw as { typeMappers: unknown[] }).typeMappers : [];
   const same = (a: TypeMapper, b: TypeMapper) => a.id === b.id || (a.from === b.from && a.to === b.to);
-  // within the file the last one wins - one mapper per id and per From → To
-  // an id of the file that a mapper here has for other types is not the same one - a new id
-  const ownId = (m: TypeMapper) => {
-    const id = typeof m.id === 'string' && m.id.trim() ? m.id.trim() : '';
-    return id && !have.some(h => h.id === id && (h.from !== m.from || h.to !== m.to)) ? id : uniqueId(`tm-${m.from}-${m.to}`, have);
-  };
-  const list = entries
+  // within the file the last one per From → To wins
+  const fromTo = entries
     .filter((m): m is TypeMapper => !!m && typeof m === 'object')
     .map(m => cleanMapper(m))
     .filter((m): m is TypeMapper => !!m)
-    .map(m => ({ ...m, id: ownId(m) }))
-    .filter((m, i, l) => !l.slice(i + 1).some(o => same(m, o)));
+    .filter((m, i, l) => !l.slice(i + 1).some(o => o.from === m.from && o.to === m.to));
+  // its id, unless a mapper here has it for other types or one before in the file took it - then a new one
+  const taken: TypeMapper[] = [...have];
+  const list = fromTo.map(m => {
+    const clash = taken.some(h => h.id === m.id && (h.from !== m.from || h.to !== m.to));
+    const next = clash ? { ...m, id: uniqueId(`tm-${m.from}-${m.to}`, taken) } : m;
+    taken.push(next);
+    return next;
+  });
   if (!list.length) throw new Error('Keine Typ-Mapper in der Datei.');
   const replaced = have.filter(a => list.some(b => same(a, b))).length;
   const added = list.filter(b => !have.some(a => same(a, b))).length;

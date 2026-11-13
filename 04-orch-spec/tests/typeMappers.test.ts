@@ -188,3 +188,12 @@ test('a field mapper checks its path - names with dots between them', () => {
   assert.deepEqual(mapperIssues({ ...wrapper, path: 'amount.value' }, [], idx), []);
   assert.deepEqual(mapperIssues({ ...wrapper, path: 'value)' }, [], idx), ['«value)» ist kein Feldpfad - Namen mit Punkt dazwischen (value, amount.value).']);
 });
+
+test('type mappers: two entries of a file with one id for other types - both stay, the second gets a new id; no empty id', () => {
+  const file = JSON.stringify([
+    { id: 'x', from: 'dom:A', to: 'dom:B', kind: 'decoder' },
+    { id: 'x', from: 'dom:C', to: 'dom:D', kind: 'decoder' },
+    { from: 'dom:E', to: 'dom:F', kind: 'decoder' },
+  ]);
+  assert.deepEqual(importedMappers([], file).all.map(m => `${m.id} ${m.from}`), ['x dom:A', 'tm-dom:C-dom:D dom:C', 'tm-dom:E-dom:F dom:E']);
+});
