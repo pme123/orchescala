@@ -168,7 +168,7 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
                 <details className="text-[10px]">
                   <summary className={`cursor-pointer ${c.muted}`}>Im Worker</summary>
                   <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap font-mono text-[10px] ${c.border}`}>
-                    {`def ${mapperMethod(m, idx.nameOf)}(x: ${name(m.from)}): ${name(m.to)} =\n${mapperBody(m, idx.nameOf).replace(/^/gm, '  ')}`}
+                    {`def ${mapperMethod(m, idx.nameOf)}(x: ${name(m.from)}): ${name(m.to)} =\n${mapperBody(m, idx.nameOf, fromCases).replace(/^/gm, '  ')}`}
                   </pre>
                 </details>
               )}

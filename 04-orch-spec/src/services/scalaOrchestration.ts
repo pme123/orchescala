@@ -34,7 +34,7 @@ import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
 import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
-import { findMapper, mapperBody, mapperImports, mapperMethod } from '../typeMappers.ts';
+import { enumCases, findMapper, mapperBody, mapperImports, mapperMethod } from '../typeMappers.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -562,7 +562,7 @@ function mapperDef(method: string, m: TypeMapper, idx: TypeIndex): string {
   return [
     `  /** ${name(m.from)} → ${name(m.to)} - a type mapper of the model${m.description?.trim() ? `: ${m.description.trim().split('\n')[0]}` : ''} */`,
     `  def ${method}(x: ${name(m.from)}): ${name(m.to)} =`,
-    indent(mapperBody(m, idx.nameOf), '    '),
+    indent(mapperBody(m, idx.nameOf, enumCases(m.from, idx)), '    '),
   ].join('\n');
 }
 

@@ -197,3 +197,12 @@ test('type mappers: two entries of a file with one id for other types - both sta
   ]);
   assert.deepEqual(importedMappers([], file).all.map(m => `${m.id} ${m.from}`), ['x dom:A', 'tm-dom:C-dom:D dom:C', 'tm-dom:E-dom:F dom:E']);
 });
+
+test('a table covering only some cases of the source gets the default that fails - in the worker too', () => {
+  const nameOf = (ref: string) => ({ mainType: 'ClientMainType', clientType: 'ClientType' } as Record<string, string>)[ref] ?? ref;
+  const part: TypeMapper = { ...table, cases: [{ from: 'Person', to: 'PERSON' }] };
+  assert.match(mapperBody(part, nameOf, ['Person', 'Company']), /case other => throw/);
+  assert.doesNotMatch(mapperBody(table, nameOf, ['Person', 'Company']), /case other/);
+  const { worker } = files(all, [part, wrapper]);
+  assert.match(worker, /case ClientMainType\.Person => ClientType\.PERSON\n\s+case other => throw/, worker);
+});

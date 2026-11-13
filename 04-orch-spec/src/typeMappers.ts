@@ -75,15 +75,20 @@ export function mapperMethod(m: TypeMapper, nameOf: (ref: string) => string): st
   return `${from.charAt(0).toLowerCase()}${from.slice(1)}To${name(m.to)}`;
 }
 
-/** The body of its method over `x` - in Scala. */
-export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string): string {
+/**
+ * The body of its method over `x` - in Scala. `fromCases`: the cases of the source enum - a table
+ * covering only some of them gets the default that fails (without them: when a row is empty).
+ */
+export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string, fromCases?: string[] | null): string {
   const from = short(nameOf(m.from));
   const to = short(nameOf(m.to));
   const fail = (what: string) => `throw IllegalArgumentException(${what})`;
   switch (m.kind) {
     case 'table': {
       const rows = (m.cases ?? []).filter(c => c.from && c.to);
-      const all = (m.cases ?? []).length > 0 && rows.length === (m.cases ?? []).length;
+      const all = fromCases
+        ? fromCases.length > 0 && fromCases.every(f => rows.some(c => c.from === f))
+        : (m.cases ?? []).length > 0 && rows.length === (m.cases ?? []).length;
       return [
         'x match',
         ...rows.map(c => `  case ${from}.${caseIdent(c.from)} => ${to}.${caseIdent(c.to)}`),
