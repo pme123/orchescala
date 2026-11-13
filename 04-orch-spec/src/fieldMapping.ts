@@ -128,29 +128,58 @@ export function resolvePath(vars: VarNode[], path: string): VarNode | null {
 export const plainType = (n: VarNode): string => n.label.replace(/^Option\[(.*)\]$/, '$1');
 
 /**
- * The variables of the Out still without a value get one: a variable of the In of the same name
- * and type, or a field of one. An object of the Out otherwise: set on the variable of its type,
- * its fields of the same name from the other variables.
+ * What is open on the right gets lines: per field without a value one of the In of the same name
+ * and type - the one whose path ends most like its own (`existingClient.master.segment` for
+ * `newClient.master.segment`; then at the same depth), not what its base keeps anyway. Closed, a field gets a line as a
+ * whole; an object open without a base gets a variable of its type as one (if there is one).
+ * `open`: the paths open on the right - the variables of the Out are always looked at.
  */
-export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[]): FieldMapping {
+export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[], open: ReadonlySet<string> = new Set()): FieldMapping {
+  // the paths of the In a line can leave from - not into a list
+  const cands: Array<{ path: string[]; node: VarNode; at: number }> = [];
+  const walk = (n: VarNode, path: string[]) => {
+    cands.push({ path, node: n, at: cands.length });
+    if (n.type !== 'list') for (const c of n.children ?? []) walk(c, [...path, c.name]);
+  };
+  for (const s of sources) walk(s, [s.name]);
+  // how many names at the end the two paths share
+  const alike = (a: string[], b: string[]) => {
+    let k = 0;
+    while (k < a.length && k < b.length && a[a.length - 1 - k] === b[b.length - 1 - k]) k++;
+    return k;
+  };
+  /** the path of the In that fits `path` best - `kept` what its base gives it (it comes last) */
+  const best = (path: string[], fits: (n: VarNode) => boolean, kept: string | null): string | null => {
+    const ranked = cands.filter(c => fits(c.node)).map(c => ({ ...c, p: c.path.join('.') })).sort((x, y) =>
+      alike(y.path, path) - alike(x.path, path) || Number(x.p === kept) - Number(y.p === kept)
+        || Math.abs(x.path.length - path.length) - Math.abs(y.path.length - path.length) || x.at - y.at);
+    const top = ranked[0];
+    return top && top.p !== kept ? top.p : null;
+  };
+  const sameType = (f: VarNode) => (n: VarNode) => plainType(n) === plainType(f) && n.type === f.type;
+
   let next = m;
-  const fits = (f: VarNode) => (n: VarNode) => n.name === f.name && plainType(n) === plainType(f);
-  for (const f of target.children ?? []) {
-    if (next.fields.some(l => l.field === f.name || l.field.startsWith(`${f.name}.`))) continue;
-    const direct = sources.find(fits(f));
-    if (direct) { next = linked(next, f.name, direct.name); continue; }
-    const inner = sources.find(s => s.type !== 'list' && (s.children ?? []).some(fits(f)));
-    if (inner) { next = linked(next, f.name, `${inner.name}.${f.name}`); continue; }
-    if (f.type !== 'context' || !f.children?.length) continue;
-    const on = sources.find(s => s.type === 'context' && plainType(s) === plainType(f));
-    const add: Array<[string, string]> = [];
-    for (const g of f.children) {
-      const from = sources.find(s => s !== on && s.type === 'context' && (s.children ?? []).some(fits(g)));
-      if (from) add.push([`${f.name}.${g.name}`, `${from.name}.${g.name}`]);
+  const visit = (nodes: VarNode[], prefix: string[], base: string | null) => {
+    for (const f of nodes) {
+      const path = [...prefix, f.name];
+      const key = path.join('.');
+      const kept = base ? `${base}.${f.name}` : null;
+      const own = next.fields.find(l => l.field === key);
+      if (open.has(key) && f.type === 'context' && f.children?.length) {
+        let on = own ? linkPaths(own)[0] ?? null : kept;
+        if (!own && !kept) {
+          on = best(path, sameType(f), null);
+          if (on) next = linked(next, key, on);
+        }
+        visit(f.children, path, on);
+        continue;
+      }
+      if (own || hasInner(next, key)) continue;
+      const p = best(path, n => n.name === f.name && sameType(f)(n), kept);
+      if (p) next = linked(next, key, p);
     }
-    if (on) next = linked(next, f.name, on.name);
-    for (const [field, path] of add) next = linked(next, field, path);
-  }
+  };
+  visit(target.children ?? [], [], null);
   return next;
 }
 

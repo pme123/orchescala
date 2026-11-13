@@ -89,8 +89,9 @@ const fields = () => [node('clientKey'), node('name', undefined, true), node('fi
 const sources = [node('existingClient', fields()), node('client', fields()), node('etag')];
 const target: VarNode = { name: 'Out', type: 'context', label: 'Out', source: '', children: [node('newClient', fields()), node('etag')] };
 
-test('automatically: a variable of the same name - an object set on the one of its type, its fields from the other', () => {
-  const m = autoMapped(mapping([]), target, sources);
+test('automatically: what is open on the right - a field of the same name and type, the one whose path ends most like it', () => {
+  // newClient open: its base a variable of its type, its fields from the other - master closed as a whole
+  const m = autoMapped(mapping([]), target, sources, new Set(['newClient']));
   assert.deepEqual(m.fields, [
     { field: 'newClient', from: ['existingClient'] },
     { field: 'newClient.clientKey', from: ['client.clientKey'] }, { field: 'newClient.name', from: ['client.name'] },
@@ -98,7 +99,17 @@ test('automatically: a variable of the same name - an object set on the one of i
     { field: 'newClient.master', from: ['client.master'] },
     { field: 'etag', from: ['etag'] },
   ]);
-  // a variable already mapped stays as it is
+  // closed: only as a whole - no variable of the In named newClient
+  assert.deepEqual(autoMapped(mapping([]), target, sources).fields, [{ field: 'etag', from: ['etag'] }]);
+  // open deeper, the In of another type: the fields of the same path end
+  const other: VarNode[] = [{ ...node('composed', [node('clientType'), { ...masterNode(), label: 'ClientMaster', children: [node('clientType'), node('segment', undefined, true), node('clientKey')] }]), label: 'Composed' }];
+  const deep = autoMapped(mapping([{ field: 'newClient.clientKey', from: ['composed.master.clientKey'] }]), target, other, new Set(['newClient', 'newClient.master']));
+  assert.deepEqual(deep.fields, [
+    { field: 'newClient.clientKey', from: ['composed.master.clientKey'] },
+    { field: 'newClient.master.clientType', from: ['composed.master.clientType'] },
+    { field: 'newClient.master.segment', from: ['composed.master.segment'] },
+  ]);
+  // a field already mapped stays as it is
   const kept = autoMapped(mapping([{ field: 'newClient.etag', from: ['etag'] }]), target, sources);
   assert.deepEqual(kept.fields.filter(l => l.field.startsWith('newClient')), [{ field: 'newClient.etag', from: ['etag'] }]);
 });
