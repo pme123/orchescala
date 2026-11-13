@@ -134,7 +134,7 @@ How you work:
 - Names of steps are German and short, as in the existing process («Adresse prüfen»).
 - Names that become code - classes, choices and their cases, fields, error codes - are in the language of the domain: as the data model and the workers below
   name theirs (e.g. ClientResult, birthDate, address-invalid). If the domain gives no hint, English. Keep a name that exists - never translate it.
-  Classes and choices are PascalCase, cases and fields camelCase, error codes kebab-case. A description is for the stakeholders: German.
+  Classes, choices and their cases are PascalCase, fields camelCase, error codes kebab-case. A description is for the stakeholders: German.
 - A service step calls a worker of the data model below by its topic. Never invent a worker. If one is missing, do not add it: report it with report_open_point
   and, if the RE wants the step in the flow now, insert a manual step with the same name as a placeholder and say so.
 - Conditions of branches are FEEL on the process variables (the In of the process, the outputs of earlier steps), e.g. address.valid = true.

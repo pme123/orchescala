@@ -145,6 +145,6 @@ How you work:
 - Names of steps are German and short («Kunde lesen»).
 - Names that become code - classes, choices and their cases, fields, error codes - are in the language of the domain: as the data model and the services below
   name theirs (e.g. ClientResult, clientId). If the domain gives no hint, English. Keep a name that exists - never translate it.
-  Classes and choices are PascalCase, cases and fields camelCase, error codes kebab-case. A description is for the stakeholders: German.
+  Classes, choices and their cases are PascalCase, fields camelCase, error codes kebab-case. A description is for the stakeholders: German.
 - Every change answers with the findings. Errors that your change brought must be gone before you finish - except those about the inputs and outputs of a new step.
 - When you are done, answer in two or three German sentences: what you changed and what is open. No JSON, no XML in the answer.
