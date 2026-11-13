@@ -140,3 +140,36 @@ export function converter(mappers: TypeMapper[] | undefined, nameOf: (ref: strin
     return m ? `${short(nameOf(m.from))} → ${short(nameOf(m.to))}` : null;
   };
 }
+
+/** A mapper as it is stored - only what its kind uses, trimmed; null without both types */
+export function cleanMapper(m: TypeMapper): TypeMapper | null {
+  if (!m?.from || !m?.to || !MAPPER_KINDS.some(k => k.kind === m.kind)) return null;
+  return {
+    id: m.id, from: m.from, to: m.to, kind: m.kind,
+    ...(m.kind === 'table' ? { cases: (m.cases ?? []).filter(x => x?.from) } : {}),
+    ...(m.kind === 'field' && m.path?.trim() ? { path: m.path.trim() } : {}),
+    ...(m.kind === 'scala' && m.scala?.trim() ? { scala: m.scala.trim() } : {}),
+    ...(m.kind === 'scala' && m.imports?.some(i => i.trim()) ? { imports: m.imports.map(i => i.trim()).filter(Boolean) } : {}),
+    ...(m.description?.trim() ? { description: m.description.trim() } : {}),
+  };
+}
+
+/** The file of an export: `{version, typeMappers}` */
+export const mapperFile = (all: TypeMapper[]): string =>
+  JSON.stringify({ version: 1, typeMappers: all.map(cleanMapper).filter(Boolean) }, null, 2);
+
+/**
+ * An imported file added to the mappers there are: one with the same id or the same From → To
+ * replaces it, new ones are added, the others stay. A file without mappers is an error.
+ */
+export function importedMappers(have: TypeMapper[], text: string): { all: TypeMapper[]; added: number; replaced: number } {
+  const raw = JSON.parse(text) as { typeMappers?: TypeMapper[] } | TypeMapper[];
+  const list = (Array.isArray(raw) ? raw : raw?.typeMappers ?? [])
+    .map(m => cleanMapper({ ...m, id: m?.id || `tm-${m?.from}-${m?.to}` }))
+    .filter((m): m is TypeMapper => !!m);
+  if (!list.length) throw new Error('Keine Typ-Mapper in der Datei.');
+  const same = (a: TypeMapper, b: TypeMapper) => a.id === b.id || (a.from === b.from && a.to === b.to);
+  const replaced = have.filter(a => list.some(b => same(a, b))).length;
+  const added = list.filter(b => !have.some(a => same(a, b))).length;
+  return { all: [...have.filter(a => !list.some(b => same(a, b))), ...list], added, replaced };
+}

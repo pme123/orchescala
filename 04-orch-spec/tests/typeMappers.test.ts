@@ -9,7 +9,7 @@ import { autoMapped, mappingFeel, mappingIssues } from '../src/fieldMapping';
 import { newOrchestration } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import type { ServiceOrchestrationSpec } from '../src/services/types';
-import { converter, mapperBody, mapperIssues, prefilledCases } from '../src/typeMappers';
+import { converter, importedMappers, mapperBody, mapperFile, mapperIssues, prefilledCases } from '../src/typeMappers';
 import { indexTypes } from '../src/scala';
 import type { Field, FieldMapping, Model, TypeDef, TypeMapper } from '../src/types';
 
@@ -98,4 +98,26 @@ test('the mapping knows the mappers: no warning on a line between their types, t
   const auto = autoMapped({ in: [], out: [], fields: [] }, target, sources, new Set(['client']), undefined, convert);
   assert.deepEqual(auto.fields, [{ field: 'client.kind', from: ['existing.kind'] }, { field: 'client.tags', from: ['existing.tags'] }]);
   assert.equal(convert(sources[0].children![0], target.children![0].children![0]), 'ClientMainType → ClientType');
+});
+
+test('type mappers: an export file imports again - same id or From → To replaced, others stay', () => {
+  const a: TypeMapper = { id: 'a', from: 'dom:A', to: 'dom:B', kind: 'table', cases: [{ from: 'X', to: 'Y' }], path: 'unused' };
+  const b: TypeMapper = { id: 'b', from: 'dom:W', to: 'BigDecimal', kind: 'field', path: ' value ' };
+  const file = mapperFile([a, b]);
+  const parsed = JSON.parse(file);
+  assert.equal(parsed.version, 1);
+  assert.deepEqual(parsed.typeMappers[0], { id: 'a', from: 'dom:A', to: 'dom:B', kind: 'table', cases: [{ from: 'X', to: 'Y' }] });
+  assert.equal(parsed.typeMappers[1].path, 'value');
+
+  const have: TypeMapper[] = [
+    { id: 'other', from: 'dom:A', to: 'dom:B', kind: 'decoder' }, // same From → To as a
+    { id: 'b', from: 'dom:Old', to: 'dom:Old2', kind: 'decoder' }, // same id as b
+    { id: 'keep', from: 'dom:K', to: 'dom:L', kind: 'decoder' },
+  ];
+  const r = importedMappers(have, file);
+  assert.deepEqual(r.all.map(m => m.id), ['keep', 'a', 'b']);
+  assert.equal(r.replaced, 2);
+  assert.equal(r.added, 0);
+  assert.equal(importedMappers([], file).added, 2);
+  assert.throws(() => importedMappers(have, '{"patterns": []}'), /Keine Typ-Mapper/);
 });

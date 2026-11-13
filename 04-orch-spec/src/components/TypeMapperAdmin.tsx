@@ -1,11 +1,11 @@
 // Admin: type mappers - conversions of one type into another, for the lines of every mapping in
 // the folder (`ClientMainType` → `ClientType`, `BigDecimalWrapper` → `BigDecimal`). They live in
 // the model.json; a line between their types converts with them, in the worker a method each.
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, Plus, Repeat, Trash2, Wand2 } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowRight, Download, Plus, Repeat, Trash2, Upload, Wand2 } from 'lucide-react';
 import type { Model, TypeMapper } from '../types';
 import { indexTypes } from '../scala';
-import { MAPPER_KINDS, enumCases, mapperBody, mapperIssues, mapperMethod, prefilledCases } from '../typeMappers';
+import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperBody, mapperFile, mapperIssues, mapperMethod, prefilledCases } from '../typeMappers';
 import { cls } from '../ui';
 import { uid } from '../util';
 import { AdminSection, SaveRow, flashOf, useFlash, type AdminTone } from './adminUi';
@@ -50,19 +50,33 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
   const add = () => { setDraft(d => [...d, { id: uid('tm'), from: '', to: '', kind: 'field', path: 'value' }]); setFlash(null); };
   const remove = (id: string) => { setDraft(d => d.filter(m => m.id !== id)); setFlash(null); };
 
-  const save = async () => {
-    const cleaned = draft.filter(m => m.from && m.to).map(m => ({
-      id: m.id, from: m.from, to: m.to, kind: m.kind,
-      ...(m.kind === 'table' ? { cases: (m.cases ?? []).filter(x => x.from) } : {}),
-      ...(m.kind === 'field' && m.path?.trim() ? { path: m.path.trim() } : {}),
-      ...(m.kind === 'scala' && m.scala?.trim() ? { scala: m.scala.trim() } : {}),
-      ...(m.kind === 'scala' && m.imports?.some(i => i.trim()) ? { imports: m.imports.map(i => i.trim()).filter(Boolean) } : {}),
-      ...(m.description?.trim() ? { description: m.description.trim() } : {}),
-    }));
-    const res = await onSave({ ...model, typeMappers: cleaned.length ? cleaned : undefined });
-    if (res.ok) setDraft(cleaned);
-    setFlash(flashOf(res));
+  const store = async (next: TypeMapper[], text?: string) => {
+    const res = await onSave({ ...model, typeMappers: next.length ? next : undefined });
+    if (res.ok) setDraft(next);
+    setFlash(flashOf(res, text));
   };
+  const save = () => store(draft.map(cleanMapper).filter((m): m is TypeMapper => !!m));
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  /** the saved mappers as a file - for another folder or the bank zone */
+  const exportieren = () => {
+    const url = URL.createObjectURL(new Blob([mapperFile(model.typeMappers ?? [])], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'orch-spec-type-mappers.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  /** import adds to the saved ones: the same id or From → To is replaced, the others stay */
+  const importieren = async (file: File) => {
+    try {
+      const { all, added, replaced } = importedMappers(model.typeMappers ?? [], await file.text());
+      await store(all, `${added} importiert${replaced ? `, ${replaced} ersetzt` : ''}`);
+    } catch (e) {
+      setFlash({ ok: false, text: `Datei unlesbar: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+  const unsaved = JSON.stringify(draft) !== JSON.stringify(model.typeMappers ?? []);
 
   const input = `text-[11px] px-2 py-1 rounded border outline-none ${c.input}`;
   return (
@@ -169,6 +183,19 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
           <button onClick={add} className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
             <Plus size={12} /> Typ-Mapper
           </button>
+          <button onClick={() => fileRef.current?.click()} disabled={unsaved}
+            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiche ID oder gleiches Von → Nach wird ersetzt, die übrigen bleiben'}
+            className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
+            <Upload size={12} /> Importieren
+          </button>
+          {!!model.typeMappers?.length && (
+            <button onClick={exportieren} title={unsaved ? 'Exportiert den gespeicherten Stand - Änderungen erst speichern' : 'Alle gespeicherten Typ-Mapper als Datei - für einen anderen Ordner oder die Bankenzone'}
+              className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
+              <Download size={12} /> Exportieren
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept=".json" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importieren(f); }} />
         </SaveRow>
       </div>
     </AdminSection>
