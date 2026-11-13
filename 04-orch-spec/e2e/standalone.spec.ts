@@ -138,8 +138,8 @@ test('while Claude works on a draft, the process stays as it is - editing again 
     json: { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['processCreator'], skills: { processCreator: { name: 'processCreator-anthropic', version: 2 } } },
   }));
   // Claude does not answer: the turn runs until it is stopped
-  const asked = page.waitForRequest('**/ai/processCreator/v1/messages*');
-  await page.route('**/ai/processCreator/v1/messages*', () => {});
+  const asked = page.waitForRequest('**/ai/processCreator/turn');
+  await page.route('**/ai/processCreator/turn', () => {});
   await openFolder(page);
   await openProcess(page);
   const title = page.getByPlaceholder('Fachlicher Titel');
@@ -158,10 +158,10 @@ test('while Claude works on a draft, the process stays as it is - editing again 
   await expect(title).toBeEnabled();
 });
 
-test('the loop on the studio (agent: server): one request /ai/<task>/turn, its events and its draft as from the loop here', async ({ page }) => {
+test('the loop on the studio: one request /ai/<task>/turn, its events and its draft', async ({ page }) => {
   const w = watch(page);
   await page.route('**/ai/config', (route) => route.fulfill({
-    json: { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['processCreator'], agent: 'server', skills: { processCreator: { name: 'processCreator-anthropic', version: 2 } } },
+    json: { enabled: true, provider: 'anthropic', model: 'claude-opus-5-5', tasks: ['processCreator'], skills: { processCreator: { name: 'processCreator-anthropic', version: 2 } } },
   }));
   const sent: Record<string, unknown>[] = [];
   await page.route('**/ai/processCreator/turn', (route) => {
@@ -186,7 +186,7 @@ test('the loop on the studio (agent: server): one request /ai/<task>/turn, its e
   await page.getByTitle('Senden (Enter)').click();
   await expect(page.getByText('Ich habe den Titel geändert.').first()).toBeVisible();
   await expect(page.getByText('Entwurf – Unterschiede')).toBeVisible();
-  // the context of the tools went along - the catalog of the folder; the loop here sent nothing
+  // the context of the tools went along - the catalog of the folder; nothing else went to the studio
   expect(Object.keys(sent[0])).toEqual(['context', 'system', 'history', 'prompt', 'draft']);
   expect(Object.keys(sent[0].context as object)).toEqual(['model', 'services']);
   expect(w.studio).toEqual(['GET /ai/config', 'POST /ai/processCreator/turn']);

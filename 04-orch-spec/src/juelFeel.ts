@@ -23,6 +23,7 @@
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
+import { feelRef, isPlainFeelName } from './feelNames.ts';
 
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 
@@ -67,7 +68,12 @@ function tokenize(src: string): Tok[] {
   return out;
 }
 
-const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/**
+ * A FEEL text literal — a raw line break is no valid FEEL text, so it is escaped too.
+ * Other control characters stay raw: FEEL reads them, and its `\u` escape would be
+ * read greedily (`\u0008b` takes the `b`).
+ */
+const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
 
 /** A JSON value as a FEEL literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
 export function jsonToFeel(v: unknown): string {
@@ -79,6 +85,138 @@ export function jsonToFeel(v: unknown): string {
   }
   if (typeof v === 'string') return feelString(v);
   return String(v);
+}
+
+/**
+ * Groovy names that are no variable FEEL could read — the script bindings and the
+ * Groovy keywords: a list of them stays a script (capitalised names, classes, see `value`)
+ */
+const GROOVY_ONLY = new Set([
+  // the bindings of a Camunda 7 script and of a Groovy script
+  'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'externalTask', 'caseExecution',
+  'connector', 'authenticatedUserId', 'variableScope', 'binding', 'out', 'log', 'args',
+  'abstract', 'as', 'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
+  'do', 'else', 'enum', 'extends', 'final', 'finally', 'goto', 'implements', 'import', 'instanceof',
+  'interface', 'native', 'new', 'package', 'private', 'protected', 'public', 'static', 'switch',
+  'synchronized', 'throw', 'throws', 'trait', 'transient', 'try', 'var', 'void', 'volatile', 'while',
+]);
+
+// the tokens of `groovyToFeel` (Groovy and FEEL both allow letters beyond ASCII, `Gebühr`)
+const IDENT = /[\p{L}_][\p{L}\p{N}_]*/uy;
+// no leading zero: Groovy reads `010` as octal 8, FEEL as 10
+const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])/y;
+/** a path or a call after a name (`a.b`, `a()`, `a[0]`) */
+const ACCESS = /\s*[.(\[]/y;
+
+/**
+ * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
+ * map (`[key: x, 'b': 1]`), a variable, a text, a number, true/false/null, nested
+ * as well — the same value in FEEL: the FEEL for it, otherwise null. One difference
+ * remains: an unknown variable fails in Groovy (MissingPropertyException) and is
+ * null in FEEL — the FEEL check reports it. Anything else
+ * stays a script: a call, a path, an operator, a GString with `$`, a triple-quoted
+ * text, a `\u` escape, a comment, several statements; also what would read
+ * differently in FEEL — an octal number (`010`), a reserved word or a Groovy-only
+ * name (`it`, `this`) as a variable, a map key given twice (Groovy keeps the last).
+ *
+ * A small recursive reader over the literal grammar only, with one cursor `i`:
+ * a regex cannot match nested brackets, and the JUEL tokenizer here knows no
+ * Groovy lists, maps or single-quoted texts.
+ */
+export function groovyToFeel(script: string): string | null {
+  const src = script.trim().replace(/^return\s+/, '').replace(/;\s*$/, '');
+  let i = 0;
+  // sticky (`y`): matched at the cursor, without copying the rest of the text per token
+  const at = (re: RegExp): RegExpExecArray | null => { re.lastIndex = i; return re.exec(src); };
+  const ws = () => { while (i < src.length && /\s/.test(src[i])) i++; };
+  const ident = (): string | null => {
+    const m = at(IDENT);
+    if (!m) return null;
+    i += m[0].length;
+    return m[0];
+  };
+  const text = (): string | null => {
+    const q = src[i];
+    if (q !== "'" && q !== '"') return null;
+    let out = '';
+    for (i++; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === q) { i++; return out; }
+      // a GString interpolates — not a literal
+      if (ch === '$' && q === '"') return null;
+      if (ch === '\\') {
+        const next = src[++i];
+        const esc: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', '\\': '\\', "'": "'", '"': '"', $: '$' };
+        if (!(next in esc)) return null;
+        out += esc[next];
+      } else out += ch;
+    }
+    return null;
+  };
+  // deeper nesting than any mapping has: a script from a foreign BPMN, not read further
+  const MAX_DEPTH = 50;
+  let depth = 0;
+  const value = (): string | null => {
+    ws();
+    const ch = src[i];
+    if (ch === "'" || ch === '"') { const t = text(); return t == null ? null : feelString(t); }
+    if (ch === '[') return collection();
+    const num = at(NUMBER);
+    if (num) { i += num[0].length; return num[0]; }
+    // a variable, also true/false/null — no path or call (`a.b`, `a()`)
+    const id = ident();
+    if (!id || at(ACCESS)) return null;
+    if (id === 'true' || id === 'false' || id === 'null') return id;
+    // a capitalised name may be a class Groovy knows without an import (`Math`, `Random`,
+    // Spin's `S`) — the classes are no closed list, so it stays a script
+    return isPlainFeelName(id) && !GROOVY_ONLY.has(id) && !/^\p{Lu}/u.test(id) ? id : null;
+  };
+  // the nesting counts on the way in and out — on every return, also `[]` and `[:]`
+  const collection = (): string | null => {
+    if (depth >= MAX_DEPTH) return null;
+    depth++;
+    try { return collectionBody(); } finally { depth--; }
+  };
+  // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
+  const collectionBody = (): string | null => {
+    i++; ws();
+    if (src[i] === ':') { i++; ws(); if (src[i] !== ']') return null; i++; return '{}'; }
+    if (src[i] === ']') { i++; return '[]'; }
+    const items: string[] = [];
+    const keys = new Set<string>();
+    let map: boolean | null = null;
+    for (;;) {
+      ws();
+      const start = i;
+      // a key: a name or a text, followed by `:`
+      const key = src[i] === "'" || src[i] === '"' ? text() : ident();
+      ws();
+      const isEntry = key != null && src[i] === ':';
+      if (map != null && map !== isEntry) return null;
+      map = isEntry;
+      let v: string | null;
+      if (isEntry) {
+        i++;
+        v = value();
+        if (v == null || keys.has(key!)) return null;
+        keys.add(key!);
+        items.push(`${isPlainFeelName(key!) ? key : feelString(key!)}: ${v}`);
+      } else {
+        i = start;
+        v = value();
+        if (v == null) return null;
+        items.push(v);
+      }
+      ws();
+      if (src[i] === ',') { i++; continue; }
+      if (src[i] === ']') { i++; break; }
+      return null;
+    }
+    return map ? `{${items.join(', ')}}` : `[${items.join(', ')}]`;
+  };
+  const feel = value();
+  ws();
+  return feel != null && i === src.length ? feel : null;
 }
 
 /**
@@ -244,9 +382,12 @@ function method(target: string, name: string, args: string[]): string {
       : two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
-    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
+    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`;
+    // a name FEEL does not read as it is (`letter-id`) in backticks, as the export wrote it
     case 'getVariable': return two((_a, b) => {
       if (/^"[A-Za-z_]\w*"$/.test(b)) return b.slice(1, -1);
+      // no control characters, no escapes: those are no name to write in backticks
+      if (/^"[^"\\`\u0000-\u001f\u007f]+"$/.test(b)) return feelRef(b.slice(1, -1));
       throw computedNameError(b);
     });
     // Camunda 7 runtime → the variables Camunda 8 has for it
@@ -560,3 +701,12 @@ function importJuel(t: string): FeelResult {
 
 /** Translatable JUEL to FEEL — what cannot be translated stays JUEL. */
 export const feelIfPossible = (text: string): string => (isJuel(text) ? importExpression(text) : text);
+
+/**
+ * The source of an output when a service is chosen: what the row already had,
+ * otherwise the expression of the catalog, otherwise the field of the result of
+ * the same name (as «+ aus Katalog»). An empty source is no choice — an output
+ * without a source writes nothing — so it is filled as well.
+ */
+export const outputSource = (name: string, had: string | undefined, catalog: string | undefined): string =>
+  (had?.trim() ? had : '') || feelIfPossible(catalog ?? '').trim() || `= ${feelRef(name)}`;

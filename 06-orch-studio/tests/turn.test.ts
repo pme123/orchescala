@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { configJson } from '../src/ai.ts';
+import { FALLBACK_BETA, MAX_BODY, NO_SKILL_MESSAGE, OFF_MESSAGE } from '../src/ai.ts';
 import { studioApp } from '../src/app.ts';
-import { configFromEnv, describeAi, type AiConfig } from '../src/config.ts';
+import type { AiConfig } from '../src/config.ts';
 import { memoryLog } from '../src/log.ts';
 import { siteOf } from '../src/site.ts';
 import { loadSkills, parseSkill, type Skill } from '../src/skills.ts';
@@ -49,16 +49,16 @@ async function fakeApi(o: { status?: number; wait?: number; answer?: unknown } =
   return { port, seen, closed, close: () => new Promise<void>((down) => { server.closeAllConnections(); server.close(() => down()); }) };
 }
 
-const config = (port: number): AiConfig => ({ apiKey: 'sk-ant-studio', model: 'claude-studio', baseUrl: `http://localhost:${port}`, agent: 'server' });
+const config = (port: number): AiConfig => ({ apiKey: 'sk-ant-studio', model: 'claude-studio', baseUrl: `http://localhost:${port}` });
 const skill: Skill = {
   task: 'uiCreator', provider: 'anthropic', name: 'uiCreator-test', version: 3, model: 'claude-skill', maxTokens: 8000, effort: 'medium',
   tools: ['read_page', 'insert_block', 'update_block', 'move_block', 'remove_block', 'update_page', 'check_page', 'report_open_point'],
   limits: { stepsPerTurn: 24, correctionsPerTurn: 2, usdPerTurn: 1 },
   instructions: 'Do as the skill says.',
 };
-const app = (ai: AiConfig | undefined, skills: Skill[] = [skill]) => {
+const app = (ai: AiConfig | undefined, skills: Skill[] = [skill], aiTimeoutMs?: number) => {
   const log = memoryLog();
-  return { log, app: studioApp({ site: siteOf([]), ai, skills, log }) };
+  return { log, app: studioApp({ site: siteOf([]), ai, skills, log, ...(aiTimeoutMs ? { aiTimeoutMs } : {}) }) };
 };
 
 const book = {
@@ -98,13 +98,16 @@ test('POST /ai/uiCreator/turn - the loop on the studio: the events as they come,
     assert.equal(result.draft.page.body[1].body[1].fields[0].label, 'Filiale');
     assert.deepEqual(result.errors, []);
     assert.equal(result.usage.requests, 3);
-    // the history as the loop in the browser has it: user, then assistant and the tool results
+    // the history as the loop has it: user, then assistant and the tool results
     assert.deepEqual(result.history.map((m: Json) => m.role), ['user', 'assistant', 'user', 'assistant', 'user', 'assistant']);
     // each request: the key of the studio, the skill first in the system, its model and settings, the tools of the task
     assert.equal(api.seen.length, 3);
     const first = api.seen[0];
     assert.equal(first.url, '/v1/messages?beta=true');
     assert.equal(first.headers['x-api-key'], 'sk-ant-studio');
+    assert.equal(first.headers['anthropic-version'], '2023-06-01');
+    assert.equal(first.headers['anthropic-beta'], undefined);
+    assert.equal(first.headers['anthropic-workspace-id'], undefined);
     assert.deepEqual([first.body.model, first.body.max_tokens, first.body.output_config], ['claude-skill', 8000, { effort: 'medium' }]);
     assert.deepEqual(first.body.system.map((b: Json) => b.text), ['Do as the skill says.', 'the catalog']);
     assert.deepEqual(first.body.tools.map((t: Json) => t.name), skill.tools);
@@ -113,6 +116,17 @@ test('POST /ai/uiCreator/turn - the loop on the studio: the events as they come,
     assert.equal(log.lines.length, 4);
     assert.match(log.lines[3], /POST \/ai\/uiCreator\/turn - uiCreator-test v3, claude-skill: done in \d+ ms, 3 requests, 0\.026 USD/);
     assert.ok(!log.lines.join('\n').includes('Filiale'));
+  } finally {
+    await api.close();
+  }
+});
+
+test('the workspace of the studio and the beta of a skill with fallbacks go with each request', async () => {
+  const api = await fakeApi();
+  try {
+    await linesOf(await app({ ...config(api.port), workspaceId: 'wrkspc_1' }, [{ ...skill, fallbacks: 'default' }]).app.request(turn(turnBody())));
+    const first = api.seen[0];
+    assert.deepEqual([first.headers['anthropic-workspace-id'], first.headers['anthropic-beta'], first.body.fallbacks], ['wrkspc_1', FALLBACK_BETA, 'default']);
   } finally {
     await api.close();
   }
@@ -166,7 +180,7 @@ test('a defect of the loop - still a result: stop «error» that says so, the re
   }
 });
 
-test('a tool of the task that is not in the skill - refused before a request, as for the loop in the browser', async () => {
+test('a tool of the task that is not in the skill - refused before a request', async () => {
   const api = await fakeApi();
   try {
     const r = await app(config(api.port), [{ ...skill, tools: ['read_page'] }]).app.request(turn(turnBody()));
@@ -184,13 +198,30 @@ test('refused before the turn - the AI off, no skill, a task without a turn, a b
   try {
     const off = await app(undefined).app.request(turn(turnBody()));
     assert.equal(off.status, 404);
+    const offText = await off.text();
+    assert.ok(offText.includes(OFF_MESSAGE) && offText.includes('not_found_error'));
     const noSkill = await app(config(api.port)).app.request(turn(turnBody(), 'processCreator'));
     assert.equal(noSkill.status, 403);
+    assert.ok((await noSkill.text()).includes(`${NO_SKILL_MESSAGE} «processCreator»`));
+    assert.equal((await app(config(api.port)).app.request(turn(turnBody(), 'whatever'))).status, 403);
+    // the route of the former loop in the browser is gone
+    assert.equal((await app(config(api.port)).app.request(new Request('http://studio/ai/uiCreator/v1/messages', { method: 'POST', body: '{}' }))).status, 404);
     const noTurn = await app(config(api.port), [{ ...skill, task: 'serviceCreator' }]).app.request(turn(turnBody(), 'serviceCreator'));
     assert.equal(noTurn.status, 400);
     assert.match(await noTurn.text(), /has no turn on the studio/);
     const noJson = await app(config(api.port)).app.request(turn('{'));
     assert.match(await noJson.text(), /the body is no JSON/);
+    const noObject = await app(config(api.port)).app.request(turn('[1]'));
+    assert.deepEqual([noObject.status, (await noObject.json() as Json).error.message], [400, 'the body is no JSON object']);
+    const noUtf8 = await app(config(api.port)).app.request(new Request('http://studio/ai/uiCreator/turn', { method: 'POST', body: new Uint8Array([0x7b, 0xff, 0x7d]) }));
+    assert.deepEqual([noUtf8.status, (await noUtf8.json() as Json).error.message], [400, 'the body is no UTF-8']);
+    const big = await app(config(api.port)).app.request(turn(' '.repeat(MAX_BODY + 1)));
+    assert.equal(big.status, 413);
+    // without a length: read up to the limit, not further
+    const chunked = await app(config(api.port)).app.request(new Request('http://studio/ai/uiCreator/turn', {
+      method: 'POST', duplex: 'half', body: new ReadableStream({ start(c) { c.enqueue(new Uint8Array(MAX_BODY)); c.enqueue(new Uint8Array(1)); c.close(); } }),
+    } as RequestInit));
+    assert.equal(chunked.status, 413);
     const noPrompt = await app(config(api.port)).app.request(turn(turnBody({ prompt: '' })));
     assert.deepEqual([noPrompt.status, (await noPrompt.json() as Json).error.message], [400, 'the prompt is no text']);
     assert.equal(api.seen.length, 0);
@@ -216,20 +247,26 @@ test('the browser goes away - the loop stops, its request to the API ends too, n
   }
 });
 
-test('where the loop runs - STUDIO_AI_AGENT: server (default) or browser, in GET /ai/config', () => {
-  const key = { STUDIO_AI_ANTHROPIC_API_KEY: 'sk-ant-x' };
-  const server = configFromEnv(key).ai!;
-  assert.equal(server.agent, 'server');
-  // set but empty - as docker compose passes a variable that is not set - is the default too
-  assert.equal(configFromEnv({ ...key, STUDIO_AI_AGENT: '' }).ai?.agent, 'server');
-  assert.equal(configFromEnv({ ...key, STUDIO_AI_AGENT: 'server' }).ai?.agent, 'server');
-  const browser = configFromEnv({ ...key, STUDIO_AI_AGENT: 'browser' }).ai!;
-  assert.equal(browser.agent, undefined);
-  assert.match(describeAi(server), /the agent on the studio$/);
-  assert.match(describeAi(browser), /the agent in the browser$/);
-  assert.throws(() => configFromEnv({ ...key, STUDIO_AI_AGENT: 'cloud' }), /STUDIO_AI_AGENT is «cloud» - only server or browser/);
-  assert.equal(configJson(server, [skill]).agent, 'server');
-  assert.equal(configJson({ ...server, agent: undefined }, [skill]).agent, undefined);
+test('a base URL that is no http(s) URL, set in code - 502 before the turn, no defect', async () => {
+  const r = await app({ ...config(1), baseUrl: 'no url' }).app.request(turn(turnBody()));
+  assert.equal(r.status, 502);
+  assert.match(await r.text(), /STUDIO_AI_ANTHROPIC_URL/);
+});
+
+test('the Claude API not reachable, or no answer within the timeout - stop «error» with 502 / 504 in the form of the API', async () => {
+  const gone = await fakeApi();
+  await gone.close();
+  const { app: a, log } = app(config(gone.port));
+  const unreachable = resultOf(await linesOf(await a.request(turn(turnBody()))));
+  assert.deepEqual([unreachable.stop, unreachable.error.status, unreachable.error.body.error.type], ['error', 502, 'api_error']);
+  assert.match(log.lines[0], /^WARN POST \/ai\/uiCreator\/turn - the Claude API cannot be reached/);
+  const slow = await fakeApi({ wait: 2000 });
+  try {
+    const late = resultOf(await linesOf(await app(config(slow.port), [skill], 100).app.request(turn(turnBody()))));
+    assert.deepEqual([late.stop, late.error.status, late.error.body.error.type], ['error', 504, 'timeout_error']);
+  } finally {
+    await slow.close();
+  }
 });
 
 test('the limits of a skill - the studio\'s skills have them; a wrong one is named', () => {

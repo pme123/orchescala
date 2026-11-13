@@ -1,20 +1,17 @@
-// The AI of the studio (E23): the key is on the server, orch-spec runs its agent and sends each
-// request of it through here - to the route of its task, where the studio applies the skill.
+// The AI of the studio (E23): the key is on the server, and the agent of orch-spec runs here (E28,
+// step 5) - with the tools of its task and the skill applied to each of its requests.
 //
 //   - `GET /ai/config` - `{"enabled": true, "provider": "anthropic", "model": …, "tasks": [...],
 //     "skills": {"uiCreator": {"name", "version", "model"}}}` or `{"enabled": false}`; never the key.
 //     orch-spec shows the AI of a task only if it is in `tasks` - the tasks with a skill (skills.ts).
-//   - `POST /ai/<task>/v1/messages` - a request of the Messages API for the task, sent on with the key
-//     (and workspace) of the studio. A task without a skill is refused (403). The skill decides: its
-//     instructions come first in the system (orch-spec sends only the context - catalog, data model),
-//     its model and `request` settings replace those of the browser, and a tool that is not in the
-//     skill is refused (400). The answer - also an error of the API - goes back as it is, so the SDK in
-//     the browser reads it as usual.
-//   - `POST /ai/<task>/turn` - a whole turn of the agent on the studio (E28, step 5): orch-spec sends the
-//     request of the RE, the draft and what the tools need; the studio runs the loop of orch-spec's core
-//     with the tools of the task and the `limits` of the skill (steps, corrections, costs), each request
-//     of it as above. The answer: one JSON per line - the events as they come, then the result
-//     (`application/x-ndjson`). orch-spec uses it with `agent: server` - the default of `STUDIO_AI_AGENT`.
+//   - `POST /ai/<task>/turn` - a whole turn of the agent: orch-spec sends the request of the RE, the
+//     draft and what the tools need; the studio runs the loop of orch-spec's core with the tools of the
+//     task and the `limits` of the skill (steps, corrections, costs). A task without a skill is refused
+//     (403). Each request of the loop goes to the Claude API with the key (and workspace) of the studio,
+//     as the skill decides: its instructions first in the system (orch-spec sends only the context -
+//     catalog, data model), its model and `request` settings, and a tool that is not in the skill is
+//     refused (400). The answer: one JSON per line - the events as they come, then the result
+//     (`application/x-ndjson`); an error of the API in it as the API has it, so orch-spec reads it as one.
 //
 // Later: the AI per person (`usd_per_person_day`). Without login for now (PoC, the studio listens on
 // localhost) - whoever reaches the studio uses its key.
@@ -37,9 +34,9 @@ export const MAX_BODY = 8 * 1024 * 1024;
 export const MAX_TOKENS = 32000;
 /** Requests to the API at the same time - more wait. */
 export const MAX_PARALLEL = 8;
-/** A request with thinking can take minutes; the SDK in the browser waits 10. */
+/** A request with thinking can take minutes - at most 10. */
 export const TIMEOUT_MS = 10 * 60 * 1000;
-/** What orch-spec's loop asks for per request (client.ts) - the skill decides (`request.max_tokens`). */
+/** What the loop asks for per request - the skill decides (`request.max_tokens`). */
 export const TURN_MAX_TOKENS = 16000;
 export const ANTHROPIC_VERSION = '2023-06-01';
 /** The beta of `fallbacks` - the studio sets it when the skill asks for fallbacks. */
@@ -66,25 +63,15 @@ export function configJson(ai: AiConfig | undefined, skills: Skill[]): Json {
     model: ai.model,
     tasks: skills.map((s) => s.task),
     skills: Object.fromEntries(skills.map((s) => [s.task, { name: s.name, version: s.version, model: modelOf(ai, s) }])),
-    ...(ai.agent ? { agent: ai.agent } : {}),
   };
 }
 
-/** The system of the browser as blocks - a text, a list of blocks or none. */
+/** The system of the loop as blocks - a text, a list of blocks or none. */
 function systemOf(system: unknown): Json[] | string {
   if (system === undefined || system === null) return [];
   if (typeof system === 'string') return system.trim() ? [{ type: 'text', text: system }] : [];
   if (Array.isArray(system)) return system as Json[];
   return 'the system is neither a text nor a list of blocks';
-}
-
-/** The body for the API as the skill wants it: its instructions first in the system, its model and
-  * settings, `max_tokens` at most what the skill (and MAX_TOKENS) allows - and only its tools. */
-export function requestBody(bytes: Uint8Array, ai: AiConfig, skill: Skill): Json | string {
-  const obj = jsonOf(bytes);
-  if (typeof obj === 'string') return obj;
-  if (!isObject(obj.value)) return 'the body is no JSON object';
-  return skillRequest(obj.value, ai, skill);
 }
 
 /** The body as JSON - or what it is not. */
@@ -98,10 +85,9 @@ function jsonOf(bytes: Uint8Array): { value: unknown } | string {
   }
 }
 
-/** A request of the Messages API as the skill wants it - see requestBody. */
+/** A request of the Messages API as the skill wants it: its instructions first in the system, its model
+  * and settings, `max_tokens` at most what the skill (and MAX_TOKENS) allows - and only its tools. */
 export function skillRequest(obj: Json, ai: AiConfig, skill: Skill): Json | string {
-  // the answer goes back as one JSON - a stream would be buffered and sent as JSON, which the SDK cannot read
-  if (obj.stream === true) return 'the studio does not stream (stream: true)';
   const system = systemOf(obj.system);
   if (typeof system === 'string') return system;
   // a list of tools or none - anything else would pass the check below unseen
@@ -120,9 +106,9 @@ export function skillRequest(obj: Json, ai: AiConfig, skill: Skill): Json | stri
   // thinking, effort and fallbacks are the skill's - without them in the skill, the defaults of the API
   const { effort: _effort, ...output } = isObject(obj.output_config) ? obj.output_config : {};
   const outputConfig = skill.effort ? { ...output, effort: skill.effort } : output;
-  const { thinking: _thinking, output_config: _output, fallbacks: _fallbacks, ...ofBrowser } = obj;
+  const { thinking: _thinking, output_config: _output, fallbacks: _fallbacks, ...rest } = obj;
   return {
-    ...ofBrowser,
+    ...rest,
     model: modelOf(ai, skill),
     max_tokens: tokens,
     system: [first, ...system],
@@ -132,7 +118,7 @@ export function skillRequest(obj: Json, ai: AiConfig, skill: Skill): Json | stri
   };
 }
 
-/** An error in the form of the Claude API - the SDK in the browser reads it like one of the API. */
+/** An error in the form of the Claude API - orch-spec reads it like one of the API. */
 export const apiError = (status: number, type: string, message: string) =>
   new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json' } });
 
@@ -213,19 +199,18 @@ async function readBody(req: Request, max: number): Promise<Uint8Array | undefin
 
 type Called = { answer: Answer } | { aborted: true } | { failed: { status: number; type: string; text: string } };
 
-/** One request to the Claude API with the key, the workspace and the betas the skill needs - at most
+/** One request to the Claude API with the key, the workspace and the beta the skill needs - at most
   * MAX_PARALLEL at the same time, at most `timeoutMs` including the wait. One line in the log: skill,
   * model, status, time and tokens - no content. */
 async function callApi(o: {
-  ai: AiConfig; skill: Skill; url: URL; body: Json; betas: string[]; version: string; signal: AbortSignal;
+  ai: AiConfig; skill: Skill; url: URL; body: Json; signal: AbortSignal;
   timeoutMs: number; limit: ReturnType<typeof limiter>; log: Log; path: string;
 }): Promise<Called> {
-  const betas = [...new Set([...o.betas, ...(o.skill.fallbacks ? [FALLBACK_BETA] : [])])];
   const headers: Record<string, string> = {
     'x-api-key': o.ai.apiKey,
-    'anthropic-version': o.version,
+    'anthropic-version': ANTHROPIC_VERSION,
     'content-type': 'application/json',
-    ...(betas.length ? { 'anthropic-beta': betas.join(',') } : {}),
+    ...(o.skill.fallbacks ? { 'anthropic-beta': FALLBACK_BETA } : {}),
     ...(o.ai.workspaceId ? { 'anthropic-workspace-id': o.ai.workspaceId } : {}),
   };
   // the timeout covers the wait for a turn too, so a request behind slow ones does not wait without end
@@ -248,9 +233,8 @@ async function callApi(o: {
   }
 }
 
-/** `send` of the loop on the studio: the request as orch-spec's loop in the browser sends it (client.ts),
-  * with the skill applied - the message of the API, or a TurnError (thrown) that orch-spec reads as one
-  * of the API. */
+/** `send` of the loop: its request with the skill applied - the message of the API, or a TurnError
+  * (thrown) that orch-spec reads as one of the API. */
 function turnSender(o: Omit<Parameters<typeof callApi>[0], 'body' | 'signal'>): Send {
   const refused = (status: number, type: string, message: string) => ({ status, body: apiErrorBody(type, message) });
   return async (request: AgentRequest, signal?: AbortSignal) => {
@@ -287,7 +271,7 @@ export function aiRoutes(app: Hono, ai: AiConfig | undefined, skills: Skill[], l
 
   app.get('/ai/config', () => new Response(config, { headers: { 'content-type': 'application/json' } }));
 
-  /** What both routes check first: the AI on, a skill for the task, the body not too large - the skill
+  /** What the turn checks first: the AI on, a skill for the task, the body not too large - the skill
     * and the body, or the answer that refuses. */
   const accept = async (req: Request, task: string): Promise<{ ai: AiConfig; skill: Skill; bytes: Uint8Array; base: URL } | Response> => {
     const skill = active.find((s) => s.task === task);
@@ -305,30 +289,6 @@ export function aiRoutes(app: Hono, ai: AiConfig | undefined, skills: Skill[], l
     return { ai, skill, bytes, base };
   };
 
-  app.post('/ai/:task/v1/messages', async (c) => {
-    const req = c.req.raw;
-    const task = c.req.param('task');
-    const ok = await accept(req, task);
-    if (ok instanceof Response) return ok;
-    const body = requestBody(ok.bytes, ok.ai, ok.skill);
-    if (typeof body === 'string') return apiError(400, 'invalid_request_error', body);
-    const called = await callApi({
-      ai: ok.ai, skill: ok.skill, body, limit, log, timeoutMs, signal: req.signal,
-      // `?beta=true` of the SDK; the betas of the browser and the one the skill needs
-      url: new URL(`${ok.base.href}${new URL(req.url).search}`),
-      betas: (req.headers.get('anthropic-beta') ?? '').split(',').map((b) => b.trim()).filter(Boolean),
-      version: req.headers.get('anthropic-version') ?? ANTHROPIC_VERSION,
-      path: `POST /ai/${task}/v1/messages`,
-    });
-    if ('aborted' in called) return new Response(null, { status: 499 });
-    if ('failed' in called) return apiError(called.failed.status, called.failed.type, called.failed.text);
-    const requestId = called.answer.headers['request-id'];
-    return new Response(new Uint8Array(called.answer.body), {
-      status: called.answer.status,
-      headers: { 'content-type': 'application/json', ...(typeof requestId === 'string' ? { 'request-id': requestId } : {}) },
-    });
-  });
-
   app.post('/ai/:task/turn', async (c) => {
     const req = c.req.raw;
     const task = c.req.param('task');
@@ -344,7 +304,7 @@ export function aiRoutes(app: Hono, ai: AiConfig | undefined, skills: Skill[], l
     const signal = AbortSignal.any([req.signal, stopped.signal]);
     const send = turnSender({
       ai: ok.ai, skill: ok.skill, limit, log, timeoutMs, path,
-      url: new URL(`${ok.base.href}?beta=true`), betas: [], version: ANTHROPIC_VERSION,
+      url: new URL(`${ok.base.href}?beta=true`),
     });
     const encoder = new TextEncoder();
     const start = Date.now();

@@ -394,6 +394,9 @@ end UpdateRules
   assert.deepEqual(r.added, ['GetOldRules']);
   assert.deepEqual(r.updated, ['GetRules']);
   assert.deepEqual(r.removed, ['UpdateRules']);
+  // a custom worker goes - it is not listed as missing in the project, its In goes with it
+  assert.ok(!r.stale.some(x => x.id === 'custom' || x.id === 'u1'), JSON.stringify(r.stale));
+  assert.ok(!r.spec.types.some(t => t.id === 'u1'));
   assert.deepEqual(r.addedTypes, ['Rule']);
   const c = r.spec;
   assert.equal(c.pathBase, '/banks/{bankNumber}');

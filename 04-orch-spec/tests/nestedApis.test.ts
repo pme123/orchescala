@@ -3,9 +3,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
-import { catalogProjects, collectionFromCatalog, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
+import { catalogProjects, collectionFromCatalog, missingApis, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
 import {
-  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
+  API_NAME, apiName, apiOf, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
 } from '../src/services/collection';
 import { adoptHierarchyTypes, commonParents, searchGroups } from '../src/services/hierarchy';
 import { addOperations, readApi } from '../src/services/openApiRest';
@@ -420,4 +420,95 @@ test('the Abgleich: In and Out with cases — the description of a shared def, t
   assert.equal(out2.fields?.length ?? 0, 0);
   const in2 = r.spec.types.find(t => t.id === r.spec.services[0].inTypeId)!;
   assert.equal(in2.fields?.find(f => f.name === 'fromSource')?.description, 'If set, read from the source.');
+});
+
+test('Abgleich without a match: the APIs the project lacks are named - with the ones it has', () => {
+  // the project has `naturalPerson` (singular), the collection `clientMaster.naturalPersons`
+  const model = { version: 1, services: [{ id: 'acme-crm-naturalPersonV1.GetX', name: 'GetX', kind: 'service', topic: 'acme-crm-naturalPersonV1.GetX' }] } as never;
+  const c = twoApis();
+  assert.equal(syncWithCatalog(c, model), null);
+  assert.deepEqual(missingApis(c, model), {
+    apis: ['clientMaster.naturalPersons v1'],
+    missing: ['clientMaster.naturalPersons v1 (acme-crm-naturalPersonsV1)'],
+    known: ['naturalPerson v1'],
+  });
+  // another project: not known at all
+  assert.equal(missingApis({ ...c, project: 'acme-other' }, model), null);
+});
+
+test('Abgleich: what the project does not have (any more) is listed - and deleted only when chosen', () => {
+  const c = twoApis();
+  const [natural, legal] = c.services;
+  // the project has only the first service — the second was deleted there
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const r = syncWithCatalog(c, model)!;
+  assert.deepEqual(r.stale, [{ id: legal.id, name: legal.name, kind: 'service' }]);
+  // kept as long as nobody chooses it
+  assert.ok(r.spec.services.some(s => s.id === legal.id));
+  // deleted: the service goes, and with it the types only it used (under «Typen entfernt»)
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.removedTypes.includes('LegalPerson'), JSON.stringify(d.removedTypes));
+  assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
+  // a type the first service still uses stays
+  assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson') && d.spec.types.some(t => t.name === 'Address'));
+});
+
+test('Abgleich: own types no service uses and the domain does not know are listed - deleted when chosen', () => {
+  const c0 = twoApis();
+  const [natural] = c0.services;
+  // the service was deleted in the collection before - its types stayed behind
+  const c = { ...c0, services: [natural] };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const services = [{ id: topic, name: natural.name, kind: 'service', topic }];
+  // without a domain: nothing to compare with - no type is listed
+  assert.deepEqual(syncWithCatalog(c, { version: 1, services } as never)!.stale, []);
+  const domainTypes = scanScala('package acme.other.domain\n\ncase class Unrelated(\n    x: String\n)\n', 'Unrelated.scala');
+  const model = { version: 1, services, domainTypes } as never;
+  const r = syncWithCatalog(c, model)!;
+  const left = r.stale.filter(x => x.kind === 'type');
+  assert.ok(left.some(x => x.name === 'LegalPerson'), JSON.stringify(r.stale));
+  assert.ok(!left.some(x => x.name === 'NaturalPerson' || x.name === 'Address'), JSON.stringify(r.stale));
+  assert.ok(r.spec.types.some(t => t.name === 'LegalPerson'));
+  const d = syncWithCatalog(c, model, new Set(), new Set(left.map(x => x.id)))!;
+  assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
+  assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson'));
+});
+
+test('Abgleich: deleting a service keeps an In or Out another service still uses', () => {
+  const c0 = twoApis();
+  const [natural, legal] = c0.services;
+  assert.ok(natural.inTypeId && legal.outTypeId);
+  const c = { ...c0, services: [natural, { ...legal, inTypeId: natural.inTypeId }] };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.spec.types.some(t => t.id === natural.inTypeId), 'the shared In stays');
+  // its own Out goes
+  assert.ok(!d.spec.types.some(t => t.id === legal.outTypeId));
+});
+
+test('Abgleich: deleting a service keeps its Out when a type of a service that stays refers to it', () => {
+  const c0 = twoApis();
+  const [natural, legal] = c0.services;
+  assert.ok(natural.inTypeId && legal.outTypeId);
+  const types = c0.types.map(t => (t.id === natural.inTypeId ? { ...t, fields: [...(t.fields ?? []), { id: 'ref', name: 'legal', type: legal.outTypeId! }] } : t));
+  const c = { ...c0, types };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.spec.types.some(t => t.id === legal.outTypeId), 'referred to by a field - it stays');
+});
+
+test('Abgleich: an id to delete that is not missing in the project changes nothing', () => {
+  const c = twoApis();
+  const [natural] = c.services;
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const kept = syncWithCatalog(c, model)!;
+  const odd = syncWithCatalog(c, model, new Set(), new Set([natural.id, natural.inTypeId ?? '', 'no-such-id']))!;
+  assert.deepEqual(odd.spec, kept.spec);
 });

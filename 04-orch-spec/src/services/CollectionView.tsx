@@ -24,7 +24,7 @@ import {
 } from './collection';
 import OpenApiImport from './OpenApiImport';
 import { takeOpenApi, type OpenApiFile } from './openApiFile';
-import { catalogProjects, knownProjects, syncWithCatalog, withProjectDomain, type CatalogSync } from './catalogCollections';
+import { catalogProjects, knownProjects, missingApis, syncWithCatalog, withProjectDomain, type CatalogSync, type Stale } from './catalogCollections';
 import { adoptHierarchyTypes, type Adopted } from './hierarchy';
 import { AdoptDialog, AdoptList } from './AdoptChoice';
 import { readSources } from '../projects';
@@ -186,14 +186,18 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
     const r = syncWithCatalog(cur, m);
     const classes = classesOf(cur);
     if (!r) {
+      // the project is known, but not the API: say which one and what the project has
+      const gap = classes ? null : missingApis(cur, m);
       return {
         missing: true,
         text: classes ? `${hit ? source : 'Der Katalog'} hat keine Klassen in ${classes}`
+          : gap?.missing.length ? `${hit ? source : 'Der Katalog'} kennt ${gap.missing.length === 1 ? 'die API' : 'die APIs'} ${gap.missing.join(', ')} nicht — das Projekt hat ${gap.known.join(', ') || 'keine REST-Services'}`
+          : gap ? `${hit ? source : 'Der Katalog'} ordnet ${gap.apis.length === 1 ? 'die API' : 'die APIs'} ${gap.apis.join(', ')} keiner API des Projekts eindeutig zu — das Projekt hat ${gap.known.join(', ') || 'keine REST-Services'}`
           : hit ? `${source} kennt das Projekt nicht` : 'Weder ein Projekt-Ordner noch der Katalog kennt das Projekt',
       };
     }
-    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length) return { text: `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern` };
-    setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}), rerun: keep => syncWithCatalog(cur, m, keep) ?? r });
+    if (!r.added.length && !r.updated.length && !r.addedTypes.length && !r.removedTypes.length && !r.removed.length && !r.adopted.length && !r.renamedApis.length && !r.ambiguousApis.length && !r.stale.length) return { text: `Abgleich: wie ${source === 'Katalog' ? 'im Katalog' : `in ${source}`} — nichts zu ändern` };
+    setSyncPreview({ ...r, source, ...(hit?.note ? { note: hit.note } : {}), rerun: (keep, drop) => syncWithCatalog(cur, m, keep, drop) ?? r });
     return undefined;
   };
   const runSync = async () => {
@@ -239,7 +243,8 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
   const applySync = (r: CatalogSync) => {
     update(() => r.spec);
     setSyncPreview(null);
-    const parts = [[r.added.length, 'neu'], [r.updated.length, 'aktualisiert'], [r.addedTypes.length, 'neue Typen'], [r.adopted.length, 'aus der Hierarchie'], [r.renamedApis.length, 'API-Pakete'], [r.removedTypes.length, 'Typen entfernt'], [r.removed.length, 'entfernt']] as const;
+    const deleted = r.stale.filter(x => (x.kind === 'service' ? !r.spec.services.some(s => s.id === x.id) : !r.spec.types.some(t => t.id === x.id))).length;
+    const parts = [[deleted, 'gelöscht'], [r.added.length, 'neu'], [r.updated.length, 'aktualisiert'], [r.addedTypes.length, 'neue Typen'], [r.adopted.length, 'aus der Hierarchie'], [r.renamedApis.length, 'API-Pakete'], [r.removedTypes.length, 'Typen entfernt'], [r.removed.length, 'entfernt']] as const;
     setSyncNote(`Abgleich: ${parts.filter(([n]) => n).map(([n, what]) => `${n} ${what}`).join(', ')}`);
   };
 
@@ -610,14 +615,19 @@ function SyncBlocked({ unreadable, reason, busy, note, isDark, onCancel, onFolde
   );
 }
 
-/** The preview of an Abgleich — `rerun` gives it again with the types the user keeps as own. */
-type SyncShown = CatalogSync & { source: string; note?: string; rerun: (keep: ReadonlySet<string>) => CatalogSync };
+/**
+ * The preview of an Abgleich — `rerun` gives it again with the types the user keeps as own
+ * and what the project does not have that the user deletes.
+ */
+type SyncShown = CatalogSync & { source: string; note?: string; rerun: (keep: ReadonlySet<string>, drop: ReadonlySet<string>) => CatalogSync };
 
 function SyncPreview({ sync: first, isDark, onCancel, onApply }: { sync: SyncShown; isDark: boolean; onCancel: () => void; onApply: (sync: CatalogSync) => void }) {
   const c = cls(isDark);
   // the found types of the hierarchy: all checked — an unchecked one stays the collection's own
   const [keep, setKeep] = useState<Set<string>>(new Set());
-  const sync = useMemo(() => (keep.size ? { ...first, ...first.rerun(keep) } : first), [first, keep]);
+  // what the project does not have: kept unless checked — deleting a service lists its types too
+  const [drop, setDrop] = useState<Set<string>>(new Set());
+  const sync = useMemo(() => (keep.size || drop.size ? { ...first, ...first.rerun(keep, drop) } : first), [first, keep, drop]);
   const groups: [string, string[], string][] = [
     ['Neue Services', sync.added, isDark ? 'text-emerald-300' : 'text-emerald-700'],
     ['Aktualisiert', sync.updated, isDark ? 'text-sky-300' : 'text-sky-700'],
@@ -642,6 +652,7 @@ function SyncPreview({ sync: first, isDark, onCancel, onApply }: { sync: SyncSho
             </div>
           ))}
           {first.adopted.length > 0 && <AdoptList candidates={first.adopted} current={sync.adopted} keep={keep} onKeep={setKeep} isDark={isDark} />}
+          {sync.stale.length > 0 && <StaleList stale={sync.stale} drop={drop} onDrop={setDrop} isDark={isDark} />}
         </div>
         <p className={`text-[10px] ${c.muted}`}>
           Was die Domain kennt, gilt: Methode, Pfad, Bodies, die Felder von In und Out, die Typen der API. Was nur die Collection hat,
@@ -651,6 +662,37 @@ function SyncPreview({ sync: first, isDark, onCancel, onApply }: { sync: SyncSho
           <button onClick={onCancel} className={`text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>Abbrechen</button>
           <button onClick={() => onApply(sync)} autoFocus className={`text-[11px] px-3 py-1.5 rounded border border-transparent ${c.btnPrimary}`}>Abgleichen</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** What the collection has and the project not (any more) — checked ones are deleted. */
+function StaleList({ stale, drop, onDrop, isDark }: { stale: Stale[]; drop: ReadonlySet<string>; onDrop: (drop: Set<string>) => void; isDark: boolean }) {
+  const c = cls(isDark);
+  const toggle = (id: string) => {
+    const next = new Set(drop);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onDrop(next);
+  };
+  const all = stale.every(x => drop.has(x.id));
+  const count = stale.filter(x => drop.has(x.id)).length;
+  return (
+    <div className="space-y-1">
+      <label className={`flex items-center gap-1.5 text-[10px] uppercase tracking-widest cursor-pointer ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+        <input type="checkbox" checked={all} onChange={() => onDrop(all ? new Set() : new Set([...drop, ...stale.map(x => x.id)]))} title="alle löschen bzw. keinen" />
+        Nicht im Projekt — gelöscht oder verschoben · {count ? `${count} löschen` : 'bleiben'}
+      </label>
+      <div className="space-y-0.5 pl-1">
+        {stale.map(x => (
+          <label key={x.id} className={`flex items-start gap-1.5 text-[11px] font-mono cursor-pointer ${c.text}`}
+            title={drop.has(x.id) ? 'wird gelöscht' : 'bleibt in der Collection — anhaken zum Löschen'}>
+            <input type="checkbox" className="mt-0.5" checked={drop.has(x.id)} onChange={() => toggle(x.id)} />
+            <span className={`min-w-0 ${drop.has(x.id) ? 'line-through text-rose-500' : ''}`}>
+              {x.name} <span className={`font-sans ${c.muted}`}>{x.kind === 'service' ? '— Service' : '— Typ, kein Service braucht ihn'}</span>
+            </span>
+          </label>
+        ))}
       </div>
     </div>
   );

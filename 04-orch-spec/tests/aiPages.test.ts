@@ -13,7 +13,7 @@ import {
   usageOf, withIds, withPrompt,
   type AgentEvent, type AgentRequest, type Model, type Page, type PageContext, type Send,
 } from '../src/core';
-import { errorText, studioBaseUrl } from '../src/ai/client';
+import { errorText } from '../src/ai/client';
 import { forgetBrowserKey, OLD_BROWSER_KEYS } from '../src/ai/useAiConfig';
 
 const pkg = 'acme.shop.domain';
@@ -89,13 +89,11 @@ test('the AI per task - only the tasks with a skill in the studio show AI', () =
   assert.equal(aiFor(AI_OFF, 'uiCreator'), false);
 });
 
-test('the key once stored in the browser is removed; the SDK goes to the route of its task in the studio', () => {
+test('the key once stored in the browser is removed', () => {
   const map = new Map(OLD_BROWSER_KEYS.map((k) => [k, 'sk-ant-old'] as [string, string]));
   forgetBrowserKey({ removeItem: (k) => void map.delete(k) });
   assert.equal(map.size, 0);
   assert.doesNotThrow(() => forgetBrowserKey({ removeItem: () => { throw new Error('blocked'); } }));
-  assert.equal(studioBaseUrl('uiCreator', 'https://studio.example.ch'), 'https://studio.example.ch/ai/uiCreator');
-  assert.equal(studioBaseUrl('processCreator', 'https://studio.example.ch/site/spec/'), 'https://studio.example.ch/ai/processCreator');
 });
 
 // ---------------------------------------------------------------- the tools on the draft

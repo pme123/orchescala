@@ -11,7 +11,7 @@
 // (see `mergeSpec`) — the implementation only updates the structure.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, MultiInstanceSpec, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
-import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe, unguard } from './juelFeel.ts';
+import { feelIfPossible, groovyToFeel, importExpression, jsonToFeel, stripNullSafe, unguard } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -181,15 +181,27 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
 }
 
 // ── Inputs/outputs ───────────────────────────────────────────────────────────
-/** A business parameter value: text becomes JUEL → FEEL; script, list and map stay descriptive. */
+/**
+ * A business parameter value: text becomes JUEL → FEEL; script, list and map stay descriptive —
+ * except a Groovy script that is only a literal (`groovyToFeel`). Every business
+ * input and output row is read here; the other callers of `paramValue` read only
+ * the technical parameters (`_handledErrors`, mocks …), which are not mappings
+ * and so stay as they are.
+ */
 function fachlich(p: Element): string {
   // a script the export made from FEEL (JSON for Camunda 7): the FEEL is in the first line
   const script = firstNamed(p, 'script');
   const fromFeel = script ? /^\s*\/\/ FEEL: (.+)$/m.exec(text(script).split('\n').find(l => l.trim()) ?? '') : null;
   if (fromFeel) return `= ${fromFeel[1].trim()}`;
+  // a Groovy literal (`[fileIdLetter, docLink]`) reads the same in FEEL — no script to rewrite
+  const literal = script && isGroovy(script) ? groovyToFeel(text(script)) : null;
+  if (literal) return `= ${literal}`;
   if (script || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
   return importExpression(text(p));
 }
+
+/** A script in Groovy — `scriptFormat` compared case-insensitively (`Groovy`, `groovy`) */
+const isGroovy = (script: Element): boolean => (attr(script, 'scriptFormat') ?? '').toLowerCase() === 'groovy';
 
 function paramValue(p: Element): string {
   const script = firstNamed(p, 'script');

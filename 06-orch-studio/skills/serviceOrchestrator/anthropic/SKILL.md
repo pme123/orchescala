@@ -4,7 +4,7 @@
 name: serviceOrchestrator-anthropic
 task: serviceOrchestrator
 provider: anthropic
-version: 2
+version: 3
 description: Eine Service-Orchestrierung in orch-spec im Gespräch ändern – ein Worker, der Services aufruft; Diagramm und Spez als Entwurf, den der RE übernimmt oder verwirft.
 
 model: claude-opus-5-5
@@ -105,10 +105,10 @@ Ende eines Zweigs) ein und nur mit einem Service, den die Orchestrierung aufrufe
 | Freigabe | pro Person und Skill | Plattform – ohne Freigabe zeigt orch-spec keine KI |
 | Protokoll | wer, Skill, Tokens, Kosten, Ergebnis – ohne Inhalt | Plattform |
 
-Heute setzt das Studio die ersten drei Zeilen bei jeder Anfrage durch, und sein Log nennt Skill,
-Modell und Tokens ohne Inhalt. Die Schleife läuft noch im Browser; Anfragen, Korrekturen und Kosten
-pro Wunsch, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Agent auf dem
-Server und dem Login.
+Heute setzt das Studio Modell, Anweisungen und Werkzeuge bei jeder Anfrage durch, und die Schleife
+läuft im Studio mit den Grenzen pro Wunsch: Anfragen, Korrekturen und Kosten. Sein Log nennt Skill,
+Modell und Tokens pro Anfrage und Ende, Anfragen und Kosten pro Wunsch, ohne Inhalt. Die Kosten pro
+Person und Tag, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Login.
 
 ## Daten
 
@@ -143,5 +143,8 @@ How you work:
 - Which field of a service's In comes from which variable, and which outputs are kept, the RE maps in the step.
   Findings about the inputs and outputs of a step you added are expected - mention them as open; do not try to fix them otherwise.
 - Names of steps are German and short («Kunde lesen»).
+- Names that become code - classes, choices and their cases, fields, error codes - are in the language of the domain: as the data model and the services below
+  name theirs (e.g. ClientResult, clientId). If the domain gives no hint, English. Keep a name that exists - never translate it.
+  Classes, choices and their cases are PascalCase, fields camelCase, error codes kebab-case. A description is for the stakeholders: German.
 - Every change answers with the findings. Errors that your change brought must be gone before you finish - except those about the inputs and outputs of a new step.
 - When you are done, answer in two or three German sentences: what you changed and what is open. No JSON, no XML in the answer.

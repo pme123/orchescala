@@ -1,5 +1,5 @@
 // The turn on the studio (E28, step 5) - without network: the request as orch-spec sends it, the tools
-// of the task, the same draft as the loop in the browser, the limits of the skill, and the client in
+// of the task, the same draft as the loop on its own (runTurn), the limits of the skill, and the client in
 // orch-spec that reads the lines of the answer.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { DOMParser } from 'linkedom';
 import {
-  allSteps, importBpmn, installNodeDom, outcomeOf, pageSystem, pageToolKit, parseConfig, parseTurnLine, processToolKit, runTurn,
+  allSteps, importBpmn, installNodeDom, outcomeOf, pageSystem, pageToolKit, parseTurnLine, processToolKit, runTurn,
   serverTurn, startDraft, startProcessDraft, targetsOf, turnError, turnKit, turnPath, turnRequest,
   type AgentEvent, type Model, type Page, type PageDraft, type ProcessDraft, type ProcessSpec, type Send, type TurnLine,
 } from '../src/core';
@@ -28,7 +28,7 @@ const scripted = (answers: BetaMessage[]): Send => async (r) => {
 };
 /** what crosses the wire - JSON, nothing else */
 const wire = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-/** a new block gets a random id (withIds) - here as in the browser, so two runs differ only there */
+/** a new block gets a random id (withIds) - on the studio as in runTurn, so two runs differ only there */
 const sameIds = (v: unknown) => JSON.parse(JSON.stringify(v).replace(/\bb-[0-9a-f]{10}\b/g, 'b-new')) as unknown;
 
 const book: Page = {
@@ -48,7 +48,7 @@ const pageAnswers = [
   message([text('Das Feld «Filiale» ist im Abschnitt Kontakt.')], 'end_turn'),
 ];
 
-test('the same request gives the same draft - on the studio as in the browser, also after the wire', async () => {
+test('the same request gives the same draft - on the studio as with the loop on its own, also after the wire', async () => {
   const prompt = 'Nimm ein Feld für die Filiale auf.';
   const draft = startDraft('book', book);
   const here = await runTurn({ send: scripted(pageAnswers), system, kit: pageToolKit({ targets, others }), history: [], prompt, draft });
@@ -101,7 +101,7 @@ test('a process: the same draft on the studio - diagram and spec; an orchestrati
   assert.equal((orch.draft as ProcessDraft).xml, xml);
 });
 
-test('the limits of the skill: steps, corrections, costs - checked before each request, like the browser\'s steps', async () => {
+test('the limits of the skill: steps, corrections, costs - checked before each request, like the steps', async () => {
   const req = turnRequest('uiCreator', wire({ context: { targets, others }, system, history: [], prompt: 'x', draft: startDraft('book', book) }));
   assert.ok(typeof req !== 'string');
   const steps = await serverTurn(req, { send: scripted(pageAnswers), limits: { maxSteps: 1 } });
@@ -156,7 +156,7 @@ const studio = (lines: TurnLine[] | string, status = 200, seen: { url?: string; 
 const input = (draft: PageDraft, events: AgentEvent[] = [], signal?: AbortSignal) =>
   ({ system, kit: pageToolKit({ targets, others }), history: [], prompt: 'Filiale', draft, onEvent: (e: AgentEvent) => events.push(e), signal });
 
-test('turnOnStudio - the events as they come, the result as the loop here would have it', async () => {
+test('turnOnStudio - the events as they come, the result as the loop on its own would have it', async () => {
   const draft = startDraft('book', book);
   const result = outcomeOf(await runTurn({ send: scripted(pageAnswers), ...input(draft) }));
   const events: AgentEvent[] = [];
@@ -196,8 +196,3 @@ test('turnOnStudio - an error of the studio or the API reads as before; a lost a
   assert.deepEqual([cancelled.stop, cancelled.draft], ['cancelled', draft]);
 });
 
-test('the studio says where the loop runs - `agent: server`, anything else: in the browser', () => {
-  assert.equal(parseConfig({ enabled: true, tasks: [], agent: 'server' }).agent, 'server');
-  assert.equal(parseConfig({ enabled: true, tasks: [], agent: 'cloud' }).agent, undefined);
-  assert.equal(parseConfig({ enabled: true, tasks: [] }).agent, undefined);
-});

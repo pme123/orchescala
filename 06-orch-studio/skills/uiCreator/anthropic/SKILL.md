@@ -4,7 +4,7 @@
 name: uiCreator-anthropic
 task: uiCreator
 provider: anthropic
-version: 1
+version: 2
 description: Seiten einer App in orch-spec im Gespräch ändern – nur die Spez, als Entwurf, den der RE übernimmt oder verwirft.
 
 model: claude-opus-5-5
@@ -93,10 +93,10 @@ Daten oder Code. Es ist derselbe Code wie im Designer von orch-spec, also diesel
 | Freigabe | pro Person und Skill | Plattform – ohne Freigabe zeigt orch-spec keine KI |
 | Protokoll | wer, Skill, Tokens, Kosten, Ergebnis – ohne Inhalt | Plattform |
 
-Heute setzt das Studio die ersten drei Zeilen bei jeder Anfrage durch, und sein Log nennt Skill,
-Modell und Tokens ohne Inhalt. Die Schleife läuft noch im Browser; Anfragen, Korrekturen und Kosten
-pro Wunsch, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Agent auf dem
-Server und dem Login.
+Heute setzt das Studio Modell, Anweisungen und Werkzeuge bei jeder Anfrage durch, und die Schleife
+läuft im Studio mit den Grenzen pro Wunsch: Anfragen, Korrekturen und Kosten. Sein Log nennt Skill,
+Modell und Tokens pro Anfrage und Ende, Anfragen und Kosten pro Wunsch, ohne Inhalt. Die Kosten pro
+Person und Tag, die Freigabe pro Person und das Protokoll mit der Person kommen mit dem Login.
 
 ## Daten
 
@@ -119,6 +119,9 @@ How you work:
 - Change as little as needed. Keep texts, bindings and actions that the request does not concern.
 - Every change answers with the findings of the designer. Errors must be gone before you finish; warnings should be gone where the spec allows it.
 - Bind fields to paths of the state ({{path}} in texts). Inputs of actions are templates: {"field": "{{path}}"}.
+- Paths of the state are in the language of the domain - as the In and Out of the services and processes below name their fields
+  (e.g. contact.branch, not kontakt.filiale). If the domain gives no hint, English, camelCase. Keep a path that exists - never translate it.
+  Labels and texts for users stay German (see below).
 - Call only services, processes, messages and user tasks of the data model below - with their In fields as input. Never invent one and never call one that is not there.
 - If the request needs something the data model does not have, do the part of the page anyway and report the rest with report_open_point:
   a field the In of a service or process does not have yet: add the input to the page (bound in the state, e.g. contact.branch) and pass it in the input of the action - report that the In needs the field;
