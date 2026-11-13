@@ -3,7 +3,8 @@
 // fallback (`??`, the first one set wins). An object of the Out opens: a line onto it is what its
 // fields with lines of their own are set on (dashed, «Basis» - a copy of it). A filter shows only
 // the fields whose name holds a text, or only those with one of the same name and type on the other
-// side - what they are in opened. A stepper goes from field to field of the Out in sight.
+// side - what they are in opened. A stepper goes from field to field of the Out in sight; the
+// toolbar stays at the top while the panel scrolls, the field it is at named in it.
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Maximize2, Minimize2, Search, Trash2, Wand2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -421,8 +422,10 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
 
   return (
     <div className="space-y-2" onClick={() => setPending(null)}>
-      {/* toolbar */}
-      <div className={`flex items-center gap-2 flex-wrap ${text}`}>
+      {/* toolbar - it stays at the top while the panel scrolls */}
+      <div className={`sticky top-0 z-20 -mx-1 px-1 py-1 flex items-center gap-2 flex-wrap ${large ? c.panelStrong : c.bg} ${text}`}
+        // in the column the tint of its panel over the page - the same here, so the bar does not stand out
+        style={large ? undefined : { backgroundImage: `linear-gradient(${isDark ? 'rgba(255,255,255,.02)' : 'rgba(0,0,0,.02)'}, ${isDark ? 'rgba(255,255,255,.02)' : 'rgba(0,0,0,.02)'})` }}>
         <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(inSight(autoMapped(mapping, target, sources, outOpen, inOpen))); }}
           title="Was rechts offen ist, bekommt Linien: jedes Feld ohne Wert eines gleichen Namens und Typs aus dem, was links offen ist - auch in tieferen Ebenen. Zugeklappt als Ganzes; ein offenes Objekt ohne Basis eine Variable seines Typs als Basis"
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn} disabled:opacity-40`}>
@@ -444,9 +447,14 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
           <input type="checkbox" checked={fitting} onChange={e => setFitting(e.target.checked)} /> nur passende
         </label>
         <span className={`flex items-center rounded border ${c.border}`} onClick={e => e.stopPropagation()}
-          title="Von Feld zu Feld des Out, das in Sicht ist - es wird gewählt und kommt in Sicht">
+          title="Von Feld zu Feld des Out, das in Sicht ist - es wird gewählt und kommt in Sicht. Der Name: zum gewählten Feld springen">
           <button type="button" disabled={!steps.length} onClick={() => step(-1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Vorheriges Feld"><ChevronLeft size={11} /></button>
-          <span className={`px-1 tabular-nums ${c.muted}`}>{at >= 0 ? at + 1 : '-'} / {steps.length}</span>
+          <button type="button" disabled={!selected} onClick={() => setJump(j => j + 1)}
+            title={selected ? `${selected} - hinspringen` : 'Noch kein Feld gewählt'}
+            className={`px-1 flex items-center gap-1 max-w-[16rem] ${selected ? 'hover:underline' : ''} disabled:cursor-default`}>
+            {selected && <span className="font-mono truncate">{selected.split('.').slice(-2).join('.')}</span>}
+            <span className={`tabular-nums flex-shrink-0 ${c.muted}`}>{at >= 0 ? at + 1 : '-'} / {steps.length}</span>
+          </button>
           <button type="button" disabled={!steps.length} onClick={() => step(1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Nächstes Feld"><ChevronRight size={11} /></button>
         </span>
         <span className={`ml-auto ${c.muted}`}>{mapped} von {fields.length} zugeordnet</span>
