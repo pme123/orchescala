@@ -101,20 +101,28 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
 
               {m.kind === 'table' && (fromCases && toCases ? (
                 <div className="space-y-0.5">
-                  {prefilledCases(fromCases, [], m.cases).map(row => (
-                    <div key={row.from} className="flex items-center gap-2 text-[11px]">
-                      <span className="font-mono w-56 truncate">{name(m.from)}.{row.from}</span>
-                      <ArrowRight size={11} className={c.muted} />
-                      <select value={row.to} onChange={e => set(m.id, { cases: prefilledCases(fromCases, [], [...(m.cases ?? []).filter(x => x.from !== row.from), { from: row.from, to: e.target.value }]) })}
-                        className={`w-56 font-mono ${input}`}>
-                        <option value="">- kein Fall -</option>
-                        {toCases.map(t => <option key={t} value={t}>{name(m.to)}.{t}</option>)}
-                      </select>
-                    </div>
-                  ))}
+                  <div className={`grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] gap-2 text-[10px] uppercase tracking-wide ${c.muted}`}>
+                    <span className="truncate">{name(m.from)}</span><span /><span className="truncate">{name(m.to)}</span>
+                  </div>
+                  {!fromCases.length && <p className={`text-[10px] ${err}`}>{name(m.from)} hat im Katalog keine Fälle.</p>}
+                  {!toCases.length && <p className={`text-[10px] ${err}`}>{name(m.to)} hat im Katalog keine Fälle - nichts zum Auswählen.</p>}
+                  {fromCases.map(f => {
+                    const row = (m.cases ?? []).find(x => x.from === f);
+                    return (
+                      <div key={f} className="grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] gap-2 items-center text-[11px]">
+                        <span className="font-mono break-all" title={`${name(m.from)}.${f}`}>{f}</span>
+                        <ArrowRight size={11} className={c.muted} />
+                        <select value={row?.to ?? ''} onChange={e => set(m.id, { cases: [...(m.cases ?? []).filter(x => x.from !== f), { from: f, to: e.target.value }] })}
+                          className={`min-w-0 font-mono ${input} ${row?.to ? '' : (isDark ? 'border-amber-500/60' : 'border-amber-400')}`}>
+                          <option value="">- kein Fall -</option>
+                          {toCases.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    );
+                  })}
                   <button type="button" onClick={() => set(m.id, filled({ ...m, cases: (m.cases ?? []).filter(x => x.to) }))}
-                    className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${c.btn}`} title="Die Fälle ohne Ziel nach gleichem Namen vorbelegen">
-                    <Wand2 size={10} /> Gleiche Namen
+                    className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${c.btn}`} title="Die Fälle ohne Ziel vorbelegen: gleicher Name, sonst der einzige, auf den der Name endet (CLIENT_MAIN_TYPE_PERSON → PERSON)">
+                    <Wand2 size={10} /> Ähnliche Namen
                   </button>
                 </div>
               ) : <p className={`text-[10px] ${c.muted}`}>Eine Tabelle braucht als Von und Nach je ein Enum.</p>)}

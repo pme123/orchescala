@@ -80,6 +80,7 @@ test('the kinds of a mapper in Scala: a table with a case missing fails at runti
 
 test('a table prefilled by names alike; its checks', () => {
   assert.deepEqual(prefilledCases(['Person', 'Company', 'Other'], ['PERSON', 'COMPANY']), [{ from: 'Person', to: 'PERSON' }, { from: 'Company', to: 'COMPANY' }, { from: 'Other', to: '' }]);
+  assert.deepEqual(prefilledCases(['CLIENT_MAIN_TYPE_PERSON', 'CLIENT_MAIN_TYPE_COMPANY'], ['PERSON', 'COMPANY', 'PERSON_COMPANY']), [{ from: 'CLIENT_MAIN_TYPE_PERSON', to: 'PERSON' }, { from: 'CLIENT_MAIN_TYPE_COMPANY', to: 'COMPANY' }]);
   const idx = indexTypes(types, null);
   assert.deepEqual(mapperIssues({ ...table, cases: [{ from: 'Person', to: 'PERSONS' }] }, [table], idx), ['Ohne Fall: Company - zur Laufzeit ein Fehler.', 'Gibt es in ClientType nicht: PERSONS.']);
   assert.deepEqual(mapperIssues(wrapper, [wrapper, { ...wrapper, id: 'x' }], idx), ['Diesen Mapper gibt es zweimal.']);

@@ -48,9 +48,20 @@ export function enumCases(ref: string, idx: TypeIndex): string[] | null {
 
 const norm = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/** The table filled where the names are alike (`Person` → `PERSON`) - what is set stays. */
+/**
+ * The case of `to` alike to `f`: the same name (`Person` → `PERSON`), otherwise the only one whose
+ * name the other ends with (`CLIENT_MAIN_TYPE_PERSON` → `PERSON`, `Person` → `CLIENT_TYPE_PERSON`).
+ */
+function alike(f: string, to: string[]): string {
+  const exact = to.find(t => norm(t) === norm(f));
+  if (exact) return exact;
+  const ends = to.filter(t => norm(t) && norm(f) && (norm(f).endsWith(norm(t)) || norm(t).endsWith(norm(f))));
+  return ends.length === 1 ? ends[0] : '';
+}
+
+/** The table filled where the names are alike (see alike) - what is set stays. */
 export function prefilledCases(from: string[], to: string[], set: TypeMapper['cases'] = []): NonNullable<TypeMapper['cases']> {
-  return from.map(f => set.find(c => c.from === f) ?? { from: f, to: to.find(t => norm(t) === norm(f)) ?? '' });
+  return from.map(f => set.find(c => c.from === f && c.to) ?? { from: f, to: alike(f, to) });
 }
 
 /** The name of its method in the worker - `clientMainTypeToClientType`. */
