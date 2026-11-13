@@ -109,6 +109,9 @@ test('automatically: what is open on the right - a field of the same name and ty
     { field: 'newClient.master.clientType', from: ['composed.master.clientType'] },
     { field: 'newClient.master.segment', from: ['composed.master.segment'] },
   ]);
+  // only what is open on the left: composed.master closed - its fields are not in sight
+  const closed = autoMapped(mapping([]), target, other, new Set(['newClient', 'newClient.master']), new Set(['composed']));
+  assert.deepEqual(closed.fields, [{ field: 'newClient.master.clientType', from: ['composed.clientType'] }]);
   // a field already mapped stays as it is
   const kept = autoMapped(mapping([{ field: 'newClient.etag', from: ['etag'] }]), target, sources);
   assert.deepEqual(kept.fields.filter(l => l.field.startsWith('newClient')), [{ field: 'newClient.etag', from: ['etag'] }]);

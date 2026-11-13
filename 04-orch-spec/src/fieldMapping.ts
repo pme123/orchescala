@@ -132,14 +132,16 @@ export const plainType = (n: VarNode): string => n.label.replace(/^Option\[(.*)\
  * and type - the one whose path ends most like its own (`existingClient.master.segment` for
  * `newClient.master.segment`; then at the same depth), not what its base keeps anyway. Closed, a field gets a line as a
  * whole; an object open without a base gets a variable of its type as one (if there is one).
- * `open`: the paths open on the right - the variables of the Out are always looked at.
+ * `open`: the paths open on the right - the variables of the Out are always looked at. `inOpen`:
+ * those open on the left - only what is in sight there gives a line (without: all of it).
  */
-export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[], open: ReadonlySet<string> = new Set()): FieldMapping {
-  // the paths of the In a line can leave from - not into a list
+export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[], open: ReadonlySet<string> = new Set(), inOpen?: ReadonlySet<string>): FieldMapping {
+  // the paths of the In a line can leave from - in sight, not into a list
   const cands: Array<{ path: string[]; node: VarNode; at: number }> = [];
   const walk = (n: VarNode, path: string[]) => {
     cands.push({ path, node: n, at: cands.length });
-    if (n.type !== 'list') for (const c of n.children ?? []) walk(c, [...path, c.name]);
+    if (n.type === 'list' || (inOpen && !inOpen.has(path.join('.')))) return;
+    for (const c of n.children ?? []) walk(c, [...path, c.name]);
   };
   for (const s of sources) walk(s, [s.name]);
   // how many names at the end the two paths share

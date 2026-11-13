@@ -297,8 +297,8 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     <div className="space-y-2" onClick={() => setPending(null)}>
       {/* toolbar */}
       <div className={`flex items-center gap-2 flex-wrap ${text}`}>
-        <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(autoMapped(mapping, target, sources, tOpen)); }}
-          title="Was rechts offen ist, bekommt Linien: jedes Feld ohne Wert eines gleichen Namens und Typs aus dem In - auch in tieferen Ebenen. Zugeklappt als Ganzes; ein offenes Objekt ohne Basis eine Variable seines Typs als Basis"
+        <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(autoMapped(mapping, target, sources, tOpen, open)); }}
+          title="Was rechts offen ist, bekommt Linien: jedes Feld ohne Wert eines gleichen Namens und Typs aus dem, was links offen ist - auch in tieferen Ebenen. Zugeklappt als Ganzes; ein offenes Objekt ohne Basis eine Variable seines Typs als Basis"
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn} disabled:opacity-40`}>
           <Wand2 size={10} /> Automatisch zuordnen
         </button>
