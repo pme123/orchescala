@@ -206,5 +206,7 @@ test('a rename of an In follows into the FEEL expressions of the lines; removed,
   const q: FieldMapping = { in: [], out: [], fields: [{ field: 'a', from: [], expression: 'if client.kind = "client \\" client" then client else "client"' }] };
   assert.equal(renamedVar(q, 'in', 'client', 'c').fields[0].expression, 'if c.kind = "client \\" client" then c else "client"');
   assert.equal(renamedVar(q, 'in', '', 'c'), q);
+  // a new name is taken as it is - no replacement pattern
+  assert.equal(renamedVar({ in: [], out: [], fields: [{ field: 'a', from: [], expression: 'client + 1' }] }, 'in', 'client', '$&x').fields[0].expression, '$&x + 1');
   assert.deepEqual(renamedVar({ in: [], out: [], fields: [{ field: 'a', from: [], expression: '"client"' }] }, 'in', 'client', null).fields, [{ field: 'a', from: [], expression: '"client"' }]);
 });

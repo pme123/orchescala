@@ -127,7 +127,7 @@ const feelParts = (expr: string): string[] => expr.split(/("(?:[^"\\]|\\.)*")/);
 const nameRe = (name: string) => new RegExp(`(?<![\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'g');
 const namesVar = (expr: string, name: string): boolean => feelParts(expr).some((p, i) => i % 2 === 0 && new RegExp(nameRe(name).source).test(p));
 const renamedIn = (expr: string, from: string, to: string): string =>
-  feelParts(expr).map((p, i) => (i % 2 === 0 ? p.replace(nameRe(from), to) : p)).join('');
+  feelParts(expr).map((p, i) => (i % 2 === 0 ? p.replace(nameRe(from), () => to) : p)).join('');
 
 /** The node a path names among the variables - `client.address.city`; not into a list. */
 export function resolvePath(vars: VarNode[], path: string): VarNode | null {
