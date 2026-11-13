@@ -428,6 +428,10 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const params = m.in.filter(f => f.name.trim() && f.type);
   const outs = m.out.filter(f => f.name.trim() && f.type);
   if (!outs.length) return { line: `// TODO «${where}»: das Mapping hat kein Out`, produced: [] };
+  // a name twice (see inOutIssues) would be a parameter or a binding twice - no method
+  const dups = (fs: Field[]) => fs.map(f => f.name.trim()).filter((n, i, l) => l.indexOf(n) !== i);
+  const twice = [...dups(params), ...dups(outs)];
+  if (twice.length) return { line: `// TODO «${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`, produced: [] };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const { value, checks: raw } = mappingValues(m, scope, ctx, where);
   const one = outs.length === 1;

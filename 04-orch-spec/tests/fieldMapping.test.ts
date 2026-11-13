@@ -185,6 +185,13 @@ test('in Scala several variables in the Out: a tuple - its call sets each one', 
   assert.match(t, /assertEquals\(result\._1, existingClient\)\n\s+assertEquals\(result\._2, true\)/, t);
 });
 
+test('in Scala a name twice in the Out is no method - a TODO, as the check says', () => {
+  const m = mapping([{ field: 'newClient', from: ['existingClient'] }], { out: [f('newClient', 'client'), f('newClient', 'client')] });
+  const { worker } = files(m);
+  assert.match(worker, /\/\/ TODO «[^»]+»: im Mapping zweimal: newClient/, worker);
+  assert.doesNotMatch(worker, /\(newClient, newClient\)/, worker);
+});
+
 test('a mapping stored without an In or Out reads as empty - nothing breaks on it', async () => {
   const { mappingOf } = await import('../src/fieldMapping');
   const { mappingVarNodes } = await import('../src/feel');
