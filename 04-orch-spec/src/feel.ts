@@ -1210,8 +1210,11 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
-    if (s.kind === 'script' && s.fieldMapping) for (const f of mappingOf(s.fieldMapping).out) { if (f.name.trim()) names.add(f.name.trim()); }
-    else if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) names.add(s.resultVariable.trim());
+    if (s.kind === 'script' && s.fieldMapping) {
+      for (const f of mappingOf(s.fieldMapping).out) if (f.name.trim()) names.add(f.name.trim());
+    } else if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) {
+      names.add(s.resultVariable.trim());
+    }
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
   }

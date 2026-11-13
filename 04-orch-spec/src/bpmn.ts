@@ -1148,6 +1148,17 @@ const KEEP_KEYS = ['description', 'candidateGroups', 'candidateUsers', 'assignee
 // The implementation of a script task is not read from the diagram - it stays as specified
 const SCRIPT_KEYS = ['script', 'resultVariable', 'resultType', 'resultCollection', 'fieldMapping'] as const;
 
+/**
+ * The implementation of the specification onto the step read from the diagram: what the step has
+ * not. A script of its own in the step (not read today) keeps its result and drops the mapping -
+ * the mapping and its FEEL go together.
+ */
+function keepScript(s: Step, prev: Step): void {
+  const own = s.script != null && s.script !== prev.script;
+  const set = <K extends (typeof SCRIPT_KEYS)[number]>(k: K) => { if (s[k] == null && prev[k] != null) s[k] = prev[k]; };
+  for (const k of SCRIPT_KEYS) if (!(own && k === 'fieldMapping')) set(k);
+}
+
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
   for (const s of steps ?? []) {
     into.set(s.id, s);
@@ -1425,7 +1436,7 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       if (unnamed(s) && !unnamed(prev)) s.name = prev.name;
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
       if (s.kind === 'script' && prev.kind === 'script') {
-        for (const k of SCRIPT_KEYS) if (s[k] == null && prev[k] != null) (s as unknown as Record<string, unknown>)[k] = prev[k];
+        keepScript(s, prev);
       }
       // Business meaning and deselection of the mappings belong to the specification —
       // with `mappingsFromBpmn` the deselection does not apply: what is in the BPMN is enabled
