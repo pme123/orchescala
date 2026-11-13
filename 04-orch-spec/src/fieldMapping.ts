@@ -103,23 +103,31 @@ export function linked(m: FieldMapping, field: string, path: string): FieldMappi
  * Removed (`to` null): its lines go too.
  */
 export function renamedVar(m: FieldMapping, side: 'in' | 'out', from: string, to: string | null): FieldMapping {
+  if (!from.trim()) return m;
   const move = (p: string) => (p === from || p.startsWith(`${from}.`) ? (to === null ? null : `${to}${p.slice(from.length)}`) : p);
-  // the name in a FEEL expression of a line - not a field of something (`x.from`), not part of a name
-  const named = new RegExp(`(?<![\\w.])${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'g');
   const fields = side === 'out'
     ? m.fields.flatMap(l => { const f = move(l.field); return f === null ? [] : [{ ...l, field: f }]; })
     : m.fields.flatMap(l => {
       const paths = l.from.flatMap(p => { const q = move(p); return q === null ? [] : [q]; });
       const expr = l.expression?.trim();
-      if (expr && new RegExp(named.source).test(expr)) {
+      if (expr && namesVar(expr, from)) {
         // removed: the expression would name a variable no longer there - the line goes with it
         if (to === null) return [];
-        return [{ ...l, from: paths, expression: expr.replace(named, to) }];
+        return [{ ...l, from: paths, expression: renamedIn(expr, from, to) }];
       }
       return paths.length || expr ? [{ ...l, from: paths }] : [];
     });
   return { ...m, fields };
 }
+
+/** A FEEL expression in its parts: text in quotes (odd index) and the rest (even index). */
+const feelParts = (expr: string): string[] => expr.split(/("(?:[^"\\]|\\.)*")/);
+
+/** The variable `name` in a FEEL expression - not a field (`x.name`), not part of a longer name, not in quotes. */
+const nameRe = (name: string) => new RegExp(`(?<![\\w.])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'g');
+const namesVar = (expr: string, name: string): boolean => feelParts(expr).some((p, i) => i % 2 === 0 && new RegExp(nameRe(name).source).test(p));
+const renamedIn = (expr: string, from: string, to: string): string =>
+  feelParts(expr).map((p, i) => (i % 2 === 0 ? p.replace(nameRe(from), to) : p)).join('');
 
 /** The node a path names among the variables - `client.address.city`; not into a list. */
 export function resolvePath(vars: VarNode[], path: string): VarNode | null {

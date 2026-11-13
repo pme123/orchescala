@@ -202,4 +202,9 @@ test('a rename of an In follows into the FEEL expressions of the lines; removed,
     { field: 'c', from: ['customer.id'] },
   ]);
   assert.deepEqual(renamedVar(m, 'in', 'client', null).fields, [{ field: 'b', from: [], expression: 'clientX' }]);
+  // text in quotes stays; an empty name renames nothing
+  const q: FieldMapping = { in: [], out: [], fields: [{ field: 'a', from: [], expression: 'if client.kind = "client \\" client" then client else "client"' }] };
+  assert.equal(renamedVar(q, 'in', 'client', 'c').fields[0].expression, 'if c.kind = "client \\" client" then c else "client"');
+  assert.equal(renamedVar(q, 'in', '', 'c'), q);
+  assert.deepEqual(renamedVar({ in: [], out: [], fields: [{ field: 'a', from: [], expression: '"client"' }] }, 'in', 'client', null).fields, [{ field: 'a', from: [], expression: '"client"' }]);
 });
