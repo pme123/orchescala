@@ -20,7 +20,7 @@
 // throughout the company, and what the parser does not recognize reliably it rather
 // leaves out than guesses.
 
-import type { DecisionResult, DomainDefault, DomainField, DomainType } from './types';
+import type { DecisionResult, DomainDefault, DomainField, DomainMapper, DomainType } from './types';
 import { CHAR_LITERAL, cleanText, descriptionExpression, exampleArgs, parseParams, skipBackticks, splitParams } from './scalaTypes.ts';
 
 const PACKAGE = /^package\s+([\w.]+)\s*$/;
@@ -183,6 +183,8 @@ export function importsOfFile(lines: string[]): string[] {
 
 export interface ScanResult {
   types: DomainType[];
+  /** the type mappers of the code (see scanMappers) - once per id, the first one read */
+  mappers: DomainMapper[];
   /** example values `default…` — in file order, once per package and name */
   defaults: DomainDefault[];
   /** files without a recognizable `package` — the assignment there would be guesswork */
@@ -757,13 +759,93 @@ function applyExample(types: DomainType[], owner: string | null, ctor: string, a
  * of the files is the precedence** — it results from the order of the
  * folders read.
  */
+// ── Type mappers of the code ─────────────────────────────────────────────────
+//
+// An extension in a top-level object of the domain that converts one type into another, without
+// parameters - what the export of Orch Spec writes (`ClientMasterTypeMappers`), or a developer:
+//
+//   object ClientMasterTypeMappers:
+//     /** ClientMainType → ClientType */
+//     extension (x: ClientMainType) def toClientType: ClientType = …
+//
+//     extension (x: BigDecimalWrapper)
+//       def toBigDecimal: BigDecimal = x.value
+//
+// A receiver or a result with type parameters (`Option[X]`) is no type mapper of a type.
+
+const MAPPER_OBJECT = /^object\s+(\w+)\b/;
+const EXTENSION = /^(\s+)extension\s*\(\s*\w+\s*:\s*([\w.]+)\s*\)\s*(.*)$/;
+const CONVERSION = /^def\s+(\w+)\s*:\s*([\w.]+)\s*(?:=|$)/;
+const DOC_LINE = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
+
+/** The type mappers of a file - see above. */
+export function scanMappers(source: string, path = ''): DomainMapper[] {
+  const lines = source.split('\n');
+  const pkg = packageOfFile(lines);
+  if (!pkg) return [];
+  const out: DomainMapper[] = [];
+  const indentOf = (l: string) => l.length - l.trimStart().length;
+  const plain = (t: string) => t.replace(/^.*\./, '');
+  let object: string | null = null;
+  let doc: string | undefined;
+  const add = (from: string, method: string, to: string, descr?: string) => {
+    out.push({
+      id: `${pkg}.${object}.${method}(${plain(from)})`, pkg, object: object!, method, from: plain(from), to: plain(to),
+      ...(descr ? { descr } : {}), ...(path ? { source: path } : {}),
+    });
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const t = line.trim();
+    if (!t) continue;
+    if (indentOf(line) === 0) {
+      // a top-level line: an object opens, anything else (`end X`, a class) closes it
+      const o = MAPPER_OBJECT.exec(t);
+      object = o ? o[1] : null;
+      doc = undefined;
+      continue;
+    }
+    if (!object) continue;
+    const d = DOC_LINE.exec(line);
+    if (d) { doc = d[1]; continue; }
+    const e = EXTENSION.exec(line);
+    if (!e) { if (!t.startsWith('*') && !t.startsWith('/*')) doc = undefined; continue; }
+    const [, indent, from, rest] = e;
+    const one = CONVERSION.exec(rest.trim());
+    if (one) { add(from, one[1], one[2], doc); doc = undefined; continue; }
+    if (rest.trim()) { doc = undefined; continue; }
+    // the block form: the conversions below it, each with its own doc
+    let inner: string | undefined = doc;
+    for (let k = i + 1; k < lines.length; k++) {
+      const l = lines[k];
+      if (!l.trim()) continue;
+      if (indentOf(l) <= indent.length) break;
+      const dd = DOC_LINE.exec(l);
+      if (dd) { inner = dd[1]; continue; }
+      const c = CONVERSION.exec(l.trim());
+      if (c && indentOf(l) > indent.length) { add(from, c[1], c[2], inner); inner = undefined; }
+      i = k;
+    }
+    doc = undefined;
+  }
+  return out;
+}
+
+/** Type mappers of several sources: once per id, the one read first wins (as with the types). */
+export function mergeMappers(prior: DomainMapper[], incoming: DomainMapper[]): DomainMapper[] {
+  const ids = new Set(prior.map(m => m.id));
+  return [...prior, ...incoming.filter(m => !ids.has(m.id))];
+}
+
 export function scanFiles(files: Array<{ path: string; text: string }>): ScanResult {
   const found: DomainType[] = [];
+  const mappers = new Map<string, DomainMapper>();
   const byId = new Map<string, DomainType>();
   const skipped: string[] = [];
   let defaults: DomainDefault[] = [];
   for (const f of files) {
     defaults = mergeDefaults(defaults, scanDefaults(f.text));
+    for (const m of scanMappers(f.text, f.path)) if (!mappers.has(m.id)) mappers.set(m.id, m);
     const types = scanScala(f.text, f.path);
     if (!types.length && !packageOfFile(f.text.split('\n'))) { skipped.push(f.path); continue; }
     for (const t of types) {
@@ -777,7 +859,7 @@ export function scanFiles(files: Array<{ path: string; text: string }>): ScanRes
   // in file order, but per id only the entry that won last
   const ordered = found.filter(t => byId.get(t.id) === t);
   const { types, discarded } = mergeDomainTypes([], ordered);
-  return { types, defaults, skipped, discarded };
+  return { types, mappers: [...mappers.values()], defaults, skipped, discarded };
 }
 
 const SKIPPED_DIRS = new Set(['target', 'node_modules', 'dist', '__MACOSX']);

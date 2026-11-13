@@ -322,12 +322,13 @@ export default function CatalogBuild({ model, isDark, canEdit, onSave, generated
         services: mergeServices(built.kept, incoming).services,
         domainTypes: typen,
         domainDefaults: r.defaults,
+        domainMappers: r.mappers,
         projects: r.projects,
         domainSources: [...new Set([...sources.filter(x => /^https?:/i.test(x)), ...projects.map(p => p.name)])],
       });
       setDropped(r.discarded);
       setMsg(res.ok
-        ? `${r.types.length} Typen und ${r.defaults.length} Beispielwerte aus ${r.files} Dateien in ${projects.length} Projekten`
+        ? `${r.types.length} Typen, ${r.defaults.length} Beispielwerte und ${r.mappers.length} Typ-Mapper aus ${r.files} Dateien in ${projects.length} Projekten`
           + ` · ${incoming.length} Services aus ${r.apis.length - built.unreadable.length} OpenAPI`
           + (unreadable.length ? ` (unlesbar: ${unreadable.join(', ')})` : '')
           + (withoutApi.length ? ` · ohne 03-api/OpenApi.yml: ${withoutApi.join(', ')} — ihre früher gelesenen Services bleiben («zurück zur Auslieferung» nimmt sie heraus)` : '')

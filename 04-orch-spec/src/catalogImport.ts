@@ -11,7 +11,7 @@
 
 import { allSteps } from './bpmn.ts';
 import { parseDomainRef } from './serviceTypes.ts';
-import type { DomainDefault, DomainType, ProcessSpec, ServiceDef } from './types.ts';
+import type { DomainDefault, DomainMapper, DomainType, ProcessSpec, ServiceDef } from './types.ts';
 
 export interface Referenced {
   /** Service IDs, topics and called processes from all steps */
@@ -78,6 +78,8 @@ export interface CatalogFile {
   services?: ServiceDef[];
   domainTypes?: DomainType[];
   domainDefaults?: DomainDefault[];
+  /** the type mappers of the code (see DomainMapper) */
+  domainMappers?: DomainMapper[];
   domainSources?: string[];
   /** the scanned projects — `scannedAt`: when (ISO), see `ProjectFolder.scannedAt` */
   projects?: Array<{ id: string; name: string; types?: number; scannedAt?: string; dependencies?: string[] }>;
@@ -103,6 +105,7 @@ export function readCatalogFile(text: string): { ok: true; data: CatalogFile } |
       ...d,
       ...(Array.isArray(d.services) ? { services: withoutGenerated(d.services) } : {}),
       ...(Array.isArray(d.domainTypes) ? { domainTypes: withoutGenerated(d.domainTypes) } : {}),
+      ...(Array.isArray(d.domainMappers) ? { domainMappers: withoutGenerated(d.domainMappers) } : {}),
       ...(colors ? { projectColors } : {}),
     },
   };

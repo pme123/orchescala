@@ -1,5 +1,5 @@
 // Merging the bundled catalog (`catalog.generated.json`) with the model.json.
-import type { DomainDefault, DomainType, Model, ServiceDef, ServiceParam } from './types';
+import type { DomainDefault, DomainMapper, DomainType, Model, ServiceDef, ServiceParam } from './types';
 import { feelIfPossible } from './juelFeel.ts';
 import { withOrchescalaTypes } from './orchescalaTypes.ts';
 import type { CatalogFile } from './catalogImport';
@@ -207,6 +207,11 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
   const projectOfDefault = (d: DomainDefault) => projectOf({ pkg: d.pkg } as DomainType);
   const genDefaults = (gen.domainDefaults ?? []).filter(d => !defaultFromUser(d)).map(d => ({ ...d, generated: true }));
   const defaultIds = new Set(genDefaults.map(d => `${d.pkg}.${d.name}`));
+  // the type mappers of the code follow the types the same way
+  const mapperFromUser = (m: DomainMapper) => fromUser({ pkg: m.pkg } as DomainType);
+  const projectOfMapper = (m: DomainMapper) => projectOf({ pkg: m.pkg } as DomainType);
+  const genMappers = (gen.domainMappers ?? []).filter(m => !mapperFromUser(m)).map(m => ({ ...m, generated: true }));
+  const mapperIds = new Set(genMappers.map(m => m.id));
   const genDeps = dependenciesOf(gen);
   return {
     ...user,
@@ -223,6 +228,8 @@ export function mergeGeneratedCatalog(user0: Model, gen: CatalogFile | null): Mo
     })],
     domainDefaults: [...genDefaults, ...(user.domainDefaults ?? []).filter(d =>
       (projectOfDefault(d) != null ? defaultFromUser(d) : !defaultIds.has(`${d.pkg}.${d.name}`)))],
+    domainMappers: [...genMappers, ...(user.domainMappers ?? []).filter(m =>
+      (projectOfMapper(m) != null ? mapperFromUser(m) : !mapperIds.has(m.id)))],
     domainSources: gen.domainSources ?? user.domainSources,
     ...(gen.projectColors ? { projectColors: gen.projectColors } : {}),
     ...(genDeps ? { projectDependencies: genDeps } : {}),
@@ -299,6 +306,7 @@ export function withoutLocalProject(user: Model, project: string): Model {
     services: user.services.filter(s => localProjectOf(s, listed) !== project),
     domainTypes: (user.domainTypes ?? []).filter(t => !ofProject(t)),
     domainDefaults: (user.domainDefaults ?? []).filter(d => !roots.has(packageRoot(d.pkg ?? ''))),
+    domainMappers: (user.domainMappers ?? []).filter(m => !(m.source?.startsWith(`${project}/`) ?? false)),
     projects: (user.projects ?? []).filter(p => p.name !== project),
   };
 }

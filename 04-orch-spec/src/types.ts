@@ -868,6 +868,29 @@ export interface DomainDefault {
   generated?: boolean;
 }
 
+/**
+ * A type mapper of the code - an extension of an object the domain scan found
+ * (`extension (x: ClientMainType) def toClientType: ClientType` in `ClientMasterTypeMappers`).
+ */
+export interface DomainMapper {
+  /** `acme.crm.domain.clientMaster.schema.ClientMasterTypeMappers.toClientType(ClientMainType)` */
+  id: string;
+  /** `acme.crm.domain.clientMaster.schema` */
+  pkg: string;
+  /** `ClientMasterTypeMappers` */
+  object: string;
+  /** `toClientType` */
+  method: string;
+  /** the types as the code names them - `ClientMainType`, `ClientType` */
+  from: string;
+  to: string;
+  descr?: string;
+  /** the file it was read from - `crm/01-domain/…/ClientMasterTypeMappers.scala` */
+  source?: string;
+  /** from the generated catalog — does not belong in the model.json */
+  generated?: boolean;
+}
+
 export interface DomainType {
   /** fully qualified, e.g. `globex.crm.domain.account.v1.GetAccount.Out` */
   id: string;
@@ -1044,6 +1067,11 @@ export interface TypeMapper {
   /** what the expression needs imported (`java.time.LocalDate`) */
   imports?: string[];
   description?: string;
+  /**
+   * In the code already (from the catalog, see DomainMapper): the extension that converts -
+   * the export brings no file for it, the worker imports its object. Not editable.
+   */
+  code?: { pkg: string; object: string; method: string };
 }
 
 export interface Model {
@@ -1065,6 +1093,8 @@ export interface Model {
   domainTypes?: DomainType[];
   /** example values of the domain (`defaultClientKey` …) — in order of precedence */
   domainDefaults?: DomainDefault[];
+  /** the type mappers of the code - extensions the domain scan found (see DomainMapper) */
+  domainMappers?: DomainMapper[];
   /** most recently read source folders — as a reminder in the admin */
   domainSources?: string[];
   /**
