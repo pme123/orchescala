@@ -1,6 +1,7 @@
 // The In and Out of a mapping: what the script task reads (variables before it, by name) and
 // what it sets (variables after it) - each a name and a type. A name of a variable known before
 // takes its type; renamed or removed, the lines follow.
+import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { VarNode } from '../feel';
 import { renamedVar } from '../fieldMapping';
@@ -63,9 +64,9 @@ export default function MappingInOut({ mapping, known, outFields, types, model, 
         <div className="flex-1 min-w-0 space-y-1">
           {list.map((f, i) => (
             <div key={f.id} className="flex items-center gap-1">
-              <input value={f.name} disabled={!canEdit} list={dl} onChange={e => rename(i, e.target.value)}
-                placeholder={key === 'in' ? 'Variable davor' : 'Variable danach'}
-                className={`w-32 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input} ${!f.name.trim() ? (isDark ? 'border-rose-500/60' : 'border-rose-400') : ''}`} />
+              <NameInput name={f.name} disabled={!canEdit} list={dl} isDark={isDark} input={c.input}
+                taken={n => list.some((o, k) => k !== i && o.name.trim() === n)}
+                placeholder={key === 'in' ? 'Variable davor' : 'Variable danach'} onCommit={n => rename(i, n)} />
               <TypePicker value={f.type} types={types} selfId="" model={model} isDark={isDark} disabled={!canEdit}
                 onPick={v => set(i, { type: v })} className="flex-1 min-w-0" />
               <label className={`flex items-center gap-0.5 flex-shrink-0 ${c.muted}`} title="Eine Liste dieses Typs (Seq[…])">
@@ -92,4 +93,29 @@ export default function MappingInOut({ mapping, known, outFields, types, model, 
     );
   };
   return <>{side('in')}{side('out')}</>;
+}
+
+/**
+ * The name of a variable - renamed when it is left (or with Enter), not with every key: its lines
+ * move once. A name another variable of the side has is not taken - the lines would merge.
+ */
+function NameInput({ name, taken, onCommit, disabled, list, placeholder, isDark, input }: {
+  name: string; taken: (n: string) => boolean; onCommit: (n: string) => void;
+  disabled: boolean; list: string; placeholder: string; isDark: boolean; input: string;
+}) {
+  const [draft, setDraft] = useState(name);
+  useEffect(() => setDraft(name), [name]);
+  const clash = !!draft.trim() && draft.trim() !== name.trim() && taken(draft.trim());
+  const commit = () => {
+    if (clash) setDraft(name);
+    else if (draft !== name) onCommit(draft);
+  };
+  const bad = clash || !draft.trim();
+  return (
+    <input value={draft} disabled={disabled} list={list} placeholder={placeholder}
+      onChange={e => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setDraft(name); }}
+      title={clash ? `«${draft.trim()}» gibt es schon - beim Verlassen bleibt «${name}»` : undefined}
+      className={`w-32 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${input} ${bad ? (isDark ? 'border-rose-500/60' : 'border-rose-400') : ''}`} />
+  );
 }

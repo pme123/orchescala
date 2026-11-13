@@ -117,6 +117,11 @@ test('automatically: what is open on the right - a field of the same name and ty
   assert.deepEqual(kept.fields.filter(l => l.field.startsWith('newClient')), [{ field: 'newClient.etag', from: ['etag'] }]);
 });
 
+test('the checks: a name of In or Out is a plain variable name - a path splits at its dots', () => {
+  assert.deepEqual(inOutIssues({ in: [], out: [f('new.client', 'client'), f('ok_1', 'client')], fields: [] }, null).map(i => i.text),
+    ['Out: «new.client» ist kein Variablenname - nur Buchstaben, Ziffern und _.']);
+});
+
 test('the checks: the In known before the step, names there, a field of the Out without a value, a path not in the In', () => {
   assert.deepEqual(inOutIssues({ in: [f('existingClient', 'client'), f('', 'client'), f('wanted', '')], out: [], fields: [] }, [node('existingClient')]).map(i => i.text), [
     'In: ein Feld ohne Namen.', 'In: «wanted» hat keinen Typ.', 'Das Out braucht eine Variable - die, die der Schritt setzt.', 'In: «wanted» ist vor dem Schritt nicht bekannt.',

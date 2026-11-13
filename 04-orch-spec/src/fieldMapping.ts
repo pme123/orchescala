@@ -205,6 +205,8 @@ export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): Mapp
       if (!n) { out.push({ level: 'error', text: `${side}: ein Feld ohne Namen.` }); continue; }
       if (!f.type) out.push({ level: 'error', text: `${side}: «${n}» hat keinen Typ.` });
       if (seen.has(n)) out.push({ level: 'error', text: `${side}: «${n}» gibt es zweimal.` });
+      // a path is split at its dots - a name with one could never be found again
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) out.push({ level: 'error', text: `${side}: «${n}» ist kein Variablenname - nur Buchstaben, Ziffern und _.` });
       seen.add(n);
     }
   };
