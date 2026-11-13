@@ -104,11 +104,19 @@ export function linked(m: FieldMapping, field: string, path: string): FieldMappi
  */
 export function renamedVar(m: FieldMapping, side: 'in' | 'out', from: string, to: string | null): FieldMapping {
   const move = (p: string) => (p === from || p.startsWith(`${from}.`) ? (to === null ? null : `${to}${p.slice(from.length)}`) : p);
+  // the name in a FEEL expression of a line - not a field of something (`x.from`), not part of a name
+  const named = new RegExp(`(?<![\\w.])${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'g');
   const fields = side === 'out'
     ? m.fields.flatMap(l => { const f = move(l.field); return f === null ? [] : [{ ...l, field: f }]; })
     : m.fields.flatMap(l => {
       const paths = l.from.flatMap(p => { const q = move(p); return q === null ? [] : [q]; });
-      return paths.length || l.expression?.trim() ? [{ ...l, from: paths }] : [];
+      const expr = l.expression?.trim();
+      if (expr && new RegExp(named.source).test(expr)) {
+        // removed: the expression would name a variable no longer there - the line goes with it
+        if (to === null) return [];
+        return [{ ...l, from: paths, expression: expr.replace(named, to) }];
+      }
+      return paths.length || expr ? [{ ...l, from: paths }] : [];
     });
   return { ...m, fields };
 }

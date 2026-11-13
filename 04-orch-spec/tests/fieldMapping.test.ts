@@ -189,3 +189,17 @@ test('a mapping stored without an In or Out reads as empty - nothing breaks on i
   const { worker } = files(old);
   assert.match(worker, /TODO «Map Client»: das Mapping hat kein Out/);
 });
+
+test('a rename of an In follows into the FEEL expressions of the lines; removed, such a line goes too', () => {
+  const m: FieldMapping = { in: [], out: [], fields: [
+    { field: 'a', from: [], expression: 'client.name + " " + other.client' },
+    { field: 'b', from: [], expression: 'clientX' },
+    { field: 'c', from: ['client.id'] },
+  ] };
+  assert.deepEqual(renamedVar(m, 'in', 'client', 'customer').fields, [
+    { field: 'a', from: [], expression: 'customer.name + " " + other.client' },
+    { field: 'b', from: [], expression: 'clientX' },
+    { field: 'c', from: ['customer.id'] },
+  ]);
+  assert.deepEqual(renamedVar(m, 'in', 'client', null).fields, [{ field: 'b', from: [], expression: 'clientX' }]);
+});
