@@ -100,7 +100,7 @@ test('the mapping knows the mappers: no warning on a line between their types, t
   assert.equal(convert(sources[0].children![0], target.children![0].children![0]), 'ClientMainType → ClientType');
 });
 
-test('type mappers: an export file imports again - same id or From → To replaced, others stay', () => {
+test('type mappers: an export file imports again - same From → To replaced, an id of other types gets a new one, others stay', () => {
   const a: TypeMapper = { id: 'a', from: 'dom:A', to: 'dom:B', kind: 'table', cases: [{ from: 'X', to: 'Y' }], path: 'unused' };
   const b: TypeMapper = { id: 'b', from: 'dom:W', to: 'BigDecimal', kind: 'field', path: ' value ' };
   const file = mapperFile([a, b]);
@@ -111,13 +111,13 @@ test('type mappers: an export file imports again - same id or From → To replac
 
   const have: TypeMapper[] = [
     { id: 'other', from: 'dom:A', to: 'dom:B', kind: 'decoder' }, // same From → To as a
-    { id: 'b', from: 'dom:Old', to: 'dom:Old2', kind: 'decoder' }, // same id as b
+    { id: 'b', from: 'dom:Old', to: 'dom:Old2', kind: 'decoder' }, // the id of b, other types: stays, b gets a new id
     { id: 'keep', from: 'dom:K', to: 'dom:L', kind: 'decoder' },
   ];
   const r = importedMappers(have, file);
-  assert.deepEqual(r.all.map(m => m.id), ['keep', 'a', 'b']);
-  assert.equal(r.replaced, 2);
-  assert.equal(r.added, 0);
+  assert.deepEqual(r.all.map(m => m.id), ['b', 'keep', 'a', 'tm-dom:W-BigDecimal']);
+  assert.equal(r.replaced, 1);
+  assert.equal(r.added, 1);
   assert.equal(importedMappers([], file).added, 2);
   assert.throws(() => importedMappers(have, '{"patterns": []}'), /Keine Typ-Mapper/);
 });
@@ -181,4 +181,10 @@ test('the editor and the export find the same mapper - by names; two with the sa
   const two: TypeMapper = { id: 'two', from: 'a2', to: 'b', kind: 'decoder' };
   assert.equal(findMapper([one], 'a1', 'b', nameOf), one);
   assert.equal(findMapper([one, two], 'a1', 'b', nameOf), undefined);
+});
+
+test('a field mapper checks its path - names with dots between them', () => {
+  const idx = indexTypes(types, null);
+  assert.deepEqual(mapperIssues({ ...wrapper, path: 'amount.value' }, [], idx), []);
+  assert.deepEqual(mapperIssues({ ...wrapper, path: 'value)' }, [], idx), ['«value)» ist kein Feldpfad - Namen mit Punkt dazwischen (value, amount.value).']);
 });

@@ -121,6 +121,7 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
     }
   }
   if (m.kind === 'field' && !m.path?.trim()) out.push('Welches Feld?');
+  else if (m.kind === 'field' && !/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(m.path!.trim())) out.push(`«${m.path!.trim()}» ist kein Feldpfad - Namen mit Punkt dazwischen (value, amount.value).`);
   if (m.kind === 'scala' && !m.scala?.trim()) out.push('Der Ausdruck fehlt.');
   return out;
 }
@@ -167,6 +168,13 @@ export function cleanMapper(m: TypeMapper): TypeMapper | null {
   };
 }
 
+/** `base`, or numbered - an id none of `have` has */
+function uniqueId(base: string, have: TypeMapper[]): string {
+  let id = base;
+  for (let i = 2; have.some(h => h.id === id); i++) id = `${base}-${i}`;
+  return id;
+}
+
 /** The file of an export: `{version, typeMappers}` */
 export const mapperFile = (all: TypeMapper[]): string =>
   JSON.stringify({ version: 1, typeMappers: all.map(cleanMapper).filter(Boolean) }, null, 2);
@@ -182,10 +190,16 @@ export function importedMappers(have: TypeMapper[], text: string): { all: TypeMa
     : raw && typeof raw === 'object' && Array.isArray((raw as { typeMappers?: unknown }).typeMappers) ? (raw as { typeMappers: unknown[] }).typeMappers : [];
   const same = (a: TypeMapper, b: TypeMapper) => a.id === b.id || (a.from === b.from && a.to === b.to);
   // within the file the last one wins - one mapper per id and per From → To
+  // an id of the file that a mapper here has for other types is not the same one - a new id
+  const ownId = (m: TypeMapper) => {
+    const id = typeof m.id === 'string' && m.id.trim() ? m.id.trim() : '';
+    return id && !have.some(h => h.id === id && (h.from !== m.from || h.to !== m.to)) ? id : uniqueId(`tm-${m.from}-${m.to}`, have);
+  };
   const list = entries
     .filter((m): m is TypeMapper => !!m && typeof m === 'object')
-    .map(m => cleanMapper({ ...m, id: typeof m.id === 'string' && m.id.trim() ? m.id : `tm-${m.from}-${m.to}` }))
+    .map(m => cleanMapper(m))
     .filter((m): m is TypeMapper => !!m)
+    .map(m => ({ ...m, id: ownId(m) }))
     .filter((m, i, l) => !l.slice(i + 1).some(o => same(m, o)));
   if (!list.length) throw new Error('Keine Typ-Mapper in der Datei.');
   const replaced = have.filter(a => list.some(b => same(a, b))).length;
