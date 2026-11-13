@@ -42,6 +42,11 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Datenmodells oder eine der Domain (etwa das Out eines Services). Das In und Out einer Interaktion
   (Benutzer-Task, Worker) bleibt beim RE.
 
+  Namen, die zu Code werden – Klassen, Auswahlen und ihre Fälle, Felder, Fehlercodes, die Pfade im
+  State einer Seite –, schreibt Claude in der Sprache der Domain (wie das Datenmodell, die Worker und
+  Services sie nennen), ohne Hinweis englisch; bestehende Namen übersetzt es nicht. Deutsch bleiben,
+  was Menschen lesen: Schritte, Beschriftungen, Texte und Beschreibungen.
+
   Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/turn`); eine Aufgabe
   ohne Skill lehnt das Studio ab (403).
 - **Der Skill bestimmt, nicht der Browser:** Das Studio setzt die Anweisungen des Skills
