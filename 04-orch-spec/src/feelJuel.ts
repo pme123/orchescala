@@ -128,8 +128,10 @@ const ownInstance = (body: string): string =>
  * translation maps back: in JUEL to `execution.getVariable("letter-id")`, in the
  * Groovy JSON script to `v('letter-id')`.
  */
-const BQ = '__bqName';
 function hideBackticks(body: string): { src: string; real: (name: string) => string; back: (text: string) => string } {
+  // a prefix the expression does not contain — a variable may be called `__bqName0` itself
+  let BQ = '__bqName';
+  while (body.includes(BQ)) BQ += '_';
   const names: string[] = [];
   const src = body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
     : part.replace(/`([^`]+)`/g, (_, n: string) => `${BQ}${names.push(n) - 1}`))).join('');

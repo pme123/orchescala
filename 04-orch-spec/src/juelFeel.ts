@@ -68,7 +68,11 @@ function tokenize(src: string): Tok[] {
   return out;
 }
 
-/** A FEEL text literal — a raw line break is no valid FEEL text, so it is escaped too */
+/**
+ * A FEEL text literal — a raw line break is no valid FEEL text, so it is escaped too.
+ * Other control characters stay raw: FEEL reads them, and its `\u` escape would be
+ * read greedily (`\u0008b` takes the `b`).
+ */
 const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
 
 /** A JSON value as a FEEL literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
@@ -84,20 +88,13 @@ export function jsonToFeel(v: unknown): string {
 }
 
 /**
- * Groovy names that are no variable FEEL could read — the script binding, Spin,
- * and the Groovy keywords: a list of them stays a script
+ * Groovy names that are no variable FEEL could read — the script bindings and the
+ * Groovy keywords: a list of them stays a script (capitalised names, classes, see `value`)
  */
 const GROOVY_ONLY = new Set([
   // the bindings of a Camunda 7 script and of a Groovy script
   'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'externalTask', 'caseExecution',
   'connector', 'authenticatedUserId', 'variableScope', 'binding', 'out', 'log', 'args',
-  // classes a Groovy script knows without an import (java.lang, java.util, java.math …) and
-  // Spin — a bare name of them is the class, no variable. Not every capitalised name:
-  // `Gebühr` is a variable
-  'S', 'JSON', 'XML', 'Spin', 'Math', 'System', 'Runtime', 'Thread', 'Object', 'Objects', 'Class',
-  'String', 'Integer', 'Long', 'Short', 'Byte', 'Double', 'Float', 'Boolean', 'Character', 'Number',
-  'BigDecimal', 'BigInteger', 'Collections', 'Arrays', 'List', 'Map', 'Set', 'ArrayList', 'HashMap',
-  'LinkedHashMap', 'HashSet', 'Optional', 'UUID', 'Date', 'Calendar', 'Locale', 'Exception',
   'abstract', 'as', 'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
   'do', 'else', 'enum', 'extends', 'final', 'finally', 'goto', 'implements', 'import', 'instanceof',
   'interface', 'native', 'new', 'package', 'private', 'protected', 'public', 'static', 'switch',
@@ -170,7 +167,9 @@ export function groovyToFeel(script: string): string | null {
     const id = ident();
     if (!id || at(ACCESS)) return null;
     if (id === 'true' || id === 'false' || id === 'null') return id;
-    return isPlainFeelName(id) && !GROOVY_ONLY.has(id) ? id : null;
+    // a capitalised name may be a class Groovy knows without an import (`Math`, `Random`,
+    // Spin's `S`) — the classes are no closed list, so it stays a script
+    return isPlainFeelName(id) && !GROOVY_ONLY.has(id) && !/^\p{Lu}/u.test(id) ? id : null;
   };
   // the nesting counts on the way in and out — on every return, also `[]` and `[:]`
   const collection = (): string | null => {

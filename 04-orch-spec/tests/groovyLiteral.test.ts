@@ -84,8 +84,9 @@ test('feelRef: plain names as they are, the rest in backticks (also «+ aus Kata
 });
 
 test('non-ASCII names convert like ASCII ones', () => {
-  assert.equal(groovyToFeel('[Gebühr, Straße]'), '[Gebühr, Straße]');
-  assert.equal(groovyToFeel('[Straße: Gebühr]'), '{Straße: Gebühr}');
+  assert.equal(groovyToFeel('[gebühr, straße]'), '[gebühr, straße]');
+  // a key is a text in Groovy — capitalised as well
+  assert.equal(groovyToFeel('[Straße: gebühr]'), '{Straße: gebühr}');
 });
 
 test('line breaks and tabs in a text are escaped in FEEL', () => {
@@ -108,9 +109,10 @@ test('the bindings of a Camunda 7 script stay a script', () => {
   for (const s of ['[externalTask]', '[caseExecution]', '[connector]', '[authenticatedUserId]', '[variableScope]', '[binding]', '[out]', '[log]']) assert.equal(groovyToFeel(s), null, s);
 });
 
-test('a class name stays a script, a capitalised variable does not', () => {
-  for (const s of ['[Math]', 'System', '[Collections]', '[a: Integer]', '[UUID]']) assert.equal(groovyToFeel(s), null, s);
-  assert.equal(groovyToFeel('[Gebühr, Kunde]'), '[Gebühr, Kunde]');
+test('a capitalised name stays a script — it may be a class (Math, Random, S)', () => {
+  for (const s of ['[Math]', 'System', '[Collections]', '[a: Integer]', '[UUID]', '[Random]', '[Expando]', '[S]', '[Gebühr]']) {
+    assert.equal(groovyToFeel(s), null, s);
+  }
 });
 
 test('the empty map with spaces', () => {
@@ -223,6 +225,15 @@ test('backtick names on the way to Camunda 7', () => {
   // JUEL: read from the execution — `letter-id` is no JUEL name; as a bare `source` the name itself
   assert.deepEqual(feelToJuel('`letter-id`'), { ok: true, juel: 'execution.getVariable("letter-id")', plain: 'letter-id' });
   assert.equal((feelToJuel('`letter-id`.zip') as { juel: string }).juel, 'execution.getVariable("letter-id").prop("zip")');
+  // comparison, condition, function, guarded path: all read from the execution
+  assert.equal((feelToJuel('`letter-id` = null') as { juel: string }).juel, 'execution.getVariable("letter-id") == null');
+  assert.equal((feelToJuel('if `letter-id` then 1 else 2') as { juel: string }).juel, '(execution.getVariable("letter-id") ? 1 : 2)');
+  assert.equal((feelToJuel('count(`letter-id`)') as { juel: string }).juel, 'execution.getVariable("letter-id").size()');
+  assert.ok(!JSON.stringify(feelToJuel('`letter-id`.a.b', { target: { type: 'string', optional: true } })).includes('__bq'));
+  // a name with a space, in backticks
+  assert.equal((feelToJuel('`a b` = "x"') as { juel: string }).juel, 'execution.getVariable("a b") == "x"');
+  // a variable called like the placeholder does not collide
+  assert.equal((feelToJuel('`letter-id` + __bqName0') as { juel: string }).juel, 'execution.getVariable("letter-id") + __bqName0');
   // a backtick inside a text stays text
   assert.equal((feelToJuel('"`x`"') as { juel: string }).juel, '"`x`"');
   // the JSON script reads it with `v`, its FEEL line keeps the backticks
@@ -237,8 +248,10 @@ test('C7 export: an output with a backtick name', () => {
   step.outputs = [{ name: 'letterId', expression: `= ${feelRef('letter-id')}` }];
   const out = writeBpmn(xml, spec).xml.replace(/&quot;/g, '"');
   assert.ok(out.includes('<camunda:outputParameter name="letterId">${execution.getVariable("letter-id")}</camunda:outputParameter>'), out);
-  // and read back as written
+  // and read back as written — also a name with a space
   assert.equal(row(writeBpmn(xml, spec).xml).step.outputs?.[0].expression, '= `letter-id`');
+  step.outputs = [{ name: 'letterId', expression: '= `letter id`' }];
+  assert.equal(row(writeBpmn(xml, spec).xml).step.outputs?.[0].expression, '= `letter id`');
 });
 
 test('import and C7 export of a Groovy map', () => {
