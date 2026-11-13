@@ -10,11 +10,12 @@ import type { DomainType, EngineId, ErrorHandling, Field, Interaction, Interacti
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
 import { inOutIssues, mappingIssues } from './fieldMapping.ts';
+import { converter } from './typeMappers.ts';
 import { checkFeel, mappingVarNodes, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
-import { dmnIssues, packageOf } from './scala';
+import { dmnIssues, indexTypes, packageOf } from './scala';
 import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
 import { serviceStepIssues } from './services/serviceMode.ts';
@@ -325,7 +326,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     // as a mapping: its In known before the step, every field of its Out gets a value from the In
     if (step.fieldMapping) {
       const { sources, target } = mappingVarNodes(step.fieldMapping, spec, model);
-      for (const i of [...inOutIssues(step.fieldMapping, variables), ...mappingIssues(step.fieldMapping, target, sources)]) (i.level === 'error' ? errors : warnings).push(i.text);
+      for (const i of [...inOutIssues(step.fieldMapping, variables), ...mappingIssues(step.fieldMapping, target, sources, converter(model?.typeMappers, indexTypes(spec.types ?? [], model).nameOf))]) (i.level === 'error' ? errors : warnings).push(i.text);
     }
   }
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');

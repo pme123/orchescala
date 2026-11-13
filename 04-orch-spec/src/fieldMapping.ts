@@ -128,6 +128,12 @@ export function resolvePath(vars: VarNode[], path: string): VarNode | null {
 export const plainType = (n: VarNode): string => n.label.replace(/^Option\[(.*)\]$/, '$1');
 
 /**
+ * A type mapper between the types of two nodes - its name, or null: a line from the one onto the
+ * other converts with it (see typeMappers.ts). Built from the model; without one nothing converts.
+ */
+export type Converter = (from: VarNode, to: VarNode) => string | null;
+
+/**
  * What is open on the right gets lines: per field without a value one of the In of the same name
  * and type - the one whose path ends most like its own (`existingClient.master.segment` for
  * `newClient.master.segment`; then at the same depth), not what its base keeps anyway. Closed, a field gets a line as a
@@ -135,7 +141,7 @@ export const plainType = (n: VarNode): string => n.label.replace(/^Option\[(.*)\
  * `open`: the paths open on the right - the variables of the Out are always looked at. `inOpen`:
  * those open on the left - only what is in sight there gives a line (without: all of it).
  */
-export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[], open: ReadonlySet<string> = new Set(), inOpen?: ReadonlySet<string>): FieldMapping {
+export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[], open: ReadonlySet<string> = new Set(), inOpen?: ReadonlySet<string>, convert?: Converter): FieldMapping {
   // the paths of the In a line can leave from - in sight, not into a list
   const cands: Array<{ path: string[]; node: VarNode; at: number }> = [];
   const walk = (n: VarNode, path: string[]) => {
@@ -177,7 +183,8 @@ export function autoMapped(m: FieldMapping, target: VarNode, sources: VarNode[],
         continue;
       }
       if (own || hasInner(next, key)) continue;
-      const p = best(path, n => n.name === f.name && sameType(f)(n), kept);
+      // the same name - of the same type, or one a type mapper converts
+      const p = best(path, n => n.name === f.name && (sameType(f)(n) || !!convert?.(n, f)), kept);
       if (p) next = linked(next, key, p);
     }
   };
@@ -214,7 +221,7 @@ export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): Mapp
 }
 
 /** What is wrong with the lines against the Out (`target`, its variables as children - see mappingVarNodes) and the In (`sources`). */
-export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode[]): MappingIssue[] {
+export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode[], convert?: Converter): MappingIssue[] {
   const fields = target.children ?? [];
   const out: MappingIssue[] = [];
   for (const l of m.fields) {
@@ -224,7 +231,7 @@ export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode
     for (const p of linkPaths(l)) {
       const n = resolvePath(sources, p);
       if (!n) out.push({ level: 'error', text: `«${l.field}»: ${p} gibt es im In nicht.`, field: l.field });
-      else if (n.type !== 'any' && f.type !== 'any' && plainType(n) !== plainType(f)) out.push({ level: 'warn', text: `«${l.field}»: ${p} ist ${plainType(n)}, das Feld ${plainType(f)}.`, field: l.field });
+      else if (n.type !== 'any' && f.type !== 'any' && plainType(n) !== plainType(f) && !convert?.(n, f)) out.push({ level: 'warn', text: `«${l.field}»: ${p} ist ${plainType(n)}, das Feld ${plainType(f)} - ohne Typ-Mapper dazwischen.`, field: l.field });
     }
   }
   // the fields without a value: of the Out, and of an object built from its fields without a

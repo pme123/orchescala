@@ -1018,6 +1018,34 @@ export interface AuthSettings {
   viewerRole?: string;
 }
 
+/**
+ * A conversion of one type into another, for the lines of a mapping (`ClientMainType` →
+ * `ClientType`, `BigDecimalWrapper` → `BigDecimal`). In the worker a method of its own; an
+ * `Option` or a list of it is mapped along.
+ */
+export interface TypeMapper {
+  id: string;
+  /** the type it converts - a type reference as a field names it */
+  from: string;
+  /** the type it converts into */
+  to: string;
+  /**
+   * `table`: an enum into an enum, case by case · `field`: a field of it (`value` of a wrapper) ·
+   * `scala`: a Scala expression over `x` · `decoder`: the deserializer of the target in the code
+   * reads it (`x.asJson.as[To]`)
+   */
+  kind: 'table' | 'field' | 'scala' | 'decoder';
+  /** table: per case of `from` the case of `to` */
+  cases?: Array<{ from: string; to: string }>;
+  /** field: the path in `from` (`value`, `amount.value`) */
+  path?: string;
+  /** scala: the expression over `x` (`LocalDate.parse(x.date)`) */
+  scala?: string;
+  /** what the expression needs imported (`java.time.LocalDate`) */
+  imports?: string[];
+  description?: string;
+}
+
 export interface Model {
   version: number;
   /** name of the customer — shown on the left in the header */
@@ -1050,6 +1078,8 @@ export interface Model {
   patterns?: PatternDef[];
   /** epics processes can be assigned to — the order also applies in the filter */
   epics?: EpicDef[];
+  /** conversions of one type into another - a line of a mapping between them uses it */
+  typeMappers?: TypeMapper[];
   /**
    * Project colors from the generated catalog (`prepareDocs`, `ProjectConfig.color`) —
    * only in memory, never in the model.json. A color on the project folder takes precedence.

@@ -131,7 +131,7 @@ test('the checks: the In known before the step, names there, a field of the Out 
   assert.deepEqual(texts(mapping([{ field: 'newClient', from: ['existingClient'] }, { field: 'newClient.name', from: ['client.nickname'] }, { field: 'newClient.kind', from: ['etag'] }, { field: 'etag', from: ['client'] }])), [
     'error: «newClient.name»: client.nickname gibt es im In nicht.',
     'warn: «newClient.kind» gibt es im Out nicht (mehr).',
-    'warn: «etag»: client ist Client, das Feld String.',
+    'warn: «etag»: client ist Client, das Feld String - ohne Typ-Mapper dazwischen.',
   ]);
   // an object in an object: set on what its parent is set on - without a line onto either its required fields need one
   assert.deepEqual(texts(mapping([{ field: 'newClient', from: ['existingClient'] }, { field: 'newClient.master.segment', from: ['etag'] }, { field: 'etag', from: ['etag'] }])), []);

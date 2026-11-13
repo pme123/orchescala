@@ -22,10 +22,10 @@
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, Model, Step, TypeDef } from '../types';
+import type { DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
-import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
+import { feelCondition, feelToScala, feelToScalaTyped, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
@@ -34,6 +34,7 @@ import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
 import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
+import { findMapper, mapperBody, mapperImports, mapperMethod } from '../typeMappers.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -70,6 +71,10 @@ interface Ctx {
   domain: DomainType[];
   /** the implementations of the script tasks - each a method of the worker, with a test */
   scripts: ScriptMethod[];
+  /** the type mappers of the model - a line between their types converts with them */
+  mappers: TypeMapper[];
+  /** those a mapping used - each a method of the worker */
+  usedMappers: Map<string, TypeMapper>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
 }
@@ -348,11 +353,25 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   const rows = (args: string[]) => `(\n${indent(args.join(',\n'), '  ')}\n)`;
   const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
 
+  /** a path into the field: of another type a type mapper converts it (each element of a list, an Option along) */
+  const pathValue = (p: string, f: Field): Translated => {
+    const t = feelToScalaTyped(`= ${p}`, scope, ctx.types, f);
+    if (t.todo || !t.type || t.type === f.type || !!t.collection !== !!f.collection) return t;
+    const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf);
+    if (!mapper) return t;
+    const method = mapperMethod(mapper, ctx.idx.nameOf);
+    ctx.usedMappers.set(method, mapper);
+    const scala = t.collection
+      ? (t.optional ? `${t.scala}.map(_.map(${method}))` : `${t.scala}.map(${method})`)
+      : (t.optional ? `${t.scala}.map(${method})` : `${method}(${t.scala})`);
+    return { scala, optional: t.optional };
+  };
+
   /** what a link gives the field: its FEEL expression, or its paths - the first one set */
   const linkValue = (l: FieldLink, f: Field): Translated => {
     const expr = l.expression?.trim();
     if (expr) return feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
-    const parts = linkPaths(l).map(p => feelToScala(`= ${p}`, scope, ctx.types, f));
+    const parts = linkPaths(l).map(p => pathValue(p, f));
     return parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
       : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
   };
@@ -410,9 +429,12 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const outs = m.out.filter(f => f.name.trim() && f.type);
   if (!outs.length) return { line: `// TODO «${where}»: das Mapping hat kein Out`, produced: [] };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
-  const { value, checks } = mappingValues(m, scope, ctx, where);
+  const { value, checks: raw } = mappingValues(m, scope, ctx, where);
   const one = outs.length === 1;
   const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`)!);
+  // a type mapper is a method of the worker - the test calls it on Mocked()
+  const methods = [...ctx.usedMappers.keys()];
+  const checks = raw.map(c => ({ ...c, value: methods.reduce((v, n) => v.replace(new RegExp(`(?<![\\w.])${n}\\b`, 'g'), `Mocked().${n}`), c.value) }));
   const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
   const used = new Set(ctx.scripts.map(x => x.method));
   const base = camelName((s.name || s.id).replace(/Task$/, ''));
@@ -518,9 +540,23 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
 }
 
+/** A type mapper of the model as a method of the worker. */
+function mapperDef(method: string, m: TypeMapper, idx: TypeIndex): string {
+  const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
+  return [
+    `  /** ${name(m.from)} → ${name(m.to)} - a type mapper of the model${m.description?.trim() ? `: ${m.description.trim().split('\n')[0]}` : ''} */`,
+    `  def ${method}(x: ${name(m.from)}): ${name(m.to)} =`,
+    indent(mapperBody(m, idx.nameOf), '    '),
+  ].join('\n');
+}
+
 /** The imports of the types the methods of the script tasks name - the schema of their collection. */
 function scriptImports(ctx: Ctx): string[] {
   const out = new Set<string>();
+  for (const m of ctx.usedMappers.values()) {
+    for (const ref of [m.from, m.to]) { const dom = ctx.idx.domainOf(ref); if (dom) out.add(`import ${dom.importPath}`); }
+    for (const i of mapperImports(m)) out.add(i);
+  }
   for (const m of ctx.scripts) {
     for (const f of [...m.params, m.result, ...(m.results ?? [])]) {
       const dom = ctx.idx.domainOf(f.type);
@@ -805,7 +841,10 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       `      .mapError(e => ${failWith(`${name}: `, 'e.errorMsg')})`,
     ].join('\n');
   });
-  const scripts = ctx.scripts.map(m => scriptMethod(m, ctx.idx));
+  const scripts = [
+    ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
+    ...[...ctx.usedMappers].map(([method, m]) => mapperDef(method, m, ctx.idx)),
+  ];
   return `${workerPackageClause(api)}
 
 ${imports.join('\n')}
@@ -988,6 +1027,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
+    mappers: model?.typeMappers ?? [], usedMappers: new Map(),
   };
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {

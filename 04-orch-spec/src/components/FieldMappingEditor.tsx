@@ -9,7 +9,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRig
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VarNode } from '../feel';
-import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink } from '../fieldMapping';
+import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink, type Converter } from '../fieldMapping';
 import type { FieldLink, FieldMapping } from '../types';
 import { cls } from '../ui';
 import FeelInput from './FeelInput';
@@ -33,8 +33,10 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
 /** a node that has fields to open - not a list (paths do not go into one) */
 const opens = (n: VarNode) => n.type !== 'list' && !!n.children?.length;
 
-export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, onChange }: {
+export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, convert, onChange }: {
   mapping: FieldMapping;
+  /** the type mappers of the model: a line between their types converts */
+  convert?: Converter;
   /** the Out - its variables (children) are the right side */
   target: VarNode;
   /** the In - the left side */
@@ -52,7 +54,7 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
     return () => window.removeEventListener('keydown', onKey);
   }, [large]);
   const body = (
-    <Editor mapping={mapping} target={target} sources={sources} isDark={isDark} canEdit={canEdit} onChange={onChange}
+    <Editor mapping={mapping} target={target} sources={sources} isDark={isDark} canEdit={canEdit} convert={convert} onChange={onChange}
       large={large} onLarge={setLarge} />
   );
   if (!large) return body;
@@ -66,15 +68,21 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
   );
 }
 
-function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, onLarge }: {
-  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean;
+function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, large, onLarge }: {
+  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean; convert?: Converter;
   onChange: (m: FieldMapping) => void; large: boolean; onLarge: (v: boolean) => void;
 }) {
   const c = cls(isDark);
   const err = isDark ? 'text-rose-400' : 'text-rose-600';
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
   const fields = useMemo(() => target.children ?? [], [target]);
-  const issues = useMemo(() => mappingIssues(mapping, target, sources), [mapping, target, sources]);
+  const issues = useMemo(() => mappingIssues(mapping, target, sources, convert), [mapping, target, sources, convert]);
+  /** the type mapper a path onto a field converts with - its name, or null */
+  const mapperOf = (path: string, field: string): string | null => {
+    const n = resolvePath(sources, path);
+    const f = resolvePath(fields, field);
+    return n && f && convert ? convert(n, f) : null;
+  };
   const linkOf = (field: string): FieldLink | undefined => mapping.fields.find(l => l.field === field);
 
   // open nodes of the left tree: the variables, and what a line leaves from
@@ -375,6 +383,10 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
             : depth > 0 && <span className="w-[10px] flex-shrink-0" />}
           <span className="font-mono truncate">{f.name}</span>
           {l?.expression?.trim() && <span className={`text-[8px] px-1 rounded ${isDark ? 'bg-teal-400/15 text-teal-300' : 'bg-teal-600/10 text-teal-700'}`}>fx</span>}
+          {(() => {
+            const via = l && !l.expression?.trim() ? linkPaths(l).map(p => mapperOf(p, path)).find(Boolean) : null;
+            return via ? <span className={`text-[8px] px-1 rounded ${isDark ? 'bg-violet-400/15 text-violet-300' : 'bg-violet-600/10 text-violet-700'}`} title={`Typ-Mapper ${via}`}>↻</span> : null;
+          })()}
           {isBase && <span className={`text-[8px] ${c.muted}`} title={`Eine Kopie von ${linkPaths(l!).join(' ?? ') || 'dem Ausdruck'} - die Felder mit eigener Linie geändert`}>Basis</span>}
           <span className={`ml-auto pl-1 truncate text-[9px] ${c.muted}`}>{f.label}</span>
         </div>
@@ -426,7 +438,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
       <div className={`sticky top-0 z-20 -mx-1 px-1 py-1 flex items-center gap-2 flex-wrap ${large ? c.panelStrong : c.bg} ${text}`}
         // in the column the tint of its panel over the page - the same here, so the bar does not stand out
         style={large ? undefined : { backgroundImage: `linear-gradient(${isDark ? 'rgba(255,255,255,.02)' : 'rgba(0,0,0,.02)'}, ${isDark ? 'rgba(255,255,255,.02)' : 'rgba(0,0,0,.02)'})` }}>
-        <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(inSight(autoMapped(mapping, target, sources, outOpen, inOpen))); }}
+        <button type="button" disabled={!canEdit} onClick={e => { e.stopPropagation(); onChange(inSight(autoMapped(mapping, target, sources, outOpen, inOpen, convert))); }}
           title="Was rechts offen ist, bekommt Linien: jedes Feld ohne Wert eines gleichen Namens und Typs aus dem, was links offen ist - auch in tieferen Ebenen. Zugeklappt als Ganzes; ein offenes Objekt ohne Basis eine Variable seines Typs als Basis"
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn} disabled:opacity-40`}>
           <Wand2 size={10} /> Automatisch zuordnen
@@ -512,6 +524,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
                         <span className={`w-10 ${c.muted}`}>{k === 0 ? 'Wert' : 'sonst'}</span>
                         <span className="font-mono truncate">{p}</span>
                         <span className={`text-[9px] ${n ? c.muted : err}`}>{n ? n.label : 'unbekannt'}</span>
+                        {(() => { const via = mapperOf(p, selected!); return via ? <span className={`text-[9px] ${isDark ? 'text-violet-300' : 'text-violet-700'}`} title="Ein Typ-Mapper der Administration wandelt den Wert">↻ {via}</span> : null; })()}
                         {canEdit && <span className="ml-auto flex items-center gap-0.5">
                           <button type="button" disabled={k === 0} onClick={() => move(k - 1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Nach oben"><ArrowUp size={10} /></button>
                           <button type="button" disabled={k === all.length - 1} onClick={() => move(k + 1)} className={`p-0.5 ${c.muted} disabled:opacity-30`} aria-label="Nach unten"><ArrowDown size={10} /></button>
