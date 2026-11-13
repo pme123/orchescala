@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { allSteps, importBpmn } from '../src/bpmn';
 import { writeBpmn } from '../src/bpmnWrite';
-import { groovyToFeel, jsonToFeel, outputSource } from '../src/juelFeel';
+import { groovyToFeel, importExpression, jsonToFeel, outputSource } from '../src/juelFeel';
 import { feelRef, isPlainFeelName } from '../src/feelNames';
 import { checkFeel, type VarNode } from '../src/feel';
 import { stepFindings } from '../src/findings';
@@ -230,6 +230,11 @@ test('backtick names on the way to Camunda 7', () => {
   assert.equal((feelToJuel('if `letter-id` then 1 else 2') as { juel: string }).juel, '(execution.getVariable("letter-id") ? 1 : 2)');
   assert.equal((feelToJuel('count(`letter-id`)') as { juel: string }).juel, 'execution.getVariable("letter-id").size()');
   assert.ok(!JSON.stringify(feelToJuel('`letter-id`.a.b', { target: { type: 'string', optional: true } })).includes('__bq'));
+  // an optional variable in backticks gets the same checks as a plain one
+  const optional = (body: string, name: string) =>
+    (feelToJuel(body, { optional: new Set([name]), target: { type: 'string', optional: true } }) as { juel: string }).juel;
+  assert.equal(optional('`letter-id`.a', 'letter-id'), optional('letterId.a', 'letterId').replaceAll('letterId', 'letter-id'));
+  assert.ok(optional('`letter-id`.a', 'letter-id').startsWith('(execution.getVariable("letter-id") != null && '));
   // a name with a space, in backticks
   assert.equal((feelToJuel('`a b` = "x"') as { juel: string }).juel, 'execution.getVariable("a b") == "x"');
   // a variable called like the placeholder does not collide
@@ -240,6 +245,13 @@ test('backtick names on the way to Camunda 7', () => {
   const g = feelToGroovy('[`letter-id`, a]') as { script: string };
   assert.ok(g.script.startsWith('// FEEL: [`letter-id`, a]'), g.script);
   assert.ok(g.script.endsWith("toJson([v('letter-id'), v('a')]))"), g.script);
+});
+
+test('import: execution.getVariable with a name FEEL does not read as it is', () => {
+  assert.equal(importExpression('${execution.getVariable("letter-id")}'), '= `letter-id`');
+  assert.equal(importExpression('${execution.getVariable("a b")}'), '= `a b`');
+  // a computed name has no FEEL counterpart: stays JUEL
+  assert.ok(importExpression('${execution.getVariable("file".concat(loopCounter))}').startsWith('${'));
 });
 
 test('C7 export: an output with a backtick name', () => {

@@ -173,8 +173,10 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
       const [base, , prop] = children(n).filter(k => !k.type.isError);
       if (base && prop) return spin(n) ? `${unsetSafe(base)}.prop("${text(prop)}")` : `${unsetSafe(base)}.${text(prop)}`;
     }
-    const name = n.name === 'VariableName' ? text(n) : '';
-    return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && /^[A-Za-z_]\w*$/.test(name) ? getVariable(name) : tr(n);
+    const raw = n.name === 'VariableName' ? text(n) : '';
+    // the real name of a name in backticks (`letter-id`) — that one is always read from the execution
+    const name = bq.real(raw);
+    return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && (raw !== name || /^[A-Za-z_]\w*$/.test(name)) ? getVariable(name) : tr(n);
   };
 
   /** the variable at the start of a path (`a` in `a.b[1].c`) */
@@ -228,7 +230,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
    */
   const guards = (n: SyntaxNode, unknown = false): string[] => {
     if (n.name === 'VariableName') {
-      const name = text(n), v = varOf(n);
+      const name = bq.real(text(n)), v = varOf(n);
       return v?.optional || opts.optional?.has(name) || (unknown && (!v || v.type === 'any')) ? [`${unsetSafe(n)} != null`] : [];
     }
     if (n.name !== 'PathExpression' || !spin(n)) return [];

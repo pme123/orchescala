@@ -386,7 +386,8 @@ function method(target: string, name: string, args: string[]): string {
     // a name FEEL does not read as it is (`letter-id`) in backticks, as the export wrote it
     case 'getVariable': return two((_a, b) => {
       if (/^"[A-Za-z_]\w*"$/.test(b)) return b.slice(1, -1);
-      if (/^"[^"\\`]+"$/.test(b)) return feelRef(b.slice(1, -1));
+      // no control characters, no escapes: those are no name to write in backticks
+      if (/^"[^"\\`\u0000-\u001f\u007f]+"$/.test(b)) return feelRef(b.slice(1, -1));
       throw computedNameError(b);
     });
     // Camunda 7 runtime → the variables Camunda 8 has for it
