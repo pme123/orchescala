@@ -28,7 +28,7 @@ const table: TypeMapper = { id: 'm1', from: 'mainType', to: 'clientType', kind: 
 const wrapper: TypeMapper = { id: 'm2', from: 'bdw', to: 'BigDecimal', kind: 'field', path: 'value' };
 const model = (mappers: TypeMapper[]): Model => ({ version: 1, services: [], typeMappers: mappers });
 
-const files = (m: FieldMapping, mappers: TypeMapper[]) => {
+const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client') => {
   const o = newOrchestration({ title: 'Kunde lesen', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'ReadClient' });
   o.types.find(x => x.id === o.inTypeId)!.fields = [f('existing', 'composed')];
   o.types.find(x => x.id === o.outTypeId)!.fields = [f('client', 'read')];
@@ -37,7 +37,7 @@ const files = (m: FieldMapping, mappers: TypeMapper[]) => {
     bpmn: `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d" targetNamespace="x">
   <bpmn:process id="acme-crm-clientV1-ReadClient" isExecutable="false">
-    <bpmn:startEvent id="Start" /><bpmn:scriptTask id="MapTask" name="Map Client" /><bpmn:endEvent id="End" />
+    <bpmn:startEvent id="Start" /><bpmn:scriptTask id="MapTask" name="${task}" /><bpmn:endEvent id="End" />
     <bpmn:sequenceFlow id="f1" sourceRef="Start" targetRef="MapTask" /><bpmn:sequenceFlow id="f2" sourceRef="MapTask" targetRef="End" />
   </bpmn:process>
 </bpmn:definitions>`,
@@ -142,4 +142,15 @@ test('type mappers: the same names in other packages - no match by name, and the
   assert.equal(converter([one, two], nameOf)(node('Kind'), node('ClientType')), null);
   const idx = { ...indexTypes([], null), nameOf };
   assert.match(mapperIssues(one, [one, two], idx).join(), /dieselben Namen \(kindToClientType\)/);
+});
+
+test('in Scala the mapper method gets a name of its own - next to a script method of the same name; the test calls it on Mocked()', () => {
+  // the script task is named like the mapper's method
+  const { worker, test: t } = files(all, [table, wrapper], 'Client Main Type To Client Type');
+  // the mapper is named first, the script method takes the next number
+  assert.match(worker, /def clientMainTypeToClientType2\(existing: ComposedClient\)/, worker);
+  assert.match(worker, /def clientMainTypeToClientType\(x: ClientMainType\): ClientType =/, worker);
+  assert.match(worker, /kind = clientMainTypeToClientType\(existing\.kind\)/, worker);
+  assert.doesNotMatch(worker, /\uE000|Mocked\(\)\.clientMainType/, worker);
+  assert.match(t, /assertEquals\(result\.kind, Mocked\(\)\.clientMainTypeToClientType\(existing\.kind\)\)/, t);
 });

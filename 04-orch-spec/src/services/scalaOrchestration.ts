@@ -359,11 +359,11 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     if (t.todo || !t.type || t.type === f.type || !!t.collection !== !!f.collection) return t;
     const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf);
     if (!mapper) return t;
-    const method = mapperMethod(mapper, ctx.idx.nameOf);
-    ctx.usedMappers.set(method, mapper);
+    const method = mapperName(mapper, ctx);
+    const call = `${MOCKED}${method}`;
     const scala = t.collection
-      ? (t.optional ? `${t.scala}.map(_.map(${method}))` : `${t.scala}.map(${method})`)
-      : (t.optional ? `${t.scala}.map(${method})` : `${method}(${t.scala})`);
+      ? (t.optional ? `${t.scala}.map(_.map(${call}))` : `${t.scala}.map(${call})`)
+      : (t.optional ? `${t.scala}.map(${call})` : `${call}(${t.scala})`);
     return { scala, optional: t.optional };
   };
 
@@ -431,12 +431,11 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const { value, checks: raw } = mappingValues(m, scope, ctx, where);
   const one = outs.length === 1;
-  const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`)!);
-  // a type mapper is a method of the worker - the test calls it on Mocked()
-  const methods = [...ctx.usedMappers.keys()];
-  const checks = raw.map(c => ({ ...c, value: methods.reduce((v, n) => v.replace(new RegExp(`(?<![\\w.])${n}\\b`, 'g'), `Mocked().${n}`), c.value) }));
+  // a type mapper is a method of the worker - called as it is there, on Mocked() in the test
+  const values = outs.map((f, i) => (value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '').replaceAll(MOCKED, ''));
+  const checks = raw.map(c => ({ ...c, value: c.value.replaceAll(MOCKED, 'Mocked().') }));
   const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
-  const used = new Set(ctx.scripts.map(x => x.method));
+  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
   const base = camelName((s.name || s.id).replace(/Task$/, ''));
   let method = base;
   for (let i = 2; used.has(method); i++) method = `${base}${i}`;
@@ -498,7 +497,7 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const t = scriptScala(body, scope, result, ctx, where);
-  const used = new Set(ctx.scripts.map(x => x.method));
+  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
   const base = camelName((s.name || s.id).replace(/Task$/, ''));
   let method = base;
   for (let i = 2; used.has(method); i++) method = `${base}${i}`;
@@ -538,6 +537,23 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
       ? m.cases.map(c => `    assert(${m.result.optional ? `result.exists(_.isInstanceOf[${c}])` : `result.isInstanceOf[${c}]`}, result)`)
       : [`    // TODO ${m.step}: das erwartete Ergebnis prüfen`, '    assert(result != null)'];
   return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
+}
+
+/** Where a mapper's method is called - the worker calls it as it is, the test on Mocked(). */
+const MOCKED = '\uE000';
+
+/**
+ * The name of a mapper's method in the worker - the one it got already, otherwise its own
+ * (`clientMainTypeToClientType`), numbered when a script method or another mapper has it.
+ */
+function mapperName(mapper: TypeMapper, ctx: Ctx): string {
+  for (const [name, m] of ctx.usedMappers) if (m.id === mapper.id) return name;
+  const base = mapperMethod(mapper, ctx.idx.nameOf);
+  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
+  let name = base;
+  for (let i = 2; used.has(name); i++) name = `${base}${i}`;
+  ctx.usedMappers.set(name, mapper);
+  return name;
 }
 
 /** A type mapper of the model as a method of the worker. */
