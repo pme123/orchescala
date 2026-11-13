@@ -22,6 +22,7 @@ import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError a
 import { C7_LABEL } from './engineLabels.ts';
 import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
+import { FEEL_WORDS } from './feelNames.ts';
 import { SCALA_TYPES, isAdt } from './types.ts';
 import { indexTypes, type TypeIndex } from './scala.ts';
 import { typeShape } from './scalaTypes.ts';
@@ -1519,11 +1520,6 @@ export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
   }
   return out;
 }
-
-const FEEL_WORDS = new Set([
-  'true', 'false', 'null', 'if', 'then', 'else', 'for', 'in', 'return', 'some', 'every', 'satisfies',
-  'and', 'or', 'not', 'between', 'instance', 'of', 'function', 'external', 'partial', 'item',
-]);
 
 /**
  * The variables a FEEL expression accesses — the first name part
