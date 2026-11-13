@@ -1145,6 +1145,19 @@ export const settle = (prev: Status | undefined, st: MergeStatus): Status | unde
 
 // What the specification defines survives the reconciliation with the BPMN.
 const KEEP_KEYS = ['description', 'candidateGroups', 'candidateUsers', 'assignee', 'inVariant', 'outVariant'] as const;
+// The implementation of a script task is not read from the diagram - it stays as specified
+const SCRIPT_KEYS = ['script', 'resultVariable', 'resultType', 'resultCollection', 'fieldMapping'] as const;
+
+/**
+ * The implementation of the specification onto the step read from the diagram: what the step has
+ * not. A script of its own in the step (not read today) keeps its result and drops the mapping -
+ * the mapping and its FEEL go together.
+ */
+function keepScript(s: Step, prev: Step): void {
+  const own = s.script != null && s.script !== prev.script;
+  const set = <K extends (typeof SCRIPT_KEYS)[number]>(k: K) => { if (s[k] == null && prev[k] != null) s[k] = prev[k]; };
+  for (const k of SCRIPT_KEYS) if (!(own && k === 'fieldMapping')) set(k);
+}
 
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
   for (const s of steps ?? []) {
@@ -1422,6 +1435,9 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       // without a label in the BPMN the name from the specification wins (the export writes it in)
       if (unnamed(s) && !unnamed(prev)) s.name = prev.name;
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
+      if (s.kind === 'script' && prev.kind === 'script') {
+        keepScript(s, prev);
+      }
       // Business meaning and deselection of the mappings belong to the specification —
       // with `mappingsFromBpmn` the deselection does not apply: what is in the BPMN is enabled
       for (const list of ['inputs', 'outputs'] as const) {

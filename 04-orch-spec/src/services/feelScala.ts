@@ -69,6 +69,11 @@ export function feelToScala(expression: string, vars: Map<string, ScalaVar>, typ
   return t;
 }
 
+/** `feelToScala` with the type of its value where it is a path - a type mapper converts from it. */
+export function feelToScalaTyped(expression: string, vars: Map<string, ScalaVar>, types: TypeDef[], target?: Pick<Field, 'type' | 'optional' | 'collection'>): Translated & { type?: string; collection?: boolean } {
+  return translate(expression, vars, types, target);
+}
+
 /** `in.clientKey` → `clientKey`: `in` names the In, its fields are the variables (unless a variable is called `in`) */
 function withoutIn(body: string, vars: Map<string, ScalaVar>): string {
   return vars.has('in') ? body : body.replace(/^in\.(?=[A-Za-z_`])/, '');

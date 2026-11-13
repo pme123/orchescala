@@ -221,6 +221,8 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
           script: s.script, ...(s.resultVariable?.trim() ? { resultVariable: s.resultVariable.trim() } : {}),
           ...(s.resultType ? { resultType: s.resultType, ...(s.resultCollection ? { resultCollection: true } : {}) } : {}),
         } : {}),
+        // the mapping is what counts - its FEEL a copy; it goes along without one too
+        ...(s.fieldMapping ? { mapping: s.fieldMapping } : {}),
       };
     }
   }
@@ -350,6 +352,7 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
           script: t.script, ...(t.resultVariable ? { resultVariable: t.resultVariable } : {}),
           ...(t.resultType ? { resultType: t.resultType, ...(t.resultCollection ? { resultCollection: true } : {}) } : {}),
         } : {}),
+        ...(t.mapping ? { fieldMapping: t.mapping } : {}),
       };
     }
     if (next.branches) next = { ...next, branches: next.branches.map((b: Branch) => ({ ...b, ...(conditions[b.id] ? { condition: conditions[b.id] } : {}), steps: visit(b.steps) })) };

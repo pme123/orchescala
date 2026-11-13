@@ -22,10 +22,10 @@
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { DomainField, DomainType, Field, Mapping, Model, Step, TypeDef } from '../types';
+import type { DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
-import { feelCondition, feelToScala, forTarget, scalaIdent, type ScalaVar } from './feelScala.ts';
+import { feelCondition, feelToScala, feelToScalaTyped, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import {
   allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
@@ -33,6 +33,8 @@ import {
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
+import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
+import { enumCases, findMapper, mapperBody, mapperImports, mapperMethod } from '../typeMappers.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -69,6 +71,10 @@ interface Ctx {
   domain: DomainType[];
   /** the implementations of the script tasks - each a method of the worker, with a test */
   scripts: ScriptMethod[];
+  /** the type mappers of the model - a line between their types converts with them */
+  mappers: TypeMapper[];
+  /** those a mapping used - each a method of the worker */
+  usedMappers: Map<string, TypeMapper>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
 }
@@ -84,6 +90,10 @@ interface ScriptMethod {
   /** what the test checks: the lists it concatenates, the cases it converts into */
   concat?: string[];
   cases: string[];
+  /** a mapping with several variables in its Out: a tuple of them (`result` is the first) */
+  results?: Field[];
+  /** a mapping: per mapped field what the test expects (`result.firstName` == `client.firstName`) */
+  checks?: { at: string; value: string }[];
 }
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
@@ -331,6 +341,120 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
   return { scala: v.needed ? `${v.scala}.getOrElse(throw IllegalArgumentException(${JSON.stringify(`${where}: ${target.name} fehlt`)}))` : v.scala, cases };
 }
 
+/**
+ * A mapping as Scala: per variable of the Out its value from the In - a path, the first one set
+ * of several (`orElse`), a FEEL expression. An object with lines onto its fields is a copy of
+ * what the line onto it gives (`existingClient.copy(…)`, `map` for an Option), otherwise its class
+ * field by field (`Client(…)`). `checks`: what the test expects, reached from the result.
+ */
+function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string) {
+  const checks: { at: string; value: string }[] = [];
+  const missing = (what: string) => `throw IllegalArgumentException(${JSON.stringify(`${where}: ${what} fehlt`)})`;
+  const rows = (args: string[]) => `(\n${indent(args.join(',\n'), '  ')}\n)`;
+  const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
+
+  /** a path into the field: of another type a type mapper converts it (each element of a list, an Option along) */
+  const pathValue = (p: string, f: Field): Translated => {
+    const t = feelToScalaTyped(`= ${p}`, scope, ctx.types, f);
+    if (t.todo || !t.type || t.type === f.type || !!t.collection !== !!f.collection) return t;
+    const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf);
+    if (!mapper) return t;
+    const method = mapperName(mapper, ctx);
+    const call = `${MOCKED}${method}`;
+    const scala = t.collection
+      ? (t.optional ? `${t.scala}.map(_.map(${call}))` : `${t.scala}.map(${call})`)
+      : (t.optional ? `${t.scala}.map(${call})` : `${call}(${t.scala})`);
+    return { scala, optional: t.optional };
+  };
+
+  /** what a link gives the field: its FEEL expression, or its paths - the first one set */
+  const linkValue = (l: FieldLink, f: Field): Translated => {
+    const expr = l.expression?.trim();
+    if (expr) return feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
+    const parts = linkPaths(l).map(p => pathValue(p, f));
+    return parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
+      : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
+  };
+
+  /**
+   * The value of the field `f` at `path` - null where a copy of `on` keeps it. `at`: how the
+   * test reaches it from the result (null: an Option on the way).
+   */
+  const value = (f: Field, path: string, on: string | null, at: string | null): string | null => {
+    const l = m.fields.find(x => x.field === path);
+    const sub = hasInner(m, path) && !f.collection ? typeOf(f.type, ctx) : undefined;
+    if (sub?.kind === 'case') {
+      const whole = l ? linkValue(l, f) : null;
+      if (whole?.todo) return whole.scala;
+      const it = whole ?? (on ? { scala: `${on}.${scalaName(f.name)}`, optional: !!f.optional } : null);
+      const inner = `${path}.`;
+      const reach = f.optional ? null : at;
+      let v: string;
+      if (!it) v = build(sub, inner, null, reach);
+      else if (!it.optional) v = build(sub, inner, /^[\w.]+$/.test(it.scala) ? it.scala : `(${it.scala})`, reach);
+      else if (f.optional) v = `${it.scala}.map(${lambda(f)} =>\n${indent(build(sub, inner, lambda(f), null), '  ')}\n)`;
+      else v = build(sub, inner, `${it.scala}.getOrElse(${missing(path)})`, at);
+      return f.optional && !it?.optional ? `Some(${v})` : v;
+    }
+    if (!l || (!l.expression?.trim() && !linkPaths(l).length)) {
+      if (on) return null;
+      return f.optional ? 'None' : f.collection ? 'Seq.empty' : todo(`${path}: nicht zugeordnet`);
+    }
+    const t = linkValue(l, f);
+    const v = forTarget(t, !!f.optional);
+    const scala = v.needed ? `${v.scala}.getOrElse(${missing(path)})` : v.scala;
+    if (at && !t.todo && !v.needed) checks.push({ at, value: scala });
+    return scala;
+  };
+
+  /** The class `t` from the links below `prefix`: a copy of `on`, or field by field. */
+  const build = (t: TypeDef, prefix: string, on: string | null, at: string | null): string => {
+    const args: string[] = [];
+    for (const f of (t.fields ?? []).filter(x => x.name && isFinished(x, ctx.idx))) {
+      const v = value(f, `${prefix}${f.name}`, on, at ? `${at}.${scalaName(f.name)}` : null);
+      if (v !== null) args.push(`${scalaName(f.name)} = ${v}`);
+    }
+    if (on) return args.length ? `${on}.copy${rows(args)}` : on;
+    return `${t.name}${rows(args)}`;
+  };
+
+  return { value, checks };
+}
+
+/** A script task as a mapping: its method - In the parameters, Out the result (a tuple for several) - and its call. */
+function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar[] } {
+  const m = mappingOf(stored);
+  const where = s.name || s.id;
+  const params = m.in.filter(f => f.name.trim() && f.type);
+  const outs = m.out.filter(f => f.name.trim() && f.type);
+  if (!outs.length) return { line: `// TODO «${where}»: das Mapping hat kein Out`, produced: [] };
+  // a name twice (see inOutIssues) would be a parameter or a binding twice - no method
+  const dups = (fs: Field[]) => fs.map(f => f.name.trim()).filter((n, i, l) => l.indexOf(n) !== i);
+  const twice = [...dups(params), ...dups(outs)];
+  if (twice.length) return { line: `// TODO «${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`, produced: [] };
+  const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
+  const { value, checks: raw } = mappingValues(m, scope, ctx, where);
+  const one = outs.length === 1;
+  // a type mapper is a method of the worker - called as it is there, on Mocked() in the test
+  const values = outs.map((f, i) => (value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '').replaceAll(MOCKED, ''));
+  const checks = raw.map(c => ({ ...c, value: c.value.replaceAll(MOCKED, 'Mocked().') }));
+  const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
+  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
+  ctx.scripts.push({
+    step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
+    params, result: outs[0], ...(one ? {} : { results: outs }), body, cases: [], ...(checks.length ? { checks } : {}),
+  });
+  const args = params.map(f => known.find(k => k.name === f.name)?.scala ?? todo(`${where}: ${f.name} ist vor dem Schritt nicht bekannt`));
+  const names = outs.map(f => scalaIdent(f.name));
+  return {
+    line: `${one ? names[0] : `(${names.join(', ')})`} <- ZIO.attempt(${method}(${args.join(', ')})).mapError(e => ${failWith(`${where}: `, 'e.getMessage')})`,
+    produced: outs.map(f => ({
+      name: f.name, scala: scalaIdent(f.name), type: f.type, source: 'Script',
+      ...(f.optional ? { optional: true } : {}), ...(f.collection ? { collection: true } : {}),
+    })),
+  };
+}
+
 /** The variables a FEEL expression reads - of those known, in the order it names them. */
 function readVars(body: string, known: OrchVar[]): OrchVar[] {
   const code = body.replace(/"(?:[^"\\]|\\.)*"/g, '""');
@@ -374,10 +498,7 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const t = scriptScala(body, scope, result, ctx, where);
-  const used = new Set(ctx.scripts.map(x => x.method));
-  const base = camelName((s.name || s.id).replace(/Task$/, ''));
-  let method = base;
-  for (let i = 2; used.has(method); i++) method = `${base}${i}`;
+  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
@@ -393,7 +514,8 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
 function scriptMethod(m: ScriptMethod, idx: TypeIndex): string {
   const params = m.params.map(f => `${scalaIdent(f.name)}: ${fieldType(f, idx)}`).join(', ');
   const doc = [`  /** ${m.step}${m.description ? ` - ${m.description.split('\n')[0]}` : ''} - a test calls it with examples */`];
-  return [...doc, `  def ${m.method}(${params}): ${fieldType(m.result, idx)} =`, indent(m.body, '    ')].join('\n');
+  const result = m.results ? `(${m.results.map(f => fieldType(f, idx)).join(', ')})` : fieldType(m.result, idx);
+  return [...doc, `  def ${m.method}(${params}): ${result} =`, indent(m.body, '    ')].join('\n');
 }
 
 /** Per script method a test: with the examples of what it reads - the lists all in it, each in its case. */
@@ -402,7 +524,9 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   const call = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
   const list = (f: Field) => (!f.collection ? (f.optional ? `${scalaIdent(f.name)}.size` : '1') : f.optional ? `${scalaIdent(f.name)}.getOrElse(Seq.empty).size` : `${scalaIdent(f.name)}.size`);
   const got = m.result.optional ? 'result.getOrElse(Seq.empty)' : 'result';
-  const checks = m.concat
+  const checks = m.checks?.length
+    ? m.checks.map(c => `    assertEquals(${c.at}, ${c.value.replace(/\n\s*/g, ' ')})`)
+    : m.concat
     ? [
       `    assertEquals(${got}.size, ${m.concat.map(n => list(m.params.find(f => f.name === n)!)).join(' + ')})`,
       ...m.cases.map(c => `    assert(${got}.exists(_.isInstanceOf[${c}]), result)`),
@@ -413,11 +537,48 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
 }
 
+/** `base`, or numbered - a name no method of the worker has yet (script tasks, type mappers) */
+function uniqueMethod(ctx: Ctx, base: string): string {
+  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
+  let name = base;
+  for (let i = 2; used.has(name); i++) name = `${base}${i}`;
+  return name;
+}
+
+/** Where a mapper's method is called - the worker calls it as it is, the test on Mocked(). */
+const MOCKED = '\uE000';
+
+/**
+ * The name of a mapper's method in the worker - the one it got already, otherwise its own
+ * (`clientMainTypeToClientType`), numbered when a script method or another mapper has it.
+ */
+function mapperName(mapper: TypeMapper, ctx: Ctx): string {
+  for (const [name, m] of ctx.usedMappers) if (m.id === mapper.id) return name;
+  const base = mapperMethod(mapper, ctx.idx.nameOf);
+  const name = uniqueMethod(ctx, base);
+  ctx.usedMappers.set(name, mapper);
+  return name;
+}
+
+/** A type mapper of the model as a method of the worker. */
+function mapperDef(method: string, m: TypeMapper, idx: TypeIndex): string {
+  const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
+  return [
+    `  /** ${name(m.from)} → ${name(m.to)} - a type mapper of the model${m.description?.trim() ? `: ${m.description.trim().split('\n')[0]}` : ''} */`,
+    `  def ${method}(x: ${name(m.from)}): ${name(m.to)} =`,
+    indent(mapperBody(m, idx.nameOf, enumCases(m.from, idx)), '    '),
+  ].join('\n');
+}
+
 /** The imports of the types the methods of the script tasks name - the schema of their collection. */
 function scriptImports(ctx: Ctx): string[] {
   const out = new Set<string>();
+  for (const m of ctx.usedMappers.values()) {
+    for (const ref of [m.from, m.to]) { const dom = ctx.idx.domainOf(ref); if (dom) out.add(`import ${dom.importPath}`); }
+    for (const i of mapperImports(m)) out.add(i);
+  }
   for (const m of ctx.scripts) {
-    for (const f of [...m.params, m.result]) {
+    for (const f of [...m.params, m.result, ...(m.results ?? [])]) {
       const dom = ctx.idx.domainOf(f.type);
       if (dom) { out.add(`import ${dom.importPath}`); continue; }
       if (ctx.o.types.some(t => t.id === f.type && !t.interactionId)) continue;
@@ -547,12 +708,12 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       }
       if (s.errors?.length) lines.push(`// TODO Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
     } else if (s.kind === 'script') {
-      if (task?.script?.trim()) {
-        const c = scriptCall(s, task, known, ctx);
+      if (task?.mapping || task?.script?.trim()) {
+        const c = task.mapping ? mappingCall(s, task.mapping, known, ctx) : scriptCall(s, task, known, ctx);
         lines.push(c.line);
-        if (c.produced) {
-          known = [...known.filter(k => k.name !== c.produced!.name), c.produced];
-          ctx.scriptVars.set(c.produced.name, c.produced);
+        for (const v of Array.isArray(c.produced) ? c.produced : c.produced ? [c.produced] : []) {
+          known = [...known.filter(k => k.name !== v.name), v];
+          ctx.scriptVars.set(v.name, v);
         }
       }
       for (const a of task?.assignments ?? []) {
@@ -700,7 +861,10 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       `      .mapError(e => ${failWith(`${name}: `, 'e.errorMsg')})`,
     ].join('\n');
   });
-  const scripts = ctx.scripts.map(m => scriptMethod(m, ctx.idx));
+  const scripts = [
+    ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
+    ...[...ctx.usedMappers].map(([method, m]) => mapperDef(method, m, ctx.idx)),
+  ];
   return `${workerPackageClause(api)}
 
 ${imports.join('\n')}
@@ -883,6 +1047,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
+    mappers: model?.typeMappers ?? [], usedMappers: new Map(),
   };
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {

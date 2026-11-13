@@ -9,11 +9,13 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
+import { inOutIssues, mappingIssues } from './fieldMapping.ts';
+import { converter } from './typeMappers.ts';
+import { checkFeel, mappingVarNodes, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
-import { dmnIssues, packageOf } from './scala';
+import { dmnIssues, indexTypes, packageOf } from './scala';
 import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
 import { serviceStepIssues } from './services/serviceMode.ts';
@@ -320,7 +322,12 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // a script task of a service orchestration: its implementation in FEEL and the variable it sets
   if (spec.service && step.kind === 'script') {
     if (!step.script?.trim() && !(step.outputs ?? []).some(m => !m.disabled && m.name.trim())) warnings.push('Keine Implementierung - im Schritt in FEEL beschreiben.');
-    if (step.script?.trim() && !step.resultVariable?.trim()) errors.push('Die Implementierung hat keine Ergebnis-Variable.');
+    if (!step.fieldMapping && step.script?.trim() && !step.resultVariable?.trim()) errors.push('Die Implementierung hat keine Ergebnis-Variable.');
+    // as a mapping: its In known before the step, every field of its Out gets a value from the In
+    if (step.fieldMapping) {
+      const { sources, target } = mappingVarNodes(step.fieldMapping, spec, model);
+      for (const i of [...inOutIssues(step.fieldMapping, variables), ...mappingIssues(step.fieldMapping, target, sources, converter(model?.typeMappers, indexTypes(spec.types ?? [], model).nameOf))]) (i.level === 'error' ? errors : warnings).push(i.text);
+    }
   }
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // Timer: the wait time is a constant in the InConfig — otherwise it cannot be set per environment

@@ -23,7 +23,7 @@
 // in its specification under «Datenmodell». What remains here is the search, for the one
 // question that comes up here — is it in there?
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronLeft, ExternalLink, Flag, Image, KeyRound, MessageSquare, Palette, Puzzle, RefreshCw, Repeat } from 'lucide-react';
 import { LEGACY_MODEL_PATH, useStore } from '../store';
 import { GUID_RE, setupLink, usePermissions } from '../auth';
 import type { CatalogFile } from '../catalogImport';
@@ -38,6 +38,7 @@ import CatalogSearch from './CatalogSearch';
 import CatalogTransfer from './CatalogTransfer';
 import PatternAdmin, { patternState } from './PatternAdmin';
 import EpicAdmin, { epicState } from './EpicAdmin';
+import TypeMapperAdmin, { typeMapperState } from './TypeMapperAdmin';
 import { AdminSection, FieldLabel, SaveRow, StateChip, Switch, flashOf, useFlash, type AdminTone } from './adminUi';
 import { KindChip, catalogCounts } from './CatalogSearch';
 import type { Model, TeamsNotifySettings } from '../types';
@@ -47,7 +48,7 @@ import { cls } from '../ui';
 interface Zustand { tone: AdminTone; label: string; detail?: string }
 
 /** The state per section — the same source for the status bar and the card header. */
-function zustaende(model: Model, generated: CatalogFile | null): Record<'branding' | 'catalog' | 'patterns' | 'epics' | 'auth' | 'teams', Zustand> {
+function zustaende(model: Model, generated: CatalogFile | null): Record<'branding' | 'catalog' | 'patterns' | 'epics' | 'typeMappers' | 'auth' | 'teams', Zustand> {
   const services = (model.services ?? []).length, types = (model.domainTypes ?? []).length;
   const gen = generated ? (generated.services ?? []).length + (generated.domainTypes ?? []).length : 0;
   const auth = model.auth;
@@ -64,6 +65,7 @@ function zustaende(model: Model, generated: CatalogFile | null): Record<'brandin
         : { tone: 'warn', label: 'leer', detail: gen ? '' : 'Katalog importieren oder lokal erzeugen' },
     patterns: patternState(model),
     epics: epicState(model),
+    typeMappers: typeMapperState(model),
     auth: !auth?.enabled
       ? { tone: 'off', label: 'aus', detail: 'ohne Anmeldung, jeder darf alles' }
       : authOk
@@ -88,6 +90,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
     { id: 'catalog', icon: <BookOpen size={13} />, title: 'Katalog', z: z.catalog },
     { id: 'patterns', icon: <Puzzle size={13} />, title: 'Pattern', z: z.patterns },
     { id: 'epics', icon: <Flag size={13} />, title: 'Epics', z: z.epics },
+    { id: 'type-mappers', icon: <Repeat size={13} />, title: 'Typ-Mapper', z: z.typeMappers },
     { id: 'auth', icon: <KeyRound size={13} />, title: 'Anmeldung', z: z.auth },
     { id: 'teams', icon: <MessageSquare size={13} />, title: 'Teams', z: z.teams },
   ];
@@ -106,7 +109,7 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
       <ModelLocation isDark={isDark} />
 
       {/* Status bar: one card per section, a click jumps there */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {bereiche.map(b => (
           <button key={b.id} onClick={() => springe(b.id)} title={b.z.detail || undefined}
             className={`text-left rounded-lg border px-3 py-2 space-y-1 transition-colors ${c.border2} ${c.hover}`}>
@@ -158,6 +161,9 @@ export default function AdminView({ onBack }: { onBack: () => void }) {
 
       <EpicAdmin model={model} specs={specs.map(s => s.data)} pages={pages.map(p => p.data.spec ?? {})} isDark={isDark} onSave={saveModel}
         state={<StateChip tone={z.epics.tone} label={z.epics.label} isDark={isDark} title={z.epics.detail} />} />
+
+      <TypeMapperAdmin model={model} isDark={isDark} onSave={saveModel}
+        state={<StateChip tone={z.typeMappers.tone} label={z.typeMappers.label} isDark={isDark} title={z.typeMappers.detail} />} />
 
       <AuthSettingsForm model={model} isDark={isDark} onSave={saveModel} folderUrl={storage?.webUrl}
         state={<StateChip tone={z.auth.tone} label={z.auth.label} isDark={isDark} title={z.auth.detail} />} />

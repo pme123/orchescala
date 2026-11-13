@@ -20,7 +20,8 @@
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
 import { C7_LABEL } from './engineLabels.ts';
-import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
+import { mappingOf } from './fieldMapping.ts';
+import type { DomainType, EngineId, Field, FieldMapping, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
 import { FEEL_WORDS } from './feelNames.ts';
 import { SCALA_TYPES, isAdt } from './types.ts';
@@ -58,6 +59,8 @@ export interface VarNode {
   source: string;
   /** a simple enum: its values — a FEEL string each (`clientMainType = "Person"`) */
   values?: string[];
+  /** a field of a class: its type as the field names it - to declare another of the same type */
+  field?: Pick<Field, 'type' | 'collection' | 'optional'>;
 }
 
 /** What may arrive at the target field. */
@@ -124,10 +127,14 @@ interface Builder { idx: TypeIndex; model: Model | null }
 const mayBeMissing = (f: { optional?: boolean; default?: string }): boolean => !!f.optional && !f.default?.trim();
 
 function nodeOfField(f: Field, source: string, b: Builder, depth: number, seen: Set<string>): VarNode {
-  return nodeOf(f.name, f.type, {
+  const n = nodeOf(f.name, f.type, {
     optional: mayBeMissing(f), collection: !!f.collection, map: !!f.map, enumCase: f.enumCase, description: f.description, source,
     label: fieldLabel(f, b.idx),
   }, b, depth, seen);
+  // not for a map or a case of an enum - those the type alone does not say
+  return f.type && !f.map && !f.enumCase
+    ? { ...n, field: { type: f.type, ...(f.collection ? { collection: true } : {}), ...(f.optional ? { optional: true } : {}) } }
+    : n;
 }
 
 function fieldLabel(f: Field, idx: TypeIndex): string {
@@ -525,7 +532,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
   }
 
   // A script task with an implementation (FEEL) writes its value into its `resultVariable`
-  for (const s of allSteps(spec.steps)) { const n = scriptResult(s, spec, b); if (n) add(n); }
+  for (const s of allSteps(spec.steps)) for (const n of scriptResult(s, spec, b)) add(n);
 
   // A multi-instance with collected results writes the list after it — its entries typed by
   // what the instance knows. Only for the overview: the steps know it only after the
@@ -1143,18 +1150,36 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   if (s.kind === 'rule' && s.resultVariable && !(spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name))) {
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
-  const script = scriptResult(s, spec, b);
-  if (script) add(script);
+  for (const n of scriptResult(s, spec, b)) add(n);
   return out;
 }
 
-/** The variable a script task with an implementation (FEEL) sets - typed as its field (see scriptResultField). */
-function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode | null {
-  const name = s.kind === 'script' && s.script?.trim() ? s.resultVariable?.trim() : undefined;
-  if (!name) return null;
+/**
+ * The variables a script task with an implementation sets - as a mapping its Out, in FEEL its
+ * `resultVariable`, typed as its field (see scriptResultField).
+ */
+function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode[] {
+  if (s.kind !== 'script') return [];
   const source = `Ergebnis von ${s.name || s.id}`;
+  if (s.fieldMapping) return mappingOf(s.fieldMapping).out.filter(f => f.name.trim() && f.type).map(f => ({ ...nodeOfField(f, source, b, 0, new Set()), source }));
+  const name = s.script?.trim() ? s.resultVariable?.trim() : undefined;
+  if (!name) return [];
   const f = scriptResultField(s, spec);
-  return f ? { ...nodeOfField(f, source, b, 0, new Set()), source } : { name, type: 'any', label: '?', source };
+  return [f ? { ...nodeOfField(f, source, b, 0, new Set()), source } : { name, type: 'any', label: '?', source }];
+}
+
+/** A field as a node of the variable tree, with its subfields - the result of a mapping. */
+export function fieldVarNode(f: Field, spec: ProcessSpec, model: Model | null, source: string): VarNode {
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  return nodeOfField(f, source, b, 0, new Set());
+}
+
+/** The In and Out of a mapping as nodes of the variable tree - the two sides of its panel. */
+export function mappingVarNodes(stored: FieldMapping, spec: ProcessSpec, model: Model | null): { sources: VarNode[]; target: VarNode } {
+  const m = mappingOf(stored);
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  const nodes = (list: Field[], source: string) => list.filter(f => f.name.trim() && f.type).map(f => nodeOfField(f, source, b, 0, new Set()));
+  return { sources: nodes(m.in, 'In'), target: { name: 'Out', type: 'context', label: 'Out', source: '', children: nodes(m.out, 'Out') } };
 }
 
 /**
@@ -1185,7 +1210,12 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
-    if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) names.add(s.resultVariable.trim());
+    if (s.kind === 'script' && s.fieldMapping) {
+      // as the worker sets them: named and typed (see mappingCall)
+      for (const f of mappingOf(s.fieldMapping).out) if (f.name.trim() && f.type) names.add(f.name.trim());
+    } else if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) {
+      names.add(s.resultVariable.trim());
+    }
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
   }

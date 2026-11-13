@@ -9,18 +9,22 @@ import { AlertTriangle, AppWindow, ArrowRight, ArrowUpRight, Asterisk, ShieldChe
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, MultiInstanceSpec, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
-import { packageOf } from '../scala';
+import { indexTypes, packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, declaredVariables, expectedFromDomain, isFeel, outputRowType, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, mappingVarNodes, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, declaredVariables, expectedFromDomain, isFeel, outputRowType, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
 import { feelIfPossible, importExpression, isJuel, outputSource, untranslatableText } from '../juelFeel';
 import { feelRef } from '../feelNames';
 import FeelInput from './FeelInput';
+import FieldMappingEditor from './FieldMappingEditor';
+import { emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
+import MappingInOut from './MappingInOut';
+import { converter } from '../typeMappers';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
 import { domainRef } from '../serviceTypes';
@@ -2153,11 +2157,45 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
     ? (isFeel(value) ? checkFeel(value, variables, expected).issues : [{ level: 'error', text: 'Mit «=» beginnen - die Implementierung ist ein FEEL-Ausdruck.' }])
     : [];
   const listId = `script-result-${step.id}`;
+  const confirm = useConfirm();
+  // as a mapping: its In and Out, the fields of the Out drawn from the In - its FEEL written along
+  const mapping = useMemo(() => (step.fieldMapping ? mappingOf(step.fieldMapping) : undefined), [step.fieldMapping]);
+  const nodes = useMemo(() => (mapping ? mappingVarNodes(mapping, spec, model) : null), [mapping, spec, model]);
+  const ioIssues = useMemo(() => (mapping ? inOutIssues(mapping, variables) : []), [mapping, variables]);
+  // the type mappers of the model: a line between their types converts
+  const convert = useMemo(() => converter(model?.typeMappers, indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  const toMapping = async () => {
+    if (value.trim() && !(await confirm({ title: 'Als Mapping beschreiben?', confirmLabel: 'Mapping', text: 'Der FEEL-Ausdruck wird durch das Mapping ersetzt - es beginnt leer.' }))) return;
+    // the result so far is its Out
+    const m = { ...emptyMapping(), out: field ? [{ ...field, id: uid('f') }] : [] };
+    onPatch({ fieldMapping: m, script: mappingFeel(m), resultVariable: undefined, resultType: undefined, resultCollection: undefined });
+  };
+  // back to FEEL: one variable of the Out its result, its FEEL the expression to go on from
+  const toFeel = () => {
+    const one = mapping?.out.length === 1 ? mapping.out[0] : null;
+    const feel = one && mapping ? varFeel(mapping, one.name) : null;
+    onPatch({
+      fieldMapping: undefined,
+      ...(one ? { resultVariable: one.name || undefined, resultType: outFields.includes(one.name) ? undefined : one.type || undefined, resultCollection: one.collection || undefined } : {}),
+      ...(feel ? { script: `= ${feel}` } : {}),
+    });
+  };
+  const modeBtn = (on: boolean) => `px-1.5 py-0.5 ${on ? c.btnPrimary : c.btn}`;
   return (
-    <Section id="script" label="Implementierung (FEEL)" isDark={isDark} count={value.trim() ? 1 : 0}
+    <Section id="script" label={mapping ? 'Implementierung (Mapping)' : 'Implementierung (FEEL)'} isDark={isDark} count={value.trim() ? 1 : 0}
       comment={sub(stepTarget(step.id), 'script')}
       hint={!value.trim() ? <span className={`text-[9px] ${c.muted}`}>ein Ausdruck und sein Ergebnis</span> : undefined}>
       <div className="space-y-1.5">
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className={`${c.muted} w-24 flex-shrink-0`}>Art</span>
+          <span className={`inline-flex rounded border overflow-hidden ${c.border}`}>
+            <button type="button" disabled={!canEdit} onClick={() => { if (mapping) toFeel(); }} className={modeBtn(!mapping)}
+              title="Ein FEEL-Ausdruck - im Export eine Methode des Workers">FEEL</button>
+            <button type="button" disabled={!canEdit} onClick={() => { if (!mapping) void toMapping(); }} className={modeBtn(!!mapping)}
+              title="Die Felder des Ergebnisses grafisch aus den Variablen davor zuordnen">Mapping</button>
+          </span>
+        </div>
+        {!mapping && <>
         <div className="flex items-center gap-2 text-[10px]">
           <span className={`${c.muted} w-24 flex-shrink-0`}>Ergebnis</span>
           <input value={step.resultVariable ?? ''} disabled={!canEdit} list={listId}
@@ -2183,6 +2221,26 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
               : <span className={`text-[9px] ${c.muted}`} title="Ohne Typ leitet der Export ihn ab, wo es geht (Listen eines Typs aneinandergehängt) - geprüft wird dann nicht">kein Typ</span>}
           </div>
         )}
+        </>}
+        {mapping && nodes && (
+          <>
+            <MappingInOut mapping={mapping} known={variables ?? []} outFields={out?.fields ?? []} types={spec.types ?? []} model={model}
+              isDark={isDark} canEdit={canEdit} listId={listId} onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
+            {ioIssues.map((it, k) => (
+              <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+                <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+              </p>
+            ))}
+            <FieldMappingEditor mapping={mapping} target={nodes.target} sources={nodes.sources} isDark={isDark} canEdit={canEdit} convert={convert}
+              onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
+            <details className="text-[10px]">
+              <summary className={`cursor-pointer ${c.muted}`}>FEEL des Mappings</summary>
+              <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap break-all font-mono text-[9px] ${c.border}`}>{value}</pre>
+            </details>
+            <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers - das In ihre Parameter, das Out ihr Ergebnis (ein Objekt Feld für Feld oder ein copy seiner Basis), mit Test.</p>
+          </>
+        )}
+        {!mapping && <>
         <FeelInput value={value} disabled={!canEdit} isDark={isDark} variables={variables} multiline
           onChange={v => onPatch({ script: v || undefined })}
           placeholder="= concatenate(organisations, naturalPersons)"
@@ -2198,6 +2256,7 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
           </p>
         ))}
         <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers, mit Test.</p>
+        </>}
       </div>
     </Section>
   );

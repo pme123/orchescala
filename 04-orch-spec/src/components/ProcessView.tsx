@@ -67,6 +67,8 @@ const sameSpec = (a: ProcessSpec, b: ProcessSpec) =>
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
+/** how wide the properties panel may get: the window less room for the flow - at least 800 */
+const panelMax = () => Math.max(800, (typeof window === 'undefined' ? 0 : window.innerWidth) - 400);
 const COMMENTS_W_KEY = 'orch-spec.commentsWidth';
 /** below this the comment panel overlays the right column instead of taking space */
 const OVERLAY_BELOW = 1100;
@@ -233,7 +235,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   // between diagram and flow) — the setting persists for the session.
   const [panelW, setPanelW] = useState(() => {
     const n = Number(localStorage.getItem(PANEL_W_KEY));
-    return Number.isFinite(n) && n >= 320 ? Math.min(n, 800) : 416;
+    return Number.isFinite(n) && n >= 320 ? Math.min(n, panelMax()) : 416;
   });
   // Comment panel: its own width, also draggable; in a narrow window
   // it overlays the right column, otherwise it takes its space
@@ -1334,7 +1336,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                 can be dragged at the divider */}
             <div style={{ width: (commentsOpen || auditOpen) && !narrow ? Math.max(360, panelW - commentsW + 120) : panelW }}
               className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
-              <PanelWidthHandle isDark={isDark} width={panelW} onWidth={w => {
+              <PanelWidthHandle isDark={isDark} width={panelW} max={panelMax()} onWidth={w => {
                 setPanelW(w);
                 localStorage.setItem(PANEL_W_KEY, String(w));
               }} />
