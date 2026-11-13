@@ -7,7 +7,9 @@
 //   scala    TypeDateWrapper → LocalDate     an expression        LocalDate.parse(x.date)
 //   decoder  ClientMainType → ClientType     the code's decoder   x.asJson.as[ClientType]
 //
-// In the worker each mapper used is a method of its own; an Option or a list of it is mapped along.
+// In the code each mapper used is an extension (`existing.kind.toClientType`) of an object in the
+// `schema` of the level both of its types share (see mapperHome) - the export brings the file, the
+// worker imports it; an Option or a list of it is mapped along.
 import type { VarNode } from './feel';
 import type { Converter } from './fieldMapping';
 import { caseIdent, type TypeIndex } from './scala.ts';
@@ -68,11 +70,65 @@ export function prefilledCases(from: string[], to: string[], set: TypeMapper['ca
   return from.map(f => set.find(c => c.from === f && c.to) ?? { from: f, to: alike(f, to) });
 }
 
-/** The name of its method in the worker - `clientMainTypeToClientType`. */
+/** Its name from both types - `clientMainTypeToClientType`: two mappers with the same one cannot be told apart. */
 export function mapperMethod(m: TypeMapper, nameOf: (ref: string) => string): string {
   const name = (ref: string) => short(nameOf(ref)).replace(/[^A-Za-z0-9]/g, '');
   const from = name(m.from);
   return `${from.charAt(0).toLowerCase()}${from.slice(1)}To${name(m.to)}`;
+}
+
+/** The name of its extension method - `toClientType`: `existing.kind.toClientType`. */
+export function mapperExtension(m: TypeMapper, nameOf: (ref: string) => string): string {
+  return `to${short(nameOf(m.to)).replace(/[^A-Za-z0-9]/g, '')}`;
+}
+
+/** Where a mapper lives in the code - the package of a `schema` and the object in it. */
+export interface MapperHome { pkg: string; object: string }
+
+/**
+ * Where a mapper lives in the code: the `schema` of the deepest level of the domain both of its
+ * types share (`acme.crm.domain.clientMaster.schema`) - the API's when both are in the API of the
+ * export, never another API's; the project's (`acme.crm.domain.schema`) when they share none or
+ * are of another project. `typePkgs`: the packages of its two types - null for one that is no
+ * class of the domain (`BigDecimal`). `root`: the domain of the project, `api`: the export's API
+ * below it (`client`, `v1`).
+ */
+export function mapperHome(typePkgs: Array<string | null>, root: string, api: string[]): MapperHome {
+  // the levels below the domain of the project, without `schema`: `clientMaster`, `naturalPersons`, `v1`
+  const levels = (pkg: string | null): string[] | null => {
+    if (!pkg) return null;
+    if (pkg !== root && !pkg.startsWith(`${root}.`)) return [];
+    const rest = pkg.slice(root.length).split('.').filter(Boolean);
+    const at = rest.indexOf('schema');
+    return at >= 0 ? rest.slice(0, at) : rest;
+  };
+  const known = typePkgs.map(levels).filter((l): l is string[] => !!l);
+  let common = known.length
+    ? known.reduce((a, b) => { let k = 0; while (k < a.length && k < b.length && a[k] === b[k]) k++; return a.slice(0, k); })
+    : [];
+  const version = common.findIndex(x => /^v\d+$/.test(x));
+  if (version >= 0) {
+    // inside an API: its schema if it is the API of the export, otherwise the level above it
+    const ofApi = common.slice(0, version + 1);
+    common = ofApi.join('.') === api.join('.') ? ofApi : ofApi.slice(0, Math.max(0, version - 1));
+  }
+  const pascal = (x: string) => `${x.charAt(0).toUpperCase()}${x.slice(1)}`;
+  const last = common[common.length - 1] ?? '';
+  const object = !common.length ? 'TypeMappers'
+    : /^v\d+$/.test(last) ? `${pascal(common[common.length - 2])}${last.toUpperCase()}TypeMappers`
+      : `${pascal(last)}TypeMappers`;
+  return { pkg: [root, ...common, 'schema'].join('.'), object };
+}
+
+/** A mapper as an extension of its object: its doc, the head on one line (the helper's merge keys it by that), its body. */
+export function mapperCode(m: TypeMapper, nameOf: (ref: string) => string, fromCases?: string[] | null): string {
+  const [from, to] = [short(nameOf(m.from)), short(nameOf(m.to))];
+  const doc = m.description?.trim() ? `${from} → ${to}: ${m.description.trim().split('\n')[0]}` : `${from} → ${to}`;
+  return [
+    `  /** ${doc.replace(/\*\//g, '* /')} */`,
+    `  extension (x: ${from}) def ${mapperExtension(m, nameOf)}: ${to} =`,
+    mapperBody(m, nameOf, fromCases).replace(/^/gm, '    '),
+  ].join('\n');
 }
 
 /**
@@ -116,7 +172,7 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
   // other types with the same names (another package): a mapping shows only the names, the worker
   // method is named after them - neither tells them apart
   else if (all.some(o => o.id !== m.id && o.from && o.to && mapperMethod(o, idx.nameOf) === mapperMethod(m, idx.nameOf))) {
-    out.push(`Ein anderer Mapper hat dieselben Namen (${mapperMethod(m, idx.nameOf)}) - im Mapping und im Worker nicht zu unterscheiden; keiner der beiden wandelt.`);
+    out.push(`Ein anderer Mapper hat dieselben Namen (${mapperMethod(m, idx.nameOf)}) - im Mapping und im Code nicht zu unterscheiden; keiner der beiden wandelt.`);
   }
   if (m.kind === 'table') {
     const from = enumCases(m.from, idx);
@@ -128,7 +184,7 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
       const unknown = (m.cases ?? []).filter(c => c.to && !to.includes(c.to)).map(c => c.to);
       if (unknown.length) out.push(`Gibt es in ${short(idx.nameOf(m.to))} nicht: ${unknown.join(', ')}.`);
       const gone = (m.cases ?? []).filter(c => c.from && !from.includes(c.from)).map(c => c.from);
-      if (gone.length) out.push(`Gibt es in ${short(idx.nameOf(m.from))} nicht mehr: ${gone.join(', ')} - wird im Worker weggelassen.`);
+      if (gone.length) out.push(`Gibt es in ${short(idx.nameOf(m.from))} nicht mehr: ${gone.join(', ')} - wird im Code weggelassen.`);
       const twice = (m.cases ?? []).map(c => c.from).filter((f, i, l) => f && l.indexOf(f) !== i);
       if (twice.length) out.push(`Mehrfach: ${[...new Set(twice)].join(', ')} - die erste Zeile gilt.`);
     }

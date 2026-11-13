@@ -34,7 +34,7 @@ import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
 import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
-import { enumCases, findMapper, mapperBody, mapperImports, mapperMethod } from '../typeMappers.ts';
+import { enumCases, findMapper, mapperCode, mapperExtension, mapperHome, mapperImports, type MapperHome } from '../typeMappers.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -73,8 +73,12 @@ interface Ctx {
   scripts: ScriptMethod[];
   /** the type mappers of the model - a line between their types converts with them */
   mappers: TypeMapper[];
-  /** those a mapping used - each a method of the worker */
-  usedMappers: Map<string, TypeMapper>;
+  /**
+   * those a mapping used, by id - each an extension in the `schema` of its level (see
+   * mapperHome), the worker imports its object; `explicit`: called on the object
+   * (`ClientTypeMappers.toClientType(x)`) - another mapper the worker might use has its name
+   */
+  usedMappers: Map<string, { mapper: TypeMapper; home: MapperHome; explicit: boolean }>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
 }
@@ -359,11 +363,14 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     if (t.todo || !t.type || t.type === f.type || !!t.collection !== !!f.collection) return t;
     const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf);
     if (!mapper) return t;
-    const method = mapperName(mapper, ctx);
-    const call = `${MOCKED}${method}`;
+    const { home, explicit } = useMapper(mapper, ctx);
+    const name = mapperExtension(mapper, ctx.idx.nameOf);
+    // an extension: `x.toClientType`, `.map(_.toClientType)` - on its object where the name is not the only one
+    const on = (x: string) => (explicit ? `${home.object}.${name}(${x})` : `${/^[\w.]+$/.test(x) ? x : `(${x})`}.${name}`);
+    const each = explicit ? `${home.object}.${name}` : `_.${name}`;
     const scala = t.collection
-      ? (t.optional ? `${t.scala}.map(_.map(${call}))` : `${t.scala}.map(${call})`)
-      : (t.optional ? `${t.scala}.map(${call})` : `${call}(${t.scala})`);
+      ? (t.optional ? `${t.scala}.map(_.map(${each}))` : `${t.scala}.map(${each})`)
+      : (t.optional ? `${t.scala}.map(${each})` : on(t.scala));
     return { scala, optional: t.optional };
   };
 
@@ -435,9 +442,9 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const { value, checks: raw } = mappingValues(m, scope, ctx, where);
   const one = outs.length === 1;
-  // a type mapper is a method of the worker - called as it is there, on Mocked() in the test
-  const values = outs.map((f, i) => (value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '').replaceAll(MOCKED, ''));
-  const checks = raw.map(c => ({ ...c, value: c.value.replaceAll(MOCKED, 'Mocked().') }));
+  const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '');
+  // a type mapper is an extension of the domain - the test calls it as the worker does
+  const checks = raw;
   const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
   const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
   ctx.scripts.push({
@@ -537,45 +544,91 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
 }
 
-/** `base`, or numbered - a name no method of the worker has yet (script tasks, type mappers) */
+/** `base`, or numbered - a name no method of the worker has yet (its script tasks) */
 function uniqueMethod(ctx: Ctx, base: string): string {
-  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
+  const used = new Set(ctx.scripts.map(x => x.method));
   let name = base;
   for (let i = 2; used.has(name); i++) name = `${base}${i}`;
   return name;
 }
 
-/** Where a mapper's method is called - the worker calls it as it is, the test on Mocked(). */
-const MOCKED = '\uE000';
-
-/**
- * The name of a mapper's method in the worker - the one it got already, otherwise its own
- * (`clientMainTypeToClientType`), numbered when a script method or another mapper has it.
- */
-function mapperName(mapper: TypeMapper, ctx: Ctx): string {
-  for (const [name, m] of ctx.usedMappers) if (m.id === mapper.id) return name;
-  const base = mapperMethod(mapper, ctx.idx.nameOf);
-  const name = uniqueMethod(ctx, base);
-  ctx.usedMappers.set(name, mapper);
-  return name;
+/** The package of the class behind a type - its own schema, a collection's, the catalog's; null for none (`BigDecimal`). */
+function typePackage(ref: string, ctx: Ctx): string | null {
+  const dom = ctx.idx.domainOf(ref);
+  if (dom) return dom.pkg;
+  if (ctx.o.types.some(t => t.id === ref && !t.interactionId)) return `${collectionPackage(orchestrationApi(ctx.o))}.schema`;
+  for (const c of ctx.collections) {
+    const t = c.types.find(x => x.id === ref);
+    if (t && !t.interactionId) return schemaPackageOf(c, t.id) ?? `${typeHome(c, t.id)}.schema`;
+  }
+  return null;
 }
 
-/** A type mapper of the model as a method of the worker. */
-function mapperDef(method: string, m: TypeMapper, idx: TypeIndex): string {
-  const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
-  return [
-    `  /** ${name(m.from)} → ${name(m.to)} - a type mapper of the model${m.description?.trim() ? `: ${m.description.trim().split('\n')[0]}` : ''} */`,
-    `  def ${method}(x: ${name(m.from)}): ${name(m.to)} =`,
-    indent(mapperBody(m, idx.nameOf, enumCases(m.from, idx)), '    '),
-  ].join('\n');
+/** The import of the class behind a type for code in `pkg` - none in the same package or for none. */
+function typeImport(ref: string, ctx: Ctx, pkg: string): string | null {
+  const dom = ctx.idx.domainOf(ref);
+  if (dom) return dom.pkg === pkg ? null : `import ${dom.importPath}`;
+  const at = typePackage(ref, ctx);
+  return at && at !== pkg ? `import ${at}.${ctx.idx.nameOf(ref).replace(/^.*\./, '')}` : null;
+}
+
+/** Where a mapper lives in the code - see mapperHome. */
+function homeOf(m: TypeMapper, ctx: Ctx): MapperHome {
+  const api = orchestrationApi(ctx.o);
+  const root = `${ctx.o.project.split('-').filter(Boolean).join('.')}.domain`;
+  return mapperHome([typePackage(m.from, ctx), typePackage(m.to, ctx)], root, [...api.api.split('.'), `v${api.apiVersion}`]);
+}
+
+/**
+ * A mapper the worker uses: where it lives, and whether it is called on its object - when a
+ * mapper of another object has the same extension name, both imported would be ambiguous.
+ */
+function useMapper(m: TypeMapper, ctx: Ctx): { home: MapperHome; explicit: boolean } {
+  const had = ctx.usedMappers.get(m.id);
+  if (had) return had;
+  const home = homeOf(m, ctx);
+  const name = mapperExtension(m, ctx.idx.nameOf);
+  const key = (h: MapperHome) => `${h.pkg}.${h.object}`;
+  const explicit = ctx.mappers.some(o => o.id !== m.id && o.from && o.to && mapperExtension(o, ctx.idx.nameOf) === name && key(homeOf(o, ctx)) !== key(home));
+  const used = { mapper: m, home, explicit };
+  ctx.usedMappers.set(m.id, used);
+  return used;
+}
+
+/** The files of the mappers the worker uses - per object, in the `schema` of its level; the helper merges them into the code. */
+function mapperFiles(ctx: Ctx): ScalaFile[] {
+  const byObject = new Map<string, { home: MapperHome; mappers: TypeMapper[] }>();
+  for (const { mapper, home } of ctx.usedMappers.values()) {
+    const k = `${home.pkg}.${home.object}`;
+    byObject.set(k, { home, mappers: [...(byObject.get(k)?.mappers ?? []), mapper] });
+  }
+  return [...byObject.values()].map(({ home, mappers }) => {
+    const imports = new Set<string>();
+    for (const m of mappers) {
+      for (const ref of [m.from, m.to]) { const i = typeImport(ref, ctx, home.pkg); if (i) imports.add(i); }
+      for (const i of mapperImports(m)) imports.add(i);
+    }
+    const sorted = [...imports].sort();
+    return {
+      path: `01-domain/src/main/scala/${home.pkg.replace(/\./g, '/')}/${home.object}.scala`,
+      content: [
+        packageClause(home.pkg), '', ...(sorted.length ? [...sorted, ''] : []),
+        '/** Type mappers - from Orch Spec (Administration → Typ-Mapper): `existing.kind.toClientType` */',
+        `object ${home.object}:`, '',
+        mappers.map(m => mapperCode(m, ctx.idx.nameOf, enumCases(m.from, ctx.idx))).join('\n\n'), '',
+        `end ${home.object}`, '',
+      ].join('\n'),
+    };
+  });
 }
 
 /** The imports of the types the methods of the script tasks name - the schema of their collection. */
 function scriptImports(ctx: Ctx): string[] {
   const out = new Set<string>();
-  for (const m of ctx.usedMappers.values()) {
-    for (const ref of [m.from, m.to]) { const dom = ctx.idx.domainOf(ref); if (dom) out.add(`import ${dom.importPath}`); }
-    for (const i of mapperImports(m)) out.add(i);
+  // the extensions of the type mappers - their object where one is called on it
+  for (const { home, explicit } of ctx.usedMappers.values()) {
+    out.add(`import ${home.pkg}.${home.object}.*`);
+    if (explicit) out.add(`import ${home.pkg}.${home.object}`);
   }
   for (const m of ctx.scripts) {
     for (const f of [...m.params, m.result, ...(m.results ?? [])]) {
@@ -863,7 +916,6 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   });
   const scripts = [
     ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
-    ...[...ctx.usedMappers].map(([method, m]) => mapperDef(method, m, ctx.idx)),
   ];
   return `${workerPackageClause(api)}
 
@@ -1059,6 +1111,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   }
   out.push({ path: `${workerDir(api)}/${o.name}Worker.scala`, content: worker(o, ctx) });
   out.push({ path: `${workerDir(api).replace('/src/main/', '/src/test/')}/${o.name}WorkerTest.scala`, content: workerTest(o, ctx) });
+  out.push(...mapperFiles(ctx));
   return out;
 }
 

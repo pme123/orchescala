@@ -1,11 +1,12 @@
 // Admin: type mappers - conversions of one type into another, for the lines of every mapping in
 // the folder (`ClientMainType` → `ClientType`, `BigDecimalWrapper` → `BigDecimal`). They live in
-// the model.json; a line between their types converts with them, in the worker a method each.
+// the model.json; a line between their types converts with them - in the code an extension in the
+// `schema` of the level both types share, which the worker imports.
 import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, Download, Plus, Repeat, Trash2, Upload, Wand2 } from 'lucide-react';
 import type { Model, TypeMapper } from '../types';
 import { indexTypes } from '../scala';
-import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperBody, mapperFile, mapperIssues, mapperMethod, prefilledCases } from '../typeMappers';
+import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperCode, mapperFile, mapperIssues, prefilledCases } from '../typeMappers';
 import { cls } from '../ui';
 import { uid } from '../util';
 import { AdminSection, SaveRow, flashOf, useFlash, type AdminTone } from './adminUi';
@@ -85,8 +86,10 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
       more={<>Gilt für alle Mappings im Ordner (Skript-Aufgaben einer Service-Orchestrierung). Zieht man im
         Mapping eine Linie von einem <span className="font-mono">ClientMainType</span> auf einen{' '}
         <span className="font-mono">ClientType</span>, wandelt der Mapper dazwischen - ohne Warnung, und
-        «Automatisch zuordnen» nimmt solche Felder auch. Im Worker wird jeder benutzte Mapper eine eigene
-        Methode; eine Liste oder ein Option davon wird mitgemappt. <b>Tabelle</b>: ein Enum in ein Enum, Fall
+        «Automatisch zuordnen» nimmt solche Felder auch. Im Code wird jeder benutzte Mapper eine Extension
+        (<span className="font-mono">existing.kind.toClientType</span>) im <span className="font-mono">schema</span> der
+        tiefsten Ebene, die beide Typen teilen - sonst in dem des Projekts; der Export bringt die Datei mit, der
+        Worker importiert sie. Eine Liste oder ein Option davon wird mitgemappt. <b>Tabelle</b>: ein Enum in ein Enum, Fall
         für Fall (gleiche Namen sind vorbelegt). <b>Feld</b>: ein Feld davon, z.B. <span className="font-mono">value</span>{' '}
         eines Wrappers. <b>Scala</b>: ein Ausdruck über <span className="font-mono">x</span>.{' '}
         <b>Deserialisierer</b>: der Decoder des Ziels im Code liest es (<span className="font-mono">x.asJson.as[Ziel]</span>).</>}>
@@ -166,9 +169,9 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
               <input value={m.description ?? ''} onChange={e => set(m.id, { description: e.target.value })} placeholder="Worum es geht (optional)" className={`w-full ${input}`} />
               {m.from && m.to && (
                 <details className="text-[10px]">
-                  <summary className={`cursor-pointer ${c.muted}`}>Im Worker</summary>
+                  <summary className={`cursor-pointer ${c.muted}`}>Im Code</summary>
                   <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap font-mono text-[10px] ${c.border}`}>
-                    {`def ${mapperMethod(m, idx.nameOf)}(x: ${name(m.from)}): ${name(m.to)} =\n${mapperBody(m, idx.nameOf, fromCases).replace(/^/gm, '  ')}`}
+                    {mapperCode(m, idx.nameOf, fromCases).replace(/^ {2}/gm, '')}
                   </pre>
                 </details>
               )}
@@ -184,7 +187,7 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
             <Plus size={12} /> Typ-Mapper
           </button>
           <button onClick={() => fileRef.current?.click()} disabled={unsaved}
-            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiches Von → Nach wird ersetzt, die übrigen bleiben. Scala-Ausdrücke und Imports der Datei kommen so in den Worker - nur Dateien aus bekannter Quelle.'}
+            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiches Von → Nach wird ersetzt, die übrigen bleiben. Scala-Ausdrücke und Imports der Datei kommen so in den Code - nur Dateien aus bekannter Quelle.'}
             className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
             <Upload size={12} /> Importieren
           </button>
