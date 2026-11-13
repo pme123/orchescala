@@ -15,6 +15,18 @@ const TEAL = '#1D9E75';
 const AMBER = '#BA7517';
 const GRAY = '#888780';
 
+/** how close to the edge of what scrolls a line being dragged scrolls it along (px) */
+const EDGE = 48;
+
+/** The nearest element above that scrolls up and down - null: the page itself. */
+function scrollParent(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const y = getComputedStyle(p).overflowY;
+    if ((y === 'auto' || y === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+  }
+  return null;
+}
+
 /** a node that has fields to open - not a list (paths do not go into one) */
 const opens = (n: VarNode) => n.type !== 'list' && !!n.children?.length;
 
@@ -150,11 +162,32 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
   const dragging = drag !== null;
   useEffect(() => {
     if (!dragging) return;
-    const move = (e: PointerEvent) => {
+    // where the pointer is - the line follows it, also while the panel scrolls under it
+    let pointer: { x: number; y: number } | null = null;
+    const follow = () => {
       const at = box.current?.getBoundingClientRect();
-      if (!at) return;
-      setDrag(d => (d ? { ...d, x: e.clientX - at.left, y: e.clientY - at.top, moved: true } : d));
+      if (!at || !pointer) return;
+      const { x, y } = pointer;
+      setDrag(d => (d ? { ...d, x: x - at.left, y: y - at.top, moved: true } : d));
     };
+    const move = (e: PointerEvent) => { pointer = { x: e.clientX, y: e.clientY }; follow(); };
+    // near the upper or lower edge of what scrolls (the panel, the large view, the page): it scrolls along
+    const scroller = scrollParent(box.current);
+    let frame = 0;
+    const tick = () => {
+      frame = requestAnimationFrame(tick);
+      if (!pointer) return;
+      const edge = EDGE;
+      const r = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const top = Math.max(r.top, 0);
+      const bottom = Math.min(r.bottom, window.innerHeight);
+      const dy = pointer.y < top + edge ? -Math.ceil(((top + edge - pointer.y) / edge) * 14)
+        : pointer.y > bottom - edge ? Math.ceil(((pointer.y - (bottom - edge)) / edge) * 14) : 0;
+      if (!dy) return;
+      if (scroller) scroller.scrollTop += dy; else window.scrollBy(0, dy);
+      follow();
+    };
+    frame = requestAnimationFrame(tick);
     const up = (e: PointerEvent) => {
       const d = dragRef.current;
       setDrag(null);
@@ -166,7 +199,11 @@ function Editor({ mapping, target, sources, isDark, canEdit, onChange, large, on
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
   }, [dragging]);
 
   const startDrag = (path: string, e: React.PointerEvent) => {
