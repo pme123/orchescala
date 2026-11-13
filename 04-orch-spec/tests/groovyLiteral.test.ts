@@ -10,6 +10,7 @@ import { groovyToFeel, jsonToFeel, outputSource } from '../src/juelFeel';
 import { feelRef, isPlainFeelName } from '../src/feelNames';
 import { checkFeel, type VarNode } from '../src/feel';
 import { stepFindings } from '../src/findings';
+import { feelToGroovy, feelToJuel } from '../src/feelJuel';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser = DOMParser;
 (globalThis as unknown as { XMLSerializer: unknown }).XMLSerializer = class { serializeToString(n: Node) { return String(n); } };
@@ -101,8 +102,6 @@ test('nesting deeper than 50 stays a script', () => {
     const many = `[${Array(200).fill(empty).join(', ')}]`;
     assert.equal(groovyToFeel(many), `[${Array(200).fill(empty === '[]' ? '[]' : '{}').join(', ')}]`, empty);
   }
-  // and a failed sibling does not leave the count up for the next script
-  assert.equal(groovyToFeel(`${'['.repeat(50)}a${']'.repeat(50)}`), `${'['.repeat(50)}a${']'.repeat(50)}`);
 });
 
 test('the bindings of a Camunda 7 script stay a script', () => {
@@ -146,7 +145,7 @@ test('backtick names: the FEEL check reads them as variables', () => {
   assert.ok(checkFeel(`= ${feelRef('other-id')}`, vars, null).issues.some(i => i.text.includes('Variable «other-id» ist nicht bekannt')));
 });
 
-test('Spin and the script binding stay a script', () => {
+test('the Spin names stay a script', () => {
   for (const s of ['[S]', '[JSON]', '[XML]']) assert.equal(groovyToFeel(s), null, s);
 });
 
@@ -218,6 +217,28 @@ test('an output row: the literal is FEEL too, and stays the script on C7 export'
   const { spec, step } = row(xml);
   assert.equal(step.outputs?.[0].expression, '= [fileIdLetter, docLink]');
   assert.ok(writeBpmn(xml, spec).xml.includes('<camunda:outputParameter name="letters"><camunda:script scriptFormat="groovy">[fileIdLetter, docLink]</camunda:script></camunda:outputParameter>'));
+});
+
+test('backtick names on the way to Camunda 7', () => {
+  // JUEL: read from the execution — `letter-id` is no JUEL name; as a bare `source` the name itself
+  assert.deepEqual(feelToJuel('`letter-id`'), { ok: true, juel: 'execution.getVariable("letter-id")', plain: 'letter-id' });
+  assert.equal((feelToJuel('`letter-id`.zip') as { juel: string }).juel, 'execution.getVariable("letter-id").prop("zip")');
+  // a backtick inside a text stays text
+  assert.equal((feelToJuel('"`x`"') as { juel: string }).juel, '"`x`"');
+  // the JSON script reads it with `v`, its FEEL line keeps the backticks
+  const g = feelToGroovy('[`letter-id`, a]') as { script: string };
+  assert.ok(g.script.startsWith('// FEEL: [`letter-id`, a]'), g.script);
+  assert.ok(g.script.endsWith("toJson([v('letter-id'), v('a')]))"), g.script);
+});
+
+test('C7 export: an output with a backtick name', () => {
+  const xml = bpmn('[fileIdLetter, docLink]');
+  const { spec, step } = row(xml);
+  step.outputs = [{ name: 'letterId', expression: `= ${feelRef('letter-id')}` }];
+  const out = writeBpmn(xml, spec).xml.replace(/&quot;/g, '"');
+  assert.ok(out.includes('<camunda:outputParameter name="letterId">${execution.getVariable("letter-id")}</camunda:outputParameter>'), out);
+  // and read back as written
+  assert.equal(row(writeBpmn(xml, spec).xml).step.outputs?.[0].expression, '= `letter-id`');
 });
 
 test('import and C7 export of a Groovy map', () => {

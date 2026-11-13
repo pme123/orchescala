@@ -383,9 +383,11 @@ function method(target: string, name: string, args: string[]): string {
       : two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
-    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
+    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`;
+    // a name FEEL does not read as it is (`letter-id`) in backticks, as the export wrote it
     case 'getVariable': return two((_a, b) => {
       if (/^"[A-Za-z_]\w*"$/.test(b)) return b.slice(1, -1);
+      if (/^"[^"\\`]+"$/.test(b)) return feelRef(b.slice(1, -1));
       throw computedNameError(b);
     });
     // Camunda 7 runtime → the variables Camunda 8 has for it
