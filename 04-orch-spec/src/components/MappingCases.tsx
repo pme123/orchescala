@@ -1,10 +1,10 @@
 // The cases of a mapping: an Out that is an enum with cases (ADT, `ClientRead`) becomes the case
 // the case of a source of the In decides (`neoClient: Client`) - per case of the source the case of
 // the Out. In the worker a match on the source that calls a method per case, each with its test.
-import { ArrowRight, Wand2 } from 'lucide-react';
+import { ArrowRight, GitFork, Wand2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { indexTypes } from '../scala';
-import { adtCases, prefilledCases } from '../typeMappers';
+import { adtCases, prefilledAdtCases } from '../typeMappers';
 import type { CaseLink, FieldMapping, Model, TypeDef } from '../types';
 import { cls } from '../ui';
 
@@ -37,17 +37,17 @@ export default function MappingCases({ mapping, types, model, isDark, canEdit, o
         const link = (mapping.caseLinks ?? []).find(x => x.field === field);
         const source = sources.find(s => s.name.trim() === link?.from);
         const from = source ? adtCases(source.type, idx) ?? [] : [];
-        // a source chosen: the cases prefilled where the names are alike
+        // a source chosen: the cases prefilled - names alike, otherwise in their order
         const pick = (src: string) => {
           const s = sources.find(x => x.name.trim() === src);
-          set(field, s ? { field, from: src, cases: prefilledCases(adtCases(s.type, idx) ?? [], targets, link?.from === src ? link.cases : []) } : null);
+          set(field, s ? { field, from: src, cases: prefilledAdtCases(adtCases(s.type, idx) ?? [], targets, link?.from === src ? link.cases : []) } : null);
         };
         const setCase = (x: string, to: string) =>
           link && set(field, { ...link, cases: [...link.cases.filter(y => y.from !== x), { from: x, to }] });
         return (
-          <div key={f.id} className={`rounded border px-2 py-1.5 space-y-1 text-[10px] ${c.border2}`}>
+          <div key={f.id} className={`rounded border px-2 py-1.5 space-y-1 text-[10px] ${link && source ? c.border2 : amber}`}>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className={c.muted}>Fälle</span>
+              <span className="flex items-center gap-1 font-semibold"><GitFork size={10} /> Fälle</span>
               <span className="font-mono">{field}: {name(f.type)}</span>
               <span className={c.muted}>wird je nach Fall von</span>
               <select value={link?.from ?? ''} disabled={!canEdit} onChange={e => pick(e.target.value)}
@@ -56,6 +56,12 @@ export default function MappingCases({ mapping, types, model, isDark, canEdit, o
                 {sources.map(s => <option key={s.id} value={s.name.trim()}>{s.name.trim()}: {name(s.type)}</option>)}
               </select>
               {!sources.length && <span className={c.muted}>- das In hat kein Enum mit Fällen</span>}
+              {/* the one source there is: one click */}
+              {canEdit && !link && sources.length === 1 && (
+                <button type="button" onClick={() => pick(sources[0].name.trim())} className={`px-1.5 py-0.5 rounded ${c.btnPrimary}`}>
+                  Fälle von {sources[0].name.trim()} zuordnen
+                </button>
+              )}
             </div>
             {link && source && (
               <div className="space-y-0.5 pl-2">
@@ -73,9 +79,9 @@ export default function MappingCases({ mapping, types, model, isDark, canEdit, o
                   );
                 })}
                 {canEdit && (
-                  <button type="button" onClick={() => set(field, { ...link, cases: prefilledCases(from, targets, link.cases.filter(y => y.to)) })}
-                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn}`} title="Die Fälle ohne Ziel vorbelegen: gleicher Name, sonst der einzige, auf den der Name endet">
-                    <Wand2 size={10} /> Ähnliche Namen
+                  <button type="button" onClick={() => set(field, { ...link, cases: prefilledAdtCases(from, targets, link.cases.filter(y => y.to)) })}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border ${c.btn}`} title="Die Fälle ohne Ziel vorbelegen: gleicher Name, sonst der einzige, auf den der Name endet - sonst in ihrer Reihenfolge">
+                    <Wand2 size={10} /> Vorbelegen
                   </button>
                 )}
               </div>

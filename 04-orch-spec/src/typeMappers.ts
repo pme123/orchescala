@@ -78,6 +78,19 @@ export function prefilledCases(from: string[], to: string[], set: TypeMapper['ca
   return from.map(f => set.find(c => c.from === f && c.to) ?? { from: f, to: alike(f, to) });
 }
 
+/**
+ * The cases of an enum with cases onto those of another (see CaseLink): by names alike, and where
+ * none fits and both have as many cases, by their order (`Person` → `privateIndividual`,
+ * `Company` → `companiesAndOther`) - a case of the target only once. What is set stays.
+ */
+export function prefilledAdtCases(from: string[], to: string[], set: Array<{ from: string; to: string }> = []): Array<{ from: string; to: string }> {
+  const byName = prefilledCases(from, to, set);
+  if (from.length !== to.length) return byName;
+  // the cases still open take the targets not taken yet, in their order
+  const free = to.filter(t => !byName.some(c => c.to === t));
+  return byName.map(c => (c.to ? c : { from: c.from, to: free.shift() ?? '' }));
+}
+
 /** Its name from both types - `clientMainTypeToClientType`: two mappers with the same one cannot be told apart. */
 export function mapperMethod(m: TypeMapper, nameOf: (ref: string) => string): string {
   const name = (ref: string) => short(nameOf(ref)).replace(/[^A-Za-z0-9]/g, '');

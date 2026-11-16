@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import { caseLinkIssues, renamedVar } from '../src/fieldMapping';
+import { prefilledAdtCases } from '../src/typeMappers';
 import { newOrchestration } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import type { ServiceOrchestrationSpec } from '../src/services/types';
@@ -74,4 +75,13 @@ test('the checks: an ADT Out without a case table is an error, a source case wit
     ['error: «dst» ist ein Enum mit Fällen - unter «Fälle» die Quelle und je Fall einen Fall wählen.']);
   assert.deepEqual(caseLinkIssues({ ...base, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }] }] }, cases).map(i => `${i.level}: ${i.text}`),
     ['warn: «dst»: für B von «src» kein Fall - zur Laufzeit ein Fehler.']);
+});
+
+test('the cases prefilled: names alike first, otherwise by their order when both have as many', () => {
+  assert.deepEqual(prefilledAdtCases(['Person', 'MultiplePersons', 'Company'], ['privateIndividual', 'severalPrivateIndividuals', 'companiesAndOther']),
+    [{ from: 'Person', to: 'privateIndividual' }, { from: 'MultiplePersons', to: 'severalPrivateIndividuals' }, { from: 'Company', to: 'companiesAndOther' }]);
+  // a name alike wins, a case of the target only once
+  assert.deepEqual(prefilledAdtCases(['A', 'Company'], ['Company', 'Other']), [{ from: 'A', to: 'Other' }, { from: 'Company', to: 'Company' }]);
+  // other counts: only by name
+  assert.deepEqual(prefilledAdtCases(['A', 'B'], ['X']), [{ from: 'A', to: '' }, { from: 'B', to: '' }]);
 });
