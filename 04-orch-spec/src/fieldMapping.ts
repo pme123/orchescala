@@ -21,7 +21,7 @@ const key = (n: string) => (NAME.test(n) ? n : JSON.stringify(n));
 export const emptyMapping = (): FieldMapping => ({ in: [], out: [], fields: [] });
 
 /** A mapping as stored - what is missing (an In, an Out) empty, so nothing reads past it. */
-export const mappingOf = (m: Partial<FieldMapping>): FieldMapping => ({ in: m.in ?? [], out: m.out ?? [], fields: m.fields ?? [] });
+export const mappingOf = (m: Partial<FieldMapping>): FieldMapping => ({ in: m.in ?? [], out: m.out ?? [], fields: m.fields ?? [], ...(m.caseLinks?.length ? { caseLinks: m.caseLinks } : {}) });
 
 /** The paths of a link that count. */
 export const linkPaths = (l: FieldLink): string[] => l.from.map(p => p.trim()).filter(Boolean);
@@ -125,7 +125,12 @@ export function renamedVar(m: FieldMapping, side: 'in' | 'out', from: string, to
       }
       return paths.length || expr ? [{ ...l, from: paths }] : [];
     });
-  return { ...m, fields };
+  // the case tables follow too: removed, the one of its Out goes, one from it loses its source
+  const caseLinks = (m.caseLinks ?? []).flatMap(c => {
+    const p = side === 'out' ? move(c.field) : move(c.from);
+    return p === null ? [] : [side === 'out' ? { ...c, field: p } : { ...c, from: p }];
+  });
+  return { ...m, fields, ...(m.caseLinks ? { caseLinks } : {}) };
 }
 
 /** A FEEL expression in its parts: text in quotes (odd index) and the rest (even index). */

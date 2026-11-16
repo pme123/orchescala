@@ -22,7 +22,9 @@
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
+import type { CaseLink, DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
+import { isAdt, SCALA_TYPES } from '../types.ts';
+import { resolveType } from '../interactions.ts';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, feelToScalaTyped, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
@@ -198,7 +200,12 @@ function typeOf(id: string, ctx: Ctx): TypeDef | undefined {
   if (own) return own;
   const d = ctx.domain.find(x => domainRef(x.id) === id);
   if (!d || (d.kind !== 'case' && d.kind !== 'enum')) return undefined;
-  const field = (f: DomainField): Field => ({ id: `${d.id}.${f.name}`, name: f.name, ...shapeOf(f.type) });
+  // a class of the catalog names its field types by name (`MasterRead`) - as a reference, so a mapping builds into it too
+  const field = (f: DomainField): Field => {
+    const shape = shapeOf(f.type);
+    const ref = (SCALA_TYPES as readonly string[]).includes(shape.type) ? null : resolveType(shape.type, { domainTypes: ctx.domain } as Model, d.pkg);
+    return { id: `${d.id}.${f.name}`, name: f.name, ...shape, ...(ref ? { type: domainRef(ref.id) } : {}) };
+  };
   return {
     id, name: d.name, kind: d.kind, fields: (d.fields ?? []).map(field),
     ...(d.kind === 'enum' ? { values: (d.cases ?? []).map(c => ({ name: c.name, fields: (c.fields ?? []).map(field) })) } : {}),
@@ -388,8 +395,14 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
    * test reaches it from the result (null: an Option on the way).
    */
   const value = (f: Field, path: string, on: string | null, at: string | null): string | null => {
-    const l = m.fields.find(x => x.field === path);
-    const sub = hasInner(m, path) && !f.collection ? typeOf(f.type, ctx) : undefined;
+    const l = inCase(m.fields.find(x => x.field === path));
+    const caseLink = (m.caseLinks ?? []).find(c => c.field === path);
+    const sub = (hasInner(m, path) || caseLink) && !f.collection ? typeOf(f.type, ctx) : undefined;
+    // an enum with cases built from its fields: the case the source's case decides
+    if (sub && isAdt(sub) && (caseLink || !l)) {
+      const v = caseLink ? adtValue(sub, caseLink, path) : todo(`${path}: ein Enum mit Fällen - im Mapping je Fall der Quelle einen Fall wählen`);
+      return f.optional ? `Some(${v})` : v;
+    }
     if (sub?.kind === 'case') {
       const whole = l ? linkValue(l, f) : null;
       if (whole?.todo) return whole.scala;
@@ -412,6 +425,53 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     const scala = v.needed ? `${v.scala}.getOrElse(${missing(path)})` : v.scala;
     if (at && !t.todo && !v.needed) checks.push({ at, value: scala });
     return scala;
+  };
+
+  /** the source of the match being built - a case of it has not every field of another */
+  let branch: { name: string; fields: Set<string> } | null = null;
+  /** a link in a branch: without the paths into a field this case of the source does not have */
+  const inCase = (l: FieldLink | undefined): FieldLink | undefined => {
+    if (!l || !branch) return l;
+    const b = branch;
+    const from = l.from.filter(p => !p.startsWith(`${b.name}.`) || b.fields.has(p.slice(b.name.length + 1).split('.')[0]));
+    return from.length || l.expression?.trim() ? { ...l, from } : undefined;
+  };
+
+  /**
+   * An enum with cases (`ClientRead`) from the links below `path`: a match on the case of the
+   * source (`neoClient`) - in each branch the source is that case (its own fields readable), the
+   * value the case of the target it becomes, field by field. A case of the source without one fails.
+   */
+  const adtValue = (adt: TypeDef, c: CaseLink, path: string): string => {
+    const source = scope.get(c.from);
+    const src = source?.type ? typeOf(source.type, ctx) : undefined;
+    if (!source || !src || !isAdt(src)) return todo(`${path}: «${c.from}» ist kein Enum mit Fällen im In`);
+    const name = c.from;
+    const branches: string[] = [];
+    for (const sc of src.values ?? []) {
+      const to = c.cases.find(x => x.from === sc.name)?.to;
+      const tv = to ? (adt.values ?? []).find(v => v.name === to) : undefined;
+      if (!tv) continue;
+      // the source as this case: the shared fields and its own
+      const own = sc.fields ?? [];
+      const narrowed: TypeDef = { id: `${source.type ?? src.id}#${sc.name}`, name: `${src.name}.${caseIdent(sc.name)}`, kind: 'case', fields: [...own, ...(src.fields ?? []).filter(x => !own.some(o => o.name === x.name))] };
+      // a case takes the shared fields and its own (see EnumValue.order) - by name, so their order does not matter
+      const target: TypeDef = { id: `${adt.id}#${tv.name}`, name: `${adt.name}.${caseIdent(tv.name)}`, kind: 'case', fields: [...(adt.fields ?? []).filter(x => !(tv.fields ?? []).some(o => o.name === x.name)), ...(tv.fields ?? [])] };
+      ctx.types.push(narrowed);
+      scope.set(name, { ...source, type: narrowed.id });
+      const outer = branch;
+      branch = { name, fields: new Set((narrowed.fields ?? []).map(x => x.name)) };
+      try {
+        branches.push(`case ${scalaIdent(name)}: ${narrowed.name} =>\n${indent(build(target, `${path}.`, null, null), '  ')}`);
+      } finally {
+        scope.set(name, source);
+        branch = outer;
+      }
+    }
+    const open = (src.values ?? []).filter(sc => !(adt.values ?? []).some(v => v.name === c.cases.find(x => x.from === sc.name)?.to));
+    if (open.length) branches.push(`case other => throw IllegalArgumentException(s"${where}: ${src.name} $other - kein Fall von ${adt.name} gewählt")`);
+    const v = `${source.scala} match\n${indent(branches.join('\n'), '  ')}`;
+    return path.includes('.') ? `(\n${indent(v, '  ')}\n)` : v;
   };
 
   /** The class `t` from the links below `prefix`: a copy of `on`, or field by field. */
