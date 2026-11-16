@@ -164,8 +164,9 @@ export interface MapperHome { pkg: string; object: string }
 
 /**
  * Where a mapper lives in the code: the `schema` of the deepest level of the domain its types of
- * the project share (`acme.crm.domain.clientMaster.schema`) - the API's when they are in the API of
- * the export, never another API's; the project's (`acme.crm.domain.schema`) when they share none.
+ * the project share (`acme.crm.domain.clientMaster.schema`) - the API's of the export when they are
+ * in it or in another API (never into another API's folder); the project's (`acme.crm.domain.schema`)
+ * when they share none.
  * A type of another project or no class of the domain (`LocalDate`) does not count: `Mifid1` of
  * `clientMaster.v1` → `MifidCode` of another project lives in `clientMaster.v1`, `LocalDate` →
  * `String` in the project's. `typePkgs`: the packages of its two types - null for no class.
@@ -185,9 +186,8 @@ export function mapperHome(typePkgs: Array<string | null>, root: string, api: st
     : [];
   const version = common.findIndex(x => /^v\d+$/.test(x));
   if (version >= 0) {
-    // inside an API: its schema if it is the API of the export, otherwise the level above it
-    const ofApi = common.slice(0, version + 1);
-    common = ofApi.join('.') === api.join('.') ? ofApi : ofApi.slice(0, Math.max(0, version - 1));
+    // inside an API: its schema if it is the API of the export - in another API's never: the export's
+    common = api;
   }
   const pascal = (x: string) => `${x.charAt(0).toUpperCase()}${x.slice(1)}`;
   const last = common[common.length - 1] ?? '';

@@ -94,7 +94,7 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
         «Automatisch zuordnen» nimmt solche Felder auch. Im Code wird jeder benutzte Mapper eine Extension
         (<span className="font-mono">existing.kind.toClientType</span>) im <span className="font-mono">schema</span> der
         tiefsten Ebene, die seine Typen des Projekts teilen (ein Typ eines anderen Projekts oder <span className="font-mono">LocalDate</span>{' '}
-        zählt nicht) - sonst in dem des Projekts; der Export bringt die Datei mit, der
+        zählt nicht), Typen einer anderen API im <span className="font-mono">schema</span> der API des Exports - sonst in dem des Projekts; der Export bringt die Datei mit, der
         Worker importiert sie. Eine Liste oder ein Option davon wird mitgemappt. <b>Tabelle</b>: ein Enum in ein Enum, Fall
         für Fall (gleiche Namen sind vorbelegt). <b>Feld</b>: ein Feld davon, z.B. <span className="font-mono">value</span>{' '}
         eines Wrappers. <b>Scala</b>: ein Ausdruck über <span className="font-mono">x</span>.{' '}
