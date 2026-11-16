@@ -55,7 +55,7 @@ const code = (from: string, to: string, more: Partial<DomainMapper> = {}): Domai
 test('a mapping converts with the model\'s mappers, then those of the code - one of the code with the same names steps back', () => {
   const own: TypeMapper = { id: 'm1', from: 'mainType', to: 'clientType', kind: 'decoder' };
   const all = modelMappers({ typeMappers: [own], domainMappers: [code('Wrapper', 'BigDecimal'), code('Wrapper', 'BigDecimal', { id: 'twice', pkg: 'other' }), code('mainType', 'clientType')] });
-  assert.deepEqual(all.map(m => m.id), ['m1', 'code:acme.crm.domain.schema.TypeMappers.toBigDecimal(Wrapper)']);
+  assert.deepEqual(all.filter(m => !m.id.startsWith('std:')).map(m => m.id), ['m1', 'code:acme.crm.domain.schema.TypeMappers.toBigDecimal(Wrapper)']);
   assert.deepEqual(all[1].code, { pkg: 'acme.crm.domain.schema', object: 'TypeMappers', method: 'toBigDecimal' });
 });
 

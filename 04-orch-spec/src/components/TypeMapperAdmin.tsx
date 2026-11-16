@@ -6,6 +6,7 @@ import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, Download, Plus, Repeat, Trash2, Upload, Wand2 } from 'lucide-react';
 import type { Model, TypeMapper } from '../types';
 import { indexTypes } from '../scala';
+import { isMember, isStandard, ORCHESCALA_MAPPERS, STANDARD_MAPPERS } from '../standardMappers';
 import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperCode, mapperFile, mapperIssues, modelMappers, prefilledCases } from '../typeMappers';
 import { cls } from '../ui';
 import { uid } from '../util';
@@ -17,7 +18,7 @@ type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>
 /** State for the status bar and the card header */
 export function typeMapperState(model: Model): { tone: AdminTone; label: string; detail?: string } {
   // the model's and those of the code (catalog)
-  const all = modelMappers(model);
+  const all = modelMappers(model).filter(m => !isStandard(m));
   if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Typ-Mapper' };
   const idx = indexTypes([], model);
   const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
@@ -203,6 +204,23 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
             })}
           </div>
         )}
+        {/* the generic ones every project has - none to define, none to copy */}
+        <details className={`rounded-lg border px-3 py-2 text-[11px] ${c.border2}`}>
+          <summary className={`cursor-pointer text-[10px] uppercase tracking-wide ${c.muted}`}>Standard (orchescala) · {STANDARD_MAPPERS.length}</summary>
+          <p className={`mt-1 text-[10px] ${c.muted}`}>Gelten in jedem Projekt, ohne Definition hier. Eine Methode des Typs ruft der Worker direkt
+            (<span className="font-mono">x.toString</span>), die übrigen kommen aus <span className="font-mono">{ORCHESCALA_MAPPERS.pkg}.{ORCHESCALA_MAPPERS.object}</span>.
+            Ein eigener Typ-Mapper mit denselben Typen geht vor.</p>
+          <div className="mt-1 grid grid-cols-[auto_12px_auto_1fr] gap-x-2 gap-y-0.5 items-baseline">
+            {STANDARD_MAPPERS.map(m => (
+              <div key={m.id} className="contents">
+                <span className="font-mono">{m.from}</span><ArrowRight size={10} className={c.muted} /><span className="font-mono">{m.to}</span>
+                <span className={`font-mono text-[10px] ${c.muted}`}>
+                  {isMember(m) ? `x.${m.code!.method}` : `${ORCHESCALA_MAPPERS.object}.${m.code!.method}`}{m.description ? ` · ${m.description.replace(/`/g, '')}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
         <SaveRow onSave={() => void save()} flash={flash} isDark={isDark}>
           <button onClick={add} className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
             <Plus size={12} /> Typ-Mapper

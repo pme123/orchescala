@@ -24,6 +24,7 @@ import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, is
 import { domainRef } from '../serviceTypes.ts';
 import type { CaseLink, DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
 import { isAdt, SCALA_TYPES } from '../types.ts';
+import { isMember, isStandard } from '../standardMappers.ts';
 import { resolveType } from '../interactions.ts';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
@@ -682,7 +683,12 @@ function useMapper(m: TypeMapper, ctx: Ctx): { home: MapperHome; explicit: boole
   const home = homeOf(m, ctx);
   const name = mapperExtension(m, ctx.idx.nameOf);
   const key = (h: MapperHome) => `${h.pkg}.${h.object}`;
-  const explicit = ctx.mappers.some(o => o.id !== m.id && o.from && o.to && mapperExtension(o, ctx.idx.nameOf) === name && key(homeOf(o, ctx)) !== key(home));
+  // a method of the type itself (`x.toString`) is never ambiguous - and has no object to call it on;
+  // a standard one with the name of one of the project's is called on its object, the project's stays
+  // an extension - otherwise two of the project's with one name, both on their object
+  const explicit = !!home.object && ctx.mappers.some(o => o.id !== m.id && o.from && o.to && !isMember(o)
+    && !isStandard(o)
+    && mapperExtension(o, ctx.idx.nameOf) === name && key(homeOf(o, ctx)) !== key(home));
   const used = { mapper: m, home, explicit };
   ctx.usedMappers.set(m.id, used);
   return used;
@@ -726,9 +732,13 @@ function scriptImports(ctx: Ctx): string[] {
     if (i) out.add(i);
   }
   // the extensions of the type mappers - their object where one is called on it
-  for (const { home, explicit } of ctx.usedMappers.values()) {
-    out.add(`import ${home.pkg}.${home.object}.*`);
-    if (explicit) out.add(`import ${home.pkg}.${home.object}`);
+  // an object with one called on it: the others by name - all of it would bring that name along too
+  const used = [...ctx.usedMappers.values()].filter(u => u.home.object);
+  for (const { home, explicit, mapper } of used) {
+    const obj = `${home.pkg}.${home.object}`;
+    const mixed = used.some(u => u.explicit && `${u.home.pkg}.${u.home.object}` === obj);
+    if (explicit) out.add(`import ${obj}`);
+    else out.add(mixed ? `import ${obj}.${mapperExtension(mapper, ctx.idx.nameOf)}` : `import ${obj}.*`);
   }
   for (const m of ctx.scripts) {
     for (const f of [...m.params, m.result, ...(m.results ?? [])]) {
