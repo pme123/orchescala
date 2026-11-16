@@ -59,27 +59,18 @@ object Dependencies {
   val logbackVersion        = "1.5.32" // logging
   // - sttpClient3
 
-  // --- Experiments
-  // 04-c7-spring
-  // -> bpmn
-  val camundaSpinVersion    = "7.24.0"
-  // camunda // server spring-boot
-  // 04-c8-spring
-  // -> bpmn
-  val scalaJacksonVersion   = "2.20.0"
+  // 04-engine-c8
   val camunda8Version       = "8.10.9"
-  val springBootVersion     = "3.4.13"
-  val nettyVersion          = "4.2.0.Final"
+  // 04-helper: reads the OpenAPI specs
   val swaggerOpenAPIVersion = "2.1.34"
-  val testcontainersVersion = "1.20.4"
   // 06-gateway
   val oauth2Version = "4.5.0"
   val jgitVersion   = "7.6.0.202603022253-r"
 
-  // examples
-  val h2Version             = "2.3.232"
-  val twitter4jVersion      = "4.1.2"
-  val groovyVersion         = "3.0.25"
+  // 04-persistence-postgres
+  val hikariVersion         = "6.2.1"
+  val postgresqlVersion     = "42.7.4"
+  val testcontainersVersion = "1.21.4"
 
   // sbt plugins
   val sbtNativePackager = "1.11.7"
@@ -108,12 +99,6 @@ object Dependencies {
     "com.softwaremill.sttp.tapir"   %% "tapir-zio-http-server" % tapirVersion
   )
 
-  lazy val camunda7workerDependencies    = Seq(
-    "org.camunda.bpm.springboot" % "camunda-bpm-spring-boot-starter-external-task-client" % camundaVersion,
-    "org.springframework.boot"   % "spring-boot-starter-oauth2-client"                    % springBootVersion,
-    "org.springframework.boot"   % "spring-boot-starter-security"                         % springBootVersion,
-    "org.springframework.boot"   % "spring-boot-starter-web"                              % springBootVersion
-  )
   lazy val camunda7ZioWorkerDependencies = Seq(
     "org.camunda.bpm" % "camunda-external-task-client" % camundaVersion
   )
@@ -153,13 +138,6 @@ object Dependencies {
     "com.softwaremill.sttp.client3" %% "async-http-client-backend-future" % sttpClient3Version
   )
 
-  val zeebeDependencies = Seq(
-    "org.springframework.boot"      % "spring-boot-starter"         % springBootVersion,
-    "org.springframework.boot"      % "spring-boot-starter-webflux" % springBootVersion,
-    "io.camunda.spring"             % "spring-boot-starter-camunda" % camunda8Version,
-    "com.fasterxml.jackson.module" %% "jackson-module-scala"        % scalaJacksonVersion
-  ) // .map(_.exclude("org.slf4j", "slf4j-api"))
-
   val camunda8JavaClientDependency =
     "io.camunda" % "camunda-client-java" % camunda8Version
 
@@ -167,9 +145,9 @@ object Dependencies {
     "dev.zio" %% "zio" % zioVersion
   // PersistenceWorker on Postgres (04-persistence-postgres): JDBC pool and driver; Testcontainers
   val persistencePostgresDependencies = Seq(
-    "com.zaxxer"          % "HikariCP"                 % "6.2.1",
-    "org.postgresql"      % "postgresql"               % "42.7.4",
-    "org.testcontainers"  % "postgresql"               % "1.21.4" % Test
+    "com.zaxxer"          % "HikariCP"                 % hikariVersion,
+    "org.postgresql"      % "postgresql"               % postgresqlVersion,
+    "org.testcontainers"  % "postgresql"               % testcontainersVersion % Test
   )
 
   val zioTestDependencies =
@@ -182,38 +160,13 @@ object Dependencies {
   val logbackDependency  = "ch.qos.logback" % "logback-classic"   % logbackVersion % Runtime
   val oauth2Dependency   = "com.auth0" % "java-jwt" % oauth2Version
 
-  // examples
-  val camundaDependencies = Seq(
-    "org.springframework.boot"   % "spring-boot-starter-web"                % springBootVersion exclude (
-      "org.slf4j",
-      "slf4j-api"
-    ),
-    "org.springframework.boot"   % "spring-boot-starter-jdbc"               % springBootVersion exclude (
-      "org.slf4j",
-      "slf4j-api"
-    ),
-    "io.netty"                   % "netty-all"                              % nettyVersion, // needed for Spring Boot Version > 2.5.*
-    "org.camunda.bpm.springboot" % "camunda-bpm-spring-boot-starter-rest"   % camundaVersion,
-    "org.camunda.bpm.springboot" % "camunda-bpm-spring-boot-starter-webapp" % camundaVersion,
-    // json support
-    "org.camunda.bpm"            % "camunda-engine-plugin-spin"             % camundaVersion,
-    "org.camunda.spin"           % "camunda-spin-dataformat-json-jackson"   % camundaSpinVersion,
-    jaxbApiDependency,
-    // groovy support
-    "org.codehaus.groovy"        % "groovy-jsr223"                          % groovyVersion,
-    "com.h2database"             % "h2"                                     % h2Version
-  ) // .map(_.exclude("org.slf4j", "slf4j-api"))
-
   lazy val osLib          = "com.lihaoyi"         %% "os-lib"         % osLibVersion
   lazy val chimney        = "io.scalaland"        %% "chimney"        % chimneyVersion
   lazy val swaggerOpenAPI = "io.swagger.parser.v3" % "swagger-parser" % swaggerOpenAPIVersion
   lazy val sardineWebDav  = "com.github.lookfirst" % "sardine"        % sardineWebDavVersion
 
   lazy val camunda8EngineDependencies = Seq(
-    camunda8JavaClientDependency,
-   // "io.camunda" % "zeebe-process-test-extension" % zeebeVersion % Test,
-   // "org.testcontainers" % "testcontainers" % testcontainersVersion % Test,
-   // "org.testcontainers" % "junit-jupiter" % testcontainersVersion % Test
+    camunda8JavaClientDependency
   )
 
 }
