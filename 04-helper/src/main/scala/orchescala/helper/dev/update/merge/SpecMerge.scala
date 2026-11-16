@@ -44,7 +44,8 @@ import scala.util.{Failure, Success, Try}
 object SpecMerge:
 
   /** A file of type mappers of Orch Spec (`TypeMappers.scala`, `ClientMasterV1TypeMappers.scala`) - extensions it adds to a
-    * schema: named as Orch Spec names them (`<Level>[V<n>]TypeMappers`), in a `schema` folder.
+    * schema: named as Orch Spec names them (`<Level>[V<n>]TypeMappers`), in a `schema` folder. Asked only of the files
+    * the export generates - a hand-written `CustomTypeMappers.scala` of the project never comes here.
     */
   private[merge] def isTypeMappers(rel: os.RelPath): Boolean =
     rel.last.matches("""(?:[A-Z]\w*?)?(?:V\d+)?TypeMappers\.scala""") && rel.segments.dropRight(1).lastOption.contains("schema")
