@@ -12,6 +12,8 @@
 //   script task    clients <- ZIO.attempt(mergeClients(…))   (its FEEL as a method of the worker - with a test;
 //                                                     `concatenate` of lists, a class into the case it fits)
 //                  total = …                        (an assignment: FEEL → Scala, see feelScala.ts)
+//   mapping        client <- mapClient(…)           (a method returning IO[CustomError, …]: a `for` that
+//                                                     resolves the required values first, then builds)
 //   parallel       each branch forked, then joined  (as in «Advanced Custom Workers»)
 //   exclusive      kind match { case Kind.A => … }  (one variable against values - else if … then …;
 //                                                     what a branch produces is an Option afterwards)
@@ -103,6 +105,19 @@ interface ScriptMethod {
   results?: Field[];
   /** a mapping: per mapped field what the test expects (`result.firstName` == `client.firstName`) */
   checks?: { at: string; value: string }[];
+  /** a mapping: a ZIO (`IO[CustomError, …]`) - the required values resolved first, a missing one fails */
+  io?: boolean;
+}
+
+/**
+ * The body of a method of a mapping: a `for` that resolves the required values first (`x <-
+ * ZIO.fromOption(…).orElseFail(…)`), then builds - without any a `ZIO.succeed`. A body that is only
+ * the one binding it yields is that ZIO itself.
+ */
+function forComprehension(binds: { name: string; io: string }[], value: string): string {
+  if (!binds.length) return `ZIO.succeed(${value.includes('\n') ? `\n${indent(value, '  ')}\n` : value})`;
+  if (binds.length === 1 && binds[0].name === value) return binds[0].io;
+  return ['for', ...binds.map(b => indent(`${b.name} <- ${b.io}`, '  ')), `yield ${value}`].join('\n');
 }
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
@@ -367,9 +382,37 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
  */
 type CaseMethod = (c: { source: Field; sourceCase: string; target: Field; body: string; checks: { at: string; value: string }[] }) => string;
 
-function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string, onCase?: CaseMethod) {
+function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string, onCase: CaseMethod) {
   let checks: { at: string; value: string }[] = [];
-  const missing = (what: string) => `throw IllegalArgumentException(${JSON.stringify(`${where}: ${what} fehlt`)})`;
+  /** the bindings of the method being built - a required value resolved before it builds */
+  let binds: { name: string; io: string }[] = [];
+  /** the names of the method being built - its parameters, its bindings */
+  let names = new Set<string>([...scope.keys()].map(scalaIdent));
+  const bind = (base: string, io: string): string => {
+    const b = scalaIdent(base.replace(/[^A-Za-z0-9_]/g, '') || 'value');
+    let name = b;
+    for (let i = 2; names.has(name); i++) name = `${b}${i}`;
+    names.add(name);
+    binds.push({ name, io });
+    return name;
+  };
+  /** a required value from an Option: a binding that fails with its path */
+  const required = (path: string, option: string) =>
+    bind(path.split('.').pop()!, `ZIO.fromOption(${option}).orElseFail(CustomError(${JSON.stringify(`${where}: ${path} fehlt`)}))`);
+  /** `f` built in a method (scope) of its own: its bindings and names apart, its body a ZIO */
+  const apart = (own: string[], f: () => string): { value: string; binds: { name: string; io: string }[] } => {
+    const outerBinds = binds;
+    const outerNames = names;
+    binds = [];
+    names = new Set([...outerNames, ...own]);
+    try {
+      const value = f();
+      return { value, binds };
+    } finally {
+      binds = outerBinds;
+      names = outerNames;
+    }
+  };
   const rows = (args: string[]) => `(\n${indent(args.join(',\n'), '  ')}\n)`;
   const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
 
@@ -411,7 +454,8 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     const sub = (hasInner(m, path) || caseLink) && !f.collection ? typeOf(f.type, ctx) : undefined;
     // an enum with cases built from its fields: the case the source's case decides
     if (sub && isAdt(sub) && (caseLink || !l)) {
-      const v = caseLink ? adtValue(sub, caseLink, path) : todo(`${path}: ein Enum mit Fällen - im Mapping je Fall der Quelle einen Fall wählen`);
+      // the match is a ZIO (the methods of the cases fail): bound, before it builds
+      const v = caseLink ? bind(f.name, adtValue(sub, caseLink, path)) : todo(`${path}: ein Enum mit Fällen - im Mapping je Fall der Quelle einen Fall wählen`);
       return f.optional ? `Some(${v})` : v;
     }
     if (sub?.kind === 'case') {
@@ -423,8 +467,15 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       let v: string;
       if (!it) v = build(sub, inner, null, reach);
       else if (!it.optional) v = build(sub, inner, /^[\w.]+$/.test(it.scala) ? it.scala : `(${it.scala})`, reach);
-      else if (f.optional) v = `${it.scala}.map(${lambda(f)} =>\n${indent(build(sub, inner, lambda(f), null), '  ')}\n)`;
-      else v = build(sub, inner, `${it.scala}.getOrElse(${missing(path)})`, at);
+      else if (f.optional) {
+        // what it needs resolved inside: each value of the Option in a ZIO of its own
+        const x = lambda(f);
+        const b = apart([x], () => build(sub, inner, x, null));
+        v = !b.binds.length ? `${it.scala}.map(${x} =>\n${indent(b.value, '  ')}\n)`
+          : bind(f.name, `ZIO.foreach(${it.scala})(${x} =>\n${indent(forComprehension(b.binds, b.value), '  ')}\n)`);
+        return v;
+      }
+      else v = build(sub, inner, required(path, it.scala), at);
       return f.optional && !it?.optional ? `Some(${v})` : v;
     }
     if (!l || (!l.expression?.trim() && !linkPaths(l).length)) {
@@ -436,7 +487,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     }
     const t = linkValue(l, f);
     const v = forTarget(t, !!f.optional);
-    const scala = v.needed ? `${v.scala}.getOrElse(${missing(path)})` : v.scala;
+    const scala = v.needed ? required(path, v.scala) : v.scala;
     if (at && !t.todo && !v.needed) checks.push({ at, value: scala });
     return scala;
   };
@@ -479,14 +530,15 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       checks = [];
       try {
         // in a method of its own: the test reaches the fields from its result, the target case
-        const body = build(target, `${path}.`, null, onCase ? 'result' : null);
-        const call = onCase?.({
+        const built = apart([], () => build(target, `${path}.`, null, 'result'));
+        const body = forComprehension(built.binds, built.value);
+        const call = onCase({
           source: { id: `case-${sc.name}`, name, type: source.type!, enumCase: sc.name },
           sourceCase: sc.name,
           target: { id: `case-${tv.name}`, name: path.split('.').pop()!, type: adt.id, enumCase: tv.name },
           body, checks,
         });
-        branches.push(`case ${scalaIdent(name)}: ${narrowed.name} =>${call ? ` ${call}` : `\n${indent(body, '  ')}`}`);
+        branches.push(`case ${scalaIdent(name)}: ${narrowed.name} => ${call}`);
       } finally {
         scope.set(name, source);
         branch = outer;
@@ -494,9 +546,8 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       }
     }
     const open = (src.values ?? []).filter(sc => !(adt.values ?? []).some(v => v.name === c.cases.find(x => x.from === sc.name)?.to));
-    if (open.length) branches.push(`case other => throw IllegalArgumentException(s"${where}: ${src.name} $other - kein Fall von ${adt.name} gewählt")`);
-    const v = `${source.scala} match\n${indent(branches.join('\n'), '  ')}`;
-    return path.includes('.') ? `(\n${indent(v, '  ')}\n)` : v;
+    if (open.length) branches.push(`case other => ZIO.fail(CustomError(s"${where}: ${src.name} $other - kein Fall von ${adt.name} gewählt"))`);
+    return `${source.scala} match\n${indent(branches.join('\n'), '  ')}`;
   };
 
   /** The class `t` from the links below `prefix`: a copy of `on`, or field by field. */
@@ -512,7 +563,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     return `${t.name}${rows(args)}`;
   };
 
-  return { value, checks };
+  return { value, checks, binds: () => binds };
 }
 
 /** A script task as a mapping: its method - In the parameters, Out the result (a tuple for several) - and its call. */
@@ -532,27 +583,27 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
   const entry: ScriptMethod = {
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
-    params, result: outs[0], ...(one ? {} : { results: outs }), body: '', cases: [],
+    params, result: outs[0], ...(one ? {} : { results: outs }), body: '', cases: [], io: true,
   };
   ctx.scripts.push(entry);
   const onCase: CaseMethod = c => {
     const name = uniqueMethod(ctx, `${method}${c.sourceCase.charAt(0).toUpperCase()}${c.sourceCase.slice(1).replace(/[^A-Za-z0-9]/g, '')}`);
     const caseParams = params.map(p => (p.name === c.source.name ? { ...p, ...c.source, id: p.id } : p));
     ctx.scripts.push({
-      step: `${where}: ${c.sourceCase}`, method: name, params: caseParams, result: c.target, body: c.body, cases: [],
+      step: `${where}: ${c.sourceCase}`, method: name, params: caseParams, result: c.target, body: c.body, cases: [], io: true,
       ...(c.checks.length ? { checks: c.checks } : {}),
     });
     return `${name}(${params.map(p => scalaIdent(p.name)).join(', ')})`;
   };
-  const { value, checks } = mappingValues(m, scope, ctx, where, onCase);
+  const { value, checks, binds } = mappingValues(m, scope, ctx, where, onCase);
   const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '');
   // a type mapper is an extension of the domain - the test calls it as the worker does
-  entry.body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
+  entry.body = forComprehension(binds(), one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`);
   if (checks.length) entry.checks = checks;
   const args = params.map(f => known.find(k => k.name === f.name)?.scala ?? todo(`${where}: ${f.name} ist vor dem Schritt nicht bekannt`));
   const names = outs.map(f => scalaIdent(f.name));
   return {
-    line: `${one ? names[0] : `(${names.join(', ')})`} <- ZIO.attempt(${method}(${args.join(', ')})).mapError(e => ${failWith(`${where}: `, 'e.getMessage')})`,
+    line: `${one ? names[0] : `(${names.join(', ')})`} <- ${method}(${args.join(', ')})`,
     produced: outs.map(f => ({
       name: f.name, scala: scalaIdent(f.name), type: f.type, source: 'Script',
       ...(f.optional ? { optional: true } : {}), ...(f.collection ? { collection: true } : {}),
@@ -619,14 +670,17 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
 function scriptMethod(m: ScriptMethod, idx: TypeIndex): string {
   const params = m.params.map(f => `${scalaIdent(f.name)}: ${fieldType(f, idx)}`).join(', ');
   const doc = [`  /** ${m.step}${m.description ? ` - ${m.description.split('\n')[0]}` : ''} - a test calls it with examples */`];
-  const result = m.results ? `(${m.results.map(f => fieldType(f, idx)).join(', ')})` : fieldType(m.result, idx);
+  const plain = m.results ? `(${m.results.map(f => fieldType(f, idx)).join(', ')})` : fieldType(m.result, idx);
+  const result = m.io ? `IO[CustomError, ${plain}]` : plain;
   return [...doc, `  def ${m.method}(${params}): ${result} =`, indent(m.body, '    ')].join('\n');
 }
 
 /** Per script method a test: with the examples of what it reads - the lists all in it, each in its case. */
 function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   const vals = m.params.map(f => `    val ${scalaIdent(f.name)} = ${exampleValue({ ...f, example: undefined }, idx)}`);
-  const call = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
+  const call0 = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
+  // a ZIO: run - a missing value fails the test with its message
+  const call = m.io ? `runIO(${call0})` : call0;
   const list = (f: Field) => (!f.collection ? (f.optional ? `${scalaIdent(f.name)}.size` : '1') : f.optional ? `${scalaIdent(f.name)}.getOrElse(Seq.empty).size` : `${scalaIdent(f.name)}.size`);
   const got = m.result.optional ? 'result.getOrElse(Seq.empty)' : 'result';
   const checks = m.checks?.length
@@ -1054,7 +1108,7 @@ end ${o.name}Worker
  */
 function workerImports(o: ServiceOrchestrationSpec, ctx: Ctx, code: string, workers: boolean): string[] {
   const pkg = collectionPackage(orchestrationApi(o));
-  const imports = new Set<string>(['import zio.ZIO', 'import orchescala.worker.WorkerError.CustomError', `import ${pkg}.*`, `import ${pkg}.${o.name}.*`]);
+  const imports = new Set<string>([ctx.scripts.some(m => m.io) ? 'import zio.{IO, ZIO}' : 'import zio.ZIO', 'import orchescala.worker.WorkerError.CustomError', `import ${pkg}.*`, `import ${pkg}.${o.name}.*`]);
   if (o.types.some(t => !t.interactionId && t.name?.trim())) imports.add(`import ${pkg}.schema.*`);
   for (const ref of ctx.called.values()) {
     const p = servicePackages(ref);
@@ -1126,7 +1180,7 @@ function workerTest(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   for (const m of ctx.scripts) tests.push(scriptTest(m, ctx.idx));
   const imports = [
     'import zio.*', 'import orchescala.domain.*', 'import orchescala.worker.*',
-    ...workerImports(o, ctx, tests.join('\n'), false).filter(i => i !== 'import zio.ZIO'),
+    ...workerImports(o, ctx, tests.join('\n'), false).filter(i => !i.startsWith('import zio.')),
   ];
   return `${workerPackageClause(api)}
 
@@ -1142,7 +1196,10 @@ ${refs.map(r => override(r, answer(r), '    ')).join('\n')}
   private def run(worker: ${o.name}Worker, in: ${o.noIn ? 'NoInput' : 'In'}): Either[CustomError, ${outType}] =
     given EngineRunContext = EngineRunContext(DefaultEngineContext.example, GeneralVariables())
     Unsafe.unsafe(implicit unsafe => Runtime.default.unsafe.run(worker.runWorkZIO(in).either).getOrThrowFiberFailure())
-
+${ctx.scripts.some(m => m.io) ? `
+  private def runIO[A](io: IO[CustomError, A]): A =
+    Unsafe.unsafe(implicit unsafe => Runtime.default.unsafe.run(io).getOrThrowFiberFailure())
+` : ''}
 ${tests.join('\n\n')}
 
 end ${o.name}WorkerTest
