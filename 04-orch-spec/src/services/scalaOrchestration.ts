@@ -484,7 +484,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       if (on) return null;
       if (f.optional) return 'None';
       if (f.collection) return 'Seq.empty';
-      // a line from fields this case of the source does not have (`neoClient.name` only in `Company`)
+      // a line from fields this case of the source does not have (`sourceClient.name` only in `Company`)
       return todo(stored && branch ? `${path}: ${linkPaths(stored).join(', ')} gibt es im Fall ${branch.case} von ${branch.name} nicht` : `${path}: nicht zugeordnet`);
     }
     const t = linkValue(l, f);
@@ -506,7 +506,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
 
   /**
    * An enum with cases (`ClientRead`) from the links below `path`: a match on the case of the
-   * source (`neoClient`) - in each branch the source is that case (its own fields readable), the
+   * source (`sourceClient`) - in each branch the source is that case (its own fields readable), the
    * value the case of the target it becomes, field by field. A case of the source without one fails.
    */
   const adtValue = (adt: TypeDef, c: CaseLink, path: string): string => {

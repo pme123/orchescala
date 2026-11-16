@@ -263,7 +263,7 @@ export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): Mapp
 /**
  * `fieldsOf`: the fields of a case of an enum (its own and the shared ones) - with it a line from a
  * field a case of the source does not have, where the case it becomes has the field, is found
- * (`neoClient.name` only in `Company`, drawn onto `person.name` of what `Person` becomes) - when it
+ * (`sourceClient.name` only in `Company`, drawn onto `person.name` of what `Person` becomes) - when it
  * gives the field nothing in any case; in some cases only is normal.
  */
 export function caseLinkIssues(stored: FieldMapping, cases: (ref: string) => string[] | null, fieldsOf?: (ref: string, c: string) => string[] | null): MappingIssue[] {

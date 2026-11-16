@@ -176,13 +176,13 @@ export interface FieldMapping {
 
 /**
  * Which case a field of the Out that is an enum with cases (ADT, `ClientRead`) becomes: decided by
- * the case of an ADT of the In (`neoClient: Client`) - `Client.Person` → `ClientRead.privateIndividual`.
- * In the worker a method per case of the source (`nEOToFILPerson(neoClient: Client.Person)`), with its test.
+ * the case of an ADT of the In (`sourceClient: Client`) - `Client.Person` → `ClientRead.privateIndividual`.
+ * In the worker a method per case of the source (`mapClientPerson(sourceClient: Client.Person)`), with its test.
  */
 export interface CaseLink {
   /** the path in the Out - `filClient` */
   field: string;
-  /** the path in the In whose case decides - `neoClient` */
+  /** the path in the In whose case decides - `sourceClient` */
   from: string;
   /** per case of `from` the case of `field` - an empty `to`: none, it fails at runtime */
   cases: Array<{ from: string; to: string }>;

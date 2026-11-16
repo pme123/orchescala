@@ -1,5 +1,5 @@
 // The cases of a mapping: an Out that is an enum with cases (ADT, `ClientRead`) becomes the case
-// the case of a source of the In decides (`neoClient: Client`) - per case of the source the case of
+// the case of a source of the In decides (`sourceClient: Client`) - per case of the source the case of
 // the Out. In the worker a match on the source that calls a method per case, each with its test.
 import { ArrowRight, GitFork, Wand2 } from 'lucide-react';
 import { useMemo } from 'react';
