@@ -31,15 +31,20 @@ const short = (n: string) => n.replace(/^.*\./, '');
  */
 export function findMapper(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string): TypeMapper | undefined {
   if (!mappers?.length || !from || !to) return undefined;
-  return mapperByName(mappers, nameOf(from), nameOf(to), nameOf);
+  return mapperByName(mappers, nameOf(from), nameOf(to), nameOf, { from, to });
 }
+
+/** Two types the same? Both of the catalog (`dom:…`): by their reference - otherwise the names decide. */
+const sameRef = (a: string, b: string | undefined) => !b || !a.startsWith('dom:') || !b.startsWith('dom:') || a === b;
 
 /**
  * The mapper between two types by their names (as the variables of a mapping show them) - only
  * when it is the one: two with the same names (other packages) are no match, mapperIssues says so.
  */
-export function mapperByName(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string): TypeMapper | undefined {
-  const hits = (mappers ?? []).filter(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to));
+export function mapperByName(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string, refs: { from?: string; to?: string } = {}): TypeMapper | undefined {
+  // the same names of other packages (`ClientType` of two projects) are no match when both are known
+  const hits = (mappers ?? []).filter(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to)
+    && sameRef(m.from, refs.from) && sameRef(m.to, refs.to));
   return hits.length === 1 ? hits[0] : undefined;
 }
 
@@ -265,7 +270,7 @@ export function converter(mappers: TypeMapper[] | undefined, nameOf: (ref: strin
     const a = element(from.label);
     const b = element(to.label);
     if (a.list !== b.list || a.name === b.name) return null;
-    const m = mapperByName(mappers, a.name, b.name, nameOf);
+    const m = mapperByName(mappers, a.name, b.name, nameOf, { from: from.field?.type, to: to.field?.type });
     return m ? `${short(nameOf(m.from))} → ${short(nameOf(m.to))}` : null;
   };
 }

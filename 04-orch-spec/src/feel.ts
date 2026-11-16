@@ -213,10 +213,12 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     const enumRef = split ? resolveType(split.base, b.model, dom.pkg) : null;
     const isCase = !!split && enumHasCase(enumRef, split.enumCase);
     const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : isCase ? domainRef(enumRef!.id) : shape.base;
-    return nodeOf(p.name, typeRef, {
+    const n = nodeOf(p.name, typeRef, {
       optional: shape.optional && !p.default?.trim(), collection: shape.collection, map: shape.map, ...(isCase ? { enumCase: split!.enumCase } : {}), description: p.description,
       source: `Feld von ${dom.name}`, label: p.type,
     }, b, depth + 1, seen);
+    // its type as a reference too (see nodeOfField) - a type mapper is matched by it
+    return !shape.map && !isCase ? { ...n, field: { type: typeRef, ...(shape.collection ? { collection: true } : {}), ...(shape.optional ? { optional: true } : {}) } } : n;
   });
   return { type: 'context', children };
 }

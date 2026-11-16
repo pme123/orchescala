@@ -267,3 +267,17 @@ test('a mapper of the code (catalog): the worker imports its object and calls it
   assert.deepEqual(mappers.map(f => f.path.split('/').pop()), ['ClientV1TypeMappers.scala']);
   assert.doesNotMatch(mappers[0].content, /def (toKind|toClientType)/);
 });
+
+test('a mapper only for its own types when both are of the catalog - the same name of another project is no match', () => {
+  const nameOf = (ref: string) => ref.replace(/^dom:/, '');
+  const m: TypeMapper = { id: 'm', from: 'dom:a.v1.schema.MainType', to: 'dom:a.v1.schema.ClientType', kind: 'decoder' };
+  assert.equal(findMapper([m], 'dom:a.v1.schema.MainType', 'dom:a.v1.schema.ClientType', nameOf), m);
+  assert.equal(findMapper([m], 'dom:a.v1.schema.MainType', 'dom:b.v1.schema.ClientType', nameOf), undefined);
+  // a type by name only (a mapper of the code): the names decide
+  assert.equal(findMapper([{ ...m, to: 'ClientType' }], 'dom:a.v1.schema.MainType', 'dom:b.v1.schema.ClientType', nameOf)?.id, 'm');
+  // the editor: by the types of the fields when it has them
+  const node = (label: string, type?: string): VarNode => ({ name: 'x', label, type: 'string', source: 'In', ...(type ? { field: { type } } : {}) });
+  const convert = converter([m], nameOf);
+  assert.equal(convert(node('MainType', 'dom:a.v1.schema.MainType'), node('ClientType', 'dom:b.v1.schema.ClientType')), null);
+  assert.equal(convert(node('MainType', 'dom:a.v1.schema.MainType'), node('ClientType', 'dom:a.v1.schema.ClientType')), 'MainType → ClientType');
+});
