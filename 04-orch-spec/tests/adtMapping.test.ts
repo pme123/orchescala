@@ -139,7 +139,7 @@ test('in ZIO: a required value of a case resolved first, the match inside an obj
   // in the case: the required one first; the optional object (a copy of the line onto it) per value in a for of its own
   assert.match(w, /def mapClientA\(src: Src\.A\): IO\[CustomError, Dst\.X\] =\n\s+for\n\s+a <- ZIO\.fromOption\(src\.a\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.a fehlt"\)\)\n\s+p <- ZIO\.foreach\(src\.p\)\(p =>\n\s+for\n\s+name <- ZIO\.fromOption\(src\.p\.flatMap\(_\.name\)\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.p\.name fehlt"\)\)\n\s+built <- mapped\("Map Client"\)\(\n\s+p\.copy\(\n\s+name = name\n\s+\)\n\s+\)\n\s+yield built\n\s+\)\n\s+built <- mapped\("Map Client"\)\(\n\s+Dst\.X\(\n\s+a = a,\n\s+p = p\n\s+\)\n\s+\)\n\s+yield built/, w);
   // a mapper that throws (an unknown case, `"abc".toBigDecimal`) fails as a CustomError: built in ZIO.attempt
-  assert.match(w, /private def mapped\[A\]\(where: String\)\(value: => A\): IO\[CustomError, A\] =\n\s+ZIO\.attempt\(value\)\.mapError\(err => CustomError\(s"\$where: \$\{err\.getMessage\}"\)\)/, w);
+  assert.match(w, /private def mapped\[A\]\(where: String\)\(value: => A\): IO\[CustomError, A\] =\n\s+ZIO\.attempt\(value\)\.mapError\(err => CustomError\(s"\$where: \$\{Option\(err\.getMessage\)\.getOrElse\(err\.toString\)\}"\)\)/, w);
 });
 
 test('the tree of an enum with cases: the fields not all cases have carry their cases - shared ones none', async () => {

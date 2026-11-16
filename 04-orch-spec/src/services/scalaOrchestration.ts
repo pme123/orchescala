@@ -130,7 +130,7 @@ function forComprehension(binds: { name: string; io: string }[], value: string, 
 const MAPPED = [
   '  /** what a mapping builds - a value a type mapper cannot convert fails as a CustomError, not as a defect */',
   '  private def mapped[A](where: String)(value: => A): IO[CustomError, A] =',
-  '    ZIO.attempt(value).mapError(err => CustomError(s"$where: ${err.getMessage}"))',
+  '    ZIO.attempt(value).mapError(err => CustomError(s"$where: ${Option(err.getMessage).getOrElse(err.toString)}"))',
 ].join('\n');
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
