@@ -1,5 +1,6 @@
 // A mapping onto an enum with cases (ADT): the case of a source ADT of the In decides which case it
-// becomes - in Scala a match, in each branch the source as that case, the target case field by field.
+// becomes - in Scala a match that calls a method per case: the source as that case, the target case
+// field by field, each with its test.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -17,7 +18,7 @@ const types: TypeDef[] = [
   { id: 'dst', name: 'Dst', kind: 'enum', values: [{ name: 'X', fields: [f('id', 'String'), f('a', 'String'), f('extra', 'String', { optional: true })] }, { name: 'Y', fields: [f('id', 'String'), f('b', 'String')] }] } as TypeDef,
 ];
 
-const worker = (m: FieldMapping) => {
+const files = (m: FieldMapping) => {
   const o = newOrchestration({ title: 'Kunde', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'MapClient' });
   o.types.find(x => x.id === o.inTypeId)!.fields = [f('src', 'src')];
   const spec: ServiceOrchestrationSpec = {
@@ -31,16 +32,26 @@ const worker = (m: FieldMapping) => {
 </bpmn:definitions>`,
     tasks: { MapTask: { script: '= {}', mapping: m } }, conditions: {}, outMappings: [],
   };
-  return orchestrationFiles(spec, [], null).find(x => x.path.endsWith('/MapClientWorker.scala'))!.content;
+  const fs = orchestrationFiles(spec, [], null);
+  return {
+    worker: fs.find(x => x.path.endsWith('/MapClientWorker.scala'))!.content,
+    test: fs.find(x => x.path.endsWith('/MapClientWorkerTest.scala'))!.content,
+  };
 };
+const worker = (m: FieldMapping) => files(m).worker;
 const lines: FieldMapping['fields'] = [{ field: 'dst.id', from: ['src.id'] }, { field: 'dst.a', from: ['src.a'] }, { field: 'dst.b', from: ['src.b'] }];
 
-test('an ADT built from the case of the source: a match, the source as its case in the branch; a case without a target fails', () => {
-  const w = worker({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: lines, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: '' }] }] });
-  assert.match(w, /def mapClient\(src: Src\): Dst =\n\s+src match\n\s+case src: Src\.A =>\n\s+Dst\.X\(\n\s+id = src\.id,\n\s+a = src\.a,\n\s+extra = None\n\s+\)\n\s+case other => throw IllegalArgumentException\(s"Map Client: Src \$other - kein Fall von Dst gewählt"\)/, w);
+test('an ADT built from the case of the source: a match calling a method per case; a case without a target fails', () => {
+  const { worker: w, test: t } = files({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: lines, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: '' }] }] });
+  assert.match(w, /def mapClient\(src: Src\): Dst =\n\s+src match\n\s+case src: Src\.A => mapClientA\(src\)\n\s+case other => throw IllegalArgumentException\(s"Map Client: Src \$other - kein Fall von Dst gewählt"\)/, w);
+  // the case: the source as it, the target case as its result - field by field
+  assert.match(w, /def mapClientA\(src: Src\.A\): Dst\.X =\n\s+Dst\.X\(\n\s+id = src\.id,\n\s+a = src\.a,\n\s+extra = None\n\s+\)/, w);
+  // its test: with the example of the case, the fields of the result
+  assert.match(t, /test\("mapClientA"\):\n\s+val src = Src\.A\.example\n\s+val result = Mocked\(\)\.mapClientA\(src\)\n\s+assertEquals\(result\.id, src\.id\)\n\s+assertEquals\(result\.a, src\.a\)/, t);
   // both cases chosen: no default; a line from a field the case does not have is none in that branch
   const both = worker({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: lines, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }] });
-  assert.match(both, /case src: Src\.B =>\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n\s+\)/, both);
+  assert.match(both, /case src: Src\.B => mapClientB\(src\)/, both);
+  assert.match(both, /def mapClientB\(src: Src\.B\): Dst\.Y =\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n\s+\)/, both);
   assert.doesNotMatch(both, /case other/);
 });
 

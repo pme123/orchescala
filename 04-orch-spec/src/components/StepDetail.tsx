@@ -2244,7 +2244,7 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
               <summary className={`cursor-pointer ${c.muted}`}>FEEL des Mappings</summary>
               <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap break-all font-mono text-[9px] ${c.border}`}>{value}</pre>
             </details>
-            <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers - das In ihre Parameter, das Out ihr Ergebnis (ein Objekt Feld für Feld oder ein copy seiner Basis), mit Test.</p>
+            <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers - das In ihre Parameter, das Out ihr Ergebnis (ein Objekt Feld für Feld oder ein copy seiner Basis), mit Test. Ein Enum mit Fällen: je Fall der Quelle eine eigene Methode mit Test, die Methode des Mappings wählt sie.</p>
           </>
         )}
         {!mapping && <>

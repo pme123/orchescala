@@ -358,8 +358,14 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
  * what the line onto it gives (`existingClient.copy(…)`, `map` for an Option), otherwise its class
  * field by field (`Client(…)`). `checks`: what the test expects, reached from the result.
  */
-function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string) {
-  const checks: { at: string; value: string }[] = [];
+/**
+ * A case of an enum with cases as a method of its own (see adtValue): the source as that case, the
+ * target case built, with what its test checks - the call that replaces the branch.
+ */
+type CaseMethod = (c: { source: Field; sourceCase: string; target: Field; body: string; checks: { at: string; value: string }[] }) => string;
+
+function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string, onCase?: CaseMethod) {
+  let checks: { at: string; value: string }[] = [];
   const missing = (what: string) => `throw IllegalArgumentException(${JSON.stringify(`${where}: ${what} fehlt`)})`;
   const rows = (args: string[]) => `(\n${indent(args.join(',\n'), '  ')}\n)`;
   const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
@@ -460,12 +466,23 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       ctx.types.push(narrowed);
       scope.set(name, { ...source, type: narrowed.id });
       const outer = branch;
+      const outerChecks = checks;
       branch = { name, fields: new Set((narrowed.fields ?? []).map(x => x.name)) };
+      checks = [];
       try {
-        branches.push(`case ${scalaIdent(name)}: ${narrowed.name} =>\n${indent(build(target, `${path}.`, null, null), '  ')}`);
+        // in a method of its own: the test reaches the fields from its result, the target case
+        const body = build(target, `${path}.`, null, onCase ? 'result' : null);
+        const call = onCase?.({
+          source: { id: `case-${sc.name}`, name, type: source.type!, enumCase: sc.name },
+          sourceCase: sc.name,
+          target: { id: `case-${tv.name}`, name: path.split('.').pop()!, type: adt.id, enumCase: tv.name },
+          body, checks,
+        });
+        branches.push(`case ${scalaIdent(name)}: ${narrowed.name} =>${call ? ` ${call}` : `\n${indent(body, '  ')}`}`);
       } finally {
         scope.set(name, source);
         branch = outer;
+        checks = outerChecks;
       }
     }
     const open = (src.values ?? []).filter(sc => !(adt.values ?? []).some(v => v.name === c.cases.find(x => x.from === sc.name)?.to));
@@ -500,17 +517,28 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const twice = [...dups(params), ...dups(outs)];
   if (twice.length) return { line: `// TODO «${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`, produced: [] };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
-  const { value, checks: raw } = mappingValues(m, scope, ctx, where);
   const one = outs.length === 1;
+  // the method of the mapping first - the methods of the cases of an enum follow it
+  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
+  const entry: ScriptMethod = {
+    step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
+    params, result: outs[0], ...(one ? {} : { results: outs }), body: '', cases: [],
+  };
+  ctx.scripts.push(entry);
+  const onCase: CaseMethod = c => {
+    const name = uniqueMethod(ctx, `${method}${c.sourceCase.charAt(0).toUpperCase()}${c.sourceCase.slice(1).replace(/[^A-Za-z0-9]/g, '')}`);
+    const caseParams = params.map(p => (p.name === c.source.name ? { ...p, ...c.source, id: p.id } : p));
+    ctx.scripts.push({
+      step: `${where}: ${c.sourceCase}`, method: name, params: caseParams, result: c.target, body: c.body, cases: [],
+      ...(c.checks.length ? { checks: c.checks } : {}),
+    });
+    return `${name}(${params.map(p => scalaIdent(p.name)).join(', ')})`;
+  };
+  const { value, checks } = mappingValues(m, scope, ctx, where, onCase);
   const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '');
   // a type mapper is an extension of the domain - the test calls it as the worker does
-  const checks = raw;
-  const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
-  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
-  ctx.scripts.push({
-    step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
-    params, result: outs[0], ...(one ? {} : { results: outs }), body, cases: [], ...(checks.length ? { checks } : {}),
-  });
+  entry.body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
+  if (checks.length) entry.checks = checks;
   const args = params.map(f => known.find(k => k.name === f.name)?.scala ?? todo(`${where}: ${f.name} ist vor dem Schritt nicht bekannt`));
   const names = outs.map(f => scalaIdent(f.name));
   return {
