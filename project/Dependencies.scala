@@ -72,10 +72,17 @@ object Dependencies {
   val postgresqlVersion     = "42.7.4"
   val testcontainersVersion = "1.21.4"
 
-  // sbt plugins
-  val sbtNativePackager = "1.11.7"
-  val sbtCiRelease      = "1.11.2"
-  val sbtBuildInfo      = "0.13.1"
+  // sbt plugins - their versions are only in project/plugins.sbt, read from there
+  // (BuildInfo passes them on to the generated company builds)
+  private lazy val pluginsSbt = IO.read(file("project/plugins.sbt"))
+  private def pluginVersion(name: String): String =
+    ("\"" + java.util.regex.Pattern.quote(name) + "\"\\s*%\\s*\"([^\"]+)\"").r
+      .findFirstMatchIn(pluginsSbt)
+      .map(_.group(1))
+      .getOrElse(sys.error(s"sbt plugin $name not found in project/plugins.sbt"))
+  lazy val sbtNativePackager = pluginVersion("sbt-native-packager")
+  lazy val sbtCiRelease      = pluginVersion("sbt-ci-release")
+  lazy val sbtBuildInfo      = pluginVersion("sbt-buildinfo")
 
   lazy val jaxbApiDependency   = "jakarta.xml.bind" % "jakarta.xml.bind-api" % jaxbApiVersion
   lazy val coursierDependency = "io.get-coursier" % "interface" % coursierVersion
