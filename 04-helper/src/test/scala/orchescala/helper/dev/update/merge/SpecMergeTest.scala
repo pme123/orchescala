@@ -689,6 +689,25 @@ class SpecMergeTest extends FunSuite:
       )
     )
 
+  test("services: the type mappers of an orchestration in the schema of its API - the classes there stay, nothing asked"):
+    inProject: project =>
+      // a class of the schema the code has (another export, or by hand)
+      val schema = project / os.RelPath(s"$domainPkg/schema")
+      os.write(schema / "Client.scala", "package acme.demo.domain\npackage client.v1.schema\n\ncase class Client(name: String)\n", createFolders = true)
+      val withMappers = ServicesExport(
+        "update-client",
+        scalaFiles(
+          s"$domainPkg/UpdateClient.scala"       -> "package acme.demo.domain.client.v1\n\nobject UpdateClient\nend UpdateClient",
+          s"$domainPkg/schema/ClientV1TypeMappers.scala" ->
+            "package acme.demo.domain\npackage client.v1.schema\n\nobject ClientV1TypeMappers:\n  extension (x: Int) def toText: String = x.toString\nend ClientV1TypeMappers",
+          s"$workerPkg/UpdateClientWorker.scala" -> "package acme.demo.worker.client.v1\n\nclass UpdateClientWorker:\n  def run = ???\nend UpdateClientWorker"
+        )
+      )
+      val (plan, _) = run(project, Seq.empty, Seq(withMappers))
+      assertEquals(actionOf(plan, project, "ClientV1TypeMappers.scala"), Action.create)
+      assertEquals(plan.removals, Seq.empty)
+      assert(os.exists(schema / "Client.scala"))
+
   test("services: a collection and an orchestration of one API - created, one block with the entries of both"):
     inProject: project =>
       val (plan, _) = run(project, Seq.empty, Seq(collection(), orchestration))
