@@ -9,7 +9,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRig
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VarNode } from '../feel';
-import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink, type Converter } from '../fieldMapping';
+import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink, type Converter, type MapperChoices } from '../fieldMapping';
 import type { FieldLink, FieldMapping } from '../types';
 import { cls } from '../ui';
 import FeelInput from './FeelInput';
@@ -33,10 +33,18 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
 /** a node that has fields to open - not a list (paths do not go into one) */
 const opens = (n: VarNode) => n.type !== 'list' && !!n.children?.length;
 
-export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, convert, onChange }: {
+/** The fields as the rows show them: the shared ones first, then those of the cases, case by case (see caseGroups). */
+function inCaseOrder(children: VarNode[]): VarNode[] {
+  const keys = [...new Set(children.filter(n => n.cases).map(n => n.cases!.join(', ')))];
+  return [...children.filter(n => !n.cases), ...keys.flatMap(k => children.filter(n => n.cases?.join(', ') === k))];
+}
+
+export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, convert, choices, onChange }: {
   mapping: FieldMapping;
   /** the type mappers of the model: a line between their types converts */
   convert?: Converter;
+  /** the type mappers a line can choose - one with a name only so */
+  choices?: MapperChoices;
   /** the Out - its variables (children) are the right side */
   target: VarNode;
   /** the In - the left side */
@@ -54,7 +62,7 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
     return () => window.removeEventListener('keydown', onKey);
   }, [large]);
   const body = (
-    <Editor mapping={mapping} target={target} sources={sources} isDark={isDark} canEdit={canEdit} convert={convert} onChange={onChange}
+    <Editor mapping={mapping} target={target} sources={sources} isDark={isDark} canEdit={canEdit} convert={convert} choices={choices} onChange={onChange}
       large={large} onLarge={setLarge} />
   );
   if (!large) return body;
@@ -68,8 +76,8 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
   );
 }
 
-function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, large, onLarge }: {
-  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean; convert?: Converter;
+function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, onChange, large, onLarge }: {
+  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean; convert?: Converter; choices?: MapperChoices;
   onChange: (m: FieldMapping) => void; large: boolean; onLarge: (v: boolean) => void;
 }) {
   const c = cls(isDark);
@@ -81,7 +89,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
   const mapperOf = (path: string, field: string): string | null => {
     const n = resolvePath(sources, path);
     const f = resolvePath(fields, field);
-    return n && f && convert ? convert(n, f) : null;
+    return n && f && convert ? convert(n, f, mapping.fields.find(l => l.field === field)?.mapper) : null;
   };
   const linkOf = (field: string): FieldLink | undefined => mapping.fields.find(l => l.field === field);
 
@@ -230,6 +238,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
   dragRef.current = drag;
   const connectRef = useRef(connect);
   connectRef.current = connect;
+  // a field of the In clicked: the line leaving it is the one chosen below (its type mapper, its paths)
+  const chooseFrom = (path: string) => {
+    const l = mapping.fields.find(x => linkPaths(x).includes(path));
+    if (l) setSelected(l.field);
+  };
+  const chooseFromRef = useRef(chooseFrom);
+  chooseFromRef.current = chooseFrom;
   const dragging = drag !== null;
   useEffect(() => {
     if (!dragging) return;
@@ -266,7 +281,10 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
       const field = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('[data-target]')?.getAttribute('data-target');
       if (field) connectRef.current(d.path, field);
       // no move: a click - the source waits for its field
-      else if (!d.moved) setPending(p => (p === d.path ? null : d.path));
+      else if (!d.moved) {
+        setPending(p => (p === d.path ? null : d.path));
+        chooseFromRef.current(d.path);
+      }
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -328,6 +346,33 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
   }
 
   // ── the rows ──
+  /**
+   * The fields of an object - of an enum with cases the shared ones first, then per case (or the
+   * cases that share them) its own under its name; a group without a row in sight has no header.
+   */
+  const caseGroups = (children: VarNode[], row: (n: VarNode) => React.ReactNode, depth: number): React.ReactNode[] => {
+    const shared = children.filter(n => !n.cases);
+    const groups = new Map<string, VarNode[]>();
+    for (const n of children) {
+      if (!n.cases) continue;
+      const key = n.cases.join(', ');
+      const group = groups.get(key);
+      if (group) group.push(n);
+      else groups.set(key, [n]);
+    }
+    if (!groups.size) return children.map(row);
+    const out: React.ReactNode[] = [];
+    const sharedRows = shared.map(row).filter(Boolean);
+    if (sharedRows.length) {
+      out.push(<div key="§shared" className={`text-[9px] italic ${c.muted}`} style={{ paddingLeft: 4 + depth * 12 }}>alle Fälle</div>, ...sharedRows);
+    }
+    for (const [name, ns] of groups) {
+      const rows = ns.map(row).filter(Boolean);
+      if (!rows.length) continue;
+      out.push(<div key={`§${name}`} className={`text-[9px] font-semibold ${c.muted}`} style={{ paddingLeft: 4 + depth * 12 }} title="Nur in diesen Fällen - in den anderen gibt es die Felder nicht">nur {name}</div>, ...rows);
+    }
+    return out;
+  };
   const text = large ? 'text-[12px]' : 'text-[10px]';
   const rowH = large ? 'h-7' : 'h-6';
   const linkedPaths = usedPaths;
@@ -353,7 +398,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: used ? TEAL : 'transparent', border: `1px solid ${used ? TEAL : GRAY}` }} />
         </div>
         {isOpen && opens(n) && (
-          <div className="space-y-0.5 mt-0.5">{(n.children ?? []).map(ch => sourceRow(ch, `${path}.${ch.name}`, depth + 1))}</div>
+          <div className="space-y-0.5 mt-0.5">{caseGroups(n.children ?? [], ch => sourceRow(ch, `${path}.${ch.name}`, depth + 1), depth + 1)}</div>
         )}
       </div>
     );
@@ -391,7 +436,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
           <span className={`ml-auto pl-1 truncate text-[9px] ${c.muted}`}>{f.label}</span>
         </div>
         {isOpen && opens(f) && (
-          <div className="space-y-0.5 mt-0.5">{(f.children ?? []).map(ch => targetRow(ch, `${path}.${ch.name}`, depth + 1))}</div>
+          <div className="space-y-0.5 mt-0.5">{caseGroups(f.children ?? [], ch => targetRow(ch, `${path}.${ch.name}`, depth + 1), depth + 1)}</div>
         )}
       </div>
     );
@@ -404,7 +449,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
       const path = `${prefix}${f.name}`;
       if (!showsRight(path)) continue;
       steps.push(path);
-      if (outOpen.has(path) && opens(f)) walkOut(f.children ?? [], `${path}.`);
+      if (outOpen.has(path) && opens(f)) walkOut(inCaseOrder(f.children ?? []), `${path}.`);
     }
   };
   walkOut(fields, '');
@@ -535,6 +580,23 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
                     );
                   })}
                   {linkPaths(selLink).length > 1 && <p className={`text-[9px] ${c.muted}`}>Der erste gesetzte Wert gewinnt (nicht null).</p>}
+                  {(() => {
+                    // the type mappers of these types: one with a name (Sprache, Land …) only where it is chosen
+                    const n = resolvePath(sources, linkPaths(selLink)[0]);
+                    const options = n && choices ? choices(n, sel) : [];
+                    if (!options.length && !selLink.mapper) return null;
+                    return (
+                      <div className="flex items-center gap-2 text-[10px]">
+                        <span className={`${c.muted} w-24 flex-shrink-0`}>Typ-Mapper</span>
+                        <select value={selLink.mapper ?? ''} disabled={!canEdit} onChange={e => onChange(withLink(mapping, selected!, { mapper: e.target.value || undefined }))}
+                          className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`}>
+                          <option value="">automatisch - nach den Typen</option>
+                          {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                          {selLink.mapper && !options.some(o => o.id === selLink.mapper) && <option value={selLink.mapper}>{selLink.mapper} - passt nicht</option>}
+                        </select>
+                      </div>
+                    );
+                  })()}
                 </div>
               : <p className={`text-[10px] ${c.muted}`}>Noch keine Linie - links ein Feld hierher ziehen.</p>
           )}

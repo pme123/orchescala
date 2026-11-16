@@ -22,9 +22,10 @@ import { feelIfPossible, importExpression, isJuel, outputSource, untranslatableT
 import { feelRef } from '../feelNames';
 import FeelInput from './FeelInput';
 import FieldMappingEditor from './FieldMappingEditor';
-import { emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
+import { caseLinkIssues, emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
+import MappingCases from './MappingCases';
 import MappingInOut from './MappingInOut';
-import { converter } from '../typeMappers';
+import { adtCaseFields, adtCases as adtCasesOf, converter, mapperChoices, modelMappers } from '../typeMappers';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
 import { domainRef } from '../serviceTypes';
@@ -2161,9 +2162,15 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   // as a mapping: its In and Out, the fields of the Out drawn from the In - its FEEL written along
   const mapping = useMemo(() => (step.fieldMapping ? mappingOf(step.fieldMapping) : undefined), [step.fieldMapping]);
   const nodes = useMemo(() => (mapping ? mappingVarNodes(mapping, spec, model) : null), [mapping, spec, model]);
-  const ioIssues = useMemo(() => (mapping ? inOutIssues(mapping, variables) : []), [mapping, variables]);
+  const ioIssues = useMemo(() => {
+    if (!mapping) return [];
+    const idx = indexTypes(spec.types ?? [], model);
+    return [...inOutIssues(mapping, variables), ...caseLinkIssues(mapping, ref => adtCasesOf(ref, idx), (ref, c) => adtCaseFields(ref, c, idx))];
+  }, [mapping, variables, spec.types, model]);
   // the type mappers of the model: a line between their types converts
-  const convert = useMemo(() => converter(model?.typeMappers, indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  const convert = useMemo(() => converter(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  // those a line can choose - one with a name (Sprache, Land …) only so
+  const choices = useMemo(() => mapperChoices(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
   const toMapping = async () => {
     if (value.trim() && !(await confirm({ title: 'Als Mapping beschreiben?', confirmLabel: 'Mapping', text: 'Der FEEL-Ausdruck wird durch das Mapping ersetzt - es beginnt leer.' }))) return;
     // the result so far is its Out
@@ -2226,18 +2233,20 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
           <>
             <MappingInOut mapping={mapping} known={variables ?? []} outFields={out?.fields ?? []} types={spec.types ?? []} model={model}
               isDark={isDark} canEdit={canEdit} listId={listId} onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
+            <MappingCases mapping={mapping} types={spec.types ?? []} model={model} isDark={isDark} canEdit={canEdit}
+              onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
             {ioIssues.map((it, k) => (
               <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
                 <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
               </p>
             ))}
-            <FieldMappingEditor mapping={mapping} target={nodes.target} sources={nodes.sources} isDark={isDark} canEdit={canEdit} convert={convert}
+            <FieldMappingEditor mapping={mapping} target={nodes.target} sources={nodes.sources} isDark={isDark} canEdit={canEdit} convert={convert} choices={choices}
               onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
             <details className="text-[10px]">
               <summary className={`cursor-pointer ${c.muted}`}>FEEL des Mappings</summary>
               <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap break-all font-mono text-[9px] ${c.border}`}>{value}</pre>
             </details>
-            <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers - das In ihre Parameter, das Out ihr Ergebnis (ein Objekt Feld für Feld oder ein copy seiner Basis), mit Test.</p>
+            <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers - das In ihre Parameter, das Out ihr Ergebnis (ein Objekt Feld für Feld oder ein copy seiner Basis), mit Test. Ein Enum mit Fällen: je Fall der Quelle eine eigene Methode mit Test, die Methode des Mappings wählt sie.</p>
           </>
         )}
         {!mapping && <>

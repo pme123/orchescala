@@ -10,9 +10,9 @@
 // order; `mergeDomainTypes` keeps what was read first and reports what
 // it discarded in doing so.
 
-import { isDomainSource, isSkippedDir, mergeDefaults, mergeDomainTypes, scanFiles, type DiscardedPackage } from './domainScan.ts';
+import { isDomainSource, isSkippedDir, mergeDefaults, mergeDomainTypes, mergeMappers, scanFiles, type DiscardedPackage } from './domainScan.ts';
 import { delHandle, ensureRead, getHandle, putHandle } from './handles.ts';
-import type { DomainDefault, DomainType, ProjectFolder } from './types.ts';
+import type { DomainDefault, DomainMapper, DomainType, ProjectFolder } from './types.ts';
 import { dependenciesOfConf } from './projectConf.ts';
 import { uid } from './util.ts';
 
@@ -98,6 +98,8 @@ export interface RebuildResult {
   types: DomainType[];
   /** Example values `default…` — in the order of the projects */
   defaults: DomainDefault[];
+  /** the type mappers of the code (extensions, see scanMappers) — in the order of the projects */
+  mappers: DomainMapper[];
   /** per project the number of contributed types */
   projects: ProjectFolder[];
   discarded: DiscardedPackage[];
@@ -212,6 +214,7 @@ export async function rebuild(
 ): Promise<RebuildResult> {
   let types: DomainType[] = [];
   let defaults: DomainDefault[] = [];
+  let mappers: DomainMapper[] = [];
   const discarded: DiscardedPackage[] = [];
   const missing: ProjectFolder[] = [];
   const gezaehlt: ProjectFolder[] = [];
@@ -240,6 +243,7 @@ export async function rebuild(
     files += quellen.length;
     const gelesen = scanFiles(quellen);
     defaults = mergeDefaults(defaults, gelesen.defaults);
+    mappers = mergeMappers(mappers, gelesen.mappers);
     skipped += gelesen.skipped.length;
     discarded.push(...gelesen.discarded);
     const vorher = types.length;
@@ -257,7 +261,7 @@ export async function rebuild(
     gezaehlt.push({ ...rest, types: types.length - vorher, scannedAt, ...(dependencies ? { dependencies } : {}) });
   }
   const rootsWithoutAccess = [...roots].filter(([, h]) => !h).map(([r]) => r);
-  return { types, defaults, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped, apis, apiErrors, scannedAt };
+  return { types, defaults, mappers, projects: gezaehlt, discarded, missing, rootsWithoutAccess, files, skipped, apis, apiErrors, scannedAt };
 }
 
 /**

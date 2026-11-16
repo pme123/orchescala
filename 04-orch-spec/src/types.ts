@@ -170,6 +170,22 @@ export interface FieldMapping {
   out: Field[];
   /** per field of the Out: where its value comes from */
   fields: FieldLink[];
+  /** per field of the Out that is an enum with cases (ADT): which case it becomes */
+  caseLinks?: CaseLink[];
+}
+
+/**
+ * Which case a field of the Out that is an enum with cases (ADT, `ClientRead`) becomes: decided by
+ * the case of an ADT of the In (`sourceClient: Client`) - `Client.Person` → `ClientRead.privateIndividual`.
+ * In the worker a method per case of the source (`mapClientPerson(sourceClient: Client.Person)`), with its test.
+ */
+export interface CaseLink {
+  /** the path in the Out - `filClient` */
+  field: string;
+  /** the path in the In whose case decides - `sourceClient` */
+  from: string;
+  /** per case of `from` the case of `field` - an empty `to`: none, it fails at runtime */
+  cases: Array<{ from: string; to: string }>;
 }
 
 /** Where one field of a mapping gets its value. */
@@ -183,6 +199,8 @@ export interface FieldLink {
   from: string[];
   /** instead of the paths: a FEEL expression (`= lower case(client.email)`) */
   expression?: string;
+  /** the type mapper it converts with (its id) - one with a name is only taken when chosen here */
+  mapper?: string;
 }
 
 export interface Step {
@@ -868,6 +886,29 @@ export interface DomainDefault {
   generated?: boolean;
 }
 
+/**
+ * A type mapper of the code - an extension of an object the domain scan found
+ * (`extension (x: ClientMainType) def toClientType: ClientType` in `ClientMasterTypeMappers`).
+ */
+export interface DomainMapper {
+  /** `acme.crm.domain.clientMaster.schema.ClientMasterTypeMappers.toClientType(ClientMainType)` */
+  id: string;
+  /** `acme.crm.domain.clientMaster.schema` */
+  pkg: string;
+  /** `ClientMasterTypeMappers` */
+  object: string;
+  /** `toClientType` */
+  method: string;
+  /** the types as the code names them - `ClientMainType`, `ClientType` */
+  from: string;
+  to: string;
+  descr?: string;
+  /** the file it was read from - `crm/01-domain/…/ClientMasterTypeMappers.scala` */
+  source?: string;
+  /** from the generated catalog — does not belong in the model.json */
+  generated?: boolean;
+}
+
 export interface DomainType {
   /** fully qualified, e.g. `globex.crm.domain.account.v1.GetAccount.Out` */
   id: string;
@@ -1035,7 +1076,7 @@ export interface TypeMapper {
    * reads it (`x.asJson.as[To]`)
    */
   kind: 'table' | 'field' | 'scala' | 'decoder';
-  /** table: per case of `from` the case of `to` */
+  /** table: per case of `from` the case of `to` - between simple types per value (`1` → `"de"`) */
   cases?: Array<{ from: string; to: string }>;
   /** field: the path in `from` (`value`, `amount.value`) */
   path?: string;
@@ -1044,6 +1085,16 @@ export interface TypeMapper {
   /** what the expression needs imported (`java.time.LocalDate`) */
   imports?: string[];
   description?: string;
+  /**
+   * A name (`Language`): its extension is `toLanguage`, and it is only taken where a line of a
+   * mapping chooses it - several of the same types (`Int` → `String`: language, country) apart.
+   */
+  name?: string;
+  /**
+   * In the code already (from the catalog, see DomainMapper): the extension that converts -
+   * the export brings no file for it, the worker imports its object. Not editable.
+   */
+  code?: { pkg: string; object: string; method: string };
 }
 
 export interface Model {
@@ -1065,6 +1116,8 @@ export interface Model {
   domainTypes?: DomainType[];
   /** example values of the domain (`defaultClientKey` …) — in order of precedence */
   domainDefaults?: DomainDefault[];
+  /** the type mappers of the code - extensions the domain scan found (see DomainMapper) */
+  domainMappers?: DomainMapper[];
   /** most recently read source folders — as a reminder in the admin */
   domainSources?: string[];
   /**

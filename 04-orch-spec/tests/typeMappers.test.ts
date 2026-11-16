@@ -1,6 +1,7 @@
 // Type mappers: defined once in the model, a line of a mapping between their types converts with
-// them - in the worker a method each (a table a match, a field its path, a Scala expression, the
-// code's deserializer), an Option or a list mapped along; the checks and the automatic mapping know them.
+// them - in the code an extension each in the schema of its level (a table a match, a field its path, a
+// Scala expression, the code's deserializer), the worker imports it, an Option or a list mapped along;
+// the checks and the automatic mapping know them.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
@@ -9,9 +10,9 @@ import { autoMapped, mappingFeel, mappingIssues } from '../src/fieldMapping';
 import { newOrchestration } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import type { ServiceOrchestrationSpec } from '../src/services/types';
-import { converter, findMapper, importedMappers, mapperBody, mapperFile, mapperIssues, prefilledCases } from '../src/typeMappers';
+import { converter, findMapper, importedMappers, mapperBody, mapperFile, mapperHome, mapperIssues, prefilledCases } from '../src/typeMappers';
 import { indexTypes } from '../src/scala';
-import type { Field, FieldMapping, Model, TypeDef, TypeMapper } from '../src/types';
+import type { DomainMapper, DomainType, Field, FieldMapping, Model, TypeDef, TypeMapper } from '../src/types';
 
 (globalThis as unknown as { DOMParser: unknown }).DOMParser ??= DOMParser;
 
@@ -26,9 +27,9 @@ const types: TypeDef[] = [
 ];
 const table: TypeMapper = { id: 'm1', from: 'mainType', to: 'clientType', kind: 'table', cases: [{ from: 'Person', to: 'PERSON' }, { from: 'Company', to: 'COMPANY' }] };
 const wrapper: TypeMapper = { id: 'm2', from: 'bdw', to: 'BigDecimal', kind: 'field', path: 'value' };
-const model = (mappers: TypeMapper[]): Model => ({ version: 1, services: [], typeMappers: mappers });
+const model = (mappers: TypeMapper[], domainTypes: DomainType[] = [], domainMappers: DomainMapper[] = []): Model => ({ version: 1, services: [], typeMappers: mappers, domainTypes, domainMappers });
 
-const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client') => {
+const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client', domain: DomainType[] = [], code: DomainMapper[] = []) => {
   const o = newOrchestration({ title: 'Kunde lesen', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'ReadClient' });
   o.types.find(x => x.id === o.inTypeId)!.fields = [f('existing', 'composed')];
   o.types.find(x => x.id === o.outTypeId)!.fields = [f('client', 'read')];
@@ -43,10 +44,11 @@ const files = (m: FieldMapping, mappers: TypeMapper[], task = 'Map Client') => {
 </bpmn:definitions>`,
     tasks: { MapTask: { script: mappingFeel(m), mapping: m } }, conditions: {}, outMappings: [{ name: 'client', expression: '= client' }],
   };
-  const fs = orchestrationFiles(spec, [], model(mappers));
+  const fs = orchestrationFiles(spec, [], model(mappers, domain, code));
   return {
     worker: fs.find(x => x.path.endsWith('/ReadClientWorker.scala'))!.content,
     test: fs.find(x => x.path.endsWith('/ReadClientWorkerTest.scala'))!.content,
+    mappers: fs.filter(x => /TypeMappers\.scala$/.test(x.path)),
   };
 };
 const all: FieldMapping = {
@@ -54,18 +56,33 @@ const all: FieldMapping = {
   fields: ['kind', 'amount', 'tags', 'maybe'].map(n => ({ field: `client.${n}`, from: [`existing.${n}`] })),
 };
 
-test('in Scala a line between two types converts with their mapper - a method of the worker, a list and an Option mapped along', () => {
-  const { worker, test: t } = files(all, [table, wrapper]);
-  assert.match(worker, /ClientRead\(\n\s+kind = clientMainTypeToClientType\(existing\.kind\),\n\s+amount = bigDecimalWrapperToBigDecimal\(existing\.amount\),\n\s+tags = existing\.tags\.map\(clientMainTypeToClientType\),\n\s+maybe = existing\.maybe\.map\(clientMainTypeToClientType\)\n\s+\)/, worker);
-  assert.match(worker, /def clientMainTypeToClientType\(x: ClientMainType\): ClientType =\n\s+x match\n\s+case ClientMainType\.Person => ClientType\.PERSON\n\s+case ClientMainType\.Company => ClientType\.COMPANY\n/, worker);
-  assert.match(worker, /def bigDecimalWrapperToBigDecimal\(x: BigDecimalWrapper\): BigDecimal =\n\s+x\.value\n/, worker);
-  // the test calls the mapper of the worker
-  assert.match(t, /assertEquals\(result\.kind, Mocked\(\)\.clientMainTypeToClientType\(existing\.kind\)\)/, t);
-  assert.match(t, /assertEquals\(result\.tags, existing\.tags\.map\(Mocked\(\)\.clientMainTypeToClientType\)\)/, t);
-  // without a mapper: as it is - and no method
+test('in Scala a line between two types converts with their mapper - an extension of the domain, a list and an Option mapped along', () => {
+  const { worker, test: t, mappers } = files(all, [table, wrapper]);
+  assert.match(worker, /ClientRead\(\n\s+kind = existing\.kind\.toClientType,\n\s+amount = existing\.amount\.toBigDecimal,\n\s+tags = existing\.tags\.map\(_\.toClientType\),\n\s+maybe = existing\.maybe\.map\(_\.toClientType\)\n\s+\)/, worker);
+  // no method of the worker - the extensions come with their import
+  assert.doesNotMatch(worker, /def clientMainTypeToClientType|def toClientType/, worker);
+  assert.match(worker, /^import acme\.crm\.domain\.client\.v1\.schema\.ClientV1TypeMappers\.\*$/m, worker);
+  // both types in the schema of the API: its object there
+  assert.deepEqual(mappers.map(f => f.path), ['01-domain/src/main/scala/acme/crm/domain/client/v1/schema/ClientV1TypeMappers.scala']);
+  assert.equal(mappers[0].content, [
+    'package acme.crm.domain', 'package client.v1.schema', '',
+    '/** Type mappers - from Orch Spec (Administration → Typ-Mapper): `existing.kind.toClientType` */',
+    'object ClientV1TypeMappers:', '',
+    '  /** ClientMainType → ClientType */',
+    '  extension (x: ClientMainType) def toClientType: ClientType =',
+    '    x match', '      case ClientMainType.Person => ClientType.PERSON', '      case ClientMainType.Company => ClientType.COMPANY', '',
+    '  /** BigDecimalWrapper → BigDecimal */',
+    '  extension (x: BigDecimalWrapper) def toBigDecimal: BigDecimal =', '    x.value', '',
+    'end ClientV1TypeMappers', '',
+  ].join('\n'));
+  // the test calls them as the worker does - with the same import
+  assert.match(t, /assertEquals\(result\.kind, existing\.kind\.toClientType\)/, t);
+  assert.match(t, /assertEquals\(result\.tags, existing\.tags\.map\(_\.toClientType\)\)/, t);
+  assert.match(t, /^import acme\.crm\.domain\.client\.v1\.schema\.ClientV1TypeMappers\.\*$/m, t);
+  // without a mapper: as it is - and no file
   const none = files(all, []);
   assert.match(none.worker, /kind = existing\.kind,/);
-  assert.doesNotMatch(none.worker, /def clientMainTypeToClientType/);
+  assert.equal(none.mappers.length, 0);
 });
 
 test('the kinds of a mapper in Scala: a table with a case missing fails at runtime, the deserializer of the code, an expression', () => {
@@ -74,8 +91,10 @@ test('the kinds of a mapper in Scala: a table with a case missing fails at runti
     'x match\n  case ClientMainType.Person => ClientType.PERSON\n  case other => throw IllegalArgumentException(s"ClientMainType $other: kein Fall in ClientType")');
   assert.equal(mapperBody({ ...table, kind: 'decoder' }, nameOf), 'x.asJson.as[ClientType].fold(e => throw IllegalArgumentException(s"ClientMainType → ClientType: ${e.getMessage}"), identity)');
   assert.equal(mapperBody({ id: 'm3', from: 'date', to: 'LocalDate', kind: 'scala', scala: 'LocalDate.parse(x.date)' }, nameOf), 'LocalDate.parse(x.date)');
-  const { worker } = files(all, [{ ...table, kind: 'decoder' }]);
-  assert.match(worker, /import io\.circe\.syntax\.\*/);
+  // what a mapper needs imported goes into its file, not into the worker
+  const { worker, mappers } = files(all, [{ ...table, kind: 'decoder' }]);
+  assert.match(mappers[0].content, /^import io\.circe\.syntax\.\*$/m);
+  assert.doesNotMatch(worker, /io\.circe\.syntax/);
 });
 
 test('a table prefilled by names alike; its checks', () => {
@@ -144,15 +163,35 @@ test('type mappers: the same names in other packages - no match by name, and the
   assert.match(mapperIssues(one, [one, two], idx).join(), /dieselben Namen \(kindToClientType\)/);
 });
 
-test('in Scala the mapper method gets a name of its own - next to a script method of the same name; the test calls it on Mocked()', () => {
-  // the script task is named like the mapper's method
-  const { worker, test: t } = files(all, [table, wrapper], 'Client Main Type To Client Type');
-  // the mapper is named first, the script method takes the next number
-  assert.match(worker, /def clientMainTypeToClientType2\(existing: ComposedClient\)/, worker);
-  assert.match(worker, /def clientMainTypeToClientType\(x: ClientMainType\): ClientType =/, worker);
-  assert.match(worker, /kind = clientMainTypeToClientType\(existing\.kind\)/, worker);
-  assert.doesNotMatch(worker, /\uE000|Mocked\(\)\.clientMainType/, worker);
-  assert.match(t, /assertEquals\(result\.kind, Mocked\(\)\.clientMainTypeToClientType\(existing\.kind\)\)/, t);
+test('in Scala two mappers with the same extension name in other objects - called on their object, not ambiguous', () => {
+  const kind: DomainType = { id: 'acme.crm.domain.party.v2.schema.Kind', name: 'Kind', pkg: 'acme.crm.domain.party.v2.schema', kind: 'enum', importPath: 'acme.crm.domain.party.v2.schema.Kind', values: ['A'] };
+  const other: TypeMapper = { id: 'o', from: `dom:${kind.id}`, to: 'clientType', kind: 'decoder' };
+  const { worker, mappers } = files(all, [table, wrapper, other], 'Map Client', [kind]);
+  assert.match(worker, /kind = ClientV1TypeMappers\.toClientType\(existing\.kind\),/, worker);
+  assert.match(worker, /tags = existing\.tags\.map\(ClientV1TypeMappers\.toClientType\),/, worker);
+  assert.match(worker, /amount = existing\.amount\.toBigDecimal,/, worker);
+  assert.match(worker, /^import acme\.crm\.domain\.client\.v1\.schema\.ClientV1TypeMappers$/m, worker);
+  // only what the worker uses comes into the code
+  assert.deepEqual(mappers.map(f => f.path.split('/').pop()), ['ClientV1TypeMappers.scala']);
+});
+
+test('where a mapper lives: the schema of the deepest level its types of the project share - the API of the export also for those of another API', () => {
+  const root = 'acme.crm.domain';
+  const api = ['client', 'v1'];
+  const at = (a: string | null, b: string | null) => { const h = mapperHome([a, b], root, api); return `${h.pkg} ${h.object}`; };
+  assert.equal(at('acme.crm.domain.client.v1.schema', 'acme.crm.domain.client.v1.schema'), 'acme.crm.domain.client.v1.schema ClientV1TypeMappers');
+  assert.equal(at('acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.schema'), 'acme.crm.domain.clientMaster.schema ClientMasterTypeMappers');
+  // in another API: the export's - never into another API's folder
+  assert.equal(at('acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.naturalPersons.v1.schema'), 'acme.crm.domain.client.v1.schema ClientV1TypeMappers');
+  assert.equal(at('acme.crm.domain.party.v2.schema', 'acme.crm.domain.party.v2.schema'), 'acme.crm.domain.client.v1.schema ClientV1TypeMappers');
+  // a type of another project or no class of the domain does not count - only the project's
+  assert.equal(at('acme.crm.domain.client.v1.schema', 'globex.core.domain.client.v1.schema'), 'acme.crm.domain.client.v1.schema ClientV1TypeMappers');
+  assert.equal(at(null, 'acme.crm.domain.clientMaster.schema'), 'acme.crm.domain.clientMaster.schema ClientMasterTypeMappers');
+  assert.equal(at('acme.crm.domain.schema', null), 'acme.crm.domain.schema TypeMappers');
+  assert.equal(at(null, 'globex.core.domain.client.v1.schema'), 'acme.crm.domain.schema TypeMappers');
+  assert.equal(at(null, null), 'acme.crm.domain.schema TypeMappers');
+  // an API that is only its version: named by it
+  assert.equal(mapperHome(['acme.crm.domain.v1.schema', 'acme.crm.domain.v1.schema'], root, ['v1']).object, 'V1TypeMappers');
 });
 
 test('type mappers: an import with fields of the wrong type - such a field counts as missing, no raw TypeError', () => {
@@ -203,8 +242,8 @@ test('a table covering only some cases of the source gets the default that fails
   const part: TypeMapper = { ...table, cases: [{ from: 'Person', to: 'PERSON' }] };
   assert.match(mapperBody(part, nameOf, ['Person', 'Company']), /case other => throw/);
   assert.doesNotMatch(mapperBody(table, nameOf, ['Person', 'Company']), /case other/);
-  const { worker } = files(all, [part, wrapper]);
-  assert.match(worker, /case ClientMainType\.Person => ClientType\.PERSON\n\s+case other => throw/, worker);
+  const { mappers } = files(all, [part, wrapper]);
+  assert.match(mappers[0].content, /case ClientMainType\.Person => ClientType\.PERSON\n\s+case other => throw/, mappers[0].content);
 });
 
 test('a table with a case the source no longer has, or a case twice - flagged; the worker leaves the stale one out, the first one counts', () => {
@@ -214,7 +253,36 @@ test('a table with a case the source no longer has, or a case twice - flagged; t
     'x match\n  case ClientMainType.Person => ClientType.PERSON\n  case ClientMainType.Company => ClientType.COMPANY');
   const idx = indexTypes(types, null);
   assert.deepEqual(mapperIssues(stale, [stale], idx), [
-    'Gibt es in ClientMainType nicht mehr: Gone - wird im Worker weggelassen.',
+    'Gibt es in ClientMainType nicht mehr: Gone - wird im Code weggelassen.',
     'Mehrfach: Person - die erste Zeile gilt.',
   ]);
+});
+
+test('a mapper of the code (catalog): the worker imports its object and calls its extension - no file for it', () => {
+  const inCode: DomainMapper = {
+    id: 'acme.crm.domain.clientMaster.schema.ClientMasterTypeMappers.toKind(ClientMainType)', pkg: 'acme.crm.domain.clientMaster.schema',
+    object: 'ClientMasterTypeMappers', method: 'toKind', from: 'ClientMainType', to: 'ClientType',
+  };
+  const { worker, test: t, mappers } = files(all, [wrapper], 'Map Client', [], [inCode]);
+  assert.match(worker, /kind = existing\.kind\.toKind,/, worker);
+  assert.match(worker, /tags = existing\.tags\.map\(_\.toKind\),/, worker);
+  assert.match(worker, /^import acme\.crm\.domain\.clientMaster\.schema\.ClientMasterTypeMappers\.\*$/m, worker);
+  assert.match(t, /^import acme\.crm\.domain\.clientMaster\.schema\.ClientMasterTypeMappers\.\*$/m, t);
+  // only the model's mapper comes as a file
+  assert.deepEqual(mappers.map(f => f.path.split('/').pop()), ['ClientV1TypeMappers.scala']);
+  assert.doesNotMatch(mappers[0].content, /def (toKind|toClientType)/);
+});
+
+test('a mapper only for its own types when both are of the catalog - the same name of another project is no match', () => {
+  const nameOf = (ref: string) => ref.replace(/^dom:/, '');
+  const m: TypeMapper = { id: 'm', from: 'dom:a.v1.schema.MainType', to: 'dom:a.v1.schema.ClientType', kind: 'decoder' };
+  assert.equal(findMapper([m], 'dom:a.v1.schema.MainType', 'dom:a.v1.schema.ClientType', nameOf), m);
+  assert.equal(findMapper([m], 'dom:a.v1.schema.MainType', 'dom:b.v1.schema.ClientType', nameOf), undefined);
+  // a type by name only (a mapper of the code): the names decide
+  assert.equal(findMapper([{ ...m, to: 'ClientType' }], 'dom:a.v1.schema.MainType', 'dom:b.v1.schema.ClientType', nameOf)?.id, 'm');
+  // the editor: by the types of the fields when it has them
+  const node = (label: string, type?: string): VarNode => ({ name: 'x', label, type: 'string', source: 'In', ...(type ? { field: { type } } : {}) });
+  const convert = converter([m], nameOf);
+  assert.equal(convert(node('MainType', 'dom:a.v1.schema.MainType'), node('ClientType', 'dom:b.v1.schema.ClientType')), null);
+  assert.equal(convert(node('MainType', 'dom:a.v1.schema.MainType'), node('ClientType', 'dom:a.v1.schema.ClientType')), 'MainType → ClientType');
 });

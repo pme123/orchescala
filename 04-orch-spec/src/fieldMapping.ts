@@ -21,7 +21,7 @@ const key = (n: string) => (NAME.test(n) ? n : JSON.stringify(n));
 export const emptyMapping = (): FieldMapping => ({ in: [], out: [], fields: [] });
 
 /** A mapping as stored - what is missing (an In, an Out) empty, so nothing reads past it. */
-export const mappingOf = (m: Partial<FieldMapping>): FieldMapping => ({ in: m.in ?? [], out: m.out ?? [], fields: m.fields ?? [] });
+export const mappingOf = (m: Partial<FieldMapping>): FieldMapping => ({ in: m.in ?? [], out: m.out ?? [], fields: m.fields ?? [], ...(m.caseLinks?.length ? { caseLinks: m.caseLinks } : {}) });
 
 /** The paths of a link that count. */
 export const linkPaths = (l: FieldLink): string[] => l.from.map(p => p.trim()).filter(Boolean);
@@ -83,7 +83,7 @@ export function withLink(m: FieldMapping, field: string, patch: Partial<FieldLin
   const old = m.fields.find(l => l.field === field) ?? { field, from: [] };
   const next: FieldLink = patch ? { ...old, ...patch } : { field, from: [] };
   const keep = linkPaths(next).length > 0 || !!next.expression?.trim();
-  const tidy: FieldLink = { field, from: linkPaths(next), ...(next.expression?.trim() ? { expression: next.expression } : {}) };
+  const tidy: FieldLink = { field, from: linkPaths(next), ...(next.expression?.trim() ? { expression: next.expression } : {}), ...(next.mapper ? { mapper: next.mapper } : {}) };
   const rest = m.fields.filter(l => l.field !== field);
   const at = m.fields.findIndex(l => l.field === field);
   if (!keep) return { ...m, fields: rest };
@@ -125,7 +125,12 @@ export function renamedVar(m: FieldMapping, side: 'in' | 'out', from: string, to
       }
       return paths.length || expr ? [{ ...l, from: paths }] : [];
     });
-  return { ...m, fields };
+  // the case tables follow too: removed, the one of its Out goes, one from it loses its source
+  const caseLinks = (m.caseLinks ?? []).flatMap(c => {
+    const p = side === 'out' ? move(c.field) : move(c.from);
+    return p === null ? [] : [side === 'out' ? { ...c, field: p } : { ...c, from: p }];
+  });
+  return { ...m, fields, ...(m.caseLinks ? { caseLinks } : {}) };
 }
 
 /** A FEEL expression in its parts: text in quotes (odd index) and the rest (even index). */
@@ -155,7 +160,11 @@ export const plainType = (n: VarNode): string => n.label.replace(/^Option\[(.*)\
  * A type mapper between the types of two nodes - its name, or null: a line from the one onto the
  * other converts with it (see typeMappers.ts). Built from the model; without one nothing converts.
  */
-export type Converter = (from: VarNode, to: VarNode) => string | null;
+/** The type mappers a line between two nodes can choose - its id and label (see FieldLink.mapper). */
+export type MapperChoices = (from: VarNode, to: VarNode) => Array<{ id: string; label: string }>;
+
+/** The type mapper a line converts with, as its label - `chosen`: the one the line names (see FieldLink.mapper). */
+export type Converter = (from: VarNode, to: VarNode, chosen?: string) => string | null;
 
 /**
  * What is open on the right gets lines: per field without a value one of the In of the same name
@@ -247,6 +256,50 @@ export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): Mapp
   return out;
 }
 
+/**
+ * What is missing for an Out that is an enum with cases (see CaseLink): which case it becomes.
+ * `cases`: the cases of a type that is an ADT (null for any other).
+ */
+/**
+ * `fieldsOf`: the fields of a case of an enum (its own and the shared ones) - with it a line from a
+ * field a case of the source does not have, where the case it becomes has the field, is found
+ * (`sourceClient.name` only in `Company`, drawn onto `person.name` of what `Person` becomes) - when it
+ * gives the field nothing in any case; in some cases only is normal.
+ */
+export function caseLinkIssues(stored: FieldMapping, cases: (ref: string) => string[] | null, fieldsOf?: (ref: string, c: string) => string[] | null): MappingIssue[] {
+  const m = mappingOf(stored);
+  const out: MappingIssue[] = [];
+  for (const f of m.out) {
+    const name = f.name.trim();
+    if (!name || f.collection || !cases(f.type)) continue;
+    const c = (m.caseLinks ?? []).find(x => x.field === name);
+    const src = c ? m.in.find(i => i.name.trim() === c.from) : undefined;
+    if (!c || !src) { out.push({ level: 'error', text: `«${name}» ist ein Enum mit Fällen - unter «Fälle» die Quelle und je Fall einen Fall wählen.` }); continue; }
+    const from = cases(src.type) ?? [];
+    const open = from.filter(x => !c.cases.some(y => y.from === x && y.to));
+    if (open.length) out.push({ level: 'warn', text: `«${name}»: für ${open.join(', ')} von «${c.from}» kein Fall - zur Laufzeit ein Fehler.` });
+    if (!fieldsOf) continue;
+    const head = (p: string, v: string) => (p.startsWith(`${v}.`) ? p.slice(v.length + 1).split('.')[0] : null);
+    for (const l of m.fields) {
+      const into = head(l.field, name);
+      const paths = linkPaths(l);
+      if (!into || l.expression?.trim() || !paths.length) continue;
+      // the cases of the source whose case of the Out has the field - the line only matters there
+      const into_ = c.cases.filter(x => { const to = x.to && fieldsOf(f.type, x.to); return !!to && to.includes(into); });
+      // none of them has one of the paths: the line never gives the field anything (in some only is normal)
+      const gives = into_.some(x => {
+        const own = fieldsOf(src.type, x.from);
+        return !own || paths.some(p => { const h = head(p, c.from); return h === null || own.includes(h); });
+      });
+      if (into_.length && !gives) {
+        const where = from.filter(x => paths.some(p => fieldsOf(src.type, x)?.includes(head(p, c.from) ?? '')));
+        out.push({ level: 'warn', field: l.field, text: `«${l.field}»: ${paths.join(', ')} gibt es im Fall ${into_.map(x => x.from).join(', ')} von «${c.from}» nicht - nur dort gibt es das Feld, die Linie bewirkt nichts${where.length ? ` (${paths.length > 1 ? 'sie sind' : 'es ist'} nur in ${where.join(', ')})` : ''}.` });
+      }
+    }
+  }
+  return out;
+}
+
 /** What is wrong with the lines against the Out (`target`, its variables as children - see mappingVarNodes) and the In (`sources`). */
 export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode[], convert?: Converter): MappingIssue[] {
   const fields = target.children ?? [];
@@ -258,7 +311,8 @@ export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode
     for (const p of linkPaths(l)) {
       const n = resolvePath(sources, p);
       if (!n) out.push({ level: 'error', text: `«${l.field}»: ${p} gibt es im In nicht.`, field: l.field });
-      else if (n.type !== 'any' && f.type !== 'any' && plainType(n) !== plainType(f) && !convert?.(n, f)) out.push({ level: 'warn', text: `«${l.field}»: ${p} ist ${plainType(n)}, das Feld ${plainType(f)} - ohne Typ-Mapper dazwischen.`, field: l.field });
+      else if (l.mapper && convert && !convert(n, f, l.mapper)) out.push({ level: 'warn', text: `«${l.field}»: der gewählte Typ-Mapper passt nicht zu ${plainType(n)} → ${plainType(f)}.`, field: l.field });
+      else if (!l.mapper && n.type !== 'any' && f.type !== 'any' && plainType(n) !== plainType(f) && !convert?.(n, f)) out.push({ level: 'warn', text: `«${l.field}»: ${p} ist ${plainType(n)}, das Feld ${plainType(f)} - ohne Typ-Mapper dazwischen.`, field: l.field });
     }
   }
   // the fields without a value: of the Out, and of an object built from its fields without a
