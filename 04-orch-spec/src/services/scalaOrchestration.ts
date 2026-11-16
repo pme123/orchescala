@@ -81,6 +81,8 @@ interface Ctx {
    * (`ClientTypeMappers.toClientType(x)`) - another mapper the worker might use has its name
    */
   usedMappers: Map<string, { mapper: TypeMapper; home: MapperHome; explicit: boolean }>;
+  /** the classes a mapping builds by name (`MasterRead(…)`) - for the imports of the worker */
+  builtTypes: Set<string>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
 }
@@ -499,6 +501,8 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       if (v !== null) args.push(`${scalaName(f.name)} = ${v}`);
     }
     if (on) return args.length ? `${on}.copy${rows(args)}` : on;
+    // a class built by name: the worker imports it (`MasterRead` of the catalog)
+    ctx.builtTypes.add(t.id.replace(/#.*$/, ''));
     return `${t.name}${rows(args)}`;
   };
 
@@ -716,6 +720,11 @@ function mapperFiles(ctx: Ctx): ScalaFile[] {
 /** The imports of the types the methods of the script tasks name - the schema of their collection. */
 function scriptImports(ctx: Ctx): string[] {
   const out = new Set<string>();
+  // the classes a mapping builds by name - of the catalog or a collection; the own schema is imported anyway
+  for (const id of ctx.builtTypes) {
+    const i = typeImport(id, ctx, `${collectionPackage(orchestrationApi(ctx.o))}.schema`);
+    if (i) out.add(i);
+  }
   // the extensions of the type mappers - their object where one is called on it
   for (const { home, explicit } of ctx.usedMappers.values()) {
     out.add(`import ${home.pkg}.${home.object}.*`);
@@ -1190,7 +1199,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
-    mappers: modelMappers(model), usedMappers: new Map(),
+    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(),
   };
   // the classes of the catalog as types too - a path into one (`client.clientKey`) resolves like one into an own class
   for (const d of ctx.domain) {
