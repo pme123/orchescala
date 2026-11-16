@@ -15,6 +15,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+### To note when upgrading
+- **Generated builds:** company and project builds get Scala 3.8.4, sbt 1.13.1 and the new sbt plugin versions through the helper.
+- **Helper:** `CompanyVersionConfig` has no `springBootVersion` any more - no generator read it.
+
+### Dependencies
+- Scala 3.8.4, sbt 1.13.1.
+- Libraries: os-lib 0.11.10, circe 0.14.17, http4s 0.23.38, typesafe-config 1.4.10, scala-xml 2.5.0, munit 1.3.6, iron-circe 3.3.2, chimney 1.11.0, scala-java-time 2.7.0, coursier interface 1.0.30, jakarta.xml.bind-api 4.0.5, ZIO 2.1.27, logback 1.6.7, swagger-parser 2.1.48, java-jwt 4.6.2, jgit 7.8.1, postgresql 42.7.14, HikariCP 6.3.3.
+- tapir 1.13.33, zio-http 3.11.6; DMN Tester: dmn-scala 1.12.6 (feel-scala 1.22.1).
+- sbt plugins: sbt-native-packager 1.13.0, sbt-ci-release 1.12.1, sbt-mdoc 2.9.2, sbt-buildinfo 0.13.2, sbt-scalajs 1.23.0 - their versions are only in `project/plugins.sbt`.
+- Frontends: React 19.3.1, bpmn-js 18.31.1, dmn-js 17.13.0, camunda-bpmn-moddle 7.0.2, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; vite 6.4.6 in all frontends (the DMN Tester client was on vite 7).
+- Orch Studio: hono 4.13.18, @hono/node-server 2.1.8.
+- Not yet: tapir 1.14, openapi-circe-yaml 0.12, iron 3.4, scala-java-time 2.8+ and zio-logging 2.5.4 are built with Scala 3.9 - they come with the move to it.
+
+### Removed
+- The unused dependency blocks of the build (`zeebeDependencies`, `camundaDependencies`, `camunda7workerDependencies`) and with them Spring Boot, Jackson, netty, h2, groovy, Spin and twitter4j.
+
 ## 0.9.0 - 2026-11-08
 
 ### To note when upgrading
