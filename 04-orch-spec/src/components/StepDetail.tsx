@@ -25,7 +25,7 @@ import FieldMappingEditor from './FieldMappingEditor';
 import { caseLinkIssues, emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
 import MappingCases from './MappingCases';
 import MappingInOut from './MappingInOut';
-import { adtCases as adtCasesOf, converter, modelMappers } from '../typeMappers';
+import { adtCases as adtCasesOf, converter, mapperChoices, modelMappers } from '../typeMappers';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
 import { domainRef } from '../serviceTypes';
@@ -2169,6 +2169,8 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   }, [mapping, variables, spec.types, model]);
   // the type mappers of the model: a line between their types converts
   const convert = useMemo(() => converter(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  // those a line can choose - one with a name (Sprache, Land …) only so
+  const choices = useMemo(() => mapperChoices(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
   const toMapping = async () => {
     if (value.trim() && !(await confirm({ title: 'Als Mapping beschreiben?', confirmLabel: 'Mapping', text: 'Der FEEL-Ausdruck wird durch das Mapping ersetzt - es beginnt leer.' }))) return;
     // the result so far is its Out
@@ -2238,7 +2240,7 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
                 <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
               </p>
             ))}
-            <FieldMappingEditor mapping={mapping} target={nodes.target} sources={nodes.sources} isDark={isDark} canEdit={canEdit} convert={convert}
+            <FieldMappingEditor mapping={mapping} target={nodes.target} sources={nodes.sources} isDark={isDark} canEdit={canEdit} convert={convert} choices={choices}
               onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
             <details className="text-[10px]">
               <summary className={`cursor-pointer ${c.muted}`}>FEEL des Mappings</summary>

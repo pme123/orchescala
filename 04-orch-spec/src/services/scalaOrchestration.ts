@@ -374,10 +374,11 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
 
   /** a path into the field: of another type a type mapper converts it (each element of a list, an Option along) */
-  const pathValue = (p: string, f: Field): Translated => {
+  const pathValue = (p: string, f: Field, chosen?: string): Translated => {
     const t = feelToScalaTyped(`= ${p}`, scope, ctx.types, f);
-    if (t.todo || !t.type || t.type === f.type || !!t.collection !== !!f.collection) return t;
-    const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf);
+    if (t.todo || !t.type || (t.type === f.type && !chosen) || !!t.collection !== !!f.collection) return t;
+    // the one the line chooses (one with a name only so), otherwise the one of the types
+    const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf, chosen);
     if (!mapper) return t;
     const { home, explicit } = useMapper(mapper, ctx);
     const name = mapperExtension(mapper, ctx.idx.nameOf);
@@ -394,7 +395,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   const linkValue = (l: FieldLink, f: Field): Translated => {
     const expr = l.expression?.trim();
     if (expr) return feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
-    const parts = linkPaths(l).map(p => pathValue(p, f));
+    const parts = linkPaths(l).map(p => pathValue(p, f, l.mapper));
     return parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
       : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
   };
@@ -716,7 +717,7 @@ function mapperFiles(ctx: Ctx): ScalaFile[] {
         packageClause(home.pkg), '', ...(sorted.length ? [...sorted, ''] : []),
         '/** Type mappers - from Orch Spec (Administration → Typ-Mapper): `existing.kind.toClientType` */',
         `object ${home.object}:`, '',
-        mappers.map(m => mapperCode(m, ctx.idx.nameOf, enumCases(m.from, ctx.idx))).join('\n\n'), '',
+        mappers.map(m => mapperCode(m, ctx.idx.nameOf, enumCases(m.from, ctx.idx), enumCases(m.to, ctx.idx))).join('\n\n'), '',
         `end ${home.object}`, '',
       ].join('\n'),
     };

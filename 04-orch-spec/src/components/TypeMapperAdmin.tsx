@@ -39,11 +39,13 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
     setDraft(d => d.map(m => (m.id === id ? { ...m, ...patch } : m)));
     setFlash(null);
   };
-  /** the table filled where the cases are alike - when both are enums */
+  /** the table filled where the cases are alike - when both are enums; an enum onto values: a row per case */
   const filled = (m: TypeMapper): Partial<TypeMapper> => {
     const from = enumCases(m.from, idx);
     const to = enumCases(m.to, idx);
-    return from && to ? { cases: prefilledCases(from, to, m.cases) } : {};
+    if (from && to) return { cases: prefilledCases(from, to, m.cases) };
+    if (from) return { cases: from.map(f => (m.cases ?? []).find(x => x.from === f) ?? { from: f, to: '' }) };
+    return {};
   };
   const setTypes = (m: TypeMapper, patch: Pick<Partial<TypeMapper>, 'from' | 'to'>) => {
     const next = { ...m, ...patch };
@@ -146,7 +148,43 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
                     <Wand2 size={10} /> Ähnliche Namen
                   </button>
                 </div>
-              ) : <p className={`text-[10px] ${c.muted}`}>Eine Tabelle braucht als Von und Nach je ein Enum.</p>)}
+              ) : m.from && m.to ? (
+                // values: Von a simple type (or Nach) - row by row, a value and what it becomes
+                <div className="space-y-0.5">
+                  <div className={`grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)_16px] gap-2 text-[10px] uppercase tracking-wide ${c.muted}`}>
+                    <span className="truncate">{name(m.from)}</span><span /><span className="truncate">{name(m.to)}</span><span />
+                  </div>
+                  {(m.cases ?? []).map((row, k) => {
+                    const put = (patch: Partial<{ from: string; to: string }>) =>
+                      set(m.id, { cases: (m.cases ?? []).map((x, j) => (j === k ? { ...x, ...patch } : x)) });
+                    return (
+                      <div key={k} className="grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)_16px] gap-2 items-center text-[11px]">
+                        {fromCases
+                          ? <span className="font-mono break-all">{row.from}</span>
+                          : <input value={row.from} onChange={e => put({ from: e.target.value })} placeholder="1" className={`min-w-0 font-mono ${input}`} />}
+                        <ArrowRight size={11} className={c.muted} />
+                        {toCases
+                          ? (
+                            <select value={row.to} onChange={e => put({ to: e.target.value })} className={`min-w-0 font-mono ${input} ${row.to ? '' : (isDark ? 'border-amber-500/60' : 'border-amber-400')}`}>
+                              <option value="">- kein Fall -</option>
+                              {toCases.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          )
+                          : <input value={row.to} onChange={e => put({ to: e.target.value })} placeholder="de" className={`min-w-0 font-mono ${input}`} />}
+                        <button type="button" onClick={() => set(m.id, { cases: (m.cases ?? []).filter((_, j) => j !== k) })} title="Zeile löschen"
+                          className={`p-0.5 ${c.muted} hover:text-rose-500`}><Trash2 size={10} /></button>
+                      </div>
+                    );
+                  })}
+                  {!fromCases && (
+                    <button type="button" onClick={() => set(m.id, { cases: [...(m.cases ?? []), { from: '', to: '' }] })}
+                      className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${c.btn}`}>
+                      <Plus size={10} /> Zeile
+                    </button>
+                  )}
+                  <p className={`text-[10px] ${c.muted}`}>Werte wie im Code: ein String ohne Anführungszeichen (de), eine Zahl wie sie ist (1). Ein Wert ohne Zeile wirft zur Laufzeit.</p>
+                </div>
+              ) : <p className={`text-[10px] ${c.muted}`}>Erst Von und Nach wählen.</p>)}
               {m.kind === 'field' && (
                 <div className="flex items-center gap-2 text-[11px]">
                   <span className={`${c.muted} w-20`}>Feld</span>
@@ -170,12 +208,17 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
               {m.kind === 'decoder' && (
                 <p className={`text-[10px] ${c.muted}`}>Der Deserialisierer von {name(m.to)} im Code liest den Wert von {name(m.from)} - ohne Fall-Tabelle hier.</p>
               )}
-              <input value={m.description ?? ''} onChange={e => set(m.id, { description: e.target.value })} placeholder="Worum es geht (optional)" className={`w-full ${input}`} />
+              <div className="flex items-center gap-2">
+                <input value={m.name ?? ''} onChange={e => set(m.id, { name: e.target.value || undefined })} placeholder="Name (optional)"
+                  title="Mit Namen (Sprache, Land …) gilt er nur, wo eine Linie eines Mappings ihn wählt - so gehen mehrere mit denselben Typen (Int → String)"
+                  className={`w-40 ${input} ${m.kind === 'table' && !fromCases && !m.name?.trim() ? (isDark ? 'border-amber-500/60' : 'border-amber-400') : ''}`} />
+                <input value={m.description ?? ''} onChange={e => set(m.id, { description: e.target.value })} placeholder="Worum es geht (optional)" className={`flex-1 ${input}`} />
+              </div>
               {m.from && m.to && (
                 <details className="text-[10px]">
                   <summary className={`cursor-pointer ${c.muted}`}>Im Code</summary>
                   <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap font-mono text-[10px] ${c.border}`}>
-                    {mapperCode(m, idx.nameOf, fromCases).replace(/^ {2}/gm, '')}
+                    {mapperCode(m, idx.nameOf, fromCases, toCases).replace(/^ {2}/gm, '')}
                   </pre>
                 </details>
               )}

@@ -83,7 +83,7 @@ export function withLink(m: FieldMapping, field: string, patch: Partial<FieldLin
   const old = m.fields.find(l => l.field === field) ?? { field, from: [] };
   const next: FieldLink = patch ? { ...old, ...patch } : { field, from: [] };
   const keep = linkPaths(next).length > 0 || !!next.expression?.trim();
-  const tidy: FieldLink = { field, from: linkPaths(next), ...(next.expression?.trim() ? { expression: next.expression } : {}) };
+  const tidy: FieldLink = { field, from: linkPaths(next), ...(next.expression?.trim() ? { expression: next.expression } : {}), ...(next.mapper ? { mapper: next.mapper } : {}) };
   const rest = m.fields.filter(l => l.field !== field);
   const at = m.fields.findIndex(l => l.field === field);
   if (!keep) return { ...m, fields: rest };
@@ -160,7 +160,11 @@ export const plainType = (n: VarNode): string => n.label.replace(/^Option\[(.*)\
  * A type mapper between the types of two nodes - its name, or null: a line from the one onto the
  * other converts with it (see typeMappers.ts). Built from the model; without one nothing converts.
  */
-export type Converter = (from: VarNode, to: VarNode) => string | null;
+/** The type mappers a line between two nodes can choose - its id and label (see FieldLink.mapper). */
+export type MapperChoices = (from: VarNode, to: VarNode) => Array<{ id: string; label: string }>;
+
+/** The type mapper a line converts with, as its label - `chosen`: the one the line names (see FieldLink.mapper). */
+export type Converter = (from: VarNode, to: VarNode, chosen?: string) => string | null;
 
 /**
  * What is open on the right gets lines: per field without a value one of the In of the same name
@@ -283,7 +287,8 @@ export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode
     for (const p of linkPaths(l)) {
       const n = resolvePath(sources, p);
       if (!n) out.push({ level: 'error', text: `«${l.field}»: ${p} gibt es im In nicht.`, field: l.field });
-      else if (n.type !== 'any' && f.type !== 'any' && plainType(n) !== plainType(f) && !convert?.(n, f)) out.push({ level: 'warn', text: `«${l.field}»: ${p} ist ${plainType(n)}, das Feld ${plainType(f)} - ohne Typ-Mapper dazwischen.`, field: l.field });
+      else if (l.mapper && convert && !convert(n, f, l.mapper)) out.push({ level: 'warn', text: `«${l.field}»: der gewählte Typ-Mapper passt nicht zu ${plainType(n)} → ${plainType(f)}.`, field: l.field });
+      else if (!l.mapper && n.type !== 'any' && f.type !== 'any' && plainType(n) !== plainType(f) && !convert?.(n, f)) out.push({ level: 'warn', text: `«${l.field}»: ${p} ist ${plainType(n)}, das Feld ${plainType(f)} - ohne Typ-Mapper dazwischen.`, field: l.field });
     }
   }
   // the fields without a value: of the Out, and of an object built from its fields without a

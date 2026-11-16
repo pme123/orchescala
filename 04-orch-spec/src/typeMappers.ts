@@ -11,13 +11,13 @@
 // `schema` of the level both of its types share (see mapperHome) - the export brings the file, the
 // worker imports it; an Option or a list of it is mapped along.
 import type { VarNode } from './feel';
-import type { Converter } from './fieldMapping';
+import type { Converter, MapperChoices } from './fieldMapping';
 import { caseIdent, type TypeIndex } from './scala.ts';
 import type { DomainMapper, Model, TypeMapper } from './types';
 import { STANDARD_MAPPERS } from './standardMappers.ts';
 
 export const MAPPER_KINDS: Array<{ kind: TypeMapper['kind']; label: string; hint: string }> = [
-  { kind: 'table', label: 'Tabelle', hint: 'Ein Enum in ein Enum - Fall für Fall' },
+  { kind: 'table', label: 'Tabelle', hint: 'Fall für Fall (ein Enum in ein Enum) oder Wert für Wert (1 → "de")' },
   { kind: 'field', label: 'Feld', hint: 'Ein Feld davon - der Wert eines Wrappers (value)' },
   { kind: 'scala', label: 'Scala', hint: 'Ein Scala-Ausdruck über x' },
   { kind: 'decoder', label: 'Deserialisierer', hint: 'Der Deserialisierer des Ziels im Code liest es (x.asJson.as[Ziel])' },
@@ -30,9 +30,16 @@ const short = (n: string) => n.replace(/^.*\./, '');
  * The mapper from one type into another - by their names (`ClientMainType`), as the mapping
  * editor finds it too: a mapping knows only the names. Two with the same names find none.
  */
-export function findMapper(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string): TypeMapper | undefined {
+export function findMapper(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string, chosen?: string): TypeMapper | undefined {
   if (!mappers?.length || !from || !to) return undefined;
+  if (chosen) return mapperCandidates(mappers, nameOf(from), nameOf(to), nameOf, { from, to }).find(m => m.id === chosen);
   return mapperByName(mappers, nameOf(from), nameOf(to), nameOf, { from, to });
+}
+
+/** The mappers a line between these types can choose - with a name or without. */
+export function mapperCandidates(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string, refs: { from?: string; to?: string } = {}): TypeMapper[] {
+  return (mappers ?? []).filter(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to)
+    && sameRef(m.from, refs.from) && sameRef(m.to, refs.to));
 }
 
 /** Two types the same? Both of the catalog (`dom:…`): by their reference - otherwise the names decide. */
@@ -44,8 +51,8 @@ const sameRef = (a: string, b: string | undefined) => !b || !a.startsWith('dom:'
  */
 export function mapperByName(mappers: TypeMapper[] | undefined, from: string, to: string, nameOf: (ref: string) => string, refs: { from?: string; to?: string } = {}): TypeMapper | undefined {
   // the same names of other packages (`ClientType` of two projects) are no match when both are known
-  const hits = (mappers ?? []).filter(m => short(nameOf(m.from)) === short(from) && short(nameOf(m.to)) === short(to)
-    && sameRef(m.from, refs.from) && sameRef(m.to, refs.to));
+  // one with a name only where a line chooses it
+  const hits = mapperCandidates(mappers, from, to, nameOf, refs).filter(m => !isNamed(m));
   return hits.length === 1 ? hits[0] : undefined;
 }
 
@@ -101,12 +108,18 @@ export function prefilledAdtCases(from: string[], to: string[], set: Array<{ fro
 export function mapperMethod(m: TypeMapper, nameOf: (ref: string) => string): string {
   const name = (ref: string) => short(nameOf(ref)).replace(/[^A-Za-z0-9]/g, '');
   const from = name(m.from);
-  return `${from.charAt(0).toLowerCase()}${from.slice(1)}To${name(m.to)}`;
+  return `${from.charAt(0).toLowerCase()}${from.slice(1)}To${isNamed(m) ? pascal(m.name!) : name(m.to)}`;
 }
+
+/** A mapper with a name - only taken where a line chooses it (see TypeMapper.name). */
+export const isNamed = (m: TypeMapper): boolean => !!m.name?.trim();
+
+const pascal = (n: string) => { const s = n.trim().replace(/[^A-Za-z0-9]+(.)?/g, (_, c: string | undefined) => (c ?? '').toUpperCase()); return `${s.charAt(0).toUpperCase()}${s.slice(1)}`; };
 
 /** The name of its extension method - `toClientType`: `existing.kind.toClientType`; one of the code keeps its own. */
 export function mapperExtension(m: TypeMapper, nameOf: (ref: string) => string): string {
   if (m.code) return m.code.method;
+  if (isNamed(m)) return `to${pascal(m.name!)}`;
   const to = short(nameOf(m.to)).replace(/[^A-Za-z0-9]/g, '');
   // `toString` is a method of every type - Scala would call it, never the extension
   return to === 'String' ? 'asString' : `to${to}`;
@@ -138,10 +151,11 @@ export function modelMappers(model: Pick<Model, 'typeMappers' | 'domainMappers'>
     code.push(codeMapper(d));
   }
   // the model's name its types by reference - compared by the short names the code has
-  const ownKeys = new Set(own.map(m => key(m.from.replace(/^dom:/, ''), m.to.replace(/^dom:/, ''))));
+  // one with a name (a value table, chosen per line) takes the place of none
+  const ownKeys = new Set(own.filter(m => !isNamed(m)).map(m => key(m.from.replace(/^dom:/, ''), m.to.replace(/^dom:/, ''))));
   const kept = [...own, ...code.filter(m => !ownKeys.has(key(m.from, m.to)))];
   // the standard ones last - one of the model or the code with the same names goes before
-  const keptKeys = new Set(kept.map(m => key(m.from.replace(/^dom:/, ''), m.to.replace(/^dom:/, ''))));
+  const keptKeys = new Set(kept.filter(m => !isNamed(m)).map(m => key(m.from.replace(/^dom:/, ''), m.to.replace(/^dom:/, ''))));
   return [...kept, ...STANDARD_MAPPERS.filter(m => !keptKeys.has(key(m.from, m.to)))];
 }
 
@@ -184,13 +198,14 @@ export function mapperHome(typePkgs: Array<string | null>, root: string, api: st
 }
 
 /** A mapper as an extension of its object: its doc, the head on one line (the helper's merge keys it by that), its body. */
-export function mapperCode(m: TypeMapper, nameOf: (ref: string) => string, fromCases?: string[] | null): string {
+export function mapperCode(m: TypeMapper, nameOf: (ref: string) => string, fromCases?: string[] | null, toCases?: string[] | null): string {
   const [from, to] = [short(nameOf(m.from)), short(nameOf(m.to))];
-  const doc = m.description?.trim() ? `${from} → ${to}: ${m.description.trim().split('\n')[0]}` : `${from} → ${to}`;
+  const head = `${from} → ${to}${isNamed(m) ? ` (${m.name!.trim()})` : ''}`;
+  const doc = m.description?.trim() ? `${head}: ${m.description.trim().split('\n')[0]}` : head;
   return [
     `  /** ${doc.replace(/\*\//g, '* /')} */`,
     `  extension (x: ${from}) def ${mapperExtension(m, nameOf)}: ${to} =`,
-    mapperBody(m, nameOf, fromCases).replace(/^/gm, '    '),
+    mapperBody(m, nameOf, fromCases, toCases).replace(/^/gm, '    '),
   ].join('\n');
 }
 
@@ -198,28 +213,43 @@ export function mapperCode(m: TypeMapper, nameOf: (ref: string) => string, fromC
  * The body of its method over `x` - in Scala. `fromCases`: the cases of the source enum - a table
  * covering only some of them gets the default that fails (without them: when a row is empty).
  */
-export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string, fromCases?: string[] | null): string {
+export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string, fromCases?: string[] | null, toCases?: string[] | null): string {
   const from = short(nameOf(m.from));
   const to = short(nameOf(m.to));
   const fail = (what: string) => `throw IllegalArgumentException(${what})`;
   switch (m.kind) {
     case 'table': {
+      // an enum (or not known: as one) a case, a simple type a value (null: no enum)
+      const fromValue = fromCases === null;
+      const side = (v: string, type: string, value: boolean) => (value ? valueLiteral(v, type) : `${type}.${caseIdent(v)}`);
       // a row per case of the source that is still there - the first one counts
       const rows = (m.cases ?? []).filter((c, i, l) => c.from && c.to && (!fromCases || fromCases.includes(c.from))
         && l.findIndex(o => o.from === c.from) === i);
-      const all = fromCases
+      // values are never all - the others fail
+      const all = fromValue ? false : fromCases
         ? fromCases.length > 0 && fromCases.every(f => rows.some(c => c.from === f))
         : (m.cases ?? []).length > 0 && rows.length === (m.cases ?? []).length;
       return [
         'x match',
-        ...rows.map(c => `  case ${from}.${caseIdent(c.from)} => ${to}.${caseIdent(c.to)}`),
-        ...(all ? [] : [`  case other => ${fail(`s"${from} $other: kein Fall in ${to}"`)}`]),
+        ...rows.map(c => `  case ${side(c.from, from, fromValue)} => ${side(c.to, to, toCases === null)}`),
+        ...(all ? [] : [`  case other => ${fail(`s"${from} $other: ${fromValue ? 'kein Wert' : 'kein Fall'} in ${to}"`)}`]),
       ].join('\n');
     }
     case 'field': return m.path?.trim() ? `x.${m.path.trim()}` : `??? /* TODO ${from} → ${to}: welches Feld? */`;
     case 'scala': return m.scala?.trim() || `??? /* TODO ${from} → ${to} */`;
     case 'decoder': return `x.asJson.as[${to}].fold(e => ${fail(`s"${from} → ${to}: \${e.getMessage}"`)}, identity)`;
   }
+}
+
+/**
+ * A value of a simple type as Scala - a `String` in quotes (unless it has them), a `BigDecimal`
+ * built, the others as written (`1`, `true`, `1.5`).
+ */
+export function valueLiteral(v: string, type: string): string {
+  const t = v.trim();
+  if (type === 'String') return /^".*"$/.test(t) ? t : JSON.stringify(t);
+  if (type === 'BigDecimal') return `BigDecimal(${JSON.stringify(t.replace(/^"|"$/g, ''))})`;
+  return t;
 }
 
 /** What its method needs imported beyond the types. */
@@ -231,7 +261,9 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
   const out: string[] = [];
   if (!m.from || !m.to) return ['Von und Nach brauchen einen Typ.'];
   if (m.from === m.to) out.push('Von und Nach sind derselbe Typ.');
-  if (all.some(o => o.id !== m.id && o.from === m.from && o.to === m.to)) out.push('Diesen Mapper gibt es zweimal.');
+  // of the same types with another name (`Language`, `Country`) is another one
+  const sameName = (o: TypeMapper) => (o.name?.trim() ?? '') === (m.name?.trim() ?? '');
+  if (all.some(o => o.id !== m.id && o.from === m.from && o.to === m.to && sameName(o))) out.push(isNamed(m) ? `«${m.name!.trim()}» gibt es für diese Typen zweimal.` : 'Diesen Mapper gibt es zweimal.');
   // other types with the same names (another package): a mapping shows only the names, the worker
   // method is named after them - neither tells them apart
   else if (all.some(o => o.id !== m.id && o.from && o.to && mapperMethod(o, idx.nameOf) === mapperMethod(m, idx.nameOf))) {
@@ -240,8 +272,23 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
   if (m.kind === 'table') {
     const from = enumCases(m.from, idx);
     const to = enumCases(m.to, idx);
-    if (!from || !to) out.push('Eine Tabelle braucht zwei Enums.');
-    else {
+    if (!from) {
+      // values: each row a value and its target, each value once
+      const rows = (m.cases ?? []).filter(c => c.from.trim() || c.to.trim());
+      if (!rows.length) out.push('Noch keine Zeile - Wert für Wert, was er wird.');
+      const half = rows.filter(c => !c.from.trim() || !c.to.trim());
+      if (half.length) out.push(`${half.length} Zeile(n) ohne Wert oder Ziel.`);
+      const twice = rows.map(c => c.from.trim()).filter((f, i, l) => f && l.indexOf(f) !== i);
+      if (twice.length) out.push(`Mehrfach: ${[...new Set(twice)].join(', ')} - die erste Zeile gilt.`);
+      if (to) {
+        const unknown = rows.filter(c => c.to && !to.includes(c.to)).map(c => c.to);
+        if (unknown.length) out.push(`Gibt es in ${short(idx.nameOf(m.to))} nicht: ${unknown.join(', ')}.`);
+      }
+      if (!isNamed(m)) out.push('Eine Wertetabelle braucht einen Namen (Sprache, Land …) - sie gilt nur, wo eine Linie sie wählt.');
+    } else if (!to) {
+      const open = from.filter(f => !(m.cases ?? []).some(c => c.from === f && c.to));
+      if (open.length) out.push(`Ohne Wert: ${open.join(', ')} - zur Laufzeit ein Fehler.`);
+    } else {
       const open = from.filter(f => !(m.cases ?? []).some(c => c.from === f && c.to));
       if (open.length) out.push(`Ohne Fall: ${open.join(', ')} - zur Laufzeit ein Fehler.`);
       const unknown = (m.cases ?? []).filter(c => c.to && !to.includes(c.to)).map(c => c.to);
@@ -266,18 +313,30 @@ function element(label: string): { name: string; list: boolean } {
   return { name: t, list };
 }
 
+/** The mappers a line can choose (see MapperChoices) - those of its types, with a name or without. */
+export function mapperChoices(mappers: TypeMapper[] | undefined, nameOf: (ref: string) => string): MapperChoices {
+  return (from: VarNode, to: VarNode) => {
+    const a = element(from.label);
+    const b = element(to.label);
+    if (a.list !== b.list) return [];
+    return mapperCandidates(mappers, a.name, b.name, nameOf, { from: from.field?.type, to: to.field?.type })
+      .map(m => ({ id: m.id, label: `${isNamed(m) ? m.name!.trim() : mapperExtension(m, nameOf)}${m.description?.trim() ? ` - ${m.description.trim().split('\n')[0]}` : ''}` }));
+  };
+}
+
 /**
  * Which mapper a line from one node onto another uses (see Converter): between their types, a
  * list onto a list (each element), an Option along. Its name, e.g. `ClientMainType → ClientType`.
  */
 export function converter(mappers: TypeMapper[] | undefined, nameOf: (ref: string) => string): Converter {
-  return (from: VarNode, to: VarNode) => {
+  return (from: VarNode, to: VarNode, chosen?: string) => {
     if (!mappers?.length) return null;
     const a = element(from.label);
     const b = element(to.label);
-    if (a.list !== b.list || a.name === b.name) return null;
-    const m = mapperByName(mappers, a.name, b.name, nameOf, { from: from.field?.type, to: to.field?.type });
-    return m ? `${short(nameOf(m.from))} → ${short(nameOf(m.to))}` : null;
+    if (a.list !== b.list || (a.name === b.name && !chosen)) return null;
+    const refs = { from: from.field?.type, to: to.field?.type };
+    const m = chosen ? mapperCandidates(mappers, a.name, b.name, nameOf, refs).find(x => x.id === chosen) : mapperByName(mappers, a.name, b.name, nameOf, refs);
+    return m ? `${short(nameOf(m.from))} → ${short(nameOf(m.to))}${isNamed(m) ? ` (${m.name!.trim()})` : ''}` : null;
   };
 }
 
@@ -299,6 +358,7 @@ export function cleanMapper(m: TypeMapper): TypeMapper | null {
     ...(m.kind === 'scala' && str(m.scala) ? { scala: str(m.scala) } : {}),
     ...(m.kind === 'scala' && imports.length ? { imports } : {}),
     ...(str(m.description) ? { description: str(m.description) } : {}),
+    ...(str(m.name) ? { name: str(m.name) } : {}),
   };
 }
 

@@ -9,7 +9,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRig
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { VarNode } from '../feel';
-import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink, type Converter } from '../fieldMapping';
+import { autoMapped, hasInner, linkPaths, linked, mappingIssues, plainType, resolvePath, withLink, type Converter, type MapperChoices } from '../fieldMapping';
 import type { FieldLink, FieldMapping } from '../types';
 import { cls } from '../ui';
 import FeelInput from './FeelInput';
@@ -33,10 +33,12 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
 /** a node that has fields to open - not a list (paths do not go into one) */
 const opens = (n: VarNode) => n.type !== 'list' && !!n.children?.length;
 
-export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, convert, onChange }: {
+export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, convert, choices, onChange }: {
   mapping: FieldMapping;
   /** the type mappers of the model: a line between their types converts */
   convert?: Converter;
+  /** the type mappers a line can choose - one with a name only so */
+  choices?: MapperChoices;
   /** the Out - its variables (children) are the right side */
   target: VarNode;
   /** the In - the left side */
@@ -54,7 +56,7 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
     return () => window.removeEventListener('keydown', onKey);
   }, [large]);
   const body = (
-    <Editor mapping={mapping} target={target} sources={sources} isDark={isDark} canEdit={canEdit} convert={convert} onChange={onChange}
+    <Editor mapping={mapping} target={target} sources={sources} isDark={isDark} canEdit={canEdit} convert={convert} choices={choices} onChange={onChange}
       large={large} onLarge={setLarge} />
   );
   if (!large) return body;
@@ -68,8 +70,8 @@ export default function FieldMappingEditor({ mapping, target, sources, isDark, c
   );
 }
 
-function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, large, onLarge }: {
-  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean; convert?: Converter;
+function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, onChange, large, onLarge }: {
+  mapping: FieldMapping; target: VarNode; sources: VarNode[]; isDark: boolean; canEdit: boolean; convert?: Converter; choices?: MapperChoices;
   onChange: (m: FieldMapping) => void; large: boolean; onLarge: (v: boolean) => void;
 }) {
   const c = cls(isDark);
@@ -81,7 +83,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
   const mapperOf = (path: string, field: string): string | null => {
     const n = resolvePath(sources, path);
     const f = resolvePath(fields, field);
-    return n && f && convert ? convert(n, f) : null;
+    return n && f && convert ? convert(n, f, mapping.fields.find(l => l.field === field)?.mapper) : null;
   };
   const linkOf = (field: string): FieldLink | undefined => mapping.fields.find(l => l.field === field);
 
@@ -535,6 +537,23 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, onChange, 
                     );
                   })}
                   {linkPaths(selLink).length > 1 && <p className={`text-[9px] ${c.muted}`}>Der erste gesetzte Wert gewinnt (nicht null).</p>}
+                  {(() => {
+                    // the type mappers of these types: one with a name (Sprache, Land …) only where it is chosen
+                    const n = resolvePath(sources, linkPaths(selLink)[0]);
+                    const options = n && choices ? choices(n, sel) : [];
+                    if (!options.length && !selLink.mapper) return null;
+                    return (
+                      <div className="flex items-center gap-2 text-[10px]">
+                        <span className={`${c.muted} w-24 flex-shrink-0`}>Typ-Mapper</span>
+                        <select value={selLink.mapper ?? ''} disabled={!canEdit} onChange={e => onChange(withLink(mapping, selected!, { mapper: e.target.value || undefined }))}
+                          className={`flex-1 min-w-0 text-[10px] px-1.5 py-0.5 rounded border outline-none font-mono ${c.input}`}>
+                          <option value="">automatisch - nach den Typen</option>
+                          {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                          {selLink.mapper && !options.some(o => o.id === selLink.mapper) && <option value={selLink.mapper}>{selLink.mapper} - passt nicht</option>}
+                        </select>
+                      </div>
+                    );
+                  })()}
                 </div>
               : <p className={`text-[10px] ${c.muted}`}>Noch keine Linie - links ein Feld hierher ziehen.</p>
           )}

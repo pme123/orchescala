@@ -199,6 +199,8 @@ export interface FieldLink {
   from: string[];
   /** instead of the paths: a FEEL expression (`= lower case(client.email)`) */
   expression?: string;
+  /** the type mapper it converts with (its id) - one with a name is only taken when chosen here */
+  mapper?: string;
 }
 
 export interface Step {
@@ -1074,7 +1076,7 @@ export interface TypeMapper {
    * reads it (`x.asJson.as[To]`)
    */
   kind: 'table' | 'field' | 'scala' | 'decoder';
-  /** table: per case of `from` the case of `to` */
+  /** table: per case of `from` the case of `to` - between simple types per value (`1` → `"de"`) */
   cases?: Array<{ from: string; to: string }>;
   /** field: the path in `from` (`value`, `amount.value`) */
   path?: string;
@@ -1083,6 +1085,11 @@ export interface TypeMapper {
   /** what the expression needs imported (`java.time.LocalDate`) */
   imports?: string[];
   description?: string;
+  /**
+   * A name (`Language`): its extension is `toLanguage`, and it is only taken where a line of a
+   * mapping chooses it - several of the same types (`Int` → `String`: language, country) apart.
+   */
+  name?: string;
   /**
    * In the code already (from the catalog, see DomainMapper): the extension that converts -
    * the export brings no file for it, the worker imports its object. Not editable.
