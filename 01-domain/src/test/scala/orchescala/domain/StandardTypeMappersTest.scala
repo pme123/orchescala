@@ -34,6 +34,11 @@ class StandardTypeMappersTest extends munit.FunSuite:
     val dateTime = intercept[IllegalArgumentException]("2026-11-16".toLocalDateTime)
     assert(dateTime.getMessage.startsWith("'2026-11-16' is no LocalDateTime"), dateTime.getMessage)
     assert(dateTime.getCause.isInstanceOf[DateTimeParseException], dateTime.getCause)
+    // a Double without a decimal value, an empty text: the same
+    val nan = intercept[IllegalArgumentException](Double.NaN.toBigDecimal)
+    assert(nan.getMessage.startsWith("'NaN' is no BigDecimal"), nan.getMessage)
+    val empty = intercept[IllegalArgumentException]("".toBigDecimal)
+    assert(empty.getMessage.startsWith("'' is no BigDecimal"), empty.getMessage)
 
   test("a method of the type itself needs none - the import does not hide it"):
     assertEquals(42.toString, "42")
