@@ -353,7 +353,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
   const caseGroups = (children: VarNode[], row: (n: VarNode) => React.ReactNode, depth: number): React.ReactNode[] => {
     const shared = children.filter(n => !n.cases);
     const groups = new Map<string, VarNode[]>();
-    for (const n of children) if (n.cases) groups.set(n.cases.join(', '), [...(groups.get(n.cases.join(', ')) ?? []), n]);
+    for (const n of children) {
+      if (!n.cases) continue;
+      const key = n.cases.join(', ');
+      const group = groups.get(key);
+      if (group) group.push(n);
+      else groups.set(key, [n]);
+    }
     if (!groups.size) return children.map(row);
     const out: React.ReactNode[] = [];
     const sharedRows = shared.map(row).filter(Boolean);
