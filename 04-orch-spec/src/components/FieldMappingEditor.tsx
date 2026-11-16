@@ -232,6 +232,13 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
   dragRef.current = drag;
   const connectRef = useRef(connect);
   connectRef.current = connect;
+  // a field of the In clicked: the line leaving it is the one chosen below (its type mapper, its paths)
+  const chooseFrom = (path: string) => {
+    const l = mapping.fields.find(x => linkPaths(x).includes(path));
+    if (l) setSelected(l.field);
+  };
+  const chooseFromRef = useRef(chooseFrom);
+  chooseFromRef.current = chooseFrom;
   const dragging = drag !== null;
   useEffect(() => {
     if (!dragging) return;
@@ -268,7 +275,10 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
       const field = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest('[data-target]')?.getAttribute('data-target');
       if (field) connectRef.current(d.path, field);
       // no move: a click - the source waits for its field
-      else if (!d.moved) setPending(p => (p === d.path ? null : d.path));
+      else if (!d.moved) {
+        setPending(p => (p === d.path ? null : d.path));
+        chooseFromRef.current(d.path);
+      }
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
