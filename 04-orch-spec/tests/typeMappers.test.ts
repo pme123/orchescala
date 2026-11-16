@@ -190,6 +190,8 @@ test('where a mapper lives: the schema of the deepest level its types of the pro
   assert.equal(at('acme.crm.domain.schema', null), 'acme.crm.domain.schema TypeMappers');
   assert.equal(at(null, 'globex.core.domain.client.v1.schema'), 'acme.crm.domain.schema TypeMappers');
   assert.equal(at(null, null), 'acme.crm.domain.schema TypeMappers');
+  // an API that is only its version: named by it
+  assert.equal(mapperHome(['acme.crm.domain.v1.schema', 'acme.crm.domain.v1.schema'], root, ['v1']).object, 'V1TypeMappers');
 });
 
 test('type mappers: an import with fields of the wrong type - such a field counts as missing, no raw TypeError', () => {

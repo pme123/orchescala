@@ -204,7 +204,7 @@ export function mapperHome(typePkgs: Array<string | null>, root: string, api: st
   const pascal = (x: string) => `${x.charAt(0).toUpperCase()}${x.slice(1)}`;
   const last = common[common.length - 1] ?? '';
   const object = !common.length ? 'TypeMappers'
-    : /^v\d+$/.test(last) ? `${pascal(common[common.length - 2])}${last.toUpperCase()}TypeMappers`
+    : /^v\d+$/.test(last) ? `${common.length > 1 ? pascal(common[common.length - 2]) : ''}${last.toUpperCase()}TypeMappers`
       : `${pascal(last)}TypeMappers`;
   return { pkg: [root, ...common, 'schema'].join('.'), object };
 }
@@ -259,10 +259,22 @@ export function mapperBody(m: TypeMapper, nameOf: (ref: string) => string, fromC
  */
 export function valueLiteral(v: string, type: string): string {
   const t = v.trim();
-  if (type === 'String') return /^".*"$/.test(t) ? t : JSON.stringify(t);
+  // a literal as it is - anything else is text: `"a" + foo` becomes the string it is
+  if (type === 'String') return STRING_LITERAL.test(t) ? t : JSON.stringify(t);
   if (type === 'BigDecimal') return `BigDecimal(${JSON.stringify(t.replace(/^"|"$/g, ''))})`;
   return t;
 }
+
+const STRING_LITERAL = /^"(?:[^"\\]|\\.)*"$/;
+
+/** What a value of a simple type must look like - the export writes the others as they are. */
+const VALUE: Record<string, RegExp> = {
+  Int: /^-?\d+$/, Long: /^-?\d+L?$/, Double: /^-?\d+(\.\d+)?$/, Boolean: /^(true|false)$/,
+  BigDecimal: /^"?-?\d+(\.\d+)?"?$/,
+};
+
+/** A value that is no literal of its type (`1 + x` for an Int) - a String is always one (it becomes text). */
+export const invalidValue = (v: string, type: string): boolean => !!VALUE[type] && !VALUE[type].test(v.trim());
 
 /** What its method needs imported beyond the types. */
 export const mapperImports = (m: TypeMapper): string[] =>
@@ -281,6 +293,8 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
   else if (all.some(o => o.id !== m.id && o.from && o.to && mapperMethod(o, idx.nameOf) === mapperMethod(m, idx.nameOf))) {
     out.push(`Ein anderer Mapper hat dieselben Namen (${mapperMethod(m, idx.nameOf)}) - im Mapping und im Code nicht zu unterscheiden; keiner der beiden wandelt.`);
   }
+  // (the same extension on the same type is the same method name too: `intToLanguage` - so reported above)
+  if (isNamed(m) && !/[A-Za-z0-9]/.test(m.name!)) out.push(`«${m.name!.trim()}» gibt keinen Namen im Code - Buchstaben oder Ziffern.`);
   if (m.kind === 'table') {
     const from = enumCases(m.from, idx);
     const to = enumCases(m.to, idx);
@@ -292,6 +306,11 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
       if (half.length) out.push(`${half.length} Zeile(n) ohne Wert oder Ziel.`);
       const twice = rows.map(c => c.from.trim()).filter((f, i, l) => f && l.indexOf(f) !== i);
       if (twice.length) out.push(`Mehrfach: ${[...new Set(twice)].join(', ')} - die erste Zeile gilt.`);
+      const bad = rows.flatMap(c => [
+        ...(c.from.trim() && invalidValue(c.from, short(idx.nameOf(m.from))) ? [c.from.trim()] : []),
+        ...(!to && c.to.trim() && invalidValue(c.to, short(idx.nameOf(m.to))) ? [c.to.trim()] : []),
+      ]);
+      if (bad.length) out.push(`Kein Wert seines Typs: ${[...new Set(bad)].join(', ')} - nur ein Literal (1, 1.5, true).`);
       if (to) {
         const unknown = rows.filter(c => c.to && !to.includes(c.to)).map(c => c.to);
         if (unknown.length) out.push(`Gibt es in ${short(idx.nameOf(m.to))} nicht: ${unknown.join(', ')}.`);
@@ -300,6 +319,8 @@ export function mapperIssues(m: TypeMapper, all: TypeMapper[], idx: TypeIndex): 
     } else if (!to) {
       const open = from.filter(f => !(m.cases ?? []).some(c => c.from === f && c.to));
       if (open.length) out.push(`Ohne Wert: ${open.join(', ')} - zur Laufzeit ein Fehler.`);
+      const bad = (m.cases ?? []).filter(c => c.to.trim() && invalidValue(c.to, short(idx.nameOf(m.to)))).map(c => c.to.trim());
+      if (bad.length) out.push(`Kein Wert seines Typs: ${[...new Set(bad)].join(', ')} - nur ein Literal (1, 1.5, true).`);
     } else {
       const open = from.filter(f => !(m.cases ?? []).some(c => c.from === f && c.to));
       if (open.length) out.push(`Ohne Fall: ${open.join(', ')} - zur Laufzeit ein Fehler.`);

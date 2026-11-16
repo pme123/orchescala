@@ -126,6 +126,18 @@ test('the checks of a value table: a name, whole rows; of the same types with an
   assert.deepEqual(mapperIssues({ ...country, id: 'c2' }, [country], idx), ['«Country» gibt es für diese Typen zweimal.']);
 });
 
+test('a value table: a value that is no literal of its type is said, a text stays text; a name needs letters', () => {
+  const idx = indexTypes([], null);
+  const bad = { ...language, cases: [{ from: '1 + sys.exit(1)', to: 'de' }, { from: '2', to: '"a" + foo' }] };
+  assert.deepEqual(mapperIssues(bad, [bad], idx), ['Kein Wert seines Typs: 1 + sys.exit(1) - nur ein Literal (1, 1.5, true).']);
+  // a String is always text: what is no single literal becomes one, quotes escaped
+  assert.match(mapperBody(bad, r => r, null, null), /case 2 => "\\"a\\" \+ foo"/);
+  assert.equal(mapperBody(language, r => r, null, null).includes('case 2 => "fr"'), true);
+  const toInt: TypeMapper = { id: 'n', from: 'String', to: 'Int', kind: 'table', name: 'Number', cases: [{ from: 'one', to: '1L' }, { from: 'two', to: '2' }] };
+  assert.deepEqual(mapperIssues(toInt, [toInt], idx), ['Kein Wert seines Typs: 1L - nur ein Literal (1, 1.5, true).']);
+  assert.deepEqual(mapperIssues({ ...language, name: '!!' }, [], idx), ['«!!» gibt keinen Namen im Code - Buchstaben oder Ziffern.']);
+});
+
 test('the editor: a line keeps its mapper; a chosen one that does not fit the types is said', () => {
   const m: FieldMapping = { in: [], out: [], fields: [] };
   const withMapper = withLink(m, 'dst.n', { from: ['src.n'], mapper: 'lang' });
