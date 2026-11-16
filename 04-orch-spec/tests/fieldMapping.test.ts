@@ -160,6 +160,9 @@ test('in Scala: a method from the In to the Out - a copy of the line onto the ob
   assert.match(worker, /import zio\.\{IO, ZIO\}/, worker);
   assert.match(worker, /def mapClient\(existingClient: Client, client: Client\): IO\[CustomError, Client\] =\n\s+ZIO\.succeed\(\n\s+existingClient\.copy\(\n\s+name = client\.name\.orElse\(existingClient\.name\),\n\s+firstName = client\.firstName\n\s+\)/, worker);
   assert.match(t, /val existingClient = Client\.example\n\s+val client = Client\.example\n\s+val result = runIO\(Mocked\(\)\.mapClient\(existingClient, client\)\)\n\s+assertEquals\(result\.name, client\.name\.orElse\(existingClient\.name\)\)\n\s+assertEquals\(result\.firstName, client\.firstName\)/, t);
+
+  // and the examples: those of the In give the one of the Out
+  assert.match(t, /test\("mapClient: the example gives the example of Client"\):\n\s+val existingClient = Client\.example\n\s+val client = Client\.example\n\s+\/\/ TODO Map Client: [^\n]+\n\s+val expected = Client\.example\n\s+assertEquals\(runIO\(Mocked\(\)\.mapClient\(existingClient, client\)\), expected\)/, t);
 });
 
 test('in Scala without a line onto the object: its class field by field - optional not mapped None, required a TODO, optional onto required fails', () => {

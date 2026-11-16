@@ -150,3 +150,12 @@ test('the tree of an enum with cases: the fields not all cases have carry their 
   const [src] = fieldVariables([f('src', 'src')], 'In', own, null);
   assert.deepEqual(src.children?.map(n => `${n.name}${n.cases ? `: ${n.cases.join(', ')}` : ''}`), ['id', 'a: A', 'both: A, B', 'all', 'b: B']);
 });
+
+test('the test of a mapping: its example gives the example of the target - per case, with a TODO for what the source lacks', () => {
+  const { test: t } = files({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: lines, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }] });
+  // the case: the example of the source case gives the one of the target case
+  assert.match(t, /test\("mapClientA: the example gives the example of Dst\.X"\):\n\s+val src = Src\.A\.example\n\s+\/\/ TODO Map Client: A: was die Quelle nicht hat, aus dem erwarteten Wert nehmen \(expected\.copy\(…\)\)\n\s+val expected = Dst\.X\.example\n\s+assertEquals\(runIO\(Mocked\(\)\.mapClientA\(src\)\), expected\)/, t);
+  assert.match(t, /test\("mapClientB: the example gives the example of Dst\.Y"\):\n\s+val src = Src\.B\.example\n[^\n]*\n\s+val expected = Dst\.Y\.example/, t);
+  // the entry that is the enum: compared per case only (a catalog enum has an example per case only)
+  assert.doesNotMatch(t, /test\("mapClient: the example/, t);
+});

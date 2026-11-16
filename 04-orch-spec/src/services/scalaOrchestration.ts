@@ -107,6 +107,8 @@ interface ScriptMethod {
   checks?: { at: string; value: string }[];
   /** a mapping: a ZIO (`IO[CustomError, …]`) - the required values resolved first, a missing one fails */
   io?: boolean;
+  /** a mapping onto an enum with cases: a method per case builds it - their tests compare the examples */
+  byCase?: boolean;
 }
 
 /**
@@ -589,6 +591,8 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const onCase: CaseMethod = c => {
     const name = uniqueMethod(ctx, `${method}${c.sourceCase.charAt(0).toUpperCase()}${c.sourceCase.slice(1).replace(/[^A-Za-z0-9]/g, '')}`);
     const caseParams = params.map(p => (p.name === c.source.name ? { ...p, ...c.source, id: p.id } : p));
+    // the result is the enum itself: the comparison per case (a catalog enum has an example per case only)
+    if (one && c.target.type === entry.result.type) entry.byCase = true;
     ctx.scripts.push({
       step: `${where}: ${c.sourceCase}`, method: name, params: caseParams, result: c.target, body: c.body, cases: [], io: true,
       ...(c.checks.length ? { checks: c.checks } : {}),
@@ -693,7 +697,24 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
     : m.cases.length
       ? m.cases.map(c => `    assert(${m.result.optional ? `result.exists(_.isInstanceOf[${c}])` : `result.isInstanceOf[${c}]`}, result)`)
       : [`    // TODO ${m.step}: das erwartete Ergebnis prüfen`, '    assert(result != null)'];
-  return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
+  const test = [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
+  return [test, ...(m.io && !m.results && !m.byCase ? [exampleTest(m, vals, call, idx)] : [])].join('\n\n');
+}
+
+/**
+ * A mapping: its examples give the example of the target - so the examples of both sides (their
+ * defaults) and the type mappers fit each other. With a TODO: what the source does not have
+ * (a field of another case, no line) the code takes out of the expected value - it keeps that.
+ */
+function exampleTest(m: ScriptMethod, vals: string[], call: string, idx: TypeIndex): string {
+  const target = fieldType({ ...m.result, optional: false }, idx);
+  return [
+    `  test(${JSON.stringify(`${m.method}: the example gives the example of ${target}`)}):`,
+    ...vals,
+    `    // TODO ${m.step}: was die Quelle nicht hat, aus dem erwarteten Wert nehmen (expected.copy(…))`,
+    `    val expected = ${exampleValue({ ...m.result, example: undefined }, idx)}`,
+    `    assertEquals(${call}, expected)`,
+  ].join('\n');
 }
 
 /** `base`, or numbered - a name no method of the worker has yet (its script tasks) */
