@@ -113,14 +113,25 @@ interface ScriptMethod {
 
 /**
  * The body of a method of a mapping: a `for` that resolves the required values first (`x <-
- * ZIO.fromOption(…).orElseFail(…)`), then builds - without any a `ZIO.succeed`. A body that is only
- * the one binding it yields is that ZIO itself.
+ * ZIO.fromOption(…).orElseFail(…)`), then builds in `mapped` (see MAPPED) - a value a type mapper
+ * cannot convert fails as a CustomError, not as a defect. A body that is only the one binding it
+ * yields is that ZIO itself.
  */
-function forComprehension(binds: { name: string; io: string }[], value: string): string {
-  if (!binds.length) return `ZIO.succeed(${value.includes('\n') ? `\n${indent(value, '  ')}\n` : value})`;
+function forComprehension(binds: { name: string; io: string }[], value: string, where: string): string {
   if (binds.length === 1 && binds[0].name === value) return binds[0].io;
-  return ['for', ...binds.map(b => indent(`${b.name} <- ${b.io}`, '  ')), `yield ${value}`].join('\n');
+  const built = `mapped(${JSON.stringify(where)})(${value.includes('\n') ? `\n${indent(value, '  ')}\n` : value})`;
+  if (!binds.length) return built;
+  let name = 'built';
+  for (let i = 2; binds.some(b => b.name === name); i++) name = `built${i}`;
+  return ['for', ...binds.map(b => indent(`${b.name} <- ${b.io}`, '  ')), indent(`${name} <- ${built}`, '  '), `yield ${name}`].join('\n');
 }
+
+/** In a worker with mappings: what they build - a mapper that throws (an unknown case, `"abc".toBigDecimal`) a CustomError. */
+const MAPPED = [
+  '  /** what a mapping builds - a value a type mapper cannot convert fails as a CustomError, not as a defect */',
+  '  private def mapped[A](where: String)(value: => A): IO[CustomError, A] =',
+  '    ZIO.attempt(value).mapError(err => CustomError(s"$where: ${err.getMessage}"))',
+].join('\n');
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
 function domainEnums(model: Model | null): TypeDef[] {
@@ -474,7 +485,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
         const x = lambda(f);
         const b = apart([x], () => build(sub, inner, x, null));
         v = !b.binds.length ? `${it.scala}.map(${x} =>\n${indent(b.value, '  ')}\n)`
-          : bind(f.name, `ZIO.foreach(${it.scala})(${x} =>\n${indent(forComprehension(b.binds, b.value), '  ')}\n)`);
+          : bind(f.name, `ZIO.foreach(${it.scala})(${x} =>\n${indent(forComprehension(b.binds, b.value, where), '  ')}\n)`);
         return v;
       }
       else v = build(sub, inner, required(path, it.scala), at);
@@ -533,7 +544,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       try {
         // in a method of its own: the test reaches the fields from its result, the target case
         const built = apart([], () => build(target, `${path}.`, null, 'result'));
-        const body = forComprehension(built.binds, built.value);
+        const body = forComprehension(built.binds, built.value, where);
         const call = onCase({
           source: { id: `case-${sc.name}`, name, type: source.type!, enumCase: sc.name },
           sourceCase: sc.name,
@@ -602,7 +613,7 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const { value, checks, binds } = mappingValues(m, scope, ctx, where, onCase);
   const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '');
   // a type mapper is an extension of the domain - the test calls it as the worker does
-  entry.body = forComprehension(binds(), one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`);
+  entry.body = forComprehension(binds(), one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`, where);
   if (checks.length) entry.checks = checks;
   const args = params.map(f => known.find(k => k.name === f.name)?.scala ?? todo(`${where}: ${f.name} ist vor dem Schritt nicht bekannt`));
   const names = outs.map(f => scalaIdent(f.name));
@@ -1106,6 +1117,7 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   });
   const scripts = [
     ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
+    ...(ctx.scripts.some(m => m.io) ? [MAPPED] : []),
   ];
   return `${workerPackageClause(api)}
 

@@ -48,13 +48,13 @@ test('an ADT built from the case of the source: a match calling a method per cas
   assert.match(w, /dst <- mapClient\(in\.src\)\n/, w);
   assert.match(w, /def mapClient\(src: Src\): IO\[CustomError, Dst\] =\n\s+src match\n\s+case src: Src\.A => mapClientA\(src\)\n\s+case other => ZIO\.fail\(CustomError\(s"Map Client: Src \$other - kein Fall von Dst gewählt"\)\)/, w);
   // the case: the source as it, the target case as its result - field by field
-  assert.match(w, /def mapClientA\(src: Src\.A\): IO\[CustomError, Dst\.X\] =\n\s+ZIO\.succeed\(\n\s+Dst\.X\(\n\s+id = src\.id,\n\s+a = src\.a,\n\s+extra = None\n\s+\)\n\s+\)/, w);
+  assert.match(w, /def mapClientA\(src: Src\.A\): IO\[CustomError, Dst\.X\] =\n\s+mapped\("Map Client"\)\(\n\s+Dst\.X\(\n\s+id = src\.id,\n\s+a = src\.a,\n\s+extra = None\n\s+\)\n\s+\)/, w);
   // its test: with the example of the case, the fields of the result
   assert.match(t, /test\("mapClientA"\):\n\s+val src = Src\.A\.example\n\s+val result = runIO\(Mocked\(\)\.mapClientA\(src\)\)\n\s+assertEquals\(result\.id, src\.id\)\n\s+assertEquals\(result\.a, src\.a\)/, t);
   // both cases chosen: no default; a line from a field the case does not have is none in that branch
   const both = worker({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: lines, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }] });
   assert.match(both, /case src: Src\.B => mapClientB\(src\)/, both);
-  assert.match(both, /def mapClientB\(src: Src\.B\): IO\[CustomError, Dst\.Y\] =\n\s+ZIO\.succeed\(\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n\s+\)/, both);
+  assert.match(both, /def mapClientB\(src: Src\.B\): IO\[CustomError, Dst\.Y\] =\n\s+mapped\("Map Client"\)\(\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n\s+\)/, both);
   assert.doesNotMatch(both, /case other/);
 });
 
@@ -97,7 +97,7 @@ test('a line from a field only some cases of the source have: a warning naming t
   const w = worker({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: [{ field: 'dst.id', from: ['src.id'] }, { field: 'dst.a', from: ['src.b'] }, { field: 'dst.b', from: ['src.b'] }],
     caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }] });
   assert.match(w, /a = \?\?\? \/\* TODO dst\.a: src\.b gibt es im Fall A von src nicht \*\//, w);
-  assert.match(w, /def mapClientB\(src: Src\.B\): IO\[CustomError, Dst\.Y\] =\n\s+ZIO\.succeed\(\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n/, w);
+  assert.match(w, /def mapClientB\(src: Src\.B\): IO\[CustomError, Dst\.Y\] =\n\s+mapped\("Map Client"\)\(\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n/, w);
 });
 
 test('the cases prefilled: names alike first, otherwise by their order when both have as many', () => {
@@ -135,9 +135,11 @@ test('in ZIO: a required value of a case resolved first, the match inside an obj
   };
   const w = orchestrationFiles(spec, [], null).find(x => x.path.endsWith('/MapClientWorker.scala'))!.content;
   // the match is a ZIO: bound before the object is built
-  assert.match(w, /def mapClient\(src: Src\): IO\[CustomError, Wrap\] =\n\s+for\n\s+dst <- src match\n\s+case src: Src\.A => mapClientA\(src\)\n\s+yield Wrap\(\n\s+dst = dst\n\s+\)/, w);
+  assert.match(w, /def mapClient\(src: Src\): IO\[CustomError, Wrap\] =\n\s+for\n\s+dst <- src match\n\s+case src: Src\.A => mapClientA\(src\)\n\s+built <- mapped\("Map Client"\)\(\n\s+Wrap\(\n\s+dst = dst\n\s+\)\n\s+\)\n\s+yield built/, w);
   // in the case: the required one first; the optional object (a copy of the line onto it) per value in a for of its own
-  assert.match(w, /def mapClientA\(src: Src\.A\): IO\[CustomError, Dst\.X\] =\n\s+for\n\s+a <- ZIO\.fromOption\(src\.a\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.a fehlt"\)\)\n\s+p <- ZIO\.foreach\(src\.p\)\(p =>\n\s+for\n\s+name <- ZIO\.fromOption\(src\.p\.flatMap\(_\.name\)\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.p\.name fehlt"\)\)\n\s+yield p\.copy\(\n\s+name = name\n\s+\)\n\s+\)\n\s+yield Dst\.X\(\n\s+a = a,\n\s+p = p\n\s+\)/, w);
+  assert.match(w, /def mapClientA\(src: Src\.A\): IO\[CustomError, Dst\.X\] =\n\s+for\n\s+a <- ZIO\.fromOption\(src\.a\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.a fehlt"\)\)\n\s+p <- ZIO\.foreach\(src\.p\)\(p =>\n\s+for\n\s+name <- ZIO\.fromOption\(src\.p\.flatMap\(_\.name\)\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.p\.name fehlt"\)\)\n\s+built <- mapped\("Map Client"\)\(\n\s+p\.copy\(\n\s+name = name\n\s+\)\n\s+\)\n\s+yield built\n\s+\)\n\s+built <- mapped\("Map Client"\)\(\n\s+Dst\.X\(\n\s+a = a,\n\s+p = p\n\s+\)\n\s+\)\n\s+yield built/, w);
+  // a mapper that throws (an unknown case, `"abc".toBigDecimal`) fails as a CustomError: built in ZIO.attempt
+  assert.match(w, /private def mapped\[A\]\(where: String\)\(value: => A\): IO\[CustomError, A\] =\n\s+ZIO\.attempt\(value\)\.mapError\(err => CustomError\(s"\$where: \$\{err\.getMessage\}"\)\)/, w);
 });
 
 test('the tree of an enum with cases: the fields not all cases have carry their cases - shared ones none', async () => {
