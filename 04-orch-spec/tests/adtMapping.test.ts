@@ -139,3 +139,14 @@ test('in ZIO: a required value of a case resolved first, the match inside an obj
   // in the case: the required one first; the optional object (a copy of the line onto it) per value in a for of its own
   assert.match(w, /def mapClientA\(src: Src\.A\): IO\[CustomError, Dst\.X\] =\n\s+for\n\s+a <- ZIO\.fromOption\(src\.a\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.a fehlt"\)\)\n\s+p <- ZIO\.foreach\(src\.p\)\(p =>\n\s+for\n\s+name <- ZIO\.fromOption\(src\.p\.flatMap\(_\.name\)\)\.orElseFail\(CustomError\("Map Client: wrap\.dst\.p\.name fehlt"\)\)\n\s+yield p\.copy\(\n\s+name = name\n\s+\)\n\s+\)\n\s+yield Dst\.X\(\n\s+a = a,\n\s+p = p\n\s+\)/, w);
 });
+
+test('the tree of an enum with cases: the fields not all cases have carry their cases - shared ones none', async () => {
+  const { fieldVariables } = await import('../src/feel');
+  const own: TypeDef[] = [{ id: 'src', name: 'Src', kind: 'enum', fields: [f('id', 'String')], values: [
+    { name: 'A', fields: [f('a', 'String'), f('both', 'String'), f('all', 'String')] },
+    { name: 'B', fields: [f('b', 'String'), f('both', 'String'), f('all', 'String')] },
+    { name: 'C', fields: [f('all', 'String')] },
+  ] } as TypeDef];
+  const [src] = fieldVariables([f('src', 'src')], 'In', own, null);
+  assert.deepEqual(src.children?.map(n => `${n.name}${n.cases ? `: ${n.cases.join(', ')}` : ''}`), ['id', 'a: A', 'both: A, B', 'all', 'b: B']);
+});

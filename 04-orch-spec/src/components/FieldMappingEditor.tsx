@@ -33,6 +33,12 @@ function scrollParent(el: HTMLElement | null): HTMLElement | null {
 /** a node that has fields to open - not a list (paths do not go into one) */
 const opens = (n: VarNode) => n.type !== 'list' && !!n.children?.length;
 
+/** The fields as the rows show them: the shared ones first, then those of the cases, case by case (see caseGroups). */
+function inCaseOrder(children: VarNode[]): VarNode[] {
+  const keys = [...new Set(children.filter(n => n.cases).map(n => n.cases!.join(', ')))];
+  return [...children.filter(n => !n.cases), ...keys.flatMap(k => children.filter(n => n.cases?.join(', ') === k))];
+}
+
 export default function FieldMappingEditor({ mapping, target, sources, isDark, canEdit, convert, choices, onChange }: {
   mapping: FieldMapping;
   /** the type mappers of the model: a line between their types converts */
@@ -340,6 +346,27 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
   }
 
   // ── the rows ──
+  /**
+   * The fields of an object - of an enum with cases the shared ones first, then per case (or the
+   * cases that share them) its own under its name; a group without a row in sight has no header.
+   */
+  const caseGroups = (children: VarNode[], row: (n: VarNode) => React.ReactNode, depth: number): React.ReactNode[] => {
+    const shared = children.filter(n => !n.cases);
+    const groups = new Map<string, VarNode[]>();
+    for (const n of children) if (n.cases) groups.set(n.cases.join(', '), [...(groups.get(n.cases.join(', ')) ?? []), n]);
+    if (!groups.size) return children.map(row);
+    const out: React.ReactNode[] = [];
+    const sharedRows = shared.map(row).filter(Boolean);
+    if (sharedRows.length) {
+      out.push(<div key="§shared" className={`text-[9px] italic ${c.muted}`} style={{ paddingLeft: 4 + depth * 12 }}>alle Fälle</div>, ...sharedRows);
+    }
+    for (const [name, ns] of groups) {
+      const rows = ns.map(row).filter(Boolean);
+      if (!rows.length) continue;
+      out.push(<div key={`§${name}`} className={`text-[9px] font-semibold ${c.muted}`} style={{ paddingLeft: 4 + depth * 12 }} title="Nur in diesen Fällen - in den anderen gibt es die Felder nicht">nur {name}</div>, ...rows);
+    }
+    return out;
+  };
   const text = large ? 'text-[12px]' : 'text-[10px]';
   const rowH = large ? 'h-7' : 'h-6';
   const linkedPaths = usedPaths;
@@ -365,7 +392,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: used ? TEAL : 'transparent', border: `1px solid ${used ? TEAL : GRAY}` }} />
         </div>
         {isOpen && opens(n) && (
-          <div className="space-y-0.5 mt-0.5">{(n.children ?? []).map(ch => sourceRow(ch, `${path}.${ch.name}`, depth + 1))}</div>
+          <div className="space-y-0.5 mt-0.5">{caseGroups(n.children ?? [], ch => sourceRow(ch, `${path}.${ch.name}`, depth + 1), depth + 1)}</div>
         )}
       </div>
     );
@@ -403,7 +430,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
           <span className={`ml-auto pl-1 truncate text-[9px] ${c.muted}`}>{f.label}</span>
         </div>
         {isOpen && opens(f) && (
-          <div className="space-y-0.5 mt-0.5">{(f.children ?? []).map(ch => targetRow(ch, `${path}.${ch.name}`, depth + 1))}</div>
+          <div className="space-y-0.5 mt-0.5">{caseGroups(f.children ?? [], ch => targetRow(ch, `${path}.${ch.name}`, depth + 1), depth + 1)}</div>
         )}
       </div>
     );
@@ -416,7 +443,7 @@ function Editor({ mapping, target, sources, isDark, canEdit, convert, choices, o
       const path = `${prefix}${f.name}`;
       if (!showsRight(path)) continue;
       steps.push(path);
-      if (outOpen.has(path) && opens(f)) walkOut(f.children ?? [], `${path}.`);
+      if (outOpen.has(path) && opens(f)) walkOut(inCaseOrder(f.children ?? []), `${path}.`);
     }
   };
   walkOut(fields, '');

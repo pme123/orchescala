@@ -61,6 +61,21 @@ export interface VarNode {
   values?: string[];
   /** a field of a class: its type as the field names it - to declare another of the same type */
   field?: Pick<Field, 'type' | 'collection' | 'optional'>;
+  /** a field of an enum with cases that not all of them have: the cases that do - without it shared */
+  cases?: string[];
+}
+
+/**
+ * The fields of an enum with cases marked with the cases that have them (`cases`) - a field all
+ * of them have (or the enum itself) stays unmarked: shared.
+ */
+function markCases(children: VarNode[], shared: { name: string }[], cases: { name: string; fields?: { name: string }[] }[]): VarNode[] {
+  if (cases.length < 2) return children;
+  return children.map(n => {
+    if (shared.some(f => f.name === n.name)) return n;
+    const having = cases.filter(c => (c.fields ?? []).some(f => f.name === n.name)).map(c => c.name);
+    return having.length && having.length < cases.length ? { ...n, cases: having } : n;
+  });
 }
 
 /** What may arrive at the target field. */
@@ -180,7 +195,8 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
     const cases = (own.values ?? []).filter(v => !enumCase || v.name === enumCase);
     const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...cases.flatMap(v => v.fields ?? [])] : (own.fields ?? []);
     const seenNames = new Set<string>();
-    return { type: 'context', children: fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner)) };
+    const children = fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner));
+    return { type: 'context', children: own.kind === 'enum' ? markCases(children, own.fields ?? [], cases) : children };
   }
 
   const dom = b.idx.domainOf(typeRef);
@@ -220,7 +236,7 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     // its type as a reference too (see nodeOfField) - a type mapper is matched by it
     return !shape.map && !isCase ? { ...n, field: { type: typeRef, ...(shape.collection ? { collection: true } : {}), ...(shape.optional ? { optional: true } : {}) } } : n;
   });
-  return { type: 'context', children };
+  return { type: 'context', children: dom.kind === 'enum' ? markCases(children, dom.fields ?? [], cases) : children };
 }
 
 /**
