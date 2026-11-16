@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
-import { renamedVar } from '../src/fieldMapping';
+import { caseLinkIssues, renamedVar } from '../src/fieldMapping';
 import { newOrchestration } from '../src/services/orchestration';
 import { orchestrationFiles } from '../src/services/scalaOrchestration';
 import type { ServiceOrchestrationSpec } from '../src/services/types';
@@ -54,4 +54,13 @@ test('a rename follows into the case table; a removed In leaves it without its s
   assert.deepEqual(renamedVar(m, 'in', 'src', 'source').caseLinks, [{ field: 'dst', from: 'source', cases: [] }]);
   assert.deepEqual(renamedVar(m, 'out', 'dst', 'target').caseLinks, [{ field: 'target', from: 'src', cases: [] }]);
   assert.deepEqual(renamedVar(m, 'in', 'src', null).caseLinks, []);
+});
+
+test('the checks: an ADT Out without a case table is an error, a source case without a target a warning', () => {
+  const cases = (ref: string) => (ref === 'src' ? ['A', 'B'] : ref === 'dst' ? ['X', 'Y'] : null);
+  const base: FieldMapping = { in: [f('src', 'src')], out: [f('dst', 'dst'), f('plain', 'String')], fields: [] };
+  assert.deepEqual(caseLinkIssues(base, cases).map(i => `${i.level}: ${i.text}`),
+    ['error: «dst» ist ein Enum mit Fällen - unter «Fälle» die Quelle und je Fall einen Fall wählen.']);
+  assert.deepEqual(caseLinkIssues({ ...base, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }] }] }, cases).map(i => `${i.level}: ${i.text}`),
+    ['warn: «dst»: für B von «src» kein Fall - zur Laufzeit ein Fehler.']);
 });

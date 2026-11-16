@@ -252,6 +252,26 @@ export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): Mapp
   return out;
 }
 
+/**
+ * What is missing for an Out that is an enum with cases (see CaseLink): which case it becomes.
+ * `cases`: the cases of a type that is an ADT (null for any other).
+ */
+export function caseLinkIssues(stored: FieldMapping, cases: (ref: string) => string[] | null): MappingIssue[] {
+  const m = mappingOf(stored);
+  const out: MappingIssue[] = [];
+  for (const f of m.out) {
+    const name = f.name.trim();
+    if (!name || f.collection || !cases(f.type)) continue;
+    const c = (m.caseLinks ?? []).find(x => x.field === name);
+    const src = c ? m.in.find(i => i.name.trim() === c.from) : undefined;
+    if (!c || !src) { out.push({ level: 'error', text: `«${name}» ist ein Enum mit Fällen - unter «Fälle» die Quelle und je Fall einen Fall wählen.` }); continue; }
+    const from = cases(src.type) ?? [];
+    const open = from.filter(x => !c.cases.some(y => y.from === x && y.to));
+    if (open.length) out.push({ level: 'warn', text: `«${name}»: für ${open.join(', ')} von «${c.from}» kein Fall - zur Laufzeit ein Fehler.` });
+  }
+  return out;
+}
+
 /** What is wrong with the lines against the Out (`target`, its variables as children - see mappingVarNodes) and the In (`sources`). */
 export function mappingIssues(m: FieldMapping, target: VarNode, sources: VarNode[], convert?: Converter): MappingIssue[] {
   const fields = target.children ?? [];

@@ -52,6 +52,14 @@ export function enumCases(ref: string, idx: TypeIndex): string[] | null {
   return null;
 }
 
+/** The cases of an enum with cases (ADT: a case with fields) - null for any other type. */
+export function adtCases(ref: string, idx: TypeIndex): string[] | null {
+  const own = idx.byId.get(ref);
+  if (own) return own.kind === 'enum' && ((own.values ?? []).some(v => !!v.fields?.length) || !!own.fields?.length) ? (own.values ?? []).map(v => v.name) : null;
+  const dom = idx.domainOf(ref);
+  return dom?.kind === 'enum' && (dom.cases ?? []).some(c => !!c.fields?.length) ? (dom.cases ?? []).map(c => c.name) : null;
+}
+
 const norm = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
