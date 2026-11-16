@@ -1192,6 +1192,14 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
     mappers: modelMappers(model), usedMappers: new Map(),
   };
+  // the classes of the catalog as types too - a path into one (`client.clientKey`) resolves like one into an own class
+  for (const d of ctx.domain) {
+    if (d.owner || (d.kind !== 'case' && d.kind !== 'enum')) continue;
+    const ref = domainRef(d.id);
+    if (ctx.types.some(t => t.id === ref)) continue;
+    const t = typeOf(ref, ctx);
+    if (t) ctx.types.push(t);
+  }
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {
     const imports = importsOf(t, idx);
