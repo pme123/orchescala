@@ -7,32 +7,32 @@ object Dependencies {
   // 00-docs
   // - mdoc Plugin (compiles the scala snippets of the markdown pages)
   // 04-helper
-  val osLibVersion          = "0.11.8"
+  val osLibVersion          = "0.11.10"
   // 01-domain
   val openapiCirceVersion   = "0.11.10"
   val tapirVersion          = "1.13.15"
-  val ironCirceVersion      = "3.3.1"
-  val mUnitVersion          = "1.2.4"
+  val ironCirceVersion      = "3.3.2"
+  val mUnitVersion          = "1.3.6"
   val scala3MockVersion     = "0.6.6"
   // 02-bpmn
   // -> domain
   // - osLib
   // 03-api
   // -> bpmn
-  val typesafeConfigVersion = "1.4.5"
-  val scalaXmlVersion       = "2.4.0"
+  val typesafeConfigVersion = "1.4.10"
+  val scalaXmlVersion       = "2.5.0"
   // - mUnitVersion
   // 03-dmn
   // -> bpmn
   val sttpClient3Version    = "3.11.0"
   // 03-dmn-tester-shared / 04-dmn-tester-server / 04-dmn-tester-client
-  val circeVersion          = "0.14.16"
+  val circeVersion          = "0.14.17"
   // dmn-scala: the DMN engine embedded in Camunda 8 (Scala 2.13 jar, usable from Scala 3)
   val dmnScalaVersion       = "1.11.0"
-  val http4sVersion         = "0.23.36"
+  val http4sVersion         = "0.23.38"
   val laminarVersion        = "17.2.1"
   // java.time for Scala.js - the model uses LocalDateTime
-  val scalaJavaTimeVersion  = "2.6.0"
+  val scalaJavaTimeVersion  = "2.7.0"
   val scalaJsDomVersion     = "2.8.1"
   // - mUnitVersion
   // 03-simulation
@@ -42,8 +42,8 @@ object Dependencies {
   // 03-worker
   // -> bpmn
   // -mUnitVersion
-  val chimneyVersion        = "1.9.0"
-  val coursierVersion       = "1.0.28"
+  val chimneyVersion        = "1.11.0"
+  val coursierVersion       = "1.0.30"
   // --- Implementations
   // 04-helper
   val sardineWebDavVersion  = "5.13"
@@ -51,25 +51,25 @@ object Dependencies {
   // 04-worker-c7spring
   // -> worker
   val camundaVersion        = "7.24.0" // external task client
-  val jaxbApiVersion        = "4.0.2"  // needed by the camunda client 7.21?!
+  val jaxbApiVersion        = "4.0.5"  // needed by the camunda client 7.21?!
   val scaffeineV            = "5.3.0"  // caching
-  val zioVersion            = "2.1.24" // zio
+  val zioVersion            = "2.1.27" // zio
   val zioHttpVersion        = "3.5.1"  // zio http
   val zioLoggingVersion     = "2.5.3" // logging
-  val logbackVersion        = "1.5.32" // logging
+  val logbackVersion        = "1.6.7" // logging
   // - sttpClient3
 
   // 04-engine-c8
   val camunda8Version       = "8.10.9"
   // 04-helper: reads the OpenAPI specs
-  val swaggerOpenAPIVersion = "2.1.34"
+  val swaggerOpenAPIVersion = "2.1.48"
   // 06-gateway
-  val oauth2Version = "4.5.0"
-  val jgitVersion   = "7.6.0.202603022253-r"
+  val oauth2Version = "4.6.2"
+  val jgitVersion   = "7.8.1.202611041320-r"
 
   // 04-persistence-postgres
-  val hikariVersion         = "6.2.1"
-  val postgresqlVersion     = "42.7.4"
+  val hikariVersion         = "6.3.3"
+  val postgresqlVersion     = "42.7.14"
   val testcontainersVersion = "1.21.4"
 
   // sbt plugins - their versions are only in project/plugins.sbt, read from there
