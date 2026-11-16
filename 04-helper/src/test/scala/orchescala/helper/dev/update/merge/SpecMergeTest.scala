@@ -884,6 +884,20 @@ class SpecMergeTest extends FunSuite:
       assertEquals(actionOf(plan, project, "GetPersonsWorkerTest.scala"), Action.create)
       assert(!os.read(project / workerAppRel).contains("GetPersonsWorkerTest"))
 
+  test("services: the shared schema (type mappers) of another project is refused"):
+    inProject: project =>
+      val foreign = nestedApi(1) :+
+        ("01-domain/src/main/scala/other/domain/schema/TypeMappers.scala" -> "package other.domain\npackage schema\n\nobject TypeMappers")
+      intercept[IllegalArgumentException](SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(foreign*))), strict = true))
+
+  test("the type mappers of Orch Spec: named as it names them, in a schema - not any file ending in TypeMappers"):
+    val schema = os.rel / "01-domain" / "src" / "main" / "scala" / "acme" / "demo" / "domain" / "client" / "v1" / "schema"
+    for name <- Seq("TypeMappers.scala", "ClientMasterTypeMappers.scala", "ClientV1TypeMappers.scala", "V1TypeMappers.scala") do
+      assert(SpecMerge.isTypeMappers(schema / name), name)
+    assert(!SpecMerge.isTypeMappers(schema / os.up / "ClientV1TypeMappers.scala"))
+    assert(!SpecMerge.isTypeMappers(schema / "myTypeMappers.scala"))
+    assert(!SpecMerge.isTypeMappers(schema / "TypeMappersHelper.scala"))
+
   test("services: the base path of a level of another project is refused"):
     inProject: project =>
       val foreign = nestedApi(1) :+
