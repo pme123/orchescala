@@ -48,6 +48,38 @@ test('the scan reads the extensions of an object - on one line and as a block, w
   assert.equal(r.mappers[0].source, 'a.scala');
 });
 
+test('the scan: an inline def is one, a private one none; a nested object is not the outer one\'s; docs between the defs of a block', () => {
+  const src = `package acme.crm.domain
+package schema
+
+object TypeMappers:
+
+  extension (x: Wrapper)
+    /** the value */
+    def toValue: BigDecimal = x.value
+
+    /** as text */
+    def toText: String = x.value.toString
+    private def toSecret: Secret = ???
+
+  extension (x: Code) inline def toKind: Kind = ???
+
+  object Inner:
+    extension (x: Hidden) def toShown: Shown = ???
+  end Inner
+
+  /** after the nested one */
+  extension (x: Kind) def toCode: Code = ???
+end TypeMappers
+`;
+  assert.deepEqual(scanMappers(src).map(m => `${m.object}.${m.method}(${m.from}): ${m.to} ${m.descr ?? ''}`.trim()), [
+    'TypeMappers.toValue(Wrapper): BigDecimal the value',
+    'TypeMappers.toText(Wrapper): String as text',
+    'TypeMappers.toKind(Code): Kind',
+    'TypeMappers.toCode(Kind): Code after the nested one',
+  ]);
+});
+
 const code = (from: string, to: string, more: Partial<DomainMapper> = {}): DomainMapper => ({
   id: `acme.crm.domain.schema.TypeMappers.to${to}(${from})`, pkg: 'acme.crm.domain.schema', object: 'TypeMappers', method: `to${to}`, from, to, ...more,
 });

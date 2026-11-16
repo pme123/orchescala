@@ -775,7 +775,9 @@ function applyExample(types: DomainType[], owner: string | null, ctor: string, a
 
 const MAPPER_OBJECT = /^object\s+(\w+)\b/;
 const EXTENSION = /^(\s+)extension\s*\(\s*\w+\s*:\s*([\w.]+)\s*\)\s*(.*)$/;
-const CONVERSION = /^def\s+(\w+)\s*:\s*([\w.]+)\s*(?:=|$)/;
+// `inline` or `final` still one - a `private` one the worker cannot call
+const CONVERSION = /^(?:(?:inline|transparent|final|override)\s+)*def\s+(\w+)\s*:\s*([\w.]+)\s*(?:=|$)/;
+const NESTED = /^(?:(?:private|protected|final|sealed|abstract|case)\s+)*(?:object|class|trait|enum)\b/;
 const DOC_LINE = /^\s*\/\*\*\s*(.*?)\s*\*\/\s*$/;
 
 /** The type mappers of a file - see above. */
@@ -806,6 +808,15 @@ export function scanMappers(source: string, path = ''): DomainMapper[] {
       continue;
     }
     if (!object) continue;
+    // an object or class inside it: its extensions are not of this object - skipped as a whole
+    if (NESTED.test(t)) {
+      const at = indentOf(line);
+      while (i + 1 < lines.length && (!lines[i + 1].trim() || indentOf(lines[i + 1]) > at)) i++;
+      // its `end X`
+      if (i + 1 < lines.length && indentOf(lines[i + 1]) === at && /^end\b/.test(lines[i + 1].trim())) i++;
+      doc = undefined;
+      continue;
+    }
     const d = DOC_LINE.exec(line);
     if (d) { doc = d[1]; continue; }
     const e = EXTENSION.exec(line);
