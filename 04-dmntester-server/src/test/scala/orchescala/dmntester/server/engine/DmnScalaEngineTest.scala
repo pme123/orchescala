@@ -20,8 +20,8 @@ class DmnScalaEngineTest extends FunSuite:
     finally stream.close()
 
   test("the engine says which DMN semantics it implements"):
-    assert(engine.name.contains("dmn-scala 1.11.0"), engine.name)
-    assert(engine.name.contains("feel-scala 1.20.0"), engine.name)
+    assert(engine.name.contains("dmn-scala 1.12.6"), engine.name)
+    assert(engine.name.contains("feel-scala 1.22.1"), engine.name)
     assert(engine.name.contains("Camunda 8"), engine.name)
 
   test("parse a DMN and enumerate its decisions"):

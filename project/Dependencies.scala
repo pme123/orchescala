@@ -28,7 +28,7 @@ object Dependencies {
   // 03-dmn-tester-shared / 04-dmn-tester-server / 04-dmn-tester-client
   val circeVersion          = "0.14.17"
   // dmn-scala: the DMN engine embedded in Camunda 8 (Scala 2.13 jar, usable from Scala 3)
-  val dmnScalaVersion       = "1.11.0"
+  val dmnScalaVersion       = "1.12.6"
   val http4sVersion         = "0.23.38"
   val laminarVersion        = "17.2.1"
   // java.time for Scala.js - the model uses LocalDateTime

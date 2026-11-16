@@ -89,7 +89,7 @@ workflow falls out of it:
 
 ## Which engine?
 
-**dmn-scala 1.11.0 / feel-scala 1.20.0** - the DMN engine that is embedded in
+**dmn-scala 1.12.6 / feel-scala 1.22.1** - the DMN engine that is embedded in
 Camunda 8. So what you test here is what Camunda 8 does, including its FEEL
 semantics (an unknown variable evaluates to `null` instead of failing).
 
