@@ -20,6 +20,16 @@ class StandardTypeMappersTest extends munit.FunSuite:
     assertEquals("2026-11-16".toLocalDate, LocalDate.of(2026, 11, 16))
     assertEquals("2026-11-16T08:15:30".toLocalDateTime, LocalDateTime.of(2026, 11, 16, 8, 15, 30))
 
+  test("a Double: its shortest decimal, not the binary value"):
+    assertEquals(0.1.toBigDecimal, BigDecimal("0.1"))
+
+  test("a value that is none of the type: fails with what it was"):
+    val number = intercept[IllegalArgumentException]("abc".toBigDecimal)
+    assert(number.getMessage.startsWith("'abc' is no BigDecimal"), number.getMessage)
+    val date = intercept[IllegalArgumentException]("16.11.2026".toLocalDate)
+    assert(date.getMessage.startsWith("'16.11.2026' is no LocalDate"), date.getMessage)
+    intercept[IllegalArgumentException]("2026-11-16".toLocalDateTime)
+
   test("a method of the type itself needs none - the import does not hide it"):
     assertEquals(42.toString, "42")
     assertEquals("42".toLong, 42L)
