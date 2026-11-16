@@ -175,7 +175,7 @@ test('in Scala two mappers with the same extension name in other objects - calle
   assert.deepEqual(mappers.map(f => f.path.split('/').pop()), ['ClientV1TypeMappers.scala']);
 });
 
-test('where a mapper lives: the schema of the deepest level both types share - the API of the export, never another API', () => {
+test('where a mapper lives: the schema of the deepest level its types of the project share - the API of the export, never another API', () => {
   const root = 'acme.crm.domain';
   const api = ['client', 'v1'];
   const at = (a: string | null, b: string | null) => { const h = mapperHome([a, b], root, api); return `${h.pkg} ${h.object}`; };
@@ -183,9 +183,11 @@ test('where a mapper lives: the schema of the deepest level both types share - t
   assert.equal(at('acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.schema'), 'acme.crm.domain.clientMaster.schema ClientMasterTypeMappers');
   assert.equal(at('acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.naturalPersons.v1.schema'), 'acme.crm.domain.clientMaster.schema ClientMasterTypeMappers');
   assert.equal(at('acme.crm.domain.party.v2.schema', 'acme.crm.domain.party.v2.schema'), 'acme.crm.domain.schema TypeMappers');
-  assert.equal(at('acme.crm.domain.client.v1.schema', 'globex.core.domain.client.v1.schema'), 'acme.crm.domain.schema TypeMappers');
-  // a type that is no class of the domain does not count
+  // a type of another project or no class of the domain does not count - only the project's
+  assert.equal(at('acme.crm.domain.client.v1.schema', 'globex.core.domain.client.v1.schema'), 'acme.crm.domain.client.v1.schema ClientV1TypeMappers');
   assert.equal(at(null, 'acme.crm.domain.clientMaster.schema'), 'acme.crm.domain.clientMaster.schema ClientMasterTypeMappers');
+  assert.equal(at('acme.crm.domain.schema', null), 'acme.crm.domain.schema TypeMappers');
+  assert.equal(at(null, 'globex.core.domain.client.v1.schema'), 'acme.crm.domain.schema TypeMappers');
   assert.equal(at(null, null), 'acme.crm.domain.schema TypeMappers');
 });
 

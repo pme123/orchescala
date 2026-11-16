@@ -143,18 +143,18 @@ export function modelMappers(model: Pick<Model, 'typeMappers' | 'domainMappers'>
 export interface MapperHome { pkg: string; object: string }
 
 /**
- * Where a mapper lives in the code: the `schema` of the deepest level of the domain both of its
- * types share (`acme.crm.domain.clientMaster.schema`) - the API's when both are in the API of the
- * export, never another API's; the project's (`acme.crm.domain.schema`) when they share none or
- * are of another project. `typePkgs`: the packages of its two types - null for one that is no
- * class of the domain (`BigDecimal`). `root`: the domain of the project, `api`: the export's API
- * below it (`client`, `v1`).
+ * Where a mapper lives in the code: the `schema` of the deepest level of the domain its types of
+ * the project share (`acme.crm.domain.clientMaster.schema`) - the API's when they are in the API of
+ * the export, never another API's; the project's (`acme.crm.domain.schema`) when they share none.
+ * A type of another project or no class of the domain (`LocalDate`) does not count: `Mifid1` of
+ * `clientMaster.v1` → `MifidCode` of another project lives in `clientMaster.v1`, `LocalDate` →
+ * `String` in the project's. `typePkgs`: the packages of its two types - null for no class.
+ * `root`: the domain of the project, `api`: the export's API below it (`client`, `v1`).
  */
 export function mapperHome(typePkgs: Array<string | null>, root: string, api: string[]): MapperHome {
   // the levels below the domain of the project, without `schema`: `clientMaster`, `naturalPersons`, `v1`
   const levels = (pkg: string | null): string[] | null => {
-    if (!pkg) return null;
-    if (pkg !== root && !pkg.startsWith(`${root}.`)) return [];
+    if (!pkg || (pkg !== root && !pkg.startsWith(`${root}.`))) return null;
     const rest = pkg.slice(root.length).split('.').filter(Boolean);
     const at = rest.indexOf('schema');
     return at >= 0 ? rest.slice(0, at) : rest;
