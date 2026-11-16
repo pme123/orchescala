@@ -77,6 +77,21 @@ test('the checks: an ADT Out without a case table is an error, a source case wit
     ['warn: «dst»: für B von «src» kein Fall - zur Laufzeit ein Fehler.']);
 });
 
+test('a line from a field only some cases of the source have: a warning naming the case, in the worker a TODO that says why', () => {
+  const cases = (ref: string) => (ref === 'src' ? ['A', 'B'] : ref === 'dst' ? ['X', 'Y'] : null);
+  const fieldsOf = (ref: string, c: string) => ({ 'src A': ['id', 'a'], 'src B': ['id', 'b'], 'dst X': ['id', 'a', 'b'], 'dst Y': ['id', 'b'] } as Record<string, string[]>)[`${ref} ${c}`] ?? null;
+  const m: FieldMapping = { in: [f('src', 'src')], out: [f('dst', 'dst')], caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }],
+    fields: [{ field: 'dst.id', from: ['src.id'] }, { field: 'dst.b', from: ['src.b'] }] };
+  // `b` only in B: the line onto X's `b` gets nothing from A - Y's `b` is fine
+  assert.deepEqual(caseLinkIssues(m, cases, fieldsOf).map(i => `${i.level} ${i.field}: ${i.text}`),
+    ['warn dst.b: «dst.b»: src.b gibt es im Fall A von «src» nicht - dort bekommt das Feld nichts (nur in B).']);
+  // in the worker: the case method says why
+  const w = worker({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: [{ field: 'dst.id', from: ['src.id'] }, { field: 'dst.a', from: ['src.b'] }, { field: 'dst.b', from: ['src.b'] }],
+    caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }] });
+  assert.match(w, /a = \?\?\? \/\* TODO dst\.a: src\.b gibt es im Fall A von src nicht \*\//, w);
+  assert.match(w, /def mapClientB\(src: Src\.B\): Dst\.Y =\n\s+Dst\.Y\(\n\s+id = src\.id,\n\s+b = src\.b\n/, w);
+});
+
 test('the cases prefilled: names alike first, otherwise by their order when both have as many', () => {
   assert.deepEqual(prefilledAdtCases(['Person', 'MultiplePersons', 'Company'], ['privateIndividual', 'severalPrivateIndividuals', 'companiesAndOther']),
     [{ from: 'Person', to: 'privateIndividual' }, { from: 'MultiplePersons', to: 'severalPrivateIndividuals' }, { from: 'Company', to: 'companiesAndOther' }]);

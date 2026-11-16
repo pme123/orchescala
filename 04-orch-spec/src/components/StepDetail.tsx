@@ -25,7 +25,7 @@ import FieldMappingEditor from './FieldMappingEditor';
 import { caseLinkIssues, emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
 import MappingCases from './MappingCases';
 import MappingInOut from './MappingInOut';
-import { adtCases as adtCasesOf, converter, mapperChoices, modelMappers } from '../typeMappers';
+import { adtCaseFields, adtCases as adtCasesOf, converter, mapperChoices, modelMappers } from '../typeMappers';
 import TypePicker from './TypePicker';
 import { clearsMapTo } from '../mapTo';
 import { domainRef } from '../serviceTypes';
@@ -2165,7 +2165,7 @@ function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch 
   const ioIssues = useMemo(() => {
     if (!mapping) return [];
     const idx = indexTypes(spec.types ?? [], model);
-    return [...inOutIssues(mapping, variables), ...caseLinkIssues(mapping, ref => adtCasesOf(ref, idx))];
+    return [...inOutIssues(mapping, variables), ...caseLinkIssues(mapping, ref => adtCasesOf(ref, idx), (ref, c) => adtCaseFields(ref, c, idx))];
   }, [mapping, variables, spec.types, model]);
   // the type mappers of the model: a line between their types converts
   const convert = useMemo(() => converter(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);

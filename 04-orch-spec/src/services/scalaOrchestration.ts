@@ -405,7 +405,8 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
    * test reaches it from the result (null: an Option on the way).
    */
   const value = (f: Field, path: string, on: string | null, at: string | null): string | null => {
-    const l = inCase(m.fields.find(x => x.field === path));
+    const stored = m.fields.find(x => x.field === path);
+    const l = inCase(stored);
     const caseLink = (m.caseLinks ?? []).find(c => c.field === path);
     const sub = (hasInner(m, path) || caseLink) && !f.collection ? typeOf(f.type, ctx) : undefined;
     // an enum with cases built from its fields: the case the source's case decides
@@ -428,7 +429,10 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
     }
     if (!l || (!l.expression?.trim() && !linkPaths(l).length)) {
       if (on) return null;
-      return f.optional ? 'None' : f.collection ? 'Seq.empty' : todo(`${path}: nicht zugeordnet`);
+      if (f.optional) return 'None';
+      if (f.collection) return 'Seq.empty';
+      // a line from fields this case of the source does not have (`neoClient.name` only in `Company`)
+      return todo(stored && branch ? `${path}: ${linkPaths(stored).join(', ')} gibt es im Fall ${branch.case} von ${branch.name} nicht` : `${path}: nicht zugeordnet`);
     }
     const t = linkValue(l, f);
     const v = forTarget(t, !!f.optional);
@@ -438,7 +442,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   };
 
   /** the source of the match being built - a case of it has not every field of another */
-  let branch: { name: string; fields: Set<string> } | null = null;
+  let branch: { name: string; case: string; fields: Set<string> } | null = null;
   /** a link in a branch: without the paths into a field this case of the source does not have */
   const inCase = (l: FieldLink | undefined): FieldLink | undefined => {
     if (!l || !branch) return l;
@@ -471,7 +475,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       scope.set(name, { ...source, type: narrowed.id });
       const outer = branch;
       const outerChecks = checks;
-      branch = { name, fields: new Set((narrowed.fields ?? []).map(x => x.name)) };
+      branch = { name, case: sc.name, fields: new Set((narrowed.fields ?? []).map(x => x.name)) };
       checks = [];
       try {
         // in a method of its own: the test reaches the fields from its result, the target case
