@@ -3,6 +3,7 @@ package orchescala.domain
 import orchescala.domain.StandardTypeMappers.*
 
 import java.time.{LocalDate, LocalDateTime}
+import java.time.format.DateTimeParseException
 
 /** The extensions as the worker calls them - `x.toBigDecimal` for each type it has one for. */
 class StandardTypeMappersTest extends munit.FunSuite:
@@ -23,12 +24,16 @@ class StandardTypeMappersTest extends munit.FunSuite:
   test("a Double: its shortest decimal, not the binary value"):
     assertEquals(0.1.toBigDecimal, BigDecimal("0.1"))
 
-  test("a value that is none of the type: fails with what it was"):
+  test("a value that is none of the type: fails with what it was, the parse error as its cause"):
     val number = intercept[IllegalArgumentException]("abc".toBigDecimal)
     assert(number.getMessage.startsWith("'abc' is no BigDecimal"), number.getMessage)
+    assert(number.getCause.isInstanceOf[NumberFormatException], number.getCause)
     val date = intercept[IllegalArgumentException]("16.11.2026".toLocalDate)
     assert(date.getMessage.startsWith("'16.11.2026' is no LocalDate"), date.getMessage)
-    intercept[IllegalArgumentException]("2026-11-16".toLocalDateTime)
+    assert(date.getCause.isInstanceOf[DateTimeParseException], date.getCause)
+    val dateTime = intercept[IllegalArgumentException]("2026-11-16".toLocalDateTime)
+    assert(dateTime.getMessage.startsWith("'2026-11-16' is no LocalDateTime"), dateTime.getMessage)
+    assert(dateTime.getCause.isInstanceOf[DateTimeParseException], dateTime.getCause)
 
   test("a method of the type itself needs none - the import does not hide it"):
     assertEquals(42.toString, "42")

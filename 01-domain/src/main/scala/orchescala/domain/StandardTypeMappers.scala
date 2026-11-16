@@ -7,6 +7,9 @@ import java.time.format.DateTimeParseException
   * project: a mapping of Orch Spec calls them as extensions (`in.amount.toBigDecimal`), the worker
   * imports `orchescala.domain.StandardTypeMappers.*`. What Scala has (`x.toString`, `"42".toLong`) needs
   * none. Orch Spec knows them as its standard mappers (04-orch-spec/src/standardMappers.ts).
+  *
+  * A value that is none of the type throws an `IllegalArgumentException` naming it - a mapping
+  * builds in `ZIO.attempt` (its `mapped`), so it fails there as a `CustomError`.
   */
 object StandardTypeMappers:
 
