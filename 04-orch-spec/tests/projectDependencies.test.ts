@@ -69,3 +69,15 @@ test('the dependencies of the bundled catalog — the own scan wins', () => {
   assert.deepEqual(merged.projectDependencies, { 'acme-orders': ['acme-banking'], 'acme-banking': ['acme-commons'] });
   assert.deepEqual([...visibleRoots(merged, 'acme.orders')].sort(), ['acme.banking', 'acme.orders']);
 });
+
+test('a default of the same name: the project overrides the company library, it overrides orchescala and the catalog', () => {
+  const defaults = (pkgs: string[]) => ({
+    ...model([{ id: 'p1', name: 'acme-orders', dependencies: ['acme-banking'] }]),
+    domainDefaults: pkgs.map(pkg => ({ name: 'defaultClientKey', pkg, type: 'String' })),
+  }) as Model;
+  const all = ['acme.banking.domain', 'orchescala.domain', 'acme.orchescala.domain', 'acme.orders.domain'];
+  assert.equal(indexTypes([], defaults(all), 'acme.orders').defaultOf(field('clientKey'))?.pkg, 'acme.orders.domain');
+  assert.equal(indexTypes([], defaults(all.slice(0, 3)), 'acme.orders').defaultOf(field('clientKey'))?.pkg, 'acme.orchescala.domain');
+  assert.equal(indexTypes([], defaults(all.slice(0, 2)), 'acme.orders').defaultOf(field('clientKey'))?.pkg, 'orchescala.domain');
+  assert.equal(indexTypes([], defaults(all.slice(0, 1)), 'acme.orders').defaultOf(field('clientKey'))?.pkg, 'acme.banking.domain');
+});
