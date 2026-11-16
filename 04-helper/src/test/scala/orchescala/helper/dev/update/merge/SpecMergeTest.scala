@@ -888,7 +888,8 @@ class SpecMergeTest extends FunSuite:
     inProject: project =>
       val foreign = nestedApi(1) :+
         ("01-domain/src/main/scala/other/domain/schema/TypeMappers.scala" -> "package other.domain\npackage schema\n\nobject TypeMappers")
-      intercept[IllegalArgumentException](SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(foreign*))), strict = true))
+      val refused = intercept[IllegalArgumentException](SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(foreign*))), strict = true))
+      assert(refused.getMessage.contains("The package of the export 'other.domain' does not belong to this project"), refused.getMessage)
 
   test("the type mappers of Orch Spec: named as it names them, in a schema - not any file ending in TypeMappers"):
     val schema = os.rel / "01-domain" / "src" / "main" / "scala" / "acme" / "demo" / "domain" / "client" / "v1" / "schema"
