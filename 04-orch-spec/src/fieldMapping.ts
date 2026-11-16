@@ -263,7 +263,8 @@ export function inOutIssues(stored: FieldMapping, known: VarNode[] | null): Mapp
 /**
  * `fieldsOf`: the fields of a case of an enum (its own and the shared ones) - with it a line from a
  * field a case of the source does not have, where the case it becomes has the field, is found
- * (`neoClient.name` only in `Company`, drawn onto `person.name` of what `Person` becomes).
+ * (`neoClient.name` only in `Company`, drawn onto `person.name` of what `Person` becomes) - when it
+ * gives the field nothing in any case; in some cases only is normal.
  */
 export function caseLinkIssues(stored: FieldMapping, cases: (ref: string) => string[] | null, fieldsOf?: (ref: string, c: string) => string[] | null): MappingIssue[] {
   const m = mappingOf(stored);
@@ -283,16 +284,16 @@ export function caseLinkIssues(stored: FieldMapping, cases: (ref: string) => str
       const into = head(l.field, name);
       const paths = linkPaths(l);
       if (!into || l.expression?.trim() || !paths.length) continue;
-      // the cases of the source whose case of the Out has the field, but that have none of the paths
-      const empty = c.cases.filter(x => {
-        const to = x.to && fieldsOf(f.type, x.to);
+      // the cases of the source whose case of the Out has the field - the line only matters there
+      const into_ = c.cases.filter(x => { const to = x.to && fieldsOf(f.type, x.to); return !!to && to.includes(into); });
+      // none of them has one of the paths: the line never gives the field anything (in some only is normal)
+      const gives = into_.some(x => {
         const own = fieldsOf(src.type, x.from);
-        return !!to && to.includes(into) && !!own
-          && paths.every(p => { const h = head(p, c.from); return h !== null && !own.includes(h); });
-      }).map(x => x.from);
-      if (empty.length) {
+        return !own || paths.some(p => { const h = head(p, c.from); return h === null || own.includes(h); });
+      });
+      if (into_.length && !gives) {
         const where = from.filter(x => paths.some(p => fieldsOf(src.type, x)?.includes(head(p, c.from) ?? '')));
-        out.push({ level: 'warn', field: l.field, text: `«${l.field}»: ${paths.join(', ')} gibt es im Fall ${empty.join(', ')} von «${c.from}» nicht - dort bekommt das Feld nichts${where.length ? ` (nur in ${where.join(', ')})` : ''}.` });
+        out.push({ level: 'warn', field: l.field, text: `«${l.field}»: ${paths.join(', ')} gibt es im Fall ${into_.map(x => x.from).join(', ')} von «${c.from}» nicht - nur dort gibt es das Feld, die Linie bewirkt nichts${where.length ? ` (${paths.length > 1 ? 'sie sind' : 'es ist'} nur in ${where.join(', ')})` : ''}.` });
       }
     }
   }

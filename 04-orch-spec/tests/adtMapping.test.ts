@@ -82,9 +82,15 @@ test('a line from a field only some cases of the source have: a warning naming t
   const fieldsOf = (ref: string, c: string) => ({ 'src A': ['id', 'a'], 'src B': ['id', 'b'], 'dst X': ['id', 'a', 'b'], 'dst Y': ['id', 'b'] } as Record<string, string[]>)[`${ref} ${c}`] ?? null;
   const m: FieldMapping = { in: [f('src', 'src')], out: [f('dst', 'dst')], caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }],
     fields: [{ field: 'dst.id', from: ['src.id'] }, { field: 'dst.b', from: ['src.b'] }] };
-  // `b` only in B: the line onto X's `b` gets nothing from A - Y's `b` is fine
-  assert.deepEqual(caseLinkIssues(m, cases, fieldsOf).map(i => `${i.level} ${i.field}: ${i.text}`),
-    ['warn dst.b: «dst.b»: src.b gibt es im Fall A von «src» nicht - dort bekommt das Feld nichts (nur in B).']);
+  // `b` only in B: in A the line gives X's `b` nothing, in B Y's `b` - normal, no warning
+  assert.deepEqual(caseLinkIssues(m, cases, fieldsOf), []);
+  // `a` onto Y's `b`, both cases become Y: in A it gives - no warning
+  const never: FieldMapping = { ...m, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'Y' }, { from: 'B', to: 'Y' }] }], fields: [{ field: 'dst.b', from: ['src.a'] }] };
+  assert.deepEqual(caseLinkIssues(never, cases, fieldsOf).map(i => `${i.level} ${i.field}: ${i.text}`), []);
+  // `a` only in A, but only B becomes X with `a`: the line never gives anything
+  const onlyB: FieldMapping = { ...m, caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'Y' }, { from: 'B', to: 'X' }] }], fields: [{ field: 'dst.a', from: ['src.a'] }] };
+  assert.deepEqual(caseLinkIssues(onlyB, cases, fieldsOf).map(i => `${i.level} ${i.field}: ${i.text}`),
+    ['warn dst.a: «dst.a»: src.a gibt es im Fall B von «src» nicht - nur dort gibt es das Feld, die Linie bewirkt nichts (es ist nur in A).']);
   // in the worker: the case method says why
   const w = worker({ in: [f('src', 'src')], out: [f('dst', 'dst')], fields: [{ field: 'dst.id', from: ['src.id'] }, { field: 'dst.a', from: ['src.b'] }, { field: 'dst.b', from: ['src.b'] }],
     caseLinks: [{ field: 'dst', from: 'src', cases: [{ from: 'A', to: 'X' }, { from: 'B', to: 'Y' }] }] });
