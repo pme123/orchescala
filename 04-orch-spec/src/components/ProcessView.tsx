@@ -1427,7 +1427,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                 )}
                 <div className={`flex items-center gap-2 mt-1 text-[10px] ${c.muted}`}>
                   {spec.project && <span className="font-mono opacity-70 truncate">{spec.project}</span>}
-                  {canEdit
+                  {/* a service orchestration runs as a worker - FEEL, no engine to choose */}
+                  {serviceMode ? null : canEdit
                     ? <button onClick={() => setEngineOpen(true)} title={`In ${engineLabel((spec.engine ?? 'c7') === 'c7' ? 'c8' : 'c7')} umwandeln …`}
                         className="flex-shrink-0 opacity-70 hover:opacity-100 hover:underline">· {engineLabel(spec.engine)}</button>
                     : spec.engine && <span className="flex-shrink-0 opacity-70">· {engineLabel(spec.engine)}</span>}

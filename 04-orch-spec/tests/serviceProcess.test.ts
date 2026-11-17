@@ -281,3 +281,12 @@ test('the folder catalog: an orchestrator finds the classes another one exports 
   // its own classes are not in it - they are its own types
   assert.ok(!(folderCatalog(null, { specs: [a], collections: [] }, a.slug)?.domainTypes ?? []).some(d => d.name === 'Client'));
 });
+
+test('a service orchestration loads as Camunda 8 - FEEL conditions, never JUEL', async () => {
+  const { withoutRetiredFields } = await import('../src/specLoad');
+  const { spec } = newServiceProcess({ title: 'Kunde ändern', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'UpdateClient' });
+  assert.equal(withoutRetiredFields({ ...spec, engine: 'c7' }).engine, 'c8');
+  // a process stays as it is
+  const { service: _s, ...process } = spec;
+  assert.equal(withoutRetiredFields({ ...process, engine: 'c7' } as never).engine, 'c7');
+});
