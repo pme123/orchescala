@@ -121,7 +121,9 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
             const cur = await loadService(item.slug);
             if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
             if (cur.version !== row.existing?.version) { problems.push(`«${row.title}» wurde hier inzwischen geändert - nicht überschrieben, nochmals einfügen`); continue; }
-            before = isCollection(cur.data) ? cur.data.source?.stored : undefined;
+            // under its name only a collection is overwritten - not an orchestration of before
+            if (!isCollection(cur.data)) { problems.push(`«${row.title}»: hier ist unter diesem Namen keine Collection - nicht überschrieben`); continue; }
+            before = cur.data.source?.stored;
             // without an OpenAPI of its own the one kept here stays its OpenAPI
             if (!item.openApi && before) spec = { ...spec, source: { ...(spec.source ?? {}), stored: before } };
             const r = await saveService(spec, cur.version);

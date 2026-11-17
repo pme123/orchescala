@@ -479,6 +479,7 @@ export function resolveType(base: string, model: Model | null, pkg?: string): Do
     // from another project (`ProcessStatus`, not `…directActivation.ProcessStatus`)
     (t: DomainType) => t.name === base && (t.pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(t.pkg)),
     (t: DomainType) => t.name === base,
+    // these two last: they look at the ending (`suffixed`), all before them at the exact name (see the loop)
     (t: DomainType) => t.name.endsWith(`.${base}`) && t.pkg === pkg,
     (t: DomainType) => t.name.endsWith(`.${base}`),
   ];
