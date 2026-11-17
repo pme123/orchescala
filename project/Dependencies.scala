@@ -42,7 +42,7 @@ object Dependencies {
   // 03-worker
   // -> bpmn
   // -mUnitVersion
-  val chimneyVersion        = "1.11.0"
+  val chimneyVersion        = "2.1.1"
   val coursierVersion       = "1.0.30"
   // --- Implementations
   // 04-helper
