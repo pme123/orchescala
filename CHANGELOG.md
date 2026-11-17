@@ -32,14 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The colon syntax is gone: `Test/compile`, `worker/Test/run` - not `test:compile`.
   - The build output is in `target/out/` of the root, not in `target/` of each module - e.g. `target/out/jvm/scala-3.10.1/<module>/test-reports` and the docker stage `target/out/jvm/u/<module>/docker/stage`. Pipelines and scripts that use such paths need them adapted.
   - `sbt` runs the build in a background server that stays (`sbt shutdown` ends it). The generated builds reload when a build file changes (`Global / onChangedBuildSource := ReloadOnSourceChanges`); the helper runs releases and deploys with `sbt --server` (sbt in its own JVM), so a release never builds with a build the server loaded before. That needs a current sbt runner (`sbt --server`).
+- **DMN data types in Orch Spec and Orch Doc (dmn-js 18):** the type list of a column now has the names of the DMN spec - `date and time`, `days and time duration`, `years and months duration` instead of `dateTime`, `dayTimeDuration`, `yearMonthDuration`. Existing tables keep their `typeRef`. Camunda 8 and the DMN Tester (dmn-scala) accept both names; Camunda 7 knows neither and passes such a value on unchanged (with a warning in its log) - for Camunda 7 use `date`.
 - **Removed `springBootVersion`:** `CompanyVersionConfig.springBootVersion` and the key `BuildInfo.springBootVersion` are gone - no generator read them; a company build that sets or reads one of them must drop it.
 
 ### Dependencies
 - Scala 3.10.1, sbt 2.1.0.
-- Libraries: os-lib 0.11.10, circe 0.14.17, http4s 0.23.38, typesafe-config 1.4.10, scala-xml 2.5.0, munit 1.3.6, iron-circe 3.4.1, chimney 2.1.1, scala-java-time 2.11.0, coursier interface 1.0.30, jakarta.xml.bind-api 4.0.5, ZIO 2.1.27, zio-logging 2.5.4, logback 1.6.7, swagger-parser 2.1.48, java-jwt 4.6.2, jgit 7.8.1, postgresql 42.7.14, HikariCP 6.3.3.
+- Libraries: os-lib 0.11.10, circe 0.14.17, http4s 0.23.38, typesafe-config 1.4.10, scala-xml 2.5.0, munit 1.3.6, iron-circe 3.4.1, chimney 2.1.1, scala-java-time 2.11.0, coursier interface 1.0.30, jakarta.xml.bind-api 4.0.5, ZIO 2.1.27, zio-logging 2.5.4, logback 1.6.7, swagger-parser 2.1.48, java-jwt 4.6.2, jgit 7.8.1, postgresql 42.7.14, HikariCP 7.1.0; for the tests testcontainers 2.0.5.
 - tapir 1.14.1, openapi-circe-yaml 0.12.1, zio-http 3.11.6; DMN Tester: dmn-scala 1.12.6 (feel-scala 1.22.1).
 - sbt plugins: sbt-native-packager 1.13.0, sbt-ci-release 1.12.1, sbt-mdoc 2.9.2, sbt-buildinfo 0.13.2, sbt-scalajs 1.23.0 - their versions are only in `project/plugins.sbt`.
-- Frontends: React 19.3.1, bpmn-js 18.31.1, dmn-js 17.13.0, camunda-bpmn-moddle 7.0.2, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; vite 6.4.6 in all frontends (the DMN Tester client was on vite 7); source-map-js 1.2.2 (security fix GHSA-68fv-2mgg-jv7q).
+- Frontends: React 19.3.1, bpmn-js 18.33.0, dmn-js 18.0.3, camunda-bpmn-moddle 8.0.2, zeebe-bpmn-moddle 2.0.0, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, lucide-react 1.74.0, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; source-map-js 1.2.2 (security fix GHSA-68fv-2mgg-jv7q).
+- Frontend tooling: vite 8.3.8 (Rolldown) and @vitejs/plugin-react 6.3.0 in all frontends (the DMN Tester client was on vite 7), esbuild 0.28.2, TypeScript 7.0.2, vitest 5.1.0 (docs site).
 - Orch Studio: hono 4.13.18, @hono/node-server 2.1.8.
 
 ### Removed
