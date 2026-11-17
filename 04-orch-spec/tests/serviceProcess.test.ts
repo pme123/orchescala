@@ -290,3 +290,10 @@ test('a service orchestration loads as Camunda 8 - FEEL conditions, never JUEL',
   const { service: _s, ...process } = spec;
   assert.equal(withoutRetiredFields({ ...process, engine: 'c7' } as never).engine, 'c7');
 });
+
+test('a service orchestration stays Camunda 8 when its diagram is read again - even one drawn for Camunda 7', async () => {
+  const { mergeSpec } = await import('../src/bpmn');
+  const spec = described();
+  const fresh = { ...spec, engine: 'c7' as const };
+  assert.equal(mergeSpec(fresh, { ...spec, engine: 'c8' }).spec.engine, 'c8');
+});

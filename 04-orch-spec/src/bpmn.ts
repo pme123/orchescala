@@ -1492,6 +1492,8 @@ export function mergeSpec(fresh: ProcessSpec, previous: ProcessSpec, base: Proce
     // Patterns on the process come from the BPMN — like the structure
     patterns: fresh.patterns,
     timeToLive: previous.timeToLive ?? fresh.timeToLive,
+    // a service orchestration stays Camunda 8 (FEEL) - whatever engine its diagram was drawn for
+    ...(previous.service ? { engine: 'c8' as const } : {}),
     // the process only jumps to «Angepasst» if that also applies to the steps
     status: previous.status === 'draft' ? 'draft'
       : st.changed !== 'changed' ? settle(previous.status, st)!
