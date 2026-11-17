@@ -30,7 +30,7 @@ interface Props {
   overlay: boolean;
 }
 
-const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'conversion', 'load', 'ai'];
+const SOURCES: AuditSource[] = ['manual', 'bpmn-sync', 'domain-sync', 'import', 'conversion', 'load', 'ai'];
 
 type Range = 'all' | 'today' | '7' | '30' | 'custom';
 // as a list: Object.keys would put the numeric keys ('7', '30') first
@@ -60,6 +60,7 @@ const sourceTone = (s: AuditSource, isDark: boolean) => ({
   manual: isDark ? 'border-white/20 text-white/60' : 'border-black/20 text-black/60',
   'bpmn-sync': isDark ? 'border-blue-500/40 text-blue-300' : 'border-blue-300 text-blue-700',
   'domain-sync': isDark ? 'border-violet-500/40 text-violet-300' : 'border-violet-300 text-violet-700',
+  import: isDark ? 'border-teal-500/40 text-teal-300' : 'border-teal-300 text-teal-700',
   conversion: isDark ? 'border-amber-500/40 text-amber-300' : 'border-amber-300 text-amber-700',
   load: isDark ? 'border-white/15 text-white/40' : 'border-black/15 text-black/40',
   ai: isDark ? 'border-fuchsia-500/40 text-fuchsia-300' : 'border-fuchsia-300 text-fuchsia-700',

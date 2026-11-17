@@ -33,12 +33,13 @@ import { blockTarget, pageTarget } from './pages/designer/pageComments.ts';
 import type { Component, Page } from './pages/runtime/spec.ts';
 
 /** `ai`: a draft of Claude that the RE accepted (AI mode, E19) - its own source, like the automatic changes */
-export type AuditSource = 'manual' | 'bpmn-sync' | 'domain-sync' | 'conversion' | 'load' | 'ai';
+export type AuditSource = 'manual' | 'bpmn-sync' | 'domain-sync' | 'import' | 'conversion' | 'load' | 'ai';
 
 export const SOURCE_LABEL: Record<AuditSource, string> = {
   manual: 'Von Hand',
   'bpmn-sync': 'Abgleich BPMN',
   'domain-sync': 'Abgleich Domain',
+  import: 'Eingefügt',
   conversion: 'Umwandlung',
   load: 'Beim Laden',
   ai: 'KI (Claude)',

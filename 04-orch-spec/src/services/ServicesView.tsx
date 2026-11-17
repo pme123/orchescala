@@ -7,7 +7,8 @@
 //
 // Same head as the other lists (search, epics, groups per project); deleting
 // only with the admin role or without mandatory login, as for processes.
-import { AlertTriangle, Boxes, FileUp, Library, Loader2, MessageSquare, Plus, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, Boxes, ClipboardPaste, FileUp, Library, Loader2, MessageSquare, Plus, Trash2, Workflow, X } from 'lucide-react';
+import TransferPaste from '../components/TransferPaste';
 import { useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -50,8 +51,8 @@ export default function ServicesView({ onOpen, onOpenProcess }: {
   /** an orchestration is a process in service mode — it opens in the process view */
   onOpenProcess: (slug: string) => void;
 }) {
-  const { isDark, model, specs, createSpec, saveBpmn, deleteSpec } = useStore();
-  const { services, servicesLoading, servicesUnreadable, createService, deleteService } = useServices();
+  const { isDark, model, specs, refreshSpecs, createSpec, saveBpmn, deleteSpec } = useStore();
+  const { services, servicesLoading, servicesUnreadable, refreshServices, createService, deleteService } = useServices();
   // the projects with services first, then those of the catalog and the processes
   const projects = useMemo(() => knownProjects(model, services.map(s => s.data.project), specs.map(s => s.data.project)), [model, specs, services]);
   const { canEdit, canDelete } = usePermissions();
@@ -60,6 +61,9 @@ export default function ServicesView({ onOpen, onOpenProcess }: {
   const [creating, setCreating] = useState(false);
   const [orchestrating, setOrchestrating] = useState(false);
   const [importing, setImporting] = useState(false);
+  /** «Einfügen» open - and what it took over */
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const entries = useMemo<Entry[]>(() => [
     ...services.map(item => ({ kind: 'service' as const, item })),
@@ -73,6 +77,10 @@ export default function ServicesView({ onOpen, onOpenProcess }: {
         <h1 className={`text-sm font-semibold uppercase tracking-widest ${c.muted2}`}>Services</h1>
         {canEdit && (
           <div className="ml-auto flex gap-2">
+            <button onClick={() => { setPasting(true); setPasted(null); }} title="Was in einer anderen Orch Spec kopiert wurde — eine Collection oder Orchestrierung"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <ClipboardPaste size={12} /> Einfügen
+            </button>
             <button onClick={() => setImporting(true)} title="Eine API, deren Services es schon gibt — aus dem Katalog oder einer Datei"
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
               <Library size={12} /> Bestehende importieren
@@ -88,6 +96,8 @@ export default function ServicesView({ onOpen, onOpenProcess }: {
           </div>
         )}
       </div>
+      {pasting && <TransferPaste isDark={isDark} onClose={() => setPasting(false)} onDone={titles => { setPasting(false); setPasted(`Eingefügt: ${titles.join(', ')}`); void refreshServices(); void refreshSpecs(); }} />}
+      {pasted && <p className={`text-[11px] mb-2 ${c.muted2}`}>{pasted}</p>}
       <p className={`text-[11px] mb-4 ${c.muted}`}>
         Eine <b>Service Collection</b> ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein Teilpfad, mit ihren
         APIs (<span className="font-mono">client v1</span>, <span className="font-mono">crm v2</span> …): die Operationen wählen,
