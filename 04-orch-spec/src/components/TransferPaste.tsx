@@ -32,7 +32,11 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const read = useMemo(() => (text.trim() ? readTransfer(text) : null), [text]);
+  // the text comes from outside - whatever slips through the checks is said, it does not break the page
+  const read = useMemo(() => {
+    if (!text.trim()) return null;
+    try { return readTransfer(text); } catch { return { error: 'Der eingefügte Text lässt sich nicht lesen.' }; }
+  }, [text]);
   const transfer: Transfer | null = read && !('error' in read) ? read : null;
   const plan: PastePlan | null = useMemo(() => {
     if (!transfer) return null;

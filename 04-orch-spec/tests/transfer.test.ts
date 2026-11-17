@@ -93,3 +93,12 @@ test('pasted text from outside: where a collection keeps its OpenAPI is never ta
   p.items[0].spec.steps[0].branches = [{ steps: 'x' }];
   assert.deepEqual(readTransfer(JSON.stringify(p)), { error: `«${s.slug}»: der Ablauf ist unvollständig - nicht eingefügt.` });
 });
+
+test('pasted DMN tables that are no table list: null or an array - refused, no crash', () => {
+  const s = spec();
+  for (const dmns of [null, ['<dmn/>']]) {
+    const p = JSON.parse(transferText(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model)));
+    p.items[0].dmns = dmns;
+    assert.deepEqual(readTransfer(JSON.stringify(p)), { error: `«${s.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` }, JSON.stringify(dmns));
+  }
+});

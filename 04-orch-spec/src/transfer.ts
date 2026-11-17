@@ -91,7 +91,7 @@ export function readTransfer(text: string): Transfer | { error: string } {
     // the text comes from outside: a slug names a file - only one as the app writes them, the one of its spec
     if (!SLUG.test(i.slug) || (i.spec as { slug?: unknown }).slug !== i.slug) return { error: `«${i.slug}» ist kein Name, wie ihn Orch Spec schreibt - nicht eingefügt.` };
     const dmns = i.kind === 'process' ? i.dmns : undefined;
-    if (dmns !== undefined && (typeof dmns !== 'object' || Object.entries(dmns).some(([id, xml]) => !DECISION_ID.test(id) || typeof xml !== 'string'))) {
+    if (dmns !== undefined && (!dmns || typeof dmns !== 'object' || Array.isArray(dmns) || Object.entries(dmns).some(([id, xml]) => !DECISION_ID.test(id) || typeof xml !== 'string'))) {
       return { error: `«${i.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` };
     }
     if (i.kind === 'process' && i.bpmn !== undefined && typeof i.bpmn !== 'string') return { error: `«${i.slug}»: das BPMN ist kein Text - nicht eingefügt.` };
