@@ -41,6 +41,7 @@ open helperCompany.scala
    #!/usr/bin/env -S scala shebang
    // DO NOT ADJUST. This file is replaced by `./helper.scala update`.
 
+   //> using scala @SCALA_VERSION@
    //> using dep io.github.pme123::orchescala-helper:@VERSION@
    
    import orchescala.helper.dev.DevCompanyHelper

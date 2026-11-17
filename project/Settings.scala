@@ -87,7 +87,8 @@ object Settings {
   lazy val mdocSettings = Seq(
     mdocIn                    := baseDirectory.value / "src" / "docs",
     mdocVariables             := Map(
-      "VERSION"-> projectVersion
+      "VERSION"-> projectVersion,
+      "SCALA_VERSION" -> scalaV
     ),
     mdocExtraArguments        := Seq("--no-link-hygiene"),
   )

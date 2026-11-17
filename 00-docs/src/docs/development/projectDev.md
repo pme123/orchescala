@@ -17,6 +17,7 @@ subprojects you want to use.
 ```scala
 #!/usr/bin/env -S scala shebang
 // DO NOT ADJUST. This file is replaced by `./helper.scala update`.
+//> using scala @SCALA_VERSION@
 //> using dep mycompany::mycompany-orchescala-helper:0.1.0-SNAPSHOT
 
 import mycompany.orchescala.helper.*
