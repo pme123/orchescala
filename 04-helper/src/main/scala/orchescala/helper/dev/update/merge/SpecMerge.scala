@@ -402,11 +402,19 @@ object SpecMerge:
         .filterNot(planned).sortBy(_.toString).map(rel => rel -> Try(os.read(project / rel)).toOption)
       if others.exists((_, code) => code.exists(ofProcess.findFirstIn(_).isDefined)) then Seq.empty
       else
+        // what the other files of the folder use is still needed - the trait of an API (`FileV1`) its
+        // services extend, when an orchestration is exported into the API of a collection
+        val inFolder = others.flatMap((rel, code) => code.map(rel -> _)) ++
+          generated.filter(_.rel / os.up == dir).map(f => f.rel -> f.content)
+        def used(rel: os.RelPath, names: Seq[String]): Boolean =
+          names.exists: n =>
+            val word = s"\\b${java.util.regex.Pattern.quote(n)}\\b".r
+            inFolder.exists((other, code) => other != rel && word.findFirstIn(code).isDefined)
         others.flatMap: (rel, read) =>
           read.flatMap: code =>
             if ownObject.findFirstIn(code).isDefined then None
             else
-              orphaned(code).map: r =>
+              orphaned(code).filterNot(r => used(rel, r.names)).map: r =>
                 PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
                   removal = Some(r))
   end orphans

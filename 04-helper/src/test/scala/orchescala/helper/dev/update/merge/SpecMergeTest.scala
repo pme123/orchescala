@@ -218,6 +218,17 @@ class SpecMergeTest extends FunSuite:
       val plan    = SpecMerge.plan(project, Seq(order), Seq(order))
       assertEquals(plan.removals.map(f => f.path -> f.removal.get.names), Seq((dir / "Old.scala").relativeTo(project).toString -> Seq("Old")))
 
+  test("a file next to the domain classes that the folder still uses: not asked - the trait of an API its services extend"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val dir = file(project, "CheckOrder.scala") / os.up
+      // the API's trait of a collection, its service extends it - an orchestration exported into the same API
+      os.write(dir / "OrderV1.scala", "package acme.demo.domain\npackage order.v1\n\ntrait OrderV1\n")
+      os.write(dir / "GetOrder.scala", "package acme.demo.domain\npackage order.v1\n\nobject GetOrder extends OrderV1:\n  val topicName = \"acme-demo-orderV1.GetOrder\"\n")
+      os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n")
+      val plan = SpecMerge.plan(project, Seq(order), Seq(order))
+      assertEquals(plan.removals.map(_.path.split('/').last), Seq("Old.scala"))
+
   test("a file next to the domain classes with more than classes: only its classes go - a helper of its own stays"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
