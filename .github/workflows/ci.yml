@@ -67,6 +67,10 @@ jobs:
         # React, no component and nothing of the browser, and load in Node (04-orch-spec/tests/checkCore.ts).
         working-directory: 04-orch-spec
         run: npm run check:core
+      - name: Types of Orch Ops
+        # vite builds without a type check - tsc does it (node_modules from the documentation apps step)
+        working-directory: 04-orch-ops
+        run: npm run lint
       - name: Orch Studio
         # E28: the studio is a TypeScript server on Node (06-orch-studio) - its types and tests, with
         # orch-spec's core bundled for it (npm run core - the loop of the agent on the studio, step 5)
@@ -78,7 +82,7 @@ jobs:
         # new page, no AI, no request to the studio besides GET /ai/config (04-orch-spec/e2e). Needs
         # node_modules - from the step above.
         working-directory: 04-orch-spec
-        run: npx playwright install --with-deps chromium && npm run test:standalone
+        run: npm run lint && npx playwright install --with-deps chromium && npm run test:standalone
       - name: Keep the trace of a failed run without a server
         if: failure()
         uses: actions/upload-artifact@v4

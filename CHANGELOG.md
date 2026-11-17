@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tapir 1.14.1, openapi-circe-yaml 0.12.1, zio-http 3.11.6; DMN Tester: dmn-scala 1.12.6 (feel-scala 1.22.1).
 - sbt plugins: sbt-native-packager 1.13.0, sbt-ci-release 1.12.1, sbt-mdoc 2.9.2, sbt-buildinfo 0.13.2, sbt-scalajs 1.23.0 - their versions are only in `project/plugins.sbt`.
 - Frontends: React 19.3.1, bpmn-js 18.33.0, dmn-js 18.0.3, camunda-bpmn-moddle 8.0.2, zeebe-bpmn-moddle 2.0.0, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, lucide-react 1.74.0, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; source-map-js 1.2.2 (security fix GHSA-68fv-2mgg-jv7q).
-- Frontend tooling: vite 8.3.8 (Rolldown) and @vitejs/plugin-react 6.3.0 in all frontends (the DMN Tester client was on vite 7), esbuild 0.28.2, TypeScript 7.0.2, vitest 5.1.0 (docs site).
+- Frontend tooling: vite 8.3.8 (Rolldown) and @vitejs/plugin-react 6.3.0 in all frontends (the DMN Tester client was on vite 7), esbuild 0.28.2 (vite no longer brings it - Orch Doc and Orch Ops list it themselves for their tests), TypeScript 7.0.2, vitest 5.1.0 (docs site).
 - Orch Studio: hono 4.13.18, @hono/node-server 2.1.8.
 
 ### Removed
