@@ -82,8 +82,8 @@ export const topicPrefix = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | '
   `${c.project}-${apiLeaf(c.api)}V${c.apiVersion}`;
 
 /** `acme-crm-clientV1.GetClient` — also the id in the service catalog */
-export const serviceTopic = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>, s: Pick<CollectionService, 'name'>): string =>
-  `${topicPrefix(c)}.${s.name}`;
+export const serviceTopic = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>, s: Pick<CollectionService, 'name'> & { topic?: string }): string =>
+  s.topic?.trim() || `${topicPrefix(c)}.${s.name}`;
 
 /** Directory of the domain in the project: `01-domain/src/main/scala/acme/crm/domain/client/v1` */
 export const domainDir = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>): string =>

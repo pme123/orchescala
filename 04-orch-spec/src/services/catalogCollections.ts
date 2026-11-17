@@ -32,6 +32,26 @@ import { camelName } from './openApiRest';
 import { HTTP_METHODS, type BodyRef, type CollectionService, type HttpMethod, type RequestParam, type ServiceCollectionSpec } from './types';
 
 const TOPIC = /^([a-z][a-z0-9]*(?:-[a-z][A-Za-z0-9]*)+)-([a-z][A-Za-z0-9]*)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
+/** an older naming without the API - `acme-crmV1.PatchFile`: the API from the package of its object */
+const TOPIC_WITHOUT_API = /^([a-z][a-z0-9]*(?:-[a-z][A-Za-z0-9]*)+)V(\d+)\.([A-Z][A-Za-z0-9]*)$/;
+
+/**
+ * Project, API (its last part), version and name of a service of the catalog - by its topic, or for
+ * one of the older naming (`acme-crmV1.PatchFile`) the API by the package of its object
+ * (`acme.crm.domain.file.v1`). null: neither.
+ */
+function topicParts(topic: string, pkg: string | undefined): { project: string; leaf: string; version: string; name: string } | null {
+  const m = TOPIC.exec(topic);
+  if (m) return { project: m[1], leaf: m[2], version: m[3], name: m[4] };
+  const old = TOPIC_WITHOUT_API.exec(topic);
+  if (!old || !pkg) return null;
+  const [, project, version, name] = old;
+  const stem = `${project.split('-').join('.')}.domain.`;
+  const tail = `.v${version}`;
+  if (!pkg.startsWith(stem) || !pkg.endsWith(tail)) return null;
+  const full = pkg.slice(stem.length, -tail.length);
+  return full ? { project, leaf: apiLeaf(full), version, name } : null;
+}
 
 export interface CatalogApi extends ApiRef {
   /** `acme-crm-clientV1` */
@@ -88,9 +108,9 @@ export function catalogProjects(model: Model | null, opts: { customWorkers?: boo
   for (const s of model?.services ?? []) {
     if (s.kind && s.kind !== 'service') continue;
     if (!opts.customWorkers && isCustomWorker(s, model, knowsRequests)) continue;
-    const m = TOPIC.exec(s.topic ?? s.id);
-    if (!m) continue;
-    const [, project, leaf, version] = m;
+    const parts = topicParts(s.topic ?? s.id, catalogObject(s.id, model)?.pkg);
+    if (!parts) continue;
+    const { project, leaf, version } = parts;
     const p = projects.get(project) ?? { project, ...(s.group ? { group: s.group } : {}), apis: [] };
     const prefix = `${project}-${leaf}V${version}`;
     const api = nestedApi(project, leaf, Number(version), catalogObject(s.id, model)?.pkg);
@@ -208,7 +228,10 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
     return t;
   };
   for (const svc of api.services) {
-    const name = TOPIC.exec(svc.topic ?? svc.id)![4];
+    const topic = svc.topic ?? svc.id;
+    const name = topicParts(topic, catalogObject(svc.id, model)?.pkg)?.name ?? topic.slice(topic.lastIndexOf('.') + 1);
+    // a topic of the older naming stays as it is - the BPMNs call it so
+    const ownTopic = serviceTopic(api, { name }) !== topic ? { topic } : {};
     const id = uid('svc');
     const inType = memberOf(svc, 'In', id);
     const outType = memberOf(svc, 'Out', id);
@@ -225,7 +248,7 @@ function servicesOf(api: CatalogApi, model: Model | null): { services: Collectio
     const serviceIn = bodyOf(domainMember(svc, 'ServiceIn', model), model, conv, own);
     const serviceOut = bodyOf(domainMember(svc, 'ServiceOut', model), model, conv, own);
     services.push({
-      id, name, api: api.api, apiVersion: api.apiVersion, status: 'implemented',
+      id, name, ...ownTopic, api: api.api, apiVersion: api.apiVersion, status: 'implemented',
       ...(svc.description ? { description: svc.description } : {}),
       method: request?.method ?? 'GET', path: request?.path ?? '', params,
       ...(serviceIn ? { serviceIn } : {}),
@@ -296,7 +319,7 @@ export function withProjectDomain(model: Model | null, domain: DomainType[]): Mo
   const services: ServiceDef[] = [];
   const seen = new Set<string>();
   for (const t of domain) {
-    if (!t.owner || !t.topicName || t.name !== `${t.owner}.In` || seen.has(t.topicName) || !TOPIC.test(t.topicName)) continue;
+    if (!t.owner || !t.topicName || t.name !== `${t.owner}.In` || seen.has(t.topicName) || !topicParts(t.topicName, t.pkg)) continue;
     seen.add(t.topicName);
     const cat = known.get(t.topicName);
     services.push({

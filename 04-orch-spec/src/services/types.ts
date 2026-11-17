@@ -59,6 +59,11 @@ export interface CollectionService {
   apiVersion: number;
   /** Scala object, e.g. `GetClient` — also the last part of the topic */
   name: string;
+  /**
+   * the topic as the project has it, where it is not the one of its API (`acme-crmV1.PatchFile` of an
+   * older naming instead of `acme-crm-fileV1.PatchFile`) - kept, so the BPMNs that call it still find it
+   */
+  topic?: string;
   status: Status;
   /** what it does (Markdown) — `val descr` */
   description?: string;

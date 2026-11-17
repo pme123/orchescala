@@ -512,3 +512,36 @@ test('Abgleich: an id to delete that is not missing in the project changes nothi
   const odd = syncWithCatalog(c, model, new Set(), new Set([natural.id, natural.inTypeId ?? '', 'no-such-id']))!;
   assert.deepEqual(odd.spec, kept.spec);
 });
+
+const fileService = (name: string, topic: string) => `package acme.crm.domain
+package file.v1
+
+object ${name} extends FileV1:
+
+  final val topicName = "${topic}"
+  val path = "PATCH: /files/{fileId}"
+
+  type ServiceIn = NoInput
+  type ServiceOut = NoOutput
+
+  case class In(
+      fileId: String
+  )
+  case class Out()
+end ${name}
+`;
+
+test('a topic of the older naming without the API: its API from the package, listed with the others - and the topic kept', () => {
+  const topics = { MetaPatch: 'acme-crm-fileV1.MetaPatch', PatchFile: 'acme-crmV1.PatchFile', PostFile: 'acme-crmV1.PostFile' };
+  const domainTypes = Object.entries(topics).flatMap(([n, t]) => scanScala(fileService(n, t), `file/v1/${n}.scala`));
+  const model = { version: 1, domainTypes, services: Object.entries(topics).map(([n, t]) => ({ id: t, name: n, kind: 'service', topic: t })) } as never;
+  const p = catalogProjects(model).find(x => x.project === 'acme-crm')!;
+  assert.deepEqual(p.apis.map(a => [a.api, a.services.map(s => s.name).sort()]), [['file', ['MetaPatch', 'PatchFile', 'PostFile']]]);
+  const c = collectionFromCatalog(p, p.apis, model);
+  // the topic as the project has it - the BPMNs call it so; the one of its API needs none
+  assert.deepEqual(c.services.map(s => [s.name, s.topic]).sort(), [['MetaPatch', undefined], ['PatchFile', 'acme-crmV1.PatchFile'], ['PostFile', 'acme-crmV1.PostFile']]);
+  assert.deepEqual(c.services.map(s => serviceTopic(apiOf(c, s), s)).sort(), ['acme-crm-fileV1.MetaPatch', 'acme-crmV1.PatchFile', 'acme-crmV1.PostFile']);
+  // the export writes it as it is
+  const file = collectionFiles(c).find(f => f.path.endsWith('/PatchFile.scala'))!;
+  assert.match(file.content, /final val topicName = "acme-crmV1\.PatchFile"/, file.content);
+});
