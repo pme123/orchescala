@@ -3,7 +3,7 @@
 // If the value starts with `=`, it is a FEEL expression (Camunda 8). While typing,
 // the field suggests the process variables and their paths — `client.` shows
 // the fields of `client`, `client.addr` filters within them. Arrow keys select,
-// only Enter accepts (Tab goes on to the next field), Escape closes. Brackets as in a code editor: a selection is
+// Enter or Tab accepts, Escape closes. Brackets as in a code editor: a selection is
 // wrapped, in an expression the closing one comes along (see bracketPairs.ts). The check of the expression
 // (syntax, paths, type) is done by the caller; this is only about typing.
 import { useEffect, useRef, useState } from 'react';
@@ -121,14 +121,12 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     if (!open) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(a => (a + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => (a - 1 + items.length) % items.length); }
-    else if (e.key === 'Enter') {
+    else if (e.key === 'Enter' || e.key === 'Tab') {
       // already typed completely: Enter gives the new line instead of inserting the same again
-      if (range && items[active]?.insert === value.slice(range.from, range.to)) { close(); return; }
+      if (e.key === 'Enter' && range && items[active]?.insert === value.slice(range.from, range.to)) { close(); return; }
       e.preventDefault();
       accept(items[active]);
     }
-    // only Enter takes a suggestion - Tab goes on to the next field, the list closes
-    else if (e.key === 'Tab') close();
     else if (e.key === 'Escape') { e.preventDefault(); close(); }
   };
 
