@@ -45,6 +45,7 @@ import { useAiConfig } from '../ai/useAiConfig';
 import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
+import { detectEngine } from '../engineConvert';
 import CodeSyncPanel from './CodeSyncPanel';
 import { transferOf, transferText } from '../transfer';
 import { helperDmnRefs } from '../exporters';
@@ -953,7 +954,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       setNotice({ tone: 'warn', message: !x ? 'Pattern brauchen das Diagramm — zuerst ein BPMN laden.' : `Pattern «${patternId}» ist im Admin nicht (mehr) definiert.` });
       return;
     }
-    const engine = cur.engine ?? 'c7';
+    // a service orchestration is c8, its diagram may be drawn for another engine - a pattern in the diagram's form
+    const engine = cur.service ? detectEngine(x) : cur.engine ?? 'c7';
     const r = action === 'add' ? applyPattern(x, def, engine, targetId, params)
       : action === 'remove' ? removePattern(x, def, engine, targetId, defs, params)
         : updatePattern(x, def, engine, targetId, params, defs, previous);
