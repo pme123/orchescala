@@ -9,6 +9,7 @@ import type { ServiceCollectionSpec } from './services/types';
 import { servicesByTopic } from './services/orchestration';
 import type { OpenApiFile } from './services/openApiFile';
 import type { Model, PatternDef, ProcessSpec, Step, TypeMapper } from './types';
+import { cleanMapper } from './typeMappers';
 
 export const TRANSFER_KIND = 'orch-spec-transfer';
 
@@ -87,13 +88,30 @@ export function readTransfer(text: string): Transfer | { error: string } {
       && (i.kind === 'process' ? Array.isArray((i.spec as ProcessSpec).steps)
         : i.kind === 'collection' ? (i.spec as ServiceCollectionSpec).kind === 'serviceCollection' && Array.isArray((i.spec as ServiceCollectionSpec).services) : false);
     if (!ok) return { error: `«${String((i as { slug?: unknown })?.slug ?? '?')}» ist unvollständig - nicht eingefügt.` };
+    // the text comes from outside: a slug names a file - only one as the app writes them, the one of its spec
+    if (!SLUG.test(i.slug) || (i.spec as { slug?: unknown }).slug !== i.slug) return { error: `«${i.slug}» ist kein Name, wie ihn Orch Spec schreibt - nicht eingefügt.` };
+    const dmns = i.kind === 'process' ? i.dmns : undefined;
+    if (dmns !== undefined && (typeof dmns !== 'object' || Object.entries(dmns).some(([id, xml]) => !DECISION_ID.test(id) || typeof xml !== 'string'))) {
+      return { error: `«${i.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` };
+    }
+    if (i.kind === 'process' && i.bpmn !== undefined && typeof i.bpmn !== 'string') return { error: `«${i.slug}»: das BPMN ist kein Text - nicht eingefügt.` };
   }
+  // what goes into the model: only whole ones, as the Administration stores them
+  const typeMappers = Array.isArray(t.typeMappers) ? t.typeMappers.map(m => cleanMapper(m)).filter((m): m is TypeMapper => !!m && typeof m.id === 'string' && !!m.id) : [];
+  if (Array.isArray(t.typeMappers) && typeMappers.length !== t.typeMappers.length) return { error: 'Ein mitkopierter Typ-Mapper ist unvollständig - nicht eingefügt.' };
+  const patterns = Array.isArray(t.patterns) ? t.patterns : [];
+  if (patterns.some(p => !p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id || typeof p.name !== 'string')) return { error: 'Ein mitkopiertes Pattern ist unvollständig - nicht eingefügt.' };
   return {
     kind: TRANSFER_KIND, v: 1, exportedAt: String(t.exportedAt ?? ''), items: t.items as TransferItem[],
-    ...(Array.isArray(t.typeMappers) ? { typeMappers: t.typeMappers } : {}),
-    ...(Array.isArray(t.patterns) ? { patterns: t.patterns } : {}),
+    ...(typeMappers.length ? { typeMappers } : {}),
+    ...(patterns.length ? { patterns } : {}),
   };
 }
+
+/** a slug as the app writes it (slugify): no path, no dots */
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** the id of a decision - the name of its DMN file */
+const DECISION_ID = /^[A-Za-z0-9_][\w-]*$/;
 
 export type PasteAction = 'create' | 'overwrite' | 'skip';
 

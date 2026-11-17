@@ -67,3 +67,15 @@ test('pasting a process that calls a service the target does not have: said', ()
   assert.deepEqual(plan.hints, ['«Kunde mappen» ruft auf, was es hier nicht gibt: acme-crm-clientV1.GetClient - die Collection auch kopieren oder den Katalog neu aufbauen.']);
   assert.deepEqual(plan.typeMappers, [mapper]);
 });
+
+test('pasted text from outside: a slug that is no file name, a DMN without a name, an incomplete mapper or pattern - refused', () => {
+  const s = spec();
+  const t = transferOf([{ kind: 'process', slug: s.slug, spec: s }], model);
+  const text = (f: (x: Transfer) => unknown) => { const c = JSON.parse(transferText(t)); f(c); return JSON.stringify(c); };
+  assert.deepEqual(readTransfer(text(x => { (x.items[0] as { slug: string }).slug = '../model'; })), { error: '«../model» ist kein Name, wie ihn Orch Spec schreibt - nicht eingefügt.' });
+  // the slug of its spec - not another one
+  assert.deepEqual(readTransfer(text(x => { (x.items[0] as { slug: string }).slug = 'other'; })), { error: '«other» ist kein Name, wie ihn Orch Spec schreibt - nicht eingefügt.' });
+  assert.deepEqual(readTransfer(text(x => { (x.items[0] as { dmns: Record<string, string> }).dmns = { '../x': '<dmn/>' }; })), { error: `«${s.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` });
+  assert.deepEqual(readTransfer(text(x => { x.typeMappers = [{ id: 'x' } as TypeMapper]; })), { error: 'Ein mitkopierter Typ-Mapper ist unvollständig - nicht eingefügt.' });
+  assert.deepEqual(readTransfer(text(x => { x.patterns = [{ id: 7 } as unknown as PatternDef]; })), { error: 'Ein mitkopiertes Pattern ist unvollständig - nicht eingefügt.' });
+});
