@@ -225,4 +225,12 @@ class SbtSettingsGeneratorTest extends FunSuite:
       assertParses(os.read(projectDir / "project" / "Settings.scala"), "project/Settings.scala")
       assertParses(os.read(projectDir / "build.sbt"), "build.sbt")
 
+  // Scala 3.10 stops recursive operations after a fuel of 550 - not enough for the derivation of
+  // a class with a few hundred fields (e.g. a client with all its attributes)
+  test("Settings.scala: more fuel for the derivation of large classes"):
+    inProject(SbtConfig()): projectDir =>
+      SbtSettingsGenerator(isGateway = false).generate
+      val settings = os.read(projectDir / "project" / "Settings.scala")
+      assert(settings.contains("\"-Xmax-fuel:2000\""), settings)
+
 end SbtSettingsGeneratorTest

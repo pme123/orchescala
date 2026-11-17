@@ -107,7 +107,8 @@ case class CompanySbtGenerator(
        |    scalaVersion := scalaV,
        |    autoImportSetting(module),
        |    scalacOptions ++= Seq(
-       |      "-Xmax-inlines:200" // is declared as erased, but is in fact used
+       |      "-Xmax-inlines:200", // is declared as erased, but is in fact used
+       |      "-Xmax-fuel:2000" // Scala 3.10: the derivation of large classes needs more than the default 550
        |      // "-Vprofile",
        |    ),
        |    resolvers ++= Seq(releaseRepo),
