@@ -74,6 +74,18 @@ export function feelToScalaTyped(expression: string, vars: Map<string, ScalaVar>
   return translate(expression, vars, types, target);
 }
 
+/** The index of the bracket that closes the `(` at 0 - texts skipped; -1 for none. */
+function closingParen(t: string): number {
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '"') { for (i++; i < t.length && t[i] !== '"'; i++) if (t[i] === '\\') i++; continue; }
+    if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+
 /** The parts of `a + b + c` at the top level - not in a text, not in brackets; null: no `+`. */
 function plusParts(body: string): string[] | null {
   const parts: string[] = [];
@@ -99,15 +111,7 @@ function plusParts(body: string): string[] | null {
 function sumOf(body: string, vars: Map<string, ScalaVar>, types: TypeDef[]): Translated | null {
   const parts = plusParts(body);
   if (!parts) return null;
-  const one = (part: string): Translated => {
-    const str = /^string\(([\s\S]*)\)$/.exec(part);
-    if (str) {
-      const inner = translate(`= ${str[1]}`, vars, types);
-      return inner.todo ? inner : { scala: inner.optional ? `${inner.scala}.map(_.toString)` : `${inner.scala}.toString`, optional: inner.optional };
-    }
-    return translate(`= ${part}`, vars, types);
-  };
-  const xs = parts.map(one);
+  const xs = parts.map(part => translate(`= ${part}`, vars, types));
   if (xs.some(x => x.todo)) return todo(body);
   const text = parts.some(p => /^"/.test(p) || /^string\(/.test(p));
   if (text) return { scala: xs.map(x => (x.optional ? `${x.scala}.fold("null")(_.toString)` : x.scala)).join(' + '), optional: false };
@@ -131,6 +135,14 @@ function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeD
   if (!body) return todo(raw, 'kein Wert');
   // not FEEL: a fixed text
   if (!raw.startsWith('=')) return { scala: JSON.stringify(raw), optional: false };
+
+  // brackets around the whole: what is inside - `(if a != null then a else b)`
+  if (body.startsWith('(') && closingParen(body) === body.length - 1) return translate(`= ${body.slice(1, -1)}`, vars, types, target);
+  // `string(x)`: its text
+  if (body.startsWith('string(') && closingParen(body.slice(6)) === body.length - 7) {
+    const inner = translate(`= ${body.slice(7, -1)}`, vars, types);
+    return inner.todo ? inner : { scala: inner.optional ? `${inner.scala}.map(_.toString)` : `${inner.scala}.toString`, optional: inner.optional };
+  }
 
   const literal = literalOf(body, target, types);
   if (literal) return literal;
