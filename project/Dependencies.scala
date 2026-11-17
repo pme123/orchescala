@@ -68,9 +68,9 @@ object Dependencies {
   val jgitVersion   = "7.8.1.202611041320-r"
 
   // 04-persistence-postgres
-  val hikariVersion         = "6.3.3"
+  val hikariVersion         = "7.1.0"
   val postgresqlVersion     = "42.7.14"
-  val testcontainersVersion = "1.21.4"
+  val testcontainersVersion = "2.0.5"
 
   // sbt plugins - their versions are only in project/plugins.sbt, read from there
   // (BuildInfo passes them on to the generated company builds).
@@ -157,9 +157,9 @@ object Dependencies {
     "dev.zio" %% "zio" % zioVersion
   // PersistenceWorker on Postgres (04-persistence-postgres): JDBC pool and driver; Testcontainers
   val persistencePostgresDependencies = Seq(
-    "com.zaxxer"          % "HikariCP"                 % hikariVersion,
-    "org.postgresql"      % "postgresql"               % postgresqlVersion,
-    "org.testcontainers"  % "postgresql"               % testcontainersVersion % Test
+    "com.zaxxer"         % "HikariCP"                  % hikariVersion,
+    "org.postgresql"     % "postgresql"                % postgresqlVersion,
+    "org.testcontainers" % "testcontainers-postgresql" % testcontainersVersion % Test
   )
 
   val zioTestDependencies =
