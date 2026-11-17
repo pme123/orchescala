@@ -288,7 +288,8 @@ test('the test of a branch: the value as the deciding field has it; without a so
   const o = orchestration({ Person: '= kind = "Person"', Company: '= kind = "Company"' });
   o.tasks.Kind = { ...o.tasks.Kind, outputs: [{ name: 'kind', expression: '= if true then kind else kind' }] };
   const u = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorkerTest.scala'))!.content;
-  assert.match(u, /test\("runWorkZIO Person"\.ignore\):\n\s+\/\/ TODO kind = "Person" - set it where it comes from, then remove \.ignore/, u);
+  // the value has the type of the field it reads (the enum Kind) - the case, not a text
+  assert.match(u, /test\("runWorkZIO Person"\.ignore\):\n\s+\/\/ TODO kind = Kind\.Person - set it where it comes from, then remove \.ignore/, u);
 });
 
 test('an enum value no branch covers: the match gets case _ - no MatchError', () => {

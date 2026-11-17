@@ -22,6 +22,7 @@
 // type the Out defines - `Client.Person(…)` field by field. The test of the worker runs each branch
 // with the services answering their examples.
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
+import { feelValueType } from './feelValueType.ts';
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
 import type { CaseLink, DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
@@ -1071,7 +1072,7 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
         if (!a.name.trim()) continue;
         const t = feelToScala(a.expression, scalaVars(known), ctx.types);
         lines.push(`${scalaIdent(a.name.trim())} = ${t.scala}`);
-        known = [...known, { name: a.name.trim(), scala: scalaIdent(a.name.trim()), type: 'String', source: 'Script', ...(t.optional ? { optional: true } : {}) }];
+        known = [...known, { name: a.name.trim(), scala: scalaIdent(a.name.trim()), type: feelValueType(a.expression, known) ?? 'String', source: 'Script', ...(t.optional ? { optional: true } : {}) }];
       }
       continue;
     } else if (s.kind === 'end' && stopWithError(s, vars, ctx)) {

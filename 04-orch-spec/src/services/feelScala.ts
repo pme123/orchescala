@@ -296,7 +296,12 @@ function condition(text: string, vars: Map<string, ScalaVar>, types: TypeDef[]):
     if (!l.optional && r.optional) {
       if (op === '=') return { scala: `${r.scala}.contains(${l.scala})`, optional: false };
       if (op === '!=') return { scala: `!${r.scala}.contains(${l.scala})`, optional: false };
-      return null;
+      // FEEL: a comparison with null is null - not true
+      return { scala: `${r.scala}.exists(${l.scala} ${scalaOp} _)`, optional: false };
+    }
+    // both may be missing: an order holds only where both are there
+    if (l.optional && r.optional && op !== '=' && op !== '!=') {
+      return { scala: `${l.scala}.zip(${r.scala}).exists((a, b) => a ${scalaOp} b)`, optional: false };
     }
     return { scala: `${l.scala} ${scalaOp} ${r.scala}`, optional: false };
   }
