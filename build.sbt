@@ -609,8 +609,10 @@ addCommandAlias(
       // and OpWorker, so this covers C7 Op as well), Camunda 7 and 8 (as existing companies)
       // and Operaton only (the generated sources without Camunda 7 - the module dependencies
       // stay the same)
+      // reload after generating: sbt 2's server keeps the state of the source files - without
+      // it, the compile right after the generator sometimes saw the files of the run before
       Seq("C7 C8 Op", "C7 C8", "Op").flatMap(engines =>
-        companyCheckGenerate(engines) +: companyCheckCompile
+        Seq(companyCheckGenerate(engines), "reload") ++ companyCheckCompile
       )
   ).mkString("; ")
 )
