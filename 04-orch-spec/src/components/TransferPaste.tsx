@@ -126,7 +126,14 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
         done.push(row.title);
       }
       // what went wrong stays in sight - with what was written all the same; the lists show it
-      if (problems.length) { setError([...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems].join(' · ')); if (done.length || modelWritten) onWritten?.(); return; }
+      if (problems.length) {
+        setError([
+          ...(modelWritten ? [`Übernommen: ${[...plan.typeMappers.map(m => `Typ-Mapper ${m.name?.trim() || m.id}`), ...plan.patterns.map(p => `Pattern ${String(p.name ?? p.id)}`)].join(', ')}`] : []),
+          ...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems,
+        ].join(' · '));
+        if (done.length || modelWritten) onWritten?.();
+        return;
+      }
       onDone(done);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
