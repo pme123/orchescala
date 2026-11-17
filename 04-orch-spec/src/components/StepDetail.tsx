@@ -2363,13 +2363,13 @@ function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
           {(Object.keys(TIMER_KIND_LABEL) as TimerSpec['kind'][]).map(k => <option key={k} value={k}>{TIMER_KIND_LABEL[k]}</option>)}
         </select>
         <input value={t.expression} disabled={!canEdit || !!lockedBy} onChange={e => onChange({ ...t, expression: e.target.value })}
-          placeholder="= timerWait — eine Variable aus dem InConfig"
+          placeholder={spec.service ? '= timerWait — eine Methode des Workers' : '= timerWait — eine Variable aus dem InConfig'}
           title={lockedBy ? `Setzt das Pattern «${lockedBy}»` : 'Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. P7D)'}
           className={`flex-1 min-w-0 ${input}`} />
       </div>
       {name && (
         <div className="flex items-center gap-1.5">
-          <span className={`text-[10px] ${c.muted} flex-shrink-0`}>Vorgabe im InConfig</span>
+          <span className={`text-[10px] ${c.muted} flex-shrink-0`}>{spec.service ? 'Vorgabe im Worker' : 'Vorgabe im InConfig'}</span>
           {own
             ? <span className={`text-[10px] font-mono ${c.muted2}`} title="Steht schon im eigenen InConfig — dort pflegen">{own.default ? `${name} = ${own.default}` : name} (eigenes Feld)</span>
             : <input value={t.default ?? ''} disabled={!canEdit} onChange={e => onChange({ ...t, default: e.target.value || undefined })}
@@ -2380,7 +2380,9 @@ function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
       )}
       <p className={`text-[10px] ${c.muted}`}>
         {name
-          ? <>Der Timer liest <span className="font-mono">{name}</span> — eine Konstante im InConfig; im Test lässt sie sich verkürzen.</>
+          ? spec.service
+            ? <>Der Timer wartet <span className="font-mono">{name}</span> — eine Methode des Workers mit dieser Vorgabe; im Test wartet er nicht.</>
+            : <>Der Timer liest <span className="font-mono">{name}</span> — eine Konstante im InConfig; im Test lässt sie sich verkürzen.</>
           : t.expression.trim()
             ? 'Fester Wert — besser eine Variable (= timerWait) mit dieser Vorgabe im InConfig.'
             : 'Noch kein Wert — eine Variable setzen, z. B. = timerWait.'}
