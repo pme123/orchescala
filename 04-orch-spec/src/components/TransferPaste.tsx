@@ -63,6 +63,8 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
     const done: string[] = [];
     const problems: string[] = [];
     let modelWritten = false;
+    // anything written - the lists and the plan are read again, a retry sees the new versions
+    let wrote = false;
     try {
       // what the items use, first - a mapping then finds its type mapper
       if (plan.typeMappers.length || plan.patterns.length) {
@@ -80,6 +82,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           if (action === 'create') {
             const r = await createSpec(item.spec);
             if (!r.ok) { problems.push(`«${row.title}»: ${r.message}`); continue; }
+            wrote = true;
           } else {
             const cur = await loadSpec(item.slug);
             if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
@@ -88,6 +91,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
             const entry = makeEntry(cur.data, item.spec, { source: 'import', note: 'Eingefügt aus einer anderen Orch Spec' }, author);
             const r = await saveSpec(item.spec, cur.version, entry ? [entry] : []);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
+            wrote = true;
           }
           // the spec is written - what of it is not is said with it, and it does not count as done
           const before = problems.length;
@@ -109,6 +113,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           if (action === 'create') {
             const r = await createService(spec);
             if (!r.ok) { problems.push(`«${row.title}»: ${r.message}`); continue; }
+            wrote = true;
           } else {
             // the version as it is now - as for a process
             const cur = await loadService(item.slug);
@@ -117,6 +122,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
             before = isCollection(cur.data) ? cur.data.source?.stored : undefined;
             const r = await saveService(spec, cur.version);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
+            wrote = true;
           }
           if (item.openApi && !(await saveOpenApi(item.slug, item.openApi, before))) {
             problems.push(`«${row.title}» ${action === 'create' ? 'angelegt' : 'überschrieben'}, aber die OpenAPI nicht`);
@@ -131,7 +137,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           ...(modelWritten ? [`Übernommen: ${[...plan.typeMappers.map(m => `Typ-Mapper ${m.name?.trim() || m.id}`), ...plan.patterns.map(p => `Pattern ${String(p.name ?? p.id)}`)].join(', ')}`] : []),
           ...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems,
         ].join(' · '));
-        if (done.length || modelWritten) onWritten?.();
+        if (wrote || modelWritten) onWritten?.();
         return;
       }
       onDone(done);
@@ -149,7 +155,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
         <ClipboardPaste size={12} className={c.muted2} />
         <span className={`text-[11px] font-semibold ${c.text}`}>Einfügen</span>
         <span className={`text-[10px] ${c.muted}`}>was in einer anderen Orch Spec mit «Kopieren» kopiert wurde</span>
-        <button onClick={onClose} className={`ml-auto p-0.5 rounded ${c.btn}`} title="Schliessen"><X size={12} /></button>
+        <button onClick={onClose} disabled={!!busy} className={`ml-auto p-0.5 rounded disabled:opacity-40 ${c.btn}`} title={busy ? 'Wird geschrieben …' : 'Schliessen'}><X size={12} /></button>
       </div>
       {!transfer && (
         <>
