@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### To note when upgrading
 - **Scala 3.10.1:** orchescala is built with Scala 3.10 - a build on an older Scala version cannot read it. Company and project builds get Scala 3.10.1, sbt 1.13.1 and the new sbt plugin versions through the helper.
 - **scala-cli scripts:** the generated `helperCompany.scala` and `helper.scala` now pin the Scala version (`//> using scala 3.10.1`). Before the first `update` with this version, add that line by hand to the existing scripts - without it scala-cli takes its default version (3.8 with scala-cli 1.13), which cannot read the helper.
+- **Order for a company:** the helper of a company writes the versions of the orchescala it is built with - an `update` with the old company helper writes the old Scala version again. So, once: set `scalaV = "3.10.1"` (and sbt 1.13.1 in `project/build.properties`) by hand in the company's `*-orchescala`, `sbt publishLocal`, then `./helper.scala update` there and in the projects.
+- **Fuel limit:** Scala 3.10 stops recursive operations after a fuel of 550 (`Recursion limit exceeded`) - too little to derive the codec of a class with a few hundred fields. The generated builds set `-Xmax-fuel:2000`; a hand-maintained `Settings.scala` needs it added.
 - **Scala 3.10 breaking changes** that may hit own code: a `Double` literal is no longer taken where a `Float` is expected (`2.0` -> `2.0f`), `@throws` only on methods and constructors, `strictEqualityPatternMatching` is on by default, the `with` type operator is an error.
 - **chimney 2:** mapping code must be recompiled; `withCoproduct...` (deprecated) and `.toPartialResult` (use `.asResult`) are gone.
 - **Removed `springBootVersion`:** `CompanyVersionConfig.springBootVersion` and the key `BuildInfo.springBootVersion` are gone - no generator read them; a company build that sets or reads one of them must drop it.
@@ -29,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Libraries: os-lib 0.11.10, circe 0.14.17, http4s 0.23.38, typesafe-config 1.4.10, scala-xml 2.5.0, munit 1.3.6, iron-circe 3.4.1, chimney 2.1.1, scala-java-time 2.11.0, coursier interface 1.0.30, jakarta.xml.bind-api 4.0.5, ZIO 2.1.27, zio-logging 2.5.4, logback 1.6.7, swagger-parser 2.1.48, java-jwt 4.6.2, jgit 7.8.1, postgresql 42.7.14, HikariCP 6.3.3.
 - tapir 1.14.1, openapi-circe-yaml 0.12.1, zio-http 3.11.6; DMN Tester: dmn-scala 1.12.6 (feel-scala 1.22.1).
 - sbt plugins: sbt-native-packager 1.13.0, sbt-ci-release 1.12.1, sbt-mdoc 2.9.2, sbt-buildinfo 0.13.2, sbt-scalajs 1.23.0 - their versions are only in `project/plugins.sbt`.
-- Frontends: React 19.3.1, bpmn-js 18.31.1, dmn-js 17.13.0, camunda-bpmn-moddle 7.0.2, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; vite 6.4.6 in all frontends (the DMN Tester client was on vite 7).
+- Frontends: React 19.3.1, bpmn-js 18.31.1, dmn-js 17.13.0, camunda-bpmn-moddle 7.0.2, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; vite 6.4.6 in all frontends (the DMN Tester client was on vite 7); source-map-js 1.2.2 (security fix GHSA-68fv-2mgg-jv7q).
 - Orch Studio: hono 4.13.18, @hono/node-server 2.1.8.
 
 ### Removed

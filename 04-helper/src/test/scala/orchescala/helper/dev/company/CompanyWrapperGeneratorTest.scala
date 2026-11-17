@@ -90,6 +90,14 @@ class CompanyWrapperGeneratorTest extends FunSuite:
         RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-${m}_3"), "1.2.3").sorted
       )
 
+  // Scala 3.10 stops recursive operations after a fuel of 550 - like the project builds, the
+  // company build gets more for the derivation of large classes
+  test("the company build gets more fuel for the derivation of large classes"):
+    inCompany: projectDir =>
+      CompanySbtGenerator(Seq(C7)).generate
+      val settings = os.read(projectDir / "project" / "Settings.scala")
+      assert(settings.contains("\"-Xmax-fuel:2000\""), settings)
+
   test("the gateway is no docker image without the company's settings - no build options either"):
     inCompany: projectDir =>
       CompanySbtGenerator(Seq(C7)).generate
