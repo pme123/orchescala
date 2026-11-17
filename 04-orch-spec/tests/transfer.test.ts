@@ -1,0 +1,69 @@
+// Copy and paste between two places of Orch Spec: the text carries the item and what of the model it
+// uses; pasting plans new or overwrite, takes along what the model lacks and says what else is missing.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { planPaste, readTransfer, transferOf, transferText, usedBy, withPasted, type Transfer } from '../src/transfer';
+import { newCollection } from '../src/services/collection';
+import type { Model, PatternDef, ProcessSpec, TypeMapper } from '../src/types';
+import type { ServiceCollectionSpec } from '../src/services/types';
+
+const mapper: TypeMapper = { id: 'tm-country', from: 'Int', to: 'String', kind: 'table', name: 'Country', cases: [{ from: '756', to: 'CH' }] };
+const other: TypeMapper = { id: 'tm-other', from: 'Long', to: 'String', kind: 'scala', scala: 'x.toString' };
+const pattern = { id: 'p-mail', name: 'Mail', targets: [] } as unknown as PatternDef;
+const builtin = { id: 'p-once', name: 'Einmal', builtin: true } as unknown as PatternDef;
+const model = { version: 1, services: [], typeMappers: [mapper, other], patterns: [pattern, builtin] } as unknown as Model;
+
+const spec = (): ProcessSpec => ({
+  slug: 'acme-crm-clientv1-mapclient', title: 'Kunde mappen', processId: 'acme-crm-clientV1-MapClient', status: 'draft',
+  patterns: [{ id: 'p-once' }],
+  steps: [
+    { id: 'Get', kind: 'service', name: 'Kunde lesen', status: 'draft', topic: 'acme-crm-clientV1.GetClient' },
+    { id: 'Map', kind: 'script', name: 'Map', status: 'draft', patterns: [{ id: 'p-mail' }],
+      fieldMapping: { in: [], out: [], fields: [{ field: 'out.country', from: ['in.code'], mapper: 'tm-country' }] } },
+  ],
+} as unknown as ProcessSpec);
+const collection = (): ServiceCollectionSpec => ({
+  ...newCollection({ title: 'Client', project: 'acme-crm', api: 'client', apiVersion: 1 }),
+  services: [{ id: 'get', name: 'GetClient', api: 'client', apiVersion: 1, status: 'implemented', method: 'GET', path: '/clients', params: [] } as never],
+});
+
+test('copied: the items and what of the model they use - the type mappers of their lines, the patterns but the built-in ones', () => {
+  const s = spec();
+  assert.deepEqual([...usedBy(s).mappers], ['tm-country']);
+  assert.deepEqual([...usedBy(s).patterns].sort(), ['p-mail', 'p-once']);
+  const t = transferOf([{ kind: 'process', slug: s.slug, spec: s, bpmn: '<bpmn/>', dmns: { decide: '<dmn/>' } }], model, '2026-11-17T08:00:00Z');
+  assert.deepEqual(t.typeMappers, [mapper]);
+  assert.deepEqual(t.patterns, [pattern]);
+  // the text read back is the same
+  assert.deepEqual(readTransfer(transferText(t)), t);
+});
+
+test('pasted text that is none: said, nothing planned', () => {
+  assert.deepEqual(readTransfer('hello'), { error: 'Das ist kein kopierter Inhalt von Orch Spec (kein JSON).' });
+  assert.deepEqual(readTransfer('{"a":1}'), { error: 'Das ist kein kopierter Inhalt von Orch Spec.' });
+  assert.deepEqual(readTransfer(JSON.stringify({ kind: 'orch-spec-transfer', v: 2, items: [] })), { error: 'Version 2 kennt diese App nicht - zuerst die App aktualisieren.' });
+  assert.deepEqual(readTransfer(JSON.stringify({ kind: 'orch-spec-transfer', v: 1, items: [{ kind: 'process', slug: 'x', spec: {} }] })), { error: '«x» ist unvollständig - nicht eingefügt.' });
+});
+
+test('pasting: new is created, one already there overwritten; what the model lacks comes along, what differs stays and is said', () => {
+  const s = spec();
+  const t = transferOf([{ kind: 'process', slug: s.slug, spec: s }, { kind: 'collection', slug: 'acme-crm-client', spec: collection() }], model) as Transfer;
+  const target = { version: 1, services: [], typeMappers: [{ ...mapper, cases: [] }], patterns: [] } as unknown as Model;
+  const plan = planPaste(t, { processes: new Map([[s.slug, { updatedAt: '2026-11-01', version: 'v1' }]]), collections: new Map() }, target, new Set());
+  assert.deepEqual(plan.rows.map(r => [r.item.slug, r.action]), [[s.slug, 'overwrite'], ['acme-crm-client', 'create']]);
+  assert.deepEqual(plan.typeMappers, []);
+  assert.deepEqual(plan.differing, ['Typ-Mapper Country']);
+  assert.deepEqual(plan.patterns, [pattern]);
+  // the service its step calls comes with the pasted collection - nothing to say
+  assert.deepEqual(plan.hints, []);
+  const merged = withPasted(target, plan);
+  assert.deepEqual(merged.patterns, [pattern]);
+  assert.deepEqual(merged.typeMappers, target.typeMappers);
+});
+
+test('pasting a process that calls a service the target does not have: said', () => {
+  const s = spec();
+  const plan = planPaste(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model), { processes: new Map(), collections: new Map() }, null, new Set());
+  assert.deepEqual(plan.hints, ['«Kunde mappen» ruft auf, was es hier nicht gibt: acme-crm-clientV1.GetClient - die Collection auch kopieren oder den Katalog neu aufbauen.']);
+  assert.deepEqual(plan.typeMappers, [mapper]);
+});

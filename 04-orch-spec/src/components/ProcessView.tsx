@@ -9,7 +9,7 @@ import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Zap, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare, Puzzle, History, Database, ClipboardPaste, Loader2, Sparkles,
+  MessageSquare, Puzzle, History, Database, ClipboardPaste, ClipboardCopy, Loader2, Sparkles,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
@@ -46,6 +46,8 @@ import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
 import CodeSyncPanel from './CodeSyncPanel';
+import { transferOf, transferText } from '../transfer';
+import { helperDmnRefs } from '../exporters';
 import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
 import { collectDiagram, overlayPasted } from '../copyPaste';
@@ -163,7 +165,7 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
 };
 
 export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage, onNewPage }: Props) {
-  const { isDark, model: storeModel, specs, pages, savePage, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
+  const { isDark, model: storeModel, specs, pages, savePage, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, loadDmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
   // ── AI mode (E19, E23, stage B): only with a skill for the task in the studio - processCreator, or serviceOrchestrator
@@ -212,6 +214,19 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const [report, setReport] = useState<MergeReport | null>(null);
   /** «Mit Code abgleichen» of a service orchestration open */
   const [codeSync, setCodeSync] = useState(false);
+  /** «Kopieren»: the spec with its BPMN, its DMN tables and what of the model it uses - for another Orch Spec */
+  const copyForTransfer = async () => {
+    if (!spec) return;
+    try {
+      const tables = await Promise.all(helperDmnRefs(spec).map(async r => [r.key, await loadDmn(spec.slug, r.key)] as const));
+      const dmns = Object.fromEntries(tables.filter((x): x is readonly [string, string] => !!x[1]));
+      const t = transferOf([{ kind: 'process', slug: spec.slug, spec, ...(xml ? { bpmn: xml } : {}), ...(Object.keys(dmns).length ? { dmns } : {}) }], storeModel);
+      await navigator.clipboard.writeText(transferText(t));
+      setNotice({ tone: 'info', message: `«${spec.title || spec.slug}» kopiert — in der anderen Orch Spec unter ${serviceMode ? 'Services' : 'Prozesse'} «Einfügen».` });
+    } catch (e) {
+      setNotice({ tone: 'warn', message: `Kopieren ging nicht: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
   /** selected BPMN waiting in the preview («Mit BPMN abgleichen») */
   const [sync, setSync] = useState<{ raw: string; from: string; mode?: 'bpmn' | 'domain' } | null>(null);
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
@@ -1222,6 +1237,9 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
               <Sparkles size={12} /> Claude
             </button>
           )}
+          <button onClick={() => void copyForTransfer()}
+            title="Kopieren — mit BPMN, DMN-Tabellen und den Typ-Mappern und Patterns, die es braucht; in einer anderen Orch Spec unter «Einfügen»"
+            className={`p-1.5 rounded border flex-shrink-0 ${c.btn}`}><ClipboardCopy size={12} /></button>
           <button onClick={() => (serviceMode ? setServiceExportOpen(true) : setExportOpen(true))}
             title={serviceMode ? 'Scala-Code des CustomTasks und seines Workers, und der Befehl für den Helper' : undefined}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
