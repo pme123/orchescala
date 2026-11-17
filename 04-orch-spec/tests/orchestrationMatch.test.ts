@@ -163,24 +163,24 @@ const scripted = (script: string, resultVariable = 'clients'): ServiceOrchestrat
 test('a script task in FEEL: a method of the worker - concatenate of lists, each element in the case it fits', () => {
   const fs = orchestrationFiles(scripted('= concatenate(persons, companys)'), [collection()], model);
   const w = fs.find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
-  assert.match(w, /clients <- ZIO\.attempt\(mergeClients\(persons, companys\)\)\.mapError\(e => CustomError\("Merge Clients: " \+ e\.getMessage\)\)/, w);
-  assert.match(w, /def mergeClients\(persons: Option\[Seq\[Person3\]\], companys: Option\[Seq\[Company3\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\)\.map\(x =>\n\s+Client\.Person\(\n\s+clientKey = x\.clientKey,\n\s+firstName = x\.firstName\n\s+\)\n\s+\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\.map\(x =>\n\s+Client\.Company\(/, w);
+  assert.match(w, /clients <- ZIO\.attempt\(computeClients\(persons, companys\)\)\.mapError\(e => CustomError\("Merge Clients: " \+ e\.getMessage\)\)/, w);
+  assert.match(w, /def computeClients\(persons: Option\[Seq\[Person3\]\], companys: Option\[Seq\[Company3\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\)\.map\(x =>\n\s+Client\.Person\(\n\s+clientKey = x\.clientKey,\n\s+firstName = x\.firstName\n\s+\)\n\s+\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\.map\(x =>\n\s+Client\.Company\(/, w);
   assert.match(w, /yield Out\(\n\s+clients = clients\n\s+\)/);
   const t = fs.find(x => x.path.endsWith('/GetClientWorkerTest.scala'))!.content;
-  assert.match(t, /test\("mergeClients"\):\n\s+val persons = Some\(Seq\(Person3\.example\)\)\n\s+val companys = Some\(Seq\(Company3\.example\)\)\n\s+val result = Mocked\(\)\.mergeClients\(persons, companys\)\n\s+assertEquals\(result\.size, persons\.getOrElse\(Seq\.empty\)\.size \+ companys\.getOrElse\(Seq\.empty\)\.size\)\n\s+assert\(result\.exists\(_\.isInstanceOf\[Client\.Person\]\), result\)\n\s+assert\(result\.exists\(_\.isInstanceOf\[Client\.Company\]\), result\)/, t);
+  assert.match(t, /test\("computeClients"\):\n\s+val persons = Some\(Seq\(Person3\.example\)\)\n\s+val companys = Some\(Seq\(Company3\.example\)\)\n\s+val result = Mocked\(\)\.computeClients\(persons, companys\)\n\s+assertEquals\(result\.size, persons\.getOrElse\(Seq\.empty\)\.size \+ companys\.getOrElse\(Seq\.empty\)\.size\)\n\s+assert\(result\.exists\(_\.isInstanceOf\[Client\.Person\]\), result\)\n\s+assert\(result\.exists\(_\.isInstanceOf\[Client\.Company\]\), result\)/, t);
 });
 
 test('a script task in FEEL: another expression as a mapping; without a result variable a TODO', () => {
   const w = orchestrationFiles(scripted('= count(persons)'), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
-  assert.match(w, /def mergeClients\(persons: Option\[Seq\[Person3\]\]\): Seq\[Client\] =\n\s+\?\?\? \/\* TODO/, w);
+  assert.match(w, /def computeClients\(persons: Option\[Seq\[Person3\]\]\): Seq\[Client\] =\n\s+\?\?\? \/\* TODO/, w);
   const none = orchestrationFiles(scripted('= concatenate(persons, companys)', ''), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
   assert.match(none, /\/\/ TODO «Merge Clients»: die Implementierung hat keine Ergebnis-Variable/);
-  assert.doesNotMatch(none, /def mergeClients/);
+  assert.doesNotMatch(none, /def computeClients/);
 });
 
 test('a script task in FEEL: flatten([…]) as concatenate - a list of lists stays one (the FEEL check says it)', () => {
   const method = (script: string) => orchestrationFiles(scripted(script), [collection()], model)
-    .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content.split('  def mergeClients')[1]?.split('\n\n')[0];
+    .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content.split('  def computeClients')[1]?.split('\n\n')[0];
   const concat = method('= concatenate(persons, companys)');
   assert.match(concat ?? '', /Client\.Person[\s\S]*\) \+\+\n[\s\S]*Client\.Company/);
   assert.equal(method('= flatten([ persons, companys ])'), concat);
@@ -197,7 +197,7 @@ test('an output converted into another type (mapTo): element by element, the cas
   assert.match(w, /persons = readPerson\.persons\.map\(_\.map\(x =>\n\s+Client\.Person\(\n\s+clientKey = x\.clientKey,\n\s+firstName = x\.firstName\n\s+\)\n\s+\)\)/, w);
   assert.match(w, /companys = readCompany\.companys\.map\(_\.map\(x =>\n\s+Client\.Company\(/);
   // the script reads them as clients - nothing more to convert
-  assert.match(w, /def mergeClients\(persons: Option\[Seq\[Client\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\n/, w);
+  assert.match(w, /def computeClients\(persons: Option\[Seq\[Client\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+persons\.getOrElse\(Seq\.empty\) \+\+\n\s+companys\.getOrElse\(Seq\.empty\)\n/, w);
 });
 
 test('a script result that is no field of the Out: the type the step names - without one derived from lists of one type', () => {
@@ -208,7 +208,7 @@ test('a script result that is no field of the Out: the type the step names - wit
     return o;
   };
   const method = (o: ServiceOrchestrationSpec) => orchestrationFiles(o, [collection()], model)
-    .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content.split('  def mergeClients')[1]?.split('\n')[0];
+    .find(x => x.path.endsWith('/GetClientWorker.scala'))!.content.split('  def computeAllClients')[1]?.split('\n')[0];
   const named = mapped(scripted('= flatten([persons, companys])', 'allClients'));
   named.tasks.MergeClientsTask = { ...named.tasks.MergeClientsTask, resultType: 'client', resultCollection: true };
   assert.equal(method(named), '(persons: Option[Seq[Client]], companys: Option[Seq[Client]]): Seq[Client] =');
@@ -228,7 +228,7 @@ test('a field of the Out without a mapping: the variable of the same name - othe
   assert.match(w, /yield Out\(\n\s+clients = allClients\n\s+\)/, w);
 });
 
-test('step names with $ and " stay text in the generated Scala; two scripts of the same name get two methods', () => {
+test('step names with $ and " stay text in the generated Scala; two scripts of the same name get two methods, named after what they compute', () => {
   const o = scripted('= concatenate(persons, companys)');
   const name = 'Preis $x "neu"';
   o.bpmn = o.bpmn
@@ -241,9 +241,10 @@ test('step names with $ and " stay text in the generated Scala; two scripts of t
   // a literal plus the message - no `s"…"` that would read `$x`
   assert.ok(w.includes(`.mapError(e => CustomError("Preis $x \\"neu\\": " + e.getMessage))`), w);
   assert.doesNotMatch(w, /CustomError\(s"/);
-  assert.match(w, /def preisXNeu\(/);
-  assert.match(w, /def preisXNeu2\(/);
-  assert.match(w, /more <- ZIO\.attempt\(preisXNeu2\(/);
+  // named after what they compute - English, not after the step
+  assert.match(w, /def computeClients\(/);
+  assert.match(w, /def computeMore\(/);
+  assert.match(w, /more <- ZIO\.attempt\(computeMore\(/);
 });
 
 test('no fixed x: a variable called x stays itself - the element gets x2, one value is read directly', () => {
@@ -254,7 +255,7 @@ test('no fixed x: a variable called x stays itself - the element gets x2, one va
   // x is a variable of the for - the elements of companys are x2
   assert.match(w, /companys = readCompany\.companys\.map\(_\.map\(x2 =>/, w);
   // in the method a parameter is called x - its elements are x2
-  assert.match(w, /def mergeClients\(x: Option\[Seq\[Person3\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+x\.getOrElse\(Seq\.empty\)\.map\(x2 =>\n\s+Client\.Person\(\n\s+clientKey = x2\.clientKey/, w);
+  assert.match(w, /def computeClients\(x: Option\[Seq\[Person3\]\], companys: Option\[Seq\[Client\]\]\): Seq\[Client\] =\n\s+x\.getOrElse\(Seq\.empty\)\.map\(x2 =>\n\s+Client\.Person\(\n\s+clientKey = x2\.clientKey/, w);
   assert.doesNotMatch(w, /val x = /);
 });
 
@@ -270,10 +271,10 @@ test('an escaped quote in a FEEL text is no end of it - the lists are split righ
   const o = scripted('= concatenate(persons, companys)');
   const plain = orchestrationFiles(o, [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
   const quoted = orchestrationFiles(scripted('= flatten([persons, companys]) '), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
-  assert.equal(quoted.split('def mergeClients')[1], plain.split('def mergeClients')[1]);
+  assert.equal(quoted.split('def computeClients')[1], plain.split('def computeClients')[1]);
   // a text with \" and a comma inside: not two lists, so nothing to concatenate - the mapping as it is
   const text = orchestrationFiles(scripted('= concatenate("a\\", b", companys)'), [collection()], model).find(x => x.path.endsWith('/GetClientWorker.scala'))!.content;
-  assert.match(text.split('def mergeClients')[1], /\?\?\? \/\* TODO/);
+  assert.match(text.split('def computeClients')[1], /\?\?\? \/\* TODO/);
 });
 
 test('the test of a branch: the value as the deciding field has it; without a source it is ignored, not passing', () => {

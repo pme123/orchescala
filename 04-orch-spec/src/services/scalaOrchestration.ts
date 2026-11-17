@@ -586,21 +586,32 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   return { value, checks, binds: () => binds };
 }
 
+const upperFirst = (n: string) => `${n.charAt(0).toUpperCase()}${n.slice(1)}`;
+
+/**
+ * The method of a mapping - English, whatever the step is called: `map` and what it builds
+ * (`mapFilClient`), its first Out. The code sync finds it by the same name (workerSync.ts).
+ */
+export function mappingMethodName(m: Pick<FieldMapping, 'out'>): string {
+  const first = m.out.find(f => f.name.trim())?.name.trim();
+  return `map${upperFirst(camelName(first || 'value'))}`;
+}
+
 /** A script task as a mapping: its method - In the parameters, Out the result (a tuple for several) - and its call. */
 function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar[] } {
   const m = mappingOf(stored);
   const where = s.name || s.id;
   const params = m.in.filter(f => f.name.trim() && f.type);
   const outs = m.out.filter(f => f.name.trim() && f.type);
-  if (!outs.length) return { line: `// TODO «${where}»: das Mapping hat kein Out`, produced: [] };
+  if (!outs.length) { ctx.notes.push(`«${where}»: das Mapping hat kein Out`); return { line: '', produced: [] }; }
   // a name twice (see inOutIssues) would be a parameter or a binding twice - no method
   const dups = (fs: Field[]) => fs.map(f => f.name.trim()).filter((n, i, l) => l.indexOf(n) !== i);
   const twice = [...dups(params), ...dups(outs)];
-  if (twice.length) return { line: `// TODO «${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`, produced: [] };
+  if (twice.length) { ctx.notes.push(`«${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`); return { line: '', produced: [] }; }
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const one = outs.length === 1;
   // the method of the mapping first - the methods of the cases of an enum follow it
-  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
+  const method = uniqueMethod(ctx, mappingMethodName(m));
   const entry: ScriptMethod = {
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result: outs[0], ...(one ? {} : { results: outs }), body: '', cases: [], io: true,
@@ -661,7 +672,7 @@ function derivedType(body: string, reads: OrchVar[]): Partial<OrchVar> {
 function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar | null } {
   const where = s.name || s.id;
   const declared = scriptResultVar(ctx.o, task);
-  if (!declared) return { line: `// TODO «${where}»: die Implementierung hat keine Ergebnis-Variable`, produced: null };
+  if (!declared) { ctx.notes.push(`«${where}»: die Implementierung hat keine Ergebnis-Variable`); return { line: '', produced: null }; }
   const body = (task.script ?? '').trim().replace(/^=\s*/, '');
   const reads = readVars(body, known);
   const { typed, ...produced0 } = declared;
@@ -676,7 +687,7 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const t = scriptScala(body, scope, result, ctx, where);
-  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
+  const method = uniqueMethod(ctx, `compute${upperFirst(camelName(produced.name))}`);
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
@@ -1049,7 +1060,7 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
     } else if (s.kind === 'script') {
       if (task?.mapping || task?.script?.trim()) {
         const c = task.mapping ? mappingCall(s, task.mapping, known, ctx) : scriptCall(s, task, known, ctx);
-        lines.push(c.line);
+        if (c.line) lines.push(c.line);
         for (const v of Array.isArray(c.produced) ? c.produced : c.produced ? [c.produced] : []) {
           known = [...known.filter(k => k.name !== v.name), v];
           ctx.scriptVars.set(v.name, v);
