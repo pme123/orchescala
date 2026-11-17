@@ -80,3 +80,32 @@ test('a timer with a duration as text: waits it, no method', () => {
   assert.match(w, /_ <- ZIO\.sleep\(zio\.Duration\.fromJava\(java\.time\.Duration\.parse\("PT30S"\)\)\)/, w);
   assert.doesNotMatch(w, /protected def timer/);
 });
+
+test('«Prozess mit Fehler stoppen» on an end: the worker fails there with its message - text or FEEL', () => {
+  const o = polling();
+  const failed = o.steps![3].branches![0].steps[0].branches![0].steps[0];
+  failed.patterns = [{ id: 'stop-with-error', params: { message: '= "Datei " + fileId + " nicht fertig"' } }];
+  const w = orchestrationFiles(o, [collection()], null).find(f => f.path.endsWith('/WaitForFileWorker.scala'))!.content;
+  assert.match(w, /if loopCounter >= 10 then\n\s+ZIO\.fail\(CustomError\("Datei " \+ in\.fileId \+ " nicht fertig"\)\)/, w);
+  // as text
+  failed.patterns = [{ id: 'stop-with-error', params: { message: 'Nicht fertig' } }];
+  const t = orchestrationFiles(o, [collection()], null).find(f => f.path.endsWith('/WaitForFileWorker.scala'))!.content;
+  assert.match(t, /ZIO\.fail\(CustomError\("Nicht fertig"\)\)/, t);
+});
+
+test('FEEL + in Scala: a text joined, a sum, string(x); a value that may be missing as FEEL has it', async () => {
+  const { feelToScala } = await import('../src/services/feelScala');
+  const vars = new Map([
+    ['fileId', { scala: 'in.fileId', type: 'String', optional: false, collection: false }],
+    ['n', { scala: 'n', type: 'Int', optional: false, collection: false }],
+    ['c', { scala: 'cBefore', type: 'Int', optional: true, collection: false }],
+  ]);
+  const scala = (e: string) => feelToScala(e, vars as never, []).scala;
+  assert.equal(scala('= "Datei " + fileId + " fertig"'), '"Datei " + in.fileId + " fertig"');
+  assert.equal(scala('= "a" + string(n)'), '"a" + n.toString');
+  assert.equal(scala('= n + 1'), 'n + 1');
+  assert.equal(scala('= c + 1'), 'cBefore.map(x => x + 1)');
+  assert.equal(scala('= "x (" + c + ")"'), '"x (" + cBefore.fold("null")(_.toString) + ")"');
+  // a + in a text is no plus
+  assert.equal(scala('= "a+b"'), '"a+b"');
+});

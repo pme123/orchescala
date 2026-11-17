@@ -909,6 +909,20 @@ function serviceIn(ref: ServiceRef, task: ServiceOrchestrationSpec['tasks'][stri
   return `${ctor}(\n${indent(args.join(',\n'), '  ')}\n)`;
 }
 
+/**
+ * «Prozess mit Fehler stoppen» on an end of the flow: in a worker the path fails - `ZIO.fail` with
+ * its message (text or FEEL). null: not that end.
+ */
+function stopWithError(s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string | null {
+  const p = (s.patterns ?? []).find(x => x.id === 'stop-with-error');
+  if (!p || s.kind !== 'end') return null;
+  const message = (p.params?.message ?? '').trim() || 'Der Prozess wurde mit einem Fehler gestoppt.';
+  const scala = message.startsWith('=')
+    ? feelToScala(message, vars, ctx.types, { id: 'message', name: 'message', type: 'String' } as Field).scala
+    : /\$\{/.test(message) ? todo(`«${s.name || s.id}»: die Fehlermeldung als «= …» schreiben`) : JSON.stringify(message);
+  return `ZIO.fail(CustomError(${scala}))`;
+}
+
 /** An ISO 8601 duration (`PT1M`) as a ZIO Duration. */
 const isoDuration = (scala: string) => `zio.Duration.fromJava(java.time.Duration.parse(${scala}))`;
 
@@ -1001,6 +1015,10 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
         lines.push(`${scalaIdent(a.name.trim())} = ${t.scala}`);
         known = [...known, { name: a.name.trim(), scala: scalaIdent(a.name.trim()), type: 'String', source: 'Script', ...(t.optional ? { optional: true } : {}) }];
       }
+      continue;
+    } else if (s.kind === 'end' && stopWithError(s, vars, ctx)) {
+      // the path ends with an error - the worker fails with its message
+      lines.push(`_ <- ${stopWithError(s, vars, ctx)}`);
       continue;
     } else if (s.kind === 'event' && s.eventKind === 'timer') {
       // a timer in a worker: it waits - ZIO.sleep
@@ -1148,7 +1166,11 @@ function terminalZio(steps: Step[], known: OrchVar[], ctx: Ctx, loop: Loop): str
   const vars = scalaVars(after);
   let tail: string;
   const step = at < 0 ? undefined : steps[at];
-  if (!step) {
+  const stop = !step ? steps.map(st => stopWithError(st, vars, ctx)).find(Boolean) : null;
+  if (stop) {
+    // the path ends with «Prozess mit Fehler stoppen»: it fails
+    tail = stop;
+  } else if (!step) {
     const pre: string[] = [];
     const out = outValue(ctx.o, after, ctx, pre);
     lines.push(...pre);
