@@ -64,7 +64,8 @@ export default function CodeSyncPanel({ current, model, collections, isDark, onA
         setError(`In ${source} gibt es keinen ${current.service.name}Worker.scala.`);
         return;
       }
-      if (dir) await rememberOwnFolder(model, project, dir);
+      // remembered for the next time - best effort: the files read are what counts
+      if (dir) await rememberOwnFolder(model, project, dir).catch(e => console.warn('[orch-spec] Projekt-Ordner nicht gemerkt:', e));
       setError(''); setUnreadable([]); setSources({ files, source });
     } catch (e) {
       if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
