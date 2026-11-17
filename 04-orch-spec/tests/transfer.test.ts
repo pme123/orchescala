@@ -79,3 +79,17 @@ test('pasted text from outside: a slug that is no file name, a DMN without a nam
   assert.deepEqual(readTransfer(text(x => { x.typeMappers = [{ id: 'x' } as TypeMapper]; })), { error: 'Ein mitkopierter Typ-Mapper ist unvollständig - nicht eingefügt.' });
   assert.deepEqual(readTransfer(text(x => { x.patterns = [{ id: 7 } as unknown as PatternDef]; })), { error: 'Ein mitkopiertes Pattern ist unvollständig - nicht eingefügt.' });
 });
+
+test('pasted text from outside: where a collection keeps its OpenAPI is never taken from it; an incomplete OpenAPI or flow is refused', () => {
+  const c = { ...collection(), source: { file: 'api.yml', stored: '../config/model.json' } };
+  const t = transferOf([{ kind: 'collection', slug: c.slug, spec: c, openApi: { doc: {}, file: 'api.yml', text: 'openapi: 3.0.0' } }], model);
+  const read = readTransfer(transferText(t));
+  assert.ok(!('error' in read));
+  assert.equal((read as Transfer).items[0].kind === 'collection' && (read as Transfer).items[0].spec.source?.stored, undefined);
+  const text = (f: (x: Transfer) => unknown) => { const x = JSON.parse(transferText(t)); f(x); return JSON.stringify(x); };
+  assert.deepEqual(readTransfer(text(x => { (x.items[0] as { openApi: unknown }).openApi = { file: 7 }; })), { error: `«${c.slug}»: die OpenAPI ist unvollständig - nicht eingefügt.` });
+  const s = spec();
+  const p = JSON.parse(transferText(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model)));
+  p.items[0].spec.steps[0].branches = [{ steps: 'x' }];
+  assert.deepEqual(readTransfer(JSON.stringify(p)), { error: `«${s.slug}»: der Ablauf ist unvollständig - nicht eingefügt.` });
+});

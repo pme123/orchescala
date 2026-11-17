@@ -95,17 +95,33 @@ export function readTransfer(text: string): Transfer | { error: string } {
       return { error: `«${i.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` };
     }
     if (i.kind === 'process' && i.bpmn !== undefined && typeof i.bpmn !== 'string') return { error: `«${i.slug}»: das BPMN ist kein Text - nicht eingefügt.` };
+    if (i.kind === 'process' && !wholeSteps(i.spec.steps)) return { error: `«${i.slug}»: der Ablauf ist unvollständig - nicht eingefügt.` };
+    if (i.kind === 'collection' && i.openApi !== undefined
+      && (!i.openApi || typeof i.openApi !== 'object' || typeof i.openApi.file !== 'string' || typeof i.openApi.text !== 'string')) {
+      return { error: `«${i.slug}»: die OpenAPI ist unvollständig - nicht eingefügt.` };
+    }
   }
+  // where a collection keeps its OpenAPI is this place's business - never a path from the text
+  const items = (t.items as TransferItem[]).map(i => (i.kind === 'collection' && i.spec.source?.stored
+    ? { ...i, spec: { ...i.spec, source: { ...i.spec.source, stored: undefined } } } : i));
   // what goes into the model: only whole ones, as the Administration stores them
   const typeMappers = Array.isArray(t.typeMappers) ? t.typeMappers.map(m => cleanMapper(m)).filter((m): m is TypeMapper => !!m && typeof m.id === 'string' && !!m.id) : [];
   if (Array.isArray(t.typeMappers) && typeMappers.length !== t.typeMappers.length) return { error: 'Ein mitkopierter Typ-Mapper ist unvollständig - nicht eingefügt.' };
   const patterns = Array.isArray(t.patterns) ? t.patterns : [];
   if (patterns.some(p => !p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id || typeof p.name !== 'string')) return { error: 'Ein mitkopiertes Pattern ist unvollständig - nicht eingefügt.' };
   return {
-    kind: TRANSFER_KIND, v: 1, exportedAt: String(t.exportedAt ?? ''), items: t.items as TransferItem[],
+    kind: TRANSFER_KIND, v: 1, exportedAt: String(t.exportedAt ?? ''), items,
     ...(typeMappers.length ? { typeMappers } : {}),
     ...(patterns.length ? { patterns } : {}),
   };
+}
+
+/** The steps as the app has them: objects with an id, their branches and children steps again. */
+function wholeSteps(steps: unknown): boolean {
+  if (!Array.isArray(steps)) return false;
+  return steps.every(s => !!s && typeof s === 'object' && typeof (s as Step).id === 'string'
+    && ((s as Step).branches === undefined || (Array.isArray((s as Step).branches) && ((s as Step).branches as unknown[]).every(b => !!b && typeof b === 'object' && wholeSteps((b as { steps: unknown }).steps))))
+    && ((s as Step).children === undefined || wholeSteps((s as Step).children)));
 }
 
 /** a slug as the app writes it (slugify): no path, no dots */
@@ -134,7 +150,7 @@ export interface PastePlan {
   hints: string[];
 }
 
-const titleOf = (i: TransferItem) => (i.kind === 'process' ? i.spec.title || i.slug : i.spec.title || i.slug);
+const titleOf = (i: TransferItem) => i.spec.title || i.slug;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**

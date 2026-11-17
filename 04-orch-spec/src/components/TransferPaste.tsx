@@ -39,7 +39,12 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
     const processes = new Map(specs.map(s => [s.slug, { updatedAt: s.data.updatedAt, version: s.version }]));
     const collections = new Map(services.filter(s => isCollection(s.data)).map(s => [s.slug, { updatedAt: String(s.data.updatedAt ?? ''), version: s.version }]));
     const known = new Set(callableServices(services.map(s => s.data).filter(isCollection), model).keys());
-    return planPaste(transfer, { processes, collections }, model, known);
+    try {
+      return planPaste(transfer, { processes, collections }, model, known);
+    } catch {
+      // what the checks of readTransfer let through and still does not fit: no plan, not a broken page
+      return null;
+    }
   }, [transfer, specs, services, model]);
   const actionOf = (slug: string, fallback: PasteAction) => actions[slug] ?? fallback;
 
@@ -92,6 +97,8 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           const spec = item.openApi
             ? { ...item.spec, source: { ...(item.spec.source ?? {}), stored: storedOpenApiPath(item.slug, item.openApi.file) } }
             : item.spec;
+          // the OpenAPI it kept here before (overwrite) - only that one may go when the ending changes
+          let before: string | undefined;
           if (action === 'create') {
             const r = await createService(spec);
             if (!r.ok) { problems.push(`«${row.title}»: ${r.message}`); continue; }
@@ -100,10 +107,11 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
             const cur = await loadService(item.slug);
             if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
             if (cur.version !== row.existing?.version) { problems.push(`«${row.title}» wurde hier inzwischen geändert - nicht überschrieben, nochmals einfügen`); continue; }
+            before = isCollection(cur.data) ? cur.data.source?.stored : undefined;
             const r = await saveService(spec, cur.version);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
           }
-          if (item.openApi && !(await saveOpenApi(item.slug, item.openApi, item.spec.source?.stored))) {
+          if (item.openApi && !(await saveOpenApi(item.slug, item.openApi, before))) {
             problems.push(`«${row.title}» ${action === 'create' ? 'angelegt' : 'überschrieben'}, aber die OpenAPI nicht`);
             continue;
           }
