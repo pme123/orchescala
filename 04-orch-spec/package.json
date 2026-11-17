@@ -44,12 +44,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/wicg-file-system-access": "^2023.10.5",
-    "@vitejs/plugin-react": "^5.0.4",
-    "esbuild": "^0.25.12",
+    "@vitejs/plugin-react": "^6.3.0",
+    "esbuild": "^0.28.2",
     "js-yaml": "^5.5.0",
     "linkedom": "^0.18.15",
     "tailwindcss": "^4.3.5",
     "typescript": "~5.8.2",
-    "vite": "^6.4.6"
+    "vite": "^8.3.8"
   }
 }

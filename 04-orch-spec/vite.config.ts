@@ -8,7 +8,7 @@ import { defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin } from 'vite
 // app starts right away with real data via `?demo` (without choosing a folder).
 // Directories respond with the file list as JSON.
 function sampleData(): Plugin {
-  const root = path.resolve(__dirname, 'sample-data');
+  const root = path.resolve(import.meta.dirname, 'sample-data');
   return {
     name: 'orch-spec:sample-data',
     apply: 'serve',
@@ -33,10 +33,10 @@ function sampleData(): Plugin {
 // `public/` or from `ORCH_SPEC_CATALOG` (file or site folder, e.g. in
 // `.env.local`). If it is missing, the server responds 404 instead of with the index.html.
 function devCatalog(catalogEnv: string | undefined): Plugin {
-  const inPublic = path.resolve(__dirname, 'public', 'catalog.generated.json');
+  const inPublic = path.resolve(import.meta.dirname, 'public', 'catalog.generated.json');
   const fromEnv = (): string | null => {
     if (!catalogEnv) return null;
-    const p = path.resolve(__dirname, catalogEnv.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
+    const p = path.resolve(import.meta.dirname, catalogEnv.replace(/^~(?=$|\/)/, process.env.HOME ?? '~'));
     if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) return p;
     return [path.join(p, 'spec', 'catalog.generated.json'), path.join(p, 'catalog.generated.json')]
       .find(f => fs.existsSync(f)) ?? path.join(p, 'spec', 'catalog.generated.json');
@@ -68,53 +68,54 @@ function studioProxy(studio: string | undefined) {
 
 /** the real folder behind `node_modules` — none before the install */
 function realNodeModules(): string[] {
-  try { return [fs.realpathSync(path.resolve(__dirname, 'node_modules'))]; } catch { return []; }
+  try { return [fs.realpathSync(path.resolve(import.meta.dirname, 'node_modules'))]; } catch { return []; }
 }
 
 export default defineConfig(({ mode }) => ({
   base: '/orch-spec/',
-  plugins: [react(), tailwindcss(), sampleData(), devCatalog(loadEnv(mode, __dirname, '').ORCH_SPEC_CATALOG)],
+  plugins: [react(), tailwindcss(), sampleData(), devCatalog(loadEnv(mode, import.meta.dirname, '').ORCH_SPEC_CATALOG)],
   resolve: {
-    alias: { '@': path.resolve(__dirname, '.') },
+    alias: { '@': path.resolve(import.meta.dirname, '.') },
   },
   server: {
     // In a git worktree `node_modules` is a link to the main checkout. Vite follows it to the
     // real folder and would refuse files there (403) - e.g. the font of the BPMN palette, whose
     // icons then stay empty. The real folder is allowed besides the project.
-    fs: { allow: [searchForWorkspaceRoot(__dirname), ...realNodeModules()] },
+    fs: { allow: [searchForWorkspaceRoot(import.meta.dirname), ...realNodeModules()] },
     // sample-data can be chosen as a shared folder — the app's write accesses
     // must not trigger a dev server reload
     watch: { ignored: ['**/sample-data/**'] },
     // the AI comes from the studio (E23): with ORCH_SPEC_STUDIO (e.g. http://localhost:8880 in
     // `.env.local`) the dev server sends /ai/… there; without it the AI is off
-    proxy: studioProxy(loadEnv(mode, __dirname, '').ORCH_SPEC_STUDIO),
+    proxy: studioProxy(loadEnv(mode, import.meta.dirname, '').ORCH_SPEC_STUDIO),
   },
   build: {
     // The modeler (bpmn-js) is large, but is only loaded when someone expands the
-    // diagram — the warning about it is no signal here. The main chunk
-    // was already just under 700 kB; the pages (designer, renderer) are a separate
-    // chunk, only their storage in the store stays in the main chunk.
-    chunkSizeWarningLimit: 720,
+    // diagram. The DMN editor (dmn-js, about 800 kB) is one chunk that is only loaded when a
+    // table opens: split further, Rolldown runs its modules in the wrong order (a class extends
+    // one that is not defined yet). The limit is above it, so a warning means a new big chunk.
+    chunkSizeWarningLimit: 850,
     // The libraries get their own chunks: they only change with an
     // update and thus stay in the browser cache across releases of the app.
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules/')) return undefined;
-          const pkg = id.split('node_modules/').pop()!.split('/')[0];
-          if (pkg === '@azure') return 'msal';
-          if (['react', 'react-dom', 'scheduler'].includes(pkg)) return 'react';
-          if (pkg === 'feelin' || pkg.startsWith('@lezer') || pkg === 'lezer-feel') return 'feel';
-          if (pkg === 'lucide-react') return 'icons';
-          if (['marked', 'js-yaml', 'fflate'].includes(pkg)) return 'text';
-          // the DMN editor (dmn-js) only comes when a table opens — as one
-          // chunk it would be over the limit. Only the table view gets its
-          // own; Rollup splits the rest itself. More fixed assignments
-          // (DRD, shared parts) make the chunks depend on each other in a cycle.
-          if (pkg === 'dmn-js-decision-table') return 'dmn-table';
-          return undefined;
+        codeSplitting: {
+          groups: [{ name: libraryChunk, debugName: 'libraries' }],
         },
       },
     },
   },
 }));
+
+// The chunk of a library module - or null: the bundler places the module itself.
+function libraryChunk(id: string): string | null {
+  if (!id.includes('node_modules/')) return null;
+  const pkg = id.split('node_modules/').pop()!.split('/')[0];
+  if (pkg === '@azure') return 'msal';
+  if (['react', 'react-dom', 'scheduler'].includes(pkg)) return 'react';
+  if (pkg === 'feelin' || pkg.startsWith('@lezer') || pkg === 'lezer-feel') return 'feel';
+  if (pkg === 'lucide-react') return 'icons';
+  if (['marked', 'js-yaml', 'fflate'].includes(pkg)) return 'text';
+  return null;
+}
+
