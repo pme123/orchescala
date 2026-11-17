@@ -26,7 +26,8 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
     println(s"Publishing Project locally")
     val time = new Date().getTime
 
-    os.proc("sbt", "publishLocal").callOnConsole()
+    // --server: sbt in its own JVM - not an sbt 2 server that still has an old build loaded
+    os.proc("sbt", "--server", "publishLocal").callOnConsole()
 
     val ssoBaseUrl = sys.env.getOrElse("SSO_BASE_URL", s"http://host.lima.internal:8090")
     println(s"SSO_BASE_URL = $ssoBaseUrl")
@@ -61,7 +62,7 @@ case class DeployHelper(postmanConfig: PostmanConfig) extends Helpers:
 
     integrationTest.map { test =>
       val testName = if test == "all" then "" else test
-      os.proc("sbt", "-J-Xmx3G", s"simulation/testOnly *$testName").callOnConsole()
+      os.proc("sbt", "--server", "-J-Xmx3G", s"simulation/testOnly *$testName").callOnConsole()
     }
 
     println(s"Deploy and test finished in ${(new Date().getTime - time) / 1000} s")

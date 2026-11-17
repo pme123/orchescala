@@ -10,15 +10,15 @@ class ReleaseRunTest extends FunSuite:
     val runs = SbtRuns.of(dockerProject = Some("worker"), build = Seq("api/run"))
     assertEquals(
       runs.build,
-      Seq("sbt", "package", "packageSrc", "makePom", "worker / Docker / publishLocal", "api/run")
+      Seq("sbt", "--server", "package", "packageSrc", "makePom", "worker / Docker / publishLocal", "api/run")
     )
     // the image first - its tag can be overwritten, the artifacts of a release can not
-    assertEquals(runs.publish, Seq("sbt", "worker / Docker / publish", "publish"))
+    assertEquals(runs.publish, Seq("sbt", "--server", "worker / Docker / publish", "publish"))
 
   test("without a docker image - and with sbt options"):
     val runs = SbtRuns.of(dockerProject = None, sbtOptions = Seq("-J-Xmx3G"))
-    assertEquals(runs.build, Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom"))
-    assertEquals(runs.publish, Seq("sbt", "-J-Xmx3G", "publish"))
+    assertEquals(runs.build, Seq("sbt", "--server", "-J-Xmx3G", "package", "packageSrc", "makePom"))
+    assertEquals(runs.publish, Seq("sbt", "--server", "-J-Xmx3G", "publish"))
 
   test("the steps of a release: build, the docs, the upload, git - a snapshot only builds and uploads"):
     import ReleaseStep.*
@@ -170,23 +170,23 @@ class ReleaseRunTest extends FunSuite:
   test("the runs of a project and of the company project"):
     assertEquals(
       SbtRuns.project(hasWorkerApp = true).build,
-      Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom", "worker / Docker / publishLocal", "api/run")
+      Seq("sbt", "--server", "-J-Xmx3G", "package", "packageSrc", "makePom", "worker / Docker / publishLocal", "api/run")
     )
     assertEquals(
       SbtRuns.project(hasWorkerApp = false).publish,
-      Seq("sbt", "-J-Xmx3G", "publish")
+      Seq("sbt", "--server", "-J-Xmx3G", "publish")
     )
     assertEquals(
       SbtRuns.company(hasGateway = true).publish,
-      Seq("sbt", "-J-Xmx3G", "gateway / Docker / publish", "publish")
+      Seq("sbt", "--server", "-J-Xmx3G", "gateway / Docker / publish", "publish")
     )
     assertEquals(
       SbtRuns.company(hasGateway = false).build,
-      Seq("sbt", "-J-Xmx3G", "package", "packageSrc", "makePom")
+      Seq("sbt", "--server", "-J-Xmx3G", "package", "packageSrc", "makePom")
     )
     // the options come from the company's SbtConfig - a runner with less memory
-    assertEquals(SbtRuns.project(hasWorkerApp = false, Seq("-J-Xmx1G")).publish, Seq("sbt", "-J-Xmx1G", "publish"))
-    assertEquals(SbtRuns.company(hasGateway = false, Seq.empty).publish, Seq("sbt", "publish"))
+    assertEquals(SbtRuns.project(hasWorkerApp = false, Seq("-J-Xmx1G")).publish, Seq("sbt", "--server", "-J-Xmx1G", "publish"))
+    assertEquals(SbtRuns.company(hasGateway = false, Seq.empty).publish, Seq("sbt", "--server", "publish"))
 
   test("an interrupt or a fatal error restores too - best effort - and goes through"):
     def interrupted(error: Throwable): Seq[String] =

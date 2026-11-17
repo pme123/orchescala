@@ -20,10 +20,10 @@ def release(version: String): Unit =
   replaceVersion(version)
 
   val isSnapshot = version.contains("-")
-  runInConsole("sbt", "-J-Xmx3G", "docs/mdoc") // compiles the scala snippets of the documentation
+  runInConsole("sbt", "--server", "-J-Xmx3G", "docs/mdoc") // compiles the scala snippets of the documentation
 
   if !isSnapshot then
- //   runInConsole("sbt", "-J-Xmx3G", "publishSigned")
+ //   runInConsole("sbt", "--server", "-J-Xmx3G", "publishSigned")
     runInConsole("git", "fetch", "--all")
     runInConsole("git", "commit", "-a", "-m", s"Released Version $version")
     runInConsole("git", "tag", "-a", s"v$version", "-m", s"Version $version")
@@ -41,7 +41,7 @@ def release(version: String): Unit =
     runInConsole("git", "push", "--all")
     println(s"Published Version: $version")
   else
-    runInConsole("sbt", "-J-Xmx3G", "publishLocal")
+    runInConsole("sbt", "--server", "-J-Xmx3G", "publishLocal")
   end if
 end release
 

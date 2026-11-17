@@ -271,6 +271,8 @@ case class CompanySbtGenerator(
        |ThisBuild / organization := projectOrg
        |ThisBuild / versionScheme := Some("early-semver")
        |ThisBuild / onLoadMessage := loadingMessage
+       |// sbt 2 keeps the build loaded in a server - reload it when `./helper.scala update` changed it
+       |Global / onChangedBuildSource := ReloadOnSourceChanges
        |
        |lazy val root = (project in file("."))
        |  .settings(name := projectName, sourcesInBase := false)

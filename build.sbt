@@ -9,6 +9,8 @@ addCommandAlias(
 )
 
 ThisBuild / evictionErrorLevel     := Level.Warn
+// sbt 2 keeps the build loaded in a server - reload it when a build file changed
+Global / onChangedBuildSource := ReloadOnSourceChanges
 //Problems in Scala 3.5.0: ThisBuild / usePipelining := true
 
 lazy val root = project
