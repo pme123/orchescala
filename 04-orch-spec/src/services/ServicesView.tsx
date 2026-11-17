@@ -96,7 +96,7 @@ export default function ServicesView({ onOpen, onOpenProcess }: {
           </div>
         )}
       </div>
-      {pasting && <TransferPaste isDark={isDark} onClose={() => setPasting(false)} onDone={titles => { setPasting(false); setPasted(`Eingefügt: ${titles.join(', ')}`); void refreshServices(); void refreshSpecs(); }} />}
+      {pasting && <TransferPaste isDark={isDark} onClose={() => setPasting(false)} onDone={titles => { setPasting(false); setPasted(`Eingefügt: ${titles.join(', ')}`); void refreshServices(); void refreshSpecs(); }} onWritten={() => { void refreshServices(); void refreshSpecs(); }} />}
       {pasted && <p className={`text-[11px] mb-2 ${c.muted2}`}>{pasted}</p>}
       <p className={`text-[11px] mb-4 ${c.muted}`}>
         Eine <b>Service Collection</b> ist, was eine OpenAPI eines Service-Projekts anbietet — ganz oder ein Teilpfad, mit ihren

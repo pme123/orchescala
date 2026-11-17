@@ -285,7 +285,7 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
         )}
       </div>
 
-      {pasting && <TransferPaste isDark={isDark} onClose={() => setPasting(false)} onDone={titles => { setPasting(false); setPasted(`Eingefügt: ${titles.join(', ')}`); void refreshSpecs(); }} />}
+      {pasting && <TransferPaste isDark={isDark} onClose={() => setPasting(false)} onDone={titles => { setPasting(false); setPasted(`Eingefügt: ${titles.join(', ')}`); void refreshSpecs(); }} onWritten={() => void refreshSpecs()} />}
       {pasted && <p className={`text-[11px] mb-2 ${c.muted2}`}>{pasted}</p>}
 
       {error && (

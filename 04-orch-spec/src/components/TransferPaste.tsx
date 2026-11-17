@@ -17,7 +17,11 @@ import { planPaste, readTransfer, withPasted, type PasteAction, type PastePlan, 
 const saveProblem = (r: Exclude<SaveResult, { status: 'saved' }>) =>
   r.status === 'conflict' ? 'inzwischen hier geändert - neu laden und nochmals einfügen' : r.message;
 
-export default function TransferPaste({ isDark, onClose, onDone }: { isDark: boolean; onClose: () => void; onDone: (titles: string[]) => void }) {
+export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
+  isDark: boolean; onClose: () => void; onDone: (titles: string[]) => void;
+  /** some were written, others not - the panel stays open with the problems, the lists are read again */
+  onWritten?: () => void;
+}) {
   const c = cls(isDark);
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
   const { model, specs, saveModel, createSpec, loadSpec, saveSpec, saveBpmn, saveDmn } = useStore();
@@ -67,16 +71,19 @@ export default function TransferPaste({ isDark, onClose, onDone }: { isDark: boo
           } else {
             const cur = await loadSpec(item.slug);
             if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
+            // what the plan showed is what is overwritten - changed here since then is a conflict
+            if (cur.version !== row.existing?.version) { problems.push(`«${row.title}» wurde hier inzwischen geändert - nicht überschrieben, nochmals einfügen`); continue; }
             const entry = makeEntry(cur.data, item.spec, { source: 'import', note: 'Eingefügt aus einer anderen Orch Spec' }, author);
             const r = await saveSpec(item.spec, cur.version, entry ? [entry] : []);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
           }
           // the spec is written - what of it is not is said with it, and it does not count as done
           const before = problems.length;
-          if (item.bpmn) { const w = await saveBpmn(item.slug, item.bpmn); if (!w.ok) problems.push(`«${row.title}» angelegt, aber das BPMN nicht: ${w.message}`); }
+          const verb = action === 'create' ? 'angelegt' : 'überschrieben';
+          if (item.bpmn) { const w = await saveBpmn(item.slug, item.bpmn); if (!w.ok) problems.push(`«${row.title}» ${verb}, aber das BPMN nicht: ${w.message}`); }
           for (const [id, xml] of Object.entries(item.dmns ?? {})) {
             const w = await saveDmn(item.slug, id, xml);
-            if (!w.ok) problems.push(`«${row.title}» angelegt, aber die DMN-Tabelle ${id} nicht: ${w.message}`);
+            if (!w.ok) problems.push(`«${row.title}» ${verb}, aber die DMN-Tabelle ${id} nicht: ${w.message}`);
           }
           if (problems.length > before) continue;
         } else {
@@ -92,17 +99,19 @@ export default function TransferPaste({ isDark, onClose, onDone }: { isDark: boo
             // the version as it is now - as for a process
             const cur = await loadService(item.slug);
             if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
+            if (cur.version !== row.existing?.version) { problems.push(`«${row.title}» wurde hier inzwischen geändert - nicht überschrieben, nochmals einfügen`); continue; }
             const r = await saveService(spec, cur.version);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
           }
           if (item.openApi && !(await saveOpenApi(item.slug, item.openApi, item.spec.source?.stored))) {
-            problems.push(`«${row.title}» angelegt, aber die OpenAPI nicht`);
+            problems.push(`«${row.title}» ${action === 'create' ? 'angelegt' : 'überschrieben'}, aber die OpenAPI nicht`);
             continue;
           }
         }
         done.push(row.title);
       }
-      if (problems.length) { setError(problems.join(' · ')); if (done.length) onDone(done); return; }
+      // what went wrong stays in sight - with what was written all the same; the lists show it
+      if (problems.length) { setError([...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems].join(' · ')); if (done.length) onWritten?.(); return; }
       onDone(done);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
