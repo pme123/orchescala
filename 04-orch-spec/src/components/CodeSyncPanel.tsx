@@ -74,7 +74,11 @@ export default function CodeSyncPanel({ current, model, collections, isDark, onA
   };
   const pickDir = async () => {
     if (!('showDirectoryPicker' in window)) { setError('Ordner wählen geht nur in Chrome oder Edge — als Alternative ein ZIP wählen.'); return; }
-    const dir = await window.showDirectoryPicker({ mode: 'read' }).catch(() => null);
+    // cancelled: nothing to say - anything else is
+    const dir = await window.showDirectoryPicker({ mode: 'read' }).catch((e: unknown) => {
+      if (!(e instanceof Error && e.name === 'AbortError')) setError(e instanceof Error ? e.message : String(e));
+      return null;
+    });
     if (dir) await sourcesFrom(() => readProjectDir(dir), `Ordner ${dir.name}`, dir);
   };
 
