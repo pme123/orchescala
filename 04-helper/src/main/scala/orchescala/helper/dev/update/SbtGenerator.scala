@@ -38,6 +38,8 @@ case class SbtGenerator()(using
        |ThisBuild / libraryDependencySchemes += "io.github.pme123" %% "orchescala-api" % "early-semver"
        |ThisBuild / evictionErrorLevel := Level.Warn
        |ThisBuild / usePipelining := true
+       |// sbt 2 keeps the build loaded in a server - reload it when `./helper.scala update` changed it
+       |Global / onChangedBuildSource := ReloadOnSourceChanges
        |"""
 
   private def buildProperties(replaceStr: String) =
@@ -46,8 +48,6 @@ case class SbtGenerator()(using
        |""".stripMargin
   private lazy val pluginsSbt                     =
     s"""$helperDoNotAdjustText
-       |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
-       |
        |// docker image
        |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "${BuildInfo.sbtNativePackager}")
        |

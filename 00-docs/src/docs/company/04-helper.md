@@ -49,7 +49,7 @@ object CompanyDevConfig:
       scalaVersion = BuildInfo.scalaVersion,
       orchescalaVersion = BuildInfo.orchescalaV,
       companyOrchescalaVersion = BuildInfo.version,
-      sbtVersion = BuildInfo.sbtVersion,
+      // no sbtVersion: the default is the one of orchescala
       otherVersions = Map()
     )
 end CompanyDevConfig

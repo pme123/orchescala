@@ -1,4 +1,4 @@
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { resolve } from "path";
 import { defineConfig } from "vite";
 
@@ -7,9 +7,20 @@ function isDev() {
 }
 
 // Where sbt links the Scala.js output to - see build.sbt (dmnTesterClient):
-//   fastLinkJS -> target/scalajs/dev      fullLinkJS -> target/scalajs/prod
+//   fastLinkJS -> <target>/scalajs/dev      fullLinkJS -> <target>/scalajs/prod
+// `sbt dmnTesterClient/bundleClient` passes the directory (SCALAJS_OUTPUT). Without it
+// (`npm run dev`) it is looked up in sbt's target of the build:
+// target/out/sjs1/scala-<version>/orchescala-dmntester-client
 const stage = isDev() ? "dev" : "prod";
-const scalaJSOutput = resolve(__dirname, "target", "scalajs", stage);
+function sbtTarget() {
+  const base = resolve(__dirname, "..", "target", "out", "sjs1");
+  const scalaDirs = existsSync(base) ? readdirSync(base).filter((d) => d.startsWith("scala-")) : [];
+  const candidates = scalaDirs.map((d) =>
+    resolve(base, d, "orchescala-dmntester-client", "scalajs", stage)
+  );
+  return candidates.find((c) => existsSync(resolve(c, "main.js"))) ?? candidates[0] ?? base;
+}
+const scalaJSOutput = process.env.SCALAJS_OUTPUT || sbtTarget();
 
 if (!existsSync(resolve(scalaJSOutput, "main.js"))) {
   throw new Error(

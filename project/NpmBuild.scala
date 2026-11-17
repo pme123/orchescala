@@ -29,12 +29,12 @@ object NpmBuild {
     // is repaired as well.
     if (!(clientDir / "node_modules" / ".bin" / "vite").exists())
       run(what, "npm ci", clientDir, log)
-    scripts.foreach(s => run(what, s"npm run $s", clientDir, log, env: _*))
+    scripts.foreach(s => run(what, s"npm run $s", clientDir, log, env*))
   }
 
   def run(what: String, command: String, cwd: File, log: Logger, env: (String, String)*): Unit = {
     log.info(s"$what: $command (in $cwd)")
-    val exitCode = Process(command, cwd, env: _*) ! log
+    val exitCode = Process(command, cwd, env*) ! log
     if (exitCode != 0)
       sys.error(s"'$command' failed in $cwd (exit code $exitCode)")
   }
