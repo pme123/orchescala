@@ -93,11 +93,12 @@ case class CompanySbtGenerator(
        |  val projectName = ProjectDef.name
        |
        |  def buildInfoSettings() = Seq(
+       |    // BuildInfoKey(...) around the keys: Scala 3 (sbt 2) converts them only in .sbt files
        |    buildInfoKeys := Seq[BuildInfoKey](
        |      BuildInfoKey("name", s"$$projectOrg-orchescala"),
-       |      version,
-       |      scalaVersion,
-       |      sbtVersion,
+       |      BuildInfoKey(version),
+       |      BuildInfoKey(scalaVersion),
+       |      BuildInfoKey(sbtVersion),
        |      BuildInfoKey("orchescalaV", orchescalaV),
        |    ) ++ ProjectDef.additionalBuildInfoKeys,
        |    buildInfoPackage := s"$$projectOrg.orchescala"
