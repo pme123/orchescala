@@ -948,8 +948,9 @@ function inputCall(input: string, ref: ServiceRef, s: Step, vars: Map<string, Sc
   const base = `${svc.charAt(0).toLowerCase()}${svc.slice(1)}In`;
   let name = base;
   for (let i = 2; ctx.helpers.some(h => h.name === name) || ctx.scripts.some(m => m.method === name); i++) name = `${base}${i}`;
+  // a mapping In -> <Service>.In: the In of the worker always, the variables of the run it uses besides
   const params = [
-    ...(/\bin\./.test(input) ? [{ name: 'in', type: ctx.o.noIn ? 'NoInput' : 'In' }] : []),
+    ...(ctx.o.noIn && !/\bin\b/.test(input) ? [] : [{ name: 'in', type: ctx.o.noIn ? 'NoInput' : 'In' }]),
     ...[...vars.entries()]
       .filter(([, v]) => /^[A-Za-z_]\w*$/.test(v.scala) && v.scala !== 'in' && new RegExp(`\\b${v.scala}\\b`).test(input))
       .map(([n, v]) => ({ name: v.scala, type: fieldType({ id: n, name: n, type: v.type ?? 'String', ...(v.optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}) } as Field, ctx.idx) })),
@@ -957,7 +958,7 @@ function inputCall(input: string, ref: ServiceRef, s: Step, vars: Map<string, Sc
   ctx.helpers.push({
     name,
     code: [
-      `  /** the In of «${s.name || s.id}» - still to complete (see the TODO) */`,
+      `  /** maps the In of the worker to the In of «${s.name || s.id}» (${svc}) - still to complete (see the TODO) */`,
       `  private def ${name}(${params.map(p => `${p.name}: ${p.type}`).join(', ')}): ${svc}.In =`,
       indent(input, '    '),
     ].join('\n'),

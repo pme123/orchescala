@@ -121,4 +121,10 @@ test('runWorkZIO without TODOs: an In still to complete is built in a method of 
   assert.doesNotMatch(run, /\?\?\?|TODO/, run);
   assert.match(w, /checkStatus <- runCheckStatus\(checkStatusIn\(in\)\)/, w);
   assert.match(w, /private def checkStatusIn\(in: In\): CheckStatus\.In =\n\s+CheckStatus\.In\(\n\s+fileId = in\.fileId,\n\s+kind = \?\?\? \/\* TODO kind: kein Mapping \*\/\n\s+\)/, w);
+  // a mapping In -> CheckStatus.In - also when no field comes from the In yet
+  const only = collection();
+  only.types = only.types.map(x => (x.id === 'check-in' ? { ...x, fields: [{ id: 'kind', name: 'kind', type: 'String' }] } : x));
+  const w2 = orchestrationFiles(polling(), [only], null).find(f => f.path.endsWith('/WaitForFileWorker.scala'))!.content;
+  assert.match(w2, /checkStatus <- runCheckStatus\(checkStatusIn\(in\)\)/, w2);
+  assert.match(w2, /private def checkStatusIn\(in: In\): CheckStatus\.In =/, w2);
 });
