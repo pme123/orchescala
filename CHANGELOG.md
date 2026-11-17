@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **scala-cli scripts:** the generated `helperCompany.scala` and `helper.scala` now pin the Scala version (`//> using scala 3.10.1`). Before the first `update` with this version, add that line by hand to the existing scripts - without it scala-cli takes its default version (3.8 with scala-cli 1.13), which cannot read the helper.
 - **Scala 3.10 breaking changes** that may hit own code: a `Double` literal is no longer taken where a `Float` is expected (`2.0` -> `2.0f`), `@throws` only on methods and constructors, `strictEqualityPatternMatching` is on by default, the `with` type operator is an error.
 - **chimney 2:** mapping code must be recompiled; `withCoproduct...` (deprecated) and `.toPartialResult` (use `.asResult`) are gone.
-- **Helper:** `CompanyVersionConfig` has no `springBootVersion` any more - no generator read it.
+- **Removed `springBootVersion`:** `CompanyVersionConfig.springBootVersion` and the key `BuildInfo.springBootVersion` are gone - no generator read them; a company build that sets or reads one of them must drop it.
 
 ### Dependencies
 - Scala 3.10.1, sbt 1.13.1.
