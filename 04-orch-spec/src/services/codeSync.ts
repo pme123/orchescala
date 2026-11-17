@@ -7,6 +7,7 @@ import { scanFiles } from '../domainScan';
 import { enrichServiceSpec, type ProjectFile } from '../projectImport';
 import { indexTypes } from '../scala';
 import { modelMappers } from '../typeMappers';
+import { mappingVarNodes, type VarNode } from '../feel';
 import type { Model } from '../types';
 import { allTypes } from './orchestration';
 import { orchestrationFiles } from './scalaOrchestration';
@@ -62,6 +63,20 @@ export function planCodeSync(spec: ServiceProcess, files: ProjectFile[], model: 
     nameOf: idx.nameOf,
     // the extensions of the project's own type mappers - also those the catalog does not have yet
     extensions: scan.mappers.map(m => m.method),
+    sourcePaths: s => {
+      if (!s.fieldMapping) return undefined;
+      const paths = new Set<string>();
+      let open = false;
+      const walk = (n: VarNode, at: string) => {
+        const p = at ? `${at}.${n.name}` : n.name;
+        paths.add(p);
+        if (n.open) open = true;
+        for (const ch of n.children ?? []) walk(ch, p);
+      };
+      for (const n of mappingVarNodes(s.fieldMapping, current, model).sources) walk(n, '');
+      // a Map in it: paths into it cannot be checked
+      return open ? undefined : (p: string) => paths.has(p);
+    },
   }, status.changed);
   return { spec: r.spec, domain, worker: r.report, workerPath: file.path };
 }

@@ -30,6 +30,11 @@ export interface WorkerSyncContext {
   nameOf: (ref: string) => string;
   /** extensions the code has beyond them (the project's scan) */
   extensions?: string[];
+  /**
+   * The paths a mapping can read (its In as a tree) - a path the code reads that is none of them
+   * (`client.name.map(_.trim)` read as `client.name.trim`) is said, not taken over. Without: not checked.
+   */
+  sourcePaths?: (s: Step) => ((path: string) => boolean) | undefined;
 }
 
 // a required value resolved first (`!`) is the export's business, not the spec's
@@ -97,7 +102,7 @@ export function syncWorker(spec: ServiceProcess, generated: string, code: string
       usedMethods.add(g.method);
       const c = (own.items ?? []).find(i => i.kind === 'mapping' && i.method === g.method) as Extract<WorkerItem, { kind: 'mapping' }> | undefined;
       if (!c) { report.hints.push(`${label(s)}: ${g.method} ruft runWorkZIO nicht (mehr) auf - das Mapping bleibt.`); continue; }
-      const u = mappingUpdate(s, gen, own, g, c, exts, named, report);
+      const u = mappingUpdate(s, gen, own, g, c, exts, named, report, ctx.sourcePaths?.(s));
       if (u) updates.set(s.id, u);
     }
   }
@@ -170,7 +175,7 @@ function setMapping(rows: Mapping[], name: string, value: string | undefined, fe
 
 /** A mapping: its lines and case tables as the code has them. */
 function mappingUpdate(s: Step, gen: WorkerCode, own: WorkerCode, g: Extract<WorkerItem, { kind: 'mapping' }>, c: Extract<WorkerItem, { kind: 'mapping' }>,
-  exts: Set<string>, named: Map<string, string>, report: WorkerSyncReport): Partial<Step> | null {
+  exts: Set<string>, named: Map<string, string>, report: WorkerSyncReport, known?: (path: string) => boolean): Partial<Step> | null {
   const label = `«${s.name || s.id}»`;
   const m = s.fieldMapping!;
   const gl = mappingLinks(gen, g.method, g.names, exts);
@@ -189,6 +194,8 @@ function mappingUpdate(s: Step, gen: WorkerCode, own: WorkerCode, g: Extract<Wor
       fields = fields.filter(l => l.field !== path);
       report.changed.push(`${label}: ${path} ohne Linie`);
     } else {
+      const strange = known ? cv.from.filter(p => !known(p)) : [];
+      if (strange.length) { report.hints.push(`${label}: ${path} liest im Code ${strange.join(', ')} - das gibt es im In nicht (eigener Code?), bleibt.`); continue; }
       const mapper = cv.ext ? named.get(cv.ext) : undefined;
       const prev = fields.find(l => l.field === path);
       const line: FieldLink = { field: path, from: cv.from, ...(mapper ? { mapper } : {}) };

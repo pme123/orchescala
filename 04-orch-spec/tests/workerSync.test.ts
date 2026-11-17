@@ -216,3 +216,17 @@ test('a call of a service removed in the code: its other steps are not matched b
   assert.ok(r.report.hints.some(h => h.includes('runOtherClient ruft der Code einmal auf, der Ablauf nicht')), r.report.hints.join('\n'));
   assert.deepEqual(r.report.changed, ['«Kunde schreiben»: Input name = "Meier"'], code);
 });
+
+test('code the reader does not know in a mapping: a method of a value, a text with = in it - said, nothing taken over', () => {
+  const spec = mapped(mapping([{ field: 'newClient', from: ['existingClient'] }, { field: 'newClient.name', from: ['client.name'] }]));
+  const w = mapWorker(spec);
+  const code = w.replace('name = client.name', 'name = client.name.map(_.trim),\n          firstName = Some("a = b")');
+  assert.notEqual(code, w);
+  // the paths of its In: `client.name.trim` is none of them
+  const known = new Set(['existingClient', 'client', ...['name', 'firstName', 'code', 'country'].flatMap(f => [`existingClient.${f}`, `client.${f}`])]);
+  const r = syncWorker(spec, w, code, { ...ctx(), sourcePaths: () => (p: string) => known.has(p) });
+  assert.deepEqual(r.report.changed, [], r.report.changed.join('\n'));
+  assert.ok(r.report.hints.some(h => h.includes('newClient.name liest im Code client.name.trim - das gibt es im In nicht')), r.report.hints.join('\n'));
+  assert.ok(r.report.hints.some(h => h.includes('newClient.firstName ist im Code nicht lesbar')), r.report.hints.join('\n'));
+  assert.equal(r.spec, spec);
+});
