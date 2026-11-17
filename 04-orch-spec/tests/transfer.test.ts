@@ -102,3 +102,15 @@ test('pasted DMN tables that are no table list: null or an array - refused, no c
     assert.deepEqual(readTransfer(JSON.stringify(p)), { error: `«${s.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` }, JSON.stringify(dmns));
   }
 });
+
+test('pasted twice the same: refused; a process and a collection of the same name are two; a mapper in another key order is the same', () => {
+  const s = spec();
+  const one = transferOf([{ kind: 'process', slug: s.slug, spec: s }], model);
+  assert.deepEqual(readTransfer(transferText({ ...one, items: [...one.items, ...one.items] })), { error: `«${s.slug}» ist zweimal darin - nicht eingefügt.` });
+  const c = { ...collection(), slug: s.slug };
+  assert.ok(!('error' in readTransfer(transferText({ ...one, items: [...one.items, { kind: 'collection', slug: s.slug, spec: c }] }))));
+  // the same mapper, its keys in another order: no difference
+  const reordered = Object.fromEntries(Object.entries(mapper).reverse()) as TypeMapper;
+  const plan = planPaste(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model), { processes: new Map(), collections: new Map() }, { ...model, typeMappers: [reordered] } as Model);
+  assert.deepEqual(plan.differing, []);
+});

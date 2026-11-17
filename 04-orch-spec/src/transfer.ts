@@ -83,6 +83,10 @@ export function readTransfer(text: string): Transfer | { error: string } {
   if (!t || typeof t !== 'object' || t.kind !== TRANSFER_KIND) return { error: 'Das ist kein kopierter Inhalt von Orch Spec.' };
   if (t.v !== 1) return { error: `Version ${String(t.v)} kennt diese App nicht - zuerst die App aktualisieren.` };
   if (!Array.isArray(t.items) || !t.items.length) return { error: 'Der kopierte Inhalt ist leer.' };
+  // one of a kind and name each - a second one would be created twice
+  const keys = t.items.map(i => `${String((i as { kind?: unknown })?.kind)}:${String((i as { slug?: unknown })?.slug)}`);
+  const twice = keys.find((k, n) => keys.indexOf(k) !== n);
+  if (twice) return { error: `«${twice.split(':').slice(1).join(':')}» ist zweimal darin - nicht eingefügt.` };
   for (const i of t.items) {
     const ok = i && typeof i === 'object' && typeof i.slug === 'string' && i.spec && typeof i.spec === 'object'
       && (i.kind === 'process' ? Array.isArray((i.spec as ProcessSpec).steps)
@@ -151,7 +155,12 @@ export interface PastePlan {
 }
 
 const titleOf = (i: TransferItem) => i.spec.title || i.slug;
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** the same content - whatever the order of the keys */
+const stable = (v: unknown): unknown => (Array.isArray(v) ? v.map(stable)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, stable(x)])) : v);
+const same = (a: unknown, b: unknown) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+/** the key of a row - a process and a collection may have the same slug */
+export const rowKey = (i: TransferItem) => `${i.kind}:${i.slug}`;
 
 /**
  * What pasting does: a new item is created, one already there is overwritten (or skipped, see

@@ -11,7 +11,7 @@ import { callableServices } from '../services/serviceProcess';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
 import { storedOpenApiPath } from '../services/openApiFile';
-import { planPaste, readTransfer, withPasted, type PasteAction, type PastePlan, type Transfer } from '../transfer';
+import { planPaste, readTransfer, rowKey, withPasted, type PasteAction, type PastePlan, type Transfer } from '../transfer';
 
 /** why a save did not go through */
 const saveProblem = (r: Exclude<SaveResult, { status: 'saved' }>) =>
@@ -38,19 +38,20 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
     try { return readTransfer(text); } catch { return { error: 'Der eingefügte Text lässt sich nicht lesen.' }; }
   }, [text]);
   const transfer: Transfer | null = read && !('error' in read) ? read : null;
-  const plan: PastePlan | null = useMemo(() => {
-    if (!transfer) return null;
+  const planned: { plan: PastePlan | null; error?: string } = useMemo(() => {
+    if (!transfer) return { plan: null };
     const processes = new Map(specs.map(s => [s.slug, { updatedAt: s.data.updatedAt, version: s.version }]));
     const collections = new Map(services.filter(s => isCollection(s.data)).map(s => [s.slug, { updatedAt: String(s.data.updatedAt ?? ''), version: s.version }]));
     const known = new Set(callableServices(services.map(s => s.data).filter(isCollection), model).keys());
     try {
-      return planPaste(transfer, { processes, collections }, model, known);
-    } catch {
-      // what the checks of readTransfer let through and still does not fit: no plan, not a broken page
-      return null;
+      return { plan: planPaste(transfer, { processes, collections }, model, known) };
+    } catch (e) {
+      // what the checks of readTransfer let through and still does not fit: said, not a broken page
+      return { plan: null, error: `Der eingefügte Inhalt passt nicht: ${e instanceof Error ? e.message : String(e)}` };
     }
   }, [transfer, specs, services, model]);
-  const actionOf = (slug: string, fallback: PasteAction) => actions[slug] ?? fallback;
+  const plan = planned.plan;
+  const actionOf = (key: string, fallback: PasteAction) => actions[key] ?? fallback;
 
   const fromClipboard = async () => {
     try { setText(await navigator.clipboard.readText()); setError(''); }
@@ -61,15 +62,17 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
     if (!plan || !model) return;
     const done: string[] = [];
     const problems: string[] = [];
+    let modelWritten = false;
     try {
       // what the items use, first - a mapping then finds its type mapper
       if (plan.typeMappers.length || plan.patterns.length) {
         setBusy('Typ-Mapper und Patterns …');
         const r = await saveModel(withPasted(model, plan));
         if (!r.ok) { setError(r.message); return; }
+        modelWritten = true;
       }
       for (const row of plan.rows) {
-        const action = actionOf(row.item.slug, row.action);
+        const action = actionOf(rowKey(row.item), row.action);
         if (action === 'skip') continue;
         setBusy(`«${row.title}» …`);
         const item = row.item;
@@ -123,7 +126,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
         done.push(row.title);
       }
       // what went wrong stays in sight - with what was written all the same; the lists show it
-      if (problems.length) { setError([...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems].join(' · ')); if (done.length) onWritten?.(); return; }
+      if (problems.length) { setError([...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems].join(' · ')); if (done.length || modelWritten) onWritten?.(); return; }
       onDone(done);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -132,7 +135,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
     }
   };
 
-  const nothing = !plan || plan.rows.every(r => actionOf(r.item.slug, r.action) === 'skip');
+  const nothing = !plan || plan.rows.every(r => actionOf(rowKey(r.item), r.action) === 'skip');
   return (
     <div className={`mb-4 rounded border ${c.border} ${isDark ? 'bg-white/5' : 'bg-black/5'} px-3 py-2 space-y-2`}>
       <div className="flex items-center gap-2">
@@ -150,16 +153,17 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           </button>
         </>
       )}
+      {planned.error && <p className={`text-[10px] ${warn}`}><AlertTriangle size={10} className="inline mr-1 -mt-0.5" />{planned.error}</p>}
       {read && 'error' in read && <p className={`text-[10px] ${warn}`}><AlertTriangle size={10} className="inline mr-1 -mt-0.5" />{read.error}</p>}
       {plan && (
         <>
           <ul className="space-y-1">
             {plan.rows.map(r => (
-              <li key={r.item.slug} className="flex items-center gap-2 text-[11px]">
+              <li key={rowKey(r.item)} className="flex items-center gap-2 text-[11px]">
                 <span className={`text-[10px] uppercase tracking-wide w-20 ${c.muted2}`}>{r.item.kind === 'process' ? (r.item.spec.service ? 'Orchestr.' : 'Prozess') : 'Collection'}</span>
                 <span className={c.text}>{r.title}</span>
                 <span className={`text-[10px] font-mono ${c.muted}`}>{r.item.slug}</span>
-                <select value={actionOf(r.item.slug, r.action)} onChange={e => setActions(a => ({ ...a, [r.item.slug]: e.target.value as PasteAction }))}
+                <select value={actionOf(rowKey(r.item), r.action)} onChange={e => setActions(a => ({ ...a, [rowKey(r.item)]: e.target.value as PasteAction }))}
                   className={`ml-auto text-[10px] px-1 py-0.5 rounded border ${c.input}`}>
                   {r.existing
                     ? <><option value="overwrite">überschreiben (hier geändert {r.existing.updatedAt?.slice(0, 10) ?? '?'})</option><option value="skip">auslassen</option></>
