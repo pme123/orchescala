@@ -43,6 +43,13 @@ import scala.util.{Failure, Success, Try}
   */
 object SpecMerge:
 
+  /** A file of type mappers of Orch Spec (`TypeMappers.scala`, `ClientMasterV1TypeMappers.scala`) - extensions it adds to a
+    * schema: named as Orch Spec names them (`<Level>[V<n>]TypeMappers`), in a `schema` folder. Asked only of the files
+    * the export generates - a hand-written `CustomTypeMappers.scala` of the project never comes here.
+    */
+  private[merge] def isTypeMappers(rel: os.RelPath): Boolean =
+    rel.last.matches("""(?:[A-Z]\w*?)?(?:V\d+)?TypeMappers\.scala""") && rel.segments.dropRight(1).lastOption.contains("schema")
+
   /** 1. Check: the plan for the change of the spec from `before` to `after` - writes nothing.
     * @param exporter the export of a spec folder - Orch Spec's tool with Node.js by default
     */
@@ -381,7 +388,10 @@ object SpecMerge:
   private def orphans(project: os.Path, generated: Seq[GeneratedFile], planned: Set[os.RelPath]): Seq[PlannedFile] =
     // a service or process object - its `topicName`/`processName` defined, not only named
     val ownObject = "(?m)^\\s*(?:(?:final|lazy|override|private|protected)\\s+)*(?:val|def)\\s+(?:topicName|processName)\\b".r
-    val dirs = generated.filter(f => f.kind == FileKind.Export && f.rel.ext == "scala").map(_.rel / os.up)
+    // the type mappers of a mapping (`ClientMasterV1TypeMappers.scala`) only add to a folder - they do
+    // not make the other classes there Orch Spec's
+    val dirs = generated.filter(f => f.kind == FileKind.Export && f.rel.ext == "scala" && !SpecMerge.isTypeMappers(f.rel))
+      .map(_.rel / os.up)
       .filter(_.segments.exists(_.matches("v\\d+"))).distinct.sortBy(_.toString)
     // another process in the folder (its process object, not in this export): the folder is shared -
     // its classes may be that process's, nothing of it is asked

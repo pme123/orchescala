@@ -50,9 +50,11 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
         val workerNames          = ofApi.map(_.path.last.stripSuffix(".scala")).filter(_.endsWith("Worker"))
         (domain ++ workers, ServicePlanner.registrations(apiName, versionNr, workerNames))
 
+    // the project's own `schema` (`domain/schema/TypeMappers.scala`) has no level
     val shared = sharedFiles.map: file =>
       val level = levelOf(packageOf(file.path / os.up / os.up))
-      GeneratedFile(domainRoot / ServicePlanner.levels(level) / "schema" / file.path.last, FileKind.Export, file.content)
+      val dir   = if level.isEmpty then domainRoot else domainRoot / ServicePlanner.levels(level)
+      GeneratedFile(dir / "schema" / file.path.last, FileKind.Export, file.content)
 
     // workers of an API without domain classes in the export - nothing to put them next to
     val apis = apiFiles.map(f => apiAndVersion(packageOf(ServicePlanner.apiDir(f)), "domain")).toSet
@@ -95,12 +97,13 @@ case class ServicePlanner(project: os.Path)(using config: DevConfig):
     else throw notOfProject(pkg, "worker.<level>")
   end workerLevelOf
 
-  // `<projectPackage>.domain.clientMaster` - a level of nested APIs
+  // `<projectPackage>.domain.clientMaster` - a level of nested APIs; `<projectPackage>.domain` the project (empty)
   private def levelOf(pkg: String): String =
     val Expected = s"""${java.util.regex.Pattern.quote(config.projectPackage)}\\.domain\\.(\\w+(?:\\.\\w+)*)""".r
     pkg match
-      case Expected(level) => level
-      case other           => throw notOfProject(other, "domain.<level>.schema")
+      case p if p == s"${config.projectPackage}.domain" => ""
+      case Expected(level)                              => level
+      case other                                        => throw notOfProject(other, "domain.<level>.schema")
   end levelOf
 
 end ServicePlanner

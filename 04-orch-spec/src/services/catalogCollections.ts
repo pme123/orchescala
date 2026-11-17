@@ -77,13 +77,17 @@ export function nestedApi(project: string, api: string, version: number, pkg: st
   return full !== api && apiLeaf(full) === api && API_NAME.test(full) ? full : api;
 }
 
-/** The projects of the catalog with their APIs — the service workers grouped by their topic. */
-export function catalogProjects(model: Model | null): CatalogProject[] {
+/**
+ * The projects of the catalog with their APIs — the service workers grouped by their topic.
+ * `customWorkers`: with the workers that wrap no REST call (a CustomTask, another orchestration) -
+ * no collection of their own, but a service orchestration calls them the same way.
+ */
+export function catalogProjects(model: Model | null, opts: { customWorkers?: boolean } = {}): CatalogProject[] {
   const projects = new Map<string, CatalogProject>();
   const knowsRequests = (model?.domainTypes ?? []).some(t => t.ownerPath || /\.Service(In|Out)$/.test(t.name));
   for (const s of model?.services ?? []) {
     if (s.kind && s.kind !== 'service') continue;
-    if (isCustomWorker(s, model, knowsRequests)) continue;
+    if (!opts.customWorkers && isCustomWorker(s, model, knowsRequests)) continue;
     const m = TOPIC.exec(s.topic ?? s.id);
     if (!m) continue;
     const [, project, leaf, version] = m;

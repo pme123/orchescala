@@ -689,6 +689,25 @@ class SpecMergeTest extends FunSuite:
       )
     )
 
+  test("services: the type mappers of an orchestration in the schema of its API - the classes there stay, nothing asked"):
+    inProject: project =>
+      // a class of the schema the code has (another export, or by hand)
+      val schema = project / os.RelPath(s"$domainPkg/schema")
+      os.write(schema / "Client.scala", "package acme.demo.domain\npackage client.v1.schema\n\ncase class Client(name: String)\n", createFolders = true)
+      val withMappers = ServicesExport(
+        "update-client",
+        scalaFiles(
+          s"$domainPkg/UpdateClient.scala"       -> "package acme.demo.domain.client.v1\n\nobject UpdateClient\nend UpdateClient",
+          s"$domainPkg/schema/ClientV1TypeMappers.scala" ->
+            "package acme.demo.domain\npackage client.v1.schema\n\nobject ClientV1TypeMappers:\n  extension (x: Int) def toText: String = x.toString\nend ClientV1TypeMappers",
+          s"$workerPkg/UpdateClientWorker.scala" -> "package acme.demo.worker.client.v1\n\nclass UpdateClientWorker:\n  def run = ???\nend UpdateClientWorker"
+        )
+      )
+      val (plan, _) = run(project, Seq.empty, Seq(withMappers))
+      assertEquals(actionOf(plan, project, "ClientV1TypeMappers.scala"), Action.create)
+      assertEquals(plan.removals, Seq.empty)
+      assert(os.exists(schema / "Client.scala"))
+
   test("services: a collection and an orchestration of one API - created, one block with the entries of both"):
     inProject: project =>
       val (plan, _) = run(project, Seq.empty, Seq(collection(), orchestration))
@@ -788,6 +807,11 @@ class SpecMergeTest extends FunSuite:
           s"$nestedDomain/GetPersons.scala"                                -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1\n\nobject GetPersons\nend GetPersons",
           s"$nestedDomain/schema/Person.scala"                             -> "package acme.demo.domain\npackage clientMaster.naturalPersons.v1.schema\n\ncase class Person(name: String)",
           "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala" -> "package acme.demo.domain\npackage clientMaster.schema\n\ncase class Address(city: String)",
+          // the type mappers of a level and of the project (Orch Spec: the level both types share)
+          "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/ClientMasterTypeMappers.scala" ->
+            "package acme.demo.domain\npackage clientMaster.schema\n\nobject ClientMasterTypeMappers:\n  extension (x: Address) def toText: String = x.city\nend ClientMasterTypeMappers",
+          "01-domain/src/main/scala/acme/demo/domain/schema/TypeMappers.scala" ->
+            "package acme.demo.domain\npackage schema\n\nobject TypeMappers:\n  extension (x: Int) def toText: String = x.toString\nend TypeMappers",
           "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala" ->
             "package acme.demo.worker.clientMaster.naturalPersons.v1\n\nclass GetPersonsWorker:\n  def run = ???\nend GetPersonsWorker",
           // the base paths of the project and of the level
@@ -798,11 +822,13 @@ class SpecMergeTest extends FunSuite:
       )
       val (plan, _) = run(project, Seq.empty, Seq(nested))
       assertEquals(plan.notes, Seq.empty)
-      for name <- Seq("NaturalPersonsV1.scala", "GetPersons.scala", "Person.scala", "Address.scala", "GetPersonsWorker.scala")
+      for name <- Seq("NaturalPersonsV1.scala", "GetPersons.scala", "Person.scala", "Address.scala", "ClientMasterTypeMappers.scala", "TypeMappers.scala", "GetPersonsWorker.scala")
       do assertEquals(actionOf(plan, project, name), Action.create, name)
       assertEquals(path(project, "GetPersons.scala"), s"$nestedDomain/GetPersons.scala")
       assertEquals(path(project, "Person.scala"), s"$nestedDomain/schema/Person.scala")
       assertEquals(path(project, "Address.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/Address.scala")
+      assertEquals(path(project, "ClientMasterTypeMappers.scala"), "01-domain/src/main/scala/acme/demo/domain/clientMaster/schema/ClientMasterTypeMappers.scala")
+      assertEquals(path(project, "TypeMappers.scala"), "01-domain/src/main/scala/acme/demo/domain/schema/TypeMappers.scala")
       assertEquals(path(project, "GetPersonsWorker.scala"), "03-worker/src/main/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorker.scala")
       val bases = plan.files.map(_.path).filter(_.endsWith("exports.scala")).sorted
       assertEquals(bases, Seq(
@@ -857,6 +883,21 @@ class SpecMergeTest extends FunSuite:
       assertEquals(path(project, "GetPersonsWorkerTest.scala"), "03-worker/src/test/scala/acme/demo/worker/clientMaster/naturalPersons/v1/GetPersonsWorkerTest.scala")
       assertEquals(actionOf(plan, project, "GetPersonsWorkerTest.scala"), Action.create)
       assert(!os.read(project / workerAppRel).contains("GetPersonsWorkerTest"))
+
+  test("services: the shared schema (type mappers) of another project is refused"):
+    inProject: project =>
+      val foreign = nestedApi(1) :+
+        ("01-domain/src/main/scala/other/domain/schema/TypeMappers.scala" -> "package other.domain\npackage schema\n\nobject TypeMappers")
+      val refused = intercept[IllegalArgumentException](SpecMerge.plan(project, Seq.empty, Seq(ServicesExport("client-master", scalaFiles(foreign*))), strict = true))
+      assert(refused.getMessage.contains("The package of the export 'other.domain' does not belong to this project"), refused.getMessage)
+
+  test("the type mappers of Orch Spec: named as it names them, in a schema - not any file ending in TypeMappers"):
+    val schema = os.rel / "01-domain" / "src" / "main" / "scala" / "acme" / "demo" / "domain" / "client" / "v1" / "schema"
+    for name <- Seq("TypeMappers.scala", "ClientMasterTypeMappers.scala", "ClientV1TypeMappers.scala", "V1TypeMappers.scala") do
+      assert(SpecMerge.isTypeMappers(schema / name), name)
+    assert(!SpecMerge.isTypeMappers(schema / os.up / "ClientV1TypeMappers.scala"))
+    assert(!SpecMerge.isTypeMappers(schema / "myTypeMappers.scala"))
+    assert(!SpecMerge.isTypeMappers(schema / "TypeMappersHelper.scala"))
 
   test("services: the base path of a level of another project is refused"):
     inProject: project =>

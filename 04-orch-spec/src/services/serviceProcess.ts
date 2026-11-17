@@ -134,7 +134,8 @@ export function withCollections(model: Model | null, collections: ServiceCollect
 /** All services a step can call, by topic: the collections first, then those of the catalog. */
 export function callableServices(collections: ServiceCollectionSpec[], model: Model | null): Map<string, ServiceRef> {
   const out = servicesByTopic(collections);
-  for (const p of catalogProjects(model)) {
+  // a CustomTask of the catalog (another orchestration) is called like a service: its worker runs it
+  for (const p of catalogProjects(model, { customWorkers: true })) {
     const missing = p.apis.filter(a => a.services.some(s => !out.has(s.topic ?? s.id)));
     if (!missing.length) continue;
     try {

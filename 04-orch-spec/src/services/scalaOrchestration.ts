@@ -12,6 +12,8 @@
 //   script task    clients <- ZIO.attempt(mergeClients(…))   (its FEEL as a method of the worker - with a test;
 //                                                     `concatenate` of lists, a class into the case it fits)
 //                  total = …                        (an assignment: FEEL → Scala, see feelScala.ts)
+//   mapping        client <- mapClient(…)           (a method returning IO[CustomError, …]: a `for` that
+//                                                     resolves the required values first, then builds)
 //   parallel       each branch forked, then joined  (as in «Advanced Custom Workers»)
 //   exclusive      kind match { case Kind.A => … }  (one variable against values - else if … then …;
 //                                                     what a branch produces is an Option afterwards)
@@ -22,7 +24,10 @@
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
-import type { DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
+import type { CaseLink, DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
+import { isAdt, SCALA_TYPES } from '../types.ts';
+import { isMember, isStandard } from '../standardMappers.ts';
+import { resolveType } from '../interactions.ts';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, feelToScalaTyped, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
@@ -34,7 +39,7 @@ import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.
 import { adtTodo, descr, indent, workerPackageClause } from './scalaCollection.ts';
 import { camelName } from './names.ts';
 import { hasInner, linkPaths, mappingOf } from '../fieldMapping.ts';
-import { enumCases, findMapper, mapperBody, mapperImports, mapperMethod } from '../typeMappers.ts';
+import { enumCases, findMapper, mapperCode, mapperExtension, mapperHome, mapperImports, modelMappers, type MapperHome } from '../typeMappers.ts';
 import { isCollection, type ServiceCollectionSpec, type ServiceOrchestrationSpec, type ServiceSpec } from './types.ts';
 
 /** Scala variables for the FEEL translation. */
@@ -73,8 +78,14 @@ interface Ctx {
   scripts: ScriptMethod[];
   /** the type mappers of the model - a line between their types converts with them */
   mappers: TypeMapper[];
-  /** those a mapping used - each a method of the worker */
-  usedMappers: Map<string, TypeMapper>;
+  /**
+   * those a mapping used, by id - each an extension in the `schema` of its level (see
+   * mapperHome), the worker imports its object; `explicit`: called on the object
+   * (`ClientTypeMappers.toClientType(x)`) - another mapper the worker might use has its name
+   */
+  usedMappers: Map<string, { mapper: TypeMapper; home: MapperHome; explicit: boolean }>;
+  /** the classes a mapping builds by name (`MasterRead(…)`) - for the imports of the worker */
+  builtTypes: Set<string>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
 }
@@ -94,7 +105,33 @@ interface ScriptMethod {
   results?: Field[];
   /** a mapping: per mapped field what the test expects (`result.firstName` == `client.firstName`) */
   checks?: { at: string; value: string }[];
+  /** a mapping: a ZIO (`IO[CustomError, …]`) - the required values resolved first, a missing one fails */
+  io?: boolean;
+  /** a mapping onto an enum with cases: a method per case builds it - their tests compare the examples */
+  byCase?: boolean;
 }
+
+/**
+ * The body of a method of a mapping: a `for` that resolves the required values first (`x <-
+ * ZIO.fromOption(…).orElseFail(…)`), then builds in `mapped` (see MAPPED) - a value a type mapper
+ * cannot convert fails as a CustomError, not as a defect. A body that is only the one binding it
+ * yields is that ZIO itself.
+ */
+function forComprehension(binds: { name: string; io: string }[], value: string, where: string): string {
+  if (binds.length === 1 && binds[0].name === value) return binds[0].io;
+  const built = `mapped(${JSON.stringify(where)})(${value.includes('\n') ? `\n${indent(value, '  ')}\n` : value})`;
+  if (!binds.length) return built;
+  let name = 'built';
+  for (let i = 2; binds.some(b => b.name === name); i++) name = `built${i}`;
+  return ['for', ...binds.map(b => indent(`${b.name} <- ${b.io}`, '  ')), indent(`${name} <- ${built}`, '  '), `yield ${name}`].join('\n');
+}
+
+/** In a worker with mappings: what they build - a mapper that throws (an unknown case, `"abc".toBigDecimal`) a CustomError. */
+const MAPPED = [
+  '  /** what a mapping builds - a value a type mapper cannot convert fails as a CustomError, not as a defect */',
+  '  private def mapped[A](where: String)(value: => A): IO[CustomError, A] =',
+  '    ZIO.attempt(value).mapError(err => CustomError(s"$where: ${Option(err.getMessage).getOrElse(err.toString)}"))',
+].join('\n');
 
 /** The simple enums of the domain as types - a condition or a mapping names their cases. */
 function domainEnums(model: Model | null): TypeDef[] {
@@ -194,7 +231,12 @@ function typeOf(id: string, ctx: Ctx): TypeDef | undefined {
   if (own) return own;
   const d = ctx.domain.find(x => domainRef(x.id) === id);
   if (!d || (d.kind !== 'case' && d.kind !== 'enum')) return undefined;
-  const field = (f: DomainField): Field => ({ id: `${d.id}.${f.name}`, name: f.name, ...shapeOf(f.type) });
+  // a class of the catalog names its field types by name (`MasterRead`) - as a reference, so a mapping builds into it too
+  const field = (f: DomainField): Field => {
+    const shape = shapeOf(f.type);
+    const ref = (SCALA_TYPES as readonly string[]).includes(shape.type) ? null : resolveType(shape.type, { domainTypes: ctx.domain } as Model, d.pkg);
+    return { id: `${d.id}.${f.name}`, name: f.name, ...shape, ...(ref ? { type: domainRef(ref.id) } : {}) };
+  };
   return {
     id, name: d.name, kind: d.kind, fields: (d.fields ?? []).map(field),
     ...(d.kind === 'enum' ? { values: (d.cases ?? []).map(c => ({ name: c.name, fields: (c.fields ?? []).map(field) })) } : {}),
@@ -347,23 +389,61 @@ function scriptScala(body: string, scope: Map<string, ScalaVar>, target: Field, 
  * what the line onto it gives (`existingClient.copy(…)`, `map` for an Option), otherwise its class
  * field by field (`Client(…)`). `checks`: what the test expects, reached from the result.
  */
-function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string) {
-  const checks: { at: string; value: string }[] = [];
-  const missing = (what: string) => `throw IllegalArgumentException(${JSON.stringify(`${where}: ${what} fehlt`)})`;
+/**
+ * A case of an enum with cases as a method of its own (see adtValue): the source as that case, the
+ * target case built, with what its test checks - the call that replaces the branch.
+ */
+type CaseMethod = (c: { source: Field; sourceCase: string; target: Field; body: string; checks: { at: string; value: string }[] }) => string;
+
+function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, where: string, onCase: CaseMethod) {
+  let checks: { at: string; value: string }[] = [];
+  /** the bindings of the method being built - a required value resolved before it builds */
+  let binds: { name: string; io: string }[] = [];
+  /** the names of the method being built - its parameters, its bindings */
+  let names = new Set<string>([...scope.keys()].map(scalaIdent));
+  const bind = (base: string, io: string): string => {
+    const b = scalaIdent(base.replace(/[^A-Za-z0-9_]/g, '') || 'value');
+    let name = b;
+    for (let i = 2; names.has(name); i++) name = `${b}${i}`;
+    names.add(name);
+    binds.push({ name, io });
+    return name;
+  };
+  /** a required value from an Option: a binding that fails with its path */
+  const required = (path: string, option: string) =>
+    bind(path.split('.').pop()!, `ZIO.fromOption(${option}).orElseFail(CustomError(${JSON.stringify(`${where}: ${path} fehlt`)}))`);
+  /** `f` built in a method (scope) of its own: its bindings and names apart, its body a ZIO */
+  const apart = (own: string[], f: () => string): { value: string; binds: { name: string; io: string }[] } => {
+    const outerBinds = binds;
+    const outerNames = names;
+    binds = [];
+    names = new Set([...outerNames, ...own]);
+    try {
+      const value = f();
+      return { value, binds };
+    } finally {
+      binds = outerBinds;
+      names = outerNames;
+    }
+  };
   const rows = (args: string[]) => `(\n${indent(args.join(',\n'), '  ')}\n)`;
   const lambda = (f: Field) => (scope.has(f.name) ? `${scalaIdent(f.name)}0` : scalaIdent(f.name));
 
   /** a path into the field: of another type a type mapper converts it (each element of a list, an Option along) */
-  const pathValue = (p: string, f: Field): Translated => {
+  const pathValue = (p: string, f: Field, chosen?: string): Translated => {
     const t = feelToScalaTyped(`= ${p}`, scope, ctx.types, f);
-    if (t.todo || !t.type || t.type === f.type || !!t.collection !== !!f.collection) return t;
-    const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf);
+    if (t.todo || !t.type || (t.type === f.type && !chosen) || !!t.collection !== !!f.collection) return t;
+    // the one the line chooses (one with a name only so), otherwise the one of the types
+    const mapper = findMapper(ctx.mappers, t.type, f.type, ctx.idx.nameOf, chosen);
     if (!mapper) return t;
-    const method = mapperName(mapper, ctx);
-    const call = `${MOCKED}${method}`;
+    const { home, explicit } = useMapper(mapper, ctx);
+    const name = mapperExtension(mapper, ctx.idx.nameOf);
+    // an extension: `x.toClientType`, `.map(_.toClientType)` - on its object where the name is not the only one
+    const on = (x: string) => (explicit ? `${home.object}.${name}(${x})` : `${/^[\w.]+$/.test(x) ? x : `(${x})`}.${name}`);
+    const each = explicit ? `${home.object}.${name}` : `_.${name}`;
     const scala = t.collection
-      ? (t.optional ? `${t.scala}.map(_.map(${call}))` : `${t.scala}.map(${call})`)
-      : (t.optional ? `${t.scala}.map(${call})` : `${call}(${t.scala})`);
+      ? (t.optional ? `${t.scala}.map(_.map(${each}))` : `${t.scala}.map(${each})`)
+      : (t.optional ? `${t.scala}.map(${each})` : on(t.scala));
     return { scala, optional: t.optional };
   };
 
@@ -371,7 +451,7 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   const linkValue = (l: FieldLink, f: Field): Translated => {
     const expr = l.expression?.trim();
     if (expr) return feelToScala(expr.startsWith('=') ? expr : `= ${expr}`, scope, ctx.types, f);
-    const parts = linkPaths(l).map(p => pathValue(p, f));
+    const parts = linkPaths(l).map(p => pathValue(p, f, l.mapper));
     return parts.find(t => t.todo) ?? parts.slice(0, -1).reduceRight<Translated>((rest, t) => (!t.optional ? t
       : { scala: `${t.scala}.${rest.optional ? 'orElse' : 'getOrElse'}(${rest.scala})`, optional: rest.optional }), parts[parts.length - 1]);
   };
@@ -381,8 +461,16 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
    * test reaches it from the result (null: an Option on the way).
    */
   const value = (f: Field, path: string, on: string | null, at: string | null): string | null => {
-    const l = m.fields.find(x => x.field === path);
-    const sub = hasInner(m, path) && !f.collection ? typeOf(f.type, ctx) : undefined;
+    const stored = m.fields.find(x => x.field === path);
+    const l = inCase(stored);
+    const caseLink = (m.caseLinks ?? []).find(c => c.field === path);
+    const sub = (hasInner(m, path) || caseLink) && !f.collection ? typeOf(f.type, ctx) : undefined;
+    // an enum with cases built from its fields: the case the source's case decides
+    if (sub && isAdt(sub) && (caseLink || !l)) {
+      // the match is a ZIO (the methods of the cases fail): bound, before it builds
+      const v = caseLink ? bind(f.name, adtValue(sub, caseLink, path)) : todo(`${path}: ein Enum mit Fällen - im Mapping je Fall der Quelle einen Fall wählen`);
+      return f.optional ? `Some(${v})` : v;
+    }
     if (sub?.kind === 'case') {
       const whole = l ? linkValue(l, f) : null;
       if (whole?.todo) return whole.scala;
@@ -392,19 +480,87 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       let v: string;
       if (!it) v = build(sub, inner, null, reach);
       else if (!it.optional) v = build(sub, inner, /^[\w.]+$/.test(it.scala) ? it.scala : `(${it.scala})`, reach);
-      else if (f.optional) v = `${it.scala}.map(${lambda(f)} =>\n${indent(build(sub, inner, lambda(f), null), '  ')}\n)`;
-      else v = build(sub, inner, `${it.scala}.getOrElse(${missing(path)})`, at);
+      else if (f.optional) {
+        // what it needs resolved inside: each value of the Option in a ZIO of its own
+        const x = lambda(f);
+        const b = apart([x], () => build(sub, inner, x, null));
+        v = !b.binds.length ? `${it.scala}.map(${x} =>\n${indent(b.value, '  ')}\n)`
+          : bind(f.name, `ZIO.foreach(${it.scala})(${x} =>\n${indent(forComprehension(b.binds, b.value, where), '  ')}\n)`);
+        return v;
+      }
+      else v = build(sub, inner, required(path, it.scala), at);
       return f.optional && !it?.optional ? `Some(${v})` : v;
     }
     if (!l || (!l.expression?.trim() && !linkPaths(l).length)) {
       if (on) return null;
-      return f.optional ? 'None' : f.collection ? 'Seq.empty' : todo(`${path}: nicht zugeordnet`);
+      if (f.optional) return 'None';
+      if (f.collection) return 'Seq.empty';
+      // a line from fields this case of the source does not have (`sourceClient.name` only in `Company`)
+      return todo(stored && branch ? `${path}: ${linkPaths(stored).join(', ')} gibt es im Fall ${branch.case} von ${branch.name} nicht` : `${path}: nicht zugeordnet`);
     }
     const t = linkValue(l, f);
     const v = forTarget(t, !!f.optional);
-    const scala = v.needed ? `${v.scala}.getOrElse(${missing(path)})` : v.scala;
+    const scala = v.needed ? required(path, v.scala) : v.scala;
     if (at && !t.todo && !v.needed) checks.push({ at, value: scala });
     return scala;
+  };
+
+  /** the source of the match being built - a case of it has not every field of another */
+  let branch: { name: string; case: string; fields: Set<string> } | null = null;
+  /** a link in a branch: without the paths into a field this case of the source does not have */
+  const inCase = (l: FieldLink | undefined): FieldLink | undefined => {
+    if (!l || !branch) return l;
+    const b = branch;
+    const from = l.from.filter(p => !p.startsWith(`${b.name}.`) || b.fields.has(p.slice(b.name.length + 1).split('.')[0]));
+    return from.length || l.expression?.trim() ? { ...l, from } : undefined;
+  };
+
+  /**
+   * An enum with cases (`ClientRead`) from the links below `path`: a match on the case of the
+   * source (`sourceClient`) - in each branch the source is that case (its own fields readable), the
+   * value the case of the target it becomes, field by field. A case of the source without one fails.
+   */
+  const adtValue = (adt: TypeDef, c: CaseLink, path: string): string => {
+    const source = scope.get(c.from);
+    const src = source?.type ? typeOf(source.type, ctx) : undefined;
+    if (!source || !src || !isAdt(src)) return todo(`${path}: «${c.from}» ist kein Enum mit Fällen im In`);
+    const name = c.from;
+    const branches: string[] = [];
+    for (const sc of src.values ?? []) {
+      const to = c.cases.find(x => x.from === sc.name)?.to;
+      const tv = to ? (adt.values ?? []).find(v => v.name === to) : undefined;
+      if (!tv) continue;
+      // the source as this case: the shared fields and its own
+      const own = sc.fields ?? [];
+      const narrowed: TypeDef = { id: `${source.type ?? src.id}#${sc.name}`, name: `${src.name}.${caseIdent(sc.name)}`, kind: 'case', fields: [...own, ...(src.fields ?? []).filter(x => !own.some(o => o.name === x.name))] };
+      // a case takes the shared fields and its own (see EnumValue.order) - by name, so their order does not matter
+      const target: TypeDef = { id: `${adt.id}#${tv.name}`, name: `${adt.name}.${caseIdent(tv.name)}`, kind: 'case', fields: [...(adt.fields ?? []).filter(x => !(tv.fields ?? []).some(o => o.name === x.name)), ...(tv.fields ?? [])] };
+      ctx.types.push(narrowed);
+      scope.set(name, { ...source, type: narrowed.id });
+      const outer = branch;
+      const outerChecks = checks;
+      branch = { name, case: sc.name, fields: new Set((narrowed.fields ?? []).map(x => x.name)) };
+      checks = [];
+      try {
+        // in a method of its own: the test reaches the fields from its result, the target case
+        const built = apart([], () => build(target, `${path}.`, null, 'result'));
+        const body = forComprehension(built.binds, built.value, where);
+        const call = onCase({
+          source: { id: `case-${sc.name}`, name, type: source.type!, enumCase: sc.name },
+          sourceCase: sc.name,
+          target: { id: `case-${tv.name}`, name: path.split('.').pop()!, type: adt.id, enumCase: tv.name },
+          body, checks,
+        });
+        branches.push(`case ${scalaIdent(name)}: ${narrowed.name} => ${call}`);
+      } finally {
+        scope.set(name, source);
+        branch = outer;
+        checks = outerChecks;
+      }
+    }
+    const open = (src.values ?? []).filter(sc => !(adt.values ?? []).some(v => v.name === c.cases.find(x => x.from === sc.name)?.to));
+    if (open.length) branches.push(`case other => ZIO.fail(CustomError(s"${where}: ${src.name} $other - kein Fall von ${adt.name} gewählt"))`);
+    return `${source.scala} match\n${indent(branches.join('\n'), '  ')}`;
   };
 
   /** The class `t` from the links below `prefix`: a copy of `on`, or field by field. */
@@ -415,10 +571,12 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
       if (v !== null) args.push(`${scalaName(f.name)} = ${v}`);
     }
     if (on) return args.length ? `${on}.copy${rows(args)}` : on;
+    // a class built by name: the worker imports it (`MasterRead` of the catalog)
+    ctx.builtTypes.add(t.id.replace(/#.*$/, ''));
     return `${t.name}${rows(args)}`;
   };
 
-  return { value, checks };
+  return { value, checks, binds: () => binds };
 }
 
 /** A script task as a mapping: its method - In the parameters, Out the result (a tuple for several) - and its call. */
@@ -433,21 +591,34 @@ function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx):
   const twice = [...dups(params), ...dups(outs)];
   if (twice.length) return { line: `// TODO «${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`, produced: [] };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
-  const { value, checks: raw } = mappingValues(m, scope, ctx, where);
   const one = outs.length === 1;
-  // a type mapper is a method of the worker - called as it is there, on Mocked() in the test
-  const values = outs.map((f, i) => (value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '').replaceAll(MOCKED, ''));
-  const checks = raw.map(c => ({ ...c, value: c.value.replaceAll(MOCKED, 'Mocked().') }));
-  const body = one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`;
+  // the method of the mapping first - the methods of the cases of an enum follow it
   const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
-  ctx.scripts.push({
+  const entry: ScriptMethod = {
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
-    params, result: outs[0], ...(one ? {} : { results: outs }), body, cases: [], ...(checks.length ? { checks } : {}),
-  });
+    params, result: outs[0], ...(one ? {} : { results: outs }), body: '', cases: [], io: true,
+  };
+  ctx.scripts.push(entry);
+  const onCase: CaseMethod = c => {
+    const name = uniqueMethod(ctx, `${method}${c.sourceCase.charAt(0).toUpperCase()}${c.sourceCase.slice(1).replace(/[^A-Za-z0-9]/g, '')}`);
+    const caseParams = params.map(p => (p.name === c.source.name ? { ...p, ...c.source, id: p.id } : p));
+    // the result is the enum itself: the comparison per case (a catalog enum has an example per case only)
+    if (one && c.target.type === entry.result.type) entry.byCase = true;
+    ctx.scripts.push({
+      step: `${where}: ${c.sourceCase}`, method: name, params: caseParams, result: c.target, body: c.body, cases: [], io: true,
+      ...(c.checks.length ? { checks: c.checks } : {}),
+    });
+    return `${name}(${params.map(p => scalaIdent(p.name)).join(', ')})`;
+  };
+  const { value, checks, binds } = mappingValues(m, scope, ctx, where, onCase);
+  const values = outs.map((f, i) => value(f, f.name, null, one ? 'result' : `result._${i + 1}`) ?? '');
+  // a type mapper is an extension of the domain - the test calls it as the worker does
+  entry.body = forComprehension(binds(), one ? values[0] : `(\n${indent(values.join(',\n'), '  ')}\n)`, where);
+  if (checks.length) entry.checks = checks;
   const args = params.map(f => known.find(k => k.name === f.name)?.scala ?? todo(`${where}: ${f.name} ist vor dem Schritt nicht bekannt`));
   const names = outs.map(f => scalaIdent(f.name));
   return {
-    line: `${one ? names[0] : `(${names.join(', ')})`} <- ZIO.attempt(${method}(${args.join(', ')})).mapError(e => ${failWith(`${where}: `, 'e.getMessage')})`,
+    line: `${one ? names[0] : `(${names.join(', ')})`} <- ${method}(${args.join(', ')})`,
     produced: outs.map(f => ({
       name: f.name, scala: scalaIdent(f.name), type: f.type, source: 'Script',
       ...(f.optional ? { optional: true } : {}), ...(f.collection ? { collection: true } : {}),
@@ -514,14 +685,17 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
 function scriptMethod(m: ScriptMethod, idx: TypeIndex): string {
   const params = m.params.map(f => `${scalaIdent(f.name)}: ${fieldType(f, idx)}`).join(', ');
   const doc = [`  /** ${m.step}${m.description ? ` - ${m.description.split('\n')[0]}` : ''} - a test calls it with examples */`];
-  const result = m.results ? `(${m.results.map(f => fieldType(f, idx)).join(', ')})` : fieldType(m.result, idx);
+  const plain = m.results ? `(${m.results.map(f => fieldType(f, idx)).join(', ')})` : fieldType(m.result, idx);
+  const result = m.io ? `IO[CustomError, ${plain}]` : plain;
   return [...doc, `  def ${m.method}(${params}): ${result} =`, indent(m.body, '    ')].join('\n');
 }
 
 /** Per script method a test: with the examples of what it reads - the lists all in it, each in its case. */
 function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
   const vals = m.params.map(f => `    val ${scalaIdent(f.name)} = ${exampleValue({ ...f, example: undefined }, idx)}`);
-  const call = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
+  const call0 = `Mocked().${m.method}(${m.params.map(f => scalaIdent(f.name)).join(', ')})`;
+  // a ZIO: run - a missing value fails the test with its message
+  const call = m.io ? `runIO(${call0})` : call0;
   const list = (f: Field) => (!f.collection ? (f.optional ? `${scalaIdent(f.name)}.size` : '1') : f.optional ? `${scalaIdent(f.name)}.getOrElse(Seq.empty).size` : `${scalaIdent(f.name)}.size`);
   const got = m.result.optional ? 'result.getOrElse(Seq.empty)' : 'result';
   const checks = m.checks?.length
@@ -534,48 +708,128 @@ function scriptTest(m: ScriptMethod, idx: TypeIndex): string {
     : m.cases.length
       ? m.cases.map(c => `    assert(${m.result.optional ? `result.exists(_.isInstanceOf[${c}])` : `result.isInstanceOf[${c}]`}, result)`)
       : [`    // TODO ${m.step}: das erwartete Ergebnis prüfen`, '    assert(result != null)'];
-  return [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
+  const test = [`  test(${JSON.stringify(m.method)}):`, ...vals, `    val result = ${call}`, ...checks].join('\n');
+  return [test, ...(m.io && !m.results && !m.byCase ? [exampleTest(m, vals, call, idx)] : [])].join('\n\n');
 }
 
-/** `base`, or numbered - a name no method of the worker has yet (script tasks, type mappers) */
+/**
+ * A mapping: its examples give the example of the target - so the examples of both sides (their
+ * defaults) and the type mappers fit each other. With a TODO: what the source does not have
+ * (a field of another case, no line) the code takes out of the expected value - it keeps that.
+ */
+function exampleTest(m: ScriptMethod, vals: string[], call: string, idx: TypeIndex): string {
+  const target = fieldType({ ...m.result, optional: false }, idx);
+  return [
+    `  test(${JSON.stringify(`${m.method}: the example gives the example of ${target}`)}):`,
+    ...vals,
+    `    // TODO ${m.step}: was die Quelle nicht hat, aus dem erwarteten Wert nehmen (expected.copy(…))`,
+    `    val expected = ${exampleValue({ ...m.result, example: undefined }, idx)}`,
+    `    assertEquals(${call}, expected)`,
+  ].join('\n');
+}
+
+/** `base`, or numbered - a name no method of the worker has yet (its script tasks) */
 function uniqueMethod(ctx: Ctx, base: string): string {
-  const used = new Set([...ctx.scripts.map(x => x.method), ...ctx.usedMappers.keys()]);
+  const used = new Set(ctx.scripts.map(x => x.method));
   let name = base;
   for (let i = 2; used.has(name); i++) name = `${base}${i}`;
   return name;
 }
 
-/** Where a mapper's method is called - the worker calls it as it is, the test on Mocked(). */
-const MOCKED = '\uE000';
-
-/**
- * The name of a mapper's method in the worker - the one it got already, otherwise its own
- * (`clientMainTypeToClientType`), numbered when a script method or another mapper has it.
- */
-function mapperName(mapper: TypeMapper, ctx: Ctx): string {
-  for (const [name, m] of ctx.usedMappers) if (m.id === mapper.id) return name;
-  const base = mapperMethod(mapper, ctx.idx.nameOf);
-  const name = uniqueMethod(ctx, base);
-  ctx.usedMappers.set(name, mapper);
-  return name;
+/** The package of the class behind a type - its own schema, a collection's, the catalog's; null for none (`BigDecimal`). */
+function typePackage(ref: string, ctx: Ctx): string | null {
+  const dom = ctx.idx.domainOf(ref);
+  if (dom) return dom.pkg;
+  if (ctx.o.types.some(t => t.id === ref && !t.interactionId)) return `${collectionPackage(orchestrationApi(ctx.o))}.schema`;
+  for (const c of ctx.collections) {
+    const t = c.types.find(x => x.id === ref);
+    if (t && !t.interactionId) return schemaPackageOf(c, t.id) ?? `${typeHome(c, t.id)}.schema`;
+  }
+  return null;
 }
 
-/** A type mapper of the model as a method of the worker. */
-function mapperDef(method: string, m: TypeMapper, idx: TypeIndex): string {
-  const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
-  return [
-    `  /** ${name(m.from)} → ${name(m.to)} - a type mapper of the model${m.description?.trim() ? `: ${m.description.trim().split('\n')[0]}` : ''} */`,
-    `  def ${method}(x: ${name(m.from)}): ${name(m.to)} =`,
-    indent(mapperBody(m, idx.nameOf, enumCases(m.from, idx)), '    '),
-  ].join('\n');
+/** The import of the class behind a type for code in `pkg` - none in the same package or for none. */
+function typeImport(ref: string, ctx: Ctx, pkg: string): string | null {
+  const dom = ctx.idx.domainOf(ref);
+  if (dom) return dom.pkg === pkg ? null : `import ${dom.importPath}`;
+  const at = typePackage(ref, ctx);
+  return at && at !== pkg ? `import ${at}.${ctx.idx.nameOf(ref).replace(/^.*\./, '')}` : null;
+}
+
+/** Where a mapper lives in the code - one of the code where it is, one of the model see mapperHome. */
+function homeOf(m: TypeMapper, ctx: Ctx): MapperHome {
+  if (m.code) return { pkg: m.code.pkg, object: m.code.object };
+  const api = orchestrationApi(ctx.o);
+  const root = `${ctx.o.project.split('-').filter(Boolean).join('.')}.domain`;
+  return mapperHome([typePackage(m.from, ctx), typePackage(m.to, ctx)], root, [...api.api.split('.'), `v${api.apiVersion}`]);
+}
+
+/**
+ * A mapper the worker uses: where it lives, and whether it is called on its object - when a
+ * mapper of another object has the same extension name, both imported would be ambiguous.
+ */
+function useMapper(m: TypeMapper, ctx: Ctx): { home: MapperHome; explicit: boolean } {
+  const had = ctx.usedMappers.get(m.id);
+  if (had) return had;
+  const home = homeOf(m, ctx);
+  const name = mapperExtension(m, ctx.idx.nameOf);
+  const key = (h: MapperHome) => `${h.pkg}.${h.object}`;
+  // a method of the type itself (`x.toString`) is never ambiguous - and has no object to call it on;
+  // a standard one with the name of one of the project's is called on its object, the project's stays
+  // an extension - otherwise two of the project's with one name, both on their object
+  const explicit = !!home.object && ctx.mappers.some(o => o.id !== m.id && o.from && o.to && !isMember(o)
+    && !isStandard(o)
+    && mapperExtension(o, ctx.idx.nameOf) === name && key(homeOf(o, ctx)) !== key(home));
+  const used = { mapper: m, home, explicit };
+  ctx.usedMappers.set(m.id, used);
+  return used;
+}
+
+/** The files of the mappers the worker uses - per object, in the `schema` of its level; the helper merges them into the code. */
+function mapperFiles(ctx: Ctx): ScalaFile[] {
+  const byObject = new Map<string, { home: MapperHome; mappers: TypeMapper[] }>();
+  for (const { mapper, home } of ctx.usedMappers.values()) {
+    // one of the code is there already
+    if (mapper.code) continue;
+    const k = `${home.pkg}.${home.object}`;
+    byObject.set(k, { home, mappers: [...(byObject.get(k)?.mappers ?? []), mapper] });
+  }
+  return [...byObject.values()].map(({ home, mappers }) => {
+    const imports = new Set<string>();
+    for (const m of mappers) {
+      for (const ref of [m.from, m.to]) { const i = typeImport(ref, ctx, home.pkg); if (i) imports.add(i); }
+      for (const i of mapperImports(m)) imports.add(i);
+    }
+    const sorted = [...imports].sort();
+    return {
+      path: `01-domain/src/main/scala/${home.pkg.replace(/\./g, '/')}/${home.object}.scala`,
+      content: [
+        packageClause(home.pkg), '', ...(sorted.length ? [...sorted, ''] : []),
+        '/** Type mappers - from Orch Spec (Administration → Typ-Mapper): `existing.kind.toClientType` */',
+        `object ${home.object}:`, '',
+        mappers.map(m => mapperCode(m, ctx.idx.nameOf, enumCases(m.from, ctx.idx), enumCases(m.to, ctx.idx))).join('\n\n'), '',
+        `end ${home.object}`, '',
+      ].join('\n'),
+    };
+  });
 }
 
 /** The imports of the types the methods of the script tasks name - the schema of their collection. */
 function scriptImports(ctx: Ctx): string[] {
   const out = new Set<string>();
-  for (const m of ctx.usedMappers.values()) {
-    for (const ref of [m.from, m.to]) { const dom = ctx.idx.domainOf(ref); if (dom) out.add(`import ${dom.importPath}`); }
-    for (const i of mapperImports(m)) out.add(i);
+  // the classes a mapping builds by name - of the catalog or a collection; the own schema is imported anyway
+  for (const id of ctx.builtTypes) {
+    const i = typeImport(id, ctx, `${collectionPackage(orchestrationApi(ctx.o))}.schema`);
+    if (i) out.add(i);
+  }
+  // the extensions of the type mappers - their object where one is called on it
+  // an object with one called on it: the others by name - all of it would bring that name along too
+  const used = [...ctx.usedMappers.values()].filter(u => u.home.object);
+  for (const { home, explicit, mapper } of used) {
+    const obj = `${home.pkg}.${home.object}`;
+    const mixed = used.some(u => u.explicit && `${u.home.pkg}.${u.home.object}` === obj);
+    if (explicit) out.add(`import ${obj}`);
+    else out.add(mixed ? `import ${obj}.${mapperExtension(mapper, ctx.idx.nameOf)}` : `import ${obj}.*`);
   }
   for (const m of ctx.scripts) {
     for (const f of [...m.params, m.result, ...(m.results ?? [])]) {
@@ -863,7 +1117,7 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   });
   const scripts = [
     ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
-    ...[...ctx.usedMappers].map(([method, m]) => mapperDef(method, m, ctx.idx)),
+    ...(ctx.scripts.some(m => m.io) ? [MAPPED] : []),
   ];
   return `${workerPackageClause(api)}
 
@@ -887,7 +1141,7 @@ end ${o.name}Worker
  */
 function workerImports(o: ServiceOrchestrationSpec, ctx: Ctx, code: string, workers: boolean): string[] {
   const pkg = collectionPackage(orchestrationApi(o));
-  const imports = new Set<string>(['import zio.ZIO', 'import orchescala.worker.WorkerError.CustomError', `import ${pkg}.*`, `import ${pkg}.${o.name}.*`]);
+  const imports = new Set<string>([ctx.scripts.some(m => m.io) ? 'import zio.{IO, ZIO}' : 'import zio.ZIO', 'import orchescala.worker.WorkerError.CustomError', `import ${pkg}.*`, `import ${pkg}.${o.name}.*`]);
   if (o.types.some(t => !t.interactionId && t.name?.trim())) imports.add(`import ${pkg}.schema.*`);
   for (const ref of ctx.called.values()) {
     const p = servicePackages(ref);
@@ -959,7 +1213,7 @@ function workerTest(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   for (const m of ctx.scripts) tests.push(scriptTest(m, ctx.idx));
   const imports = [
     'import zio.*', 'import orchescala.domain.*', 'import orchescala.worker.*',
-    ...workerImports(o, ctx, tests.join('\n'), false).filter(i => i !== 'import zio.ZIO'),
+    ...workerImports(o, ctx, tests.join('\n'), false).filter(i => !i.startsWith('import zio.')),
   ];
   return `${workerPackageClause(api)}
 
@@ -975,7 +1229,10 @@ ${refs.map(r => override(r, answer(r), '    ')).join('\n')}
   private def run(worker: ${o.name}Worker, in: ${o.noIn ? 'NoInput' : 'In'}): Either[CustomError, ${outType}] =
     given EngineRunContext = EngineRunContext(DefaultEngineContext.example, GeneralVariables())
     Unsafe.unsafe(implicit unsafe => Runtime.default.unsafe.run(worker.runWorkZIO(in).either).getOrThrowFiberFailure())
-
+${ctx.scripts.some(m => m.io) ? `
+  private def runIO[A](io: IO[CustomError, A]): A =
+    Unsafe.unsafe(implicit unsafe => Runtime.default.unsafe.run(io).getOrThrowFiberFailure())
+` : ''}
 ${tests.join('\n\n')}
 
 end ${o.name}WorkerTest
@@ -1047,8 +1304,16 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
-    mappers: model?.typeMappers ?? [], usedMappers: new Map(),
+    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(),
   };
+  // the classes of the catalog as types too - a path into one (`client.clientKey`) resolves like one into an own class
+  for (const d of ctx.domain) {
+    if (d.owner || (d.kind !== 'case' && d.kind !== 'enum')) continue;
+    const ref = domainRef(d.id);
+    if (ctx.types.some(t => t.id === ref)) continue;
+    const t = typeOf(ref, ctx);
+    if (t) ctx.types.push(t);
+  }
   const out: ScalaFile[] = [{ path: `${domainDir(api)}/${o.name}.scala`, content: domainObject(o, idx, collections) }];
   for (const t of o.types.filter(x => !x.interactionId && x.name?.trim())) {
     const imports = importsOf(t, idx);
@@ -1059,6 +1324,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   }
   out.push({ path: `${workerDir(api)}/${o.name}Worker.scala`, content: worker(o, ctx) });
   out.push({ path: `${workerDir(api).replace('/src/main/', '/src/test/')}/${o.name}WorkerTest.scala`, content: workerTest(o, ctx) });
+  out.push(...mapperFiles(ctx));
   return out;
 }
 

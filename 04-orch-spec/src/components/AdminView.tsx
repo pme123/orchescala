@@ -180,6 +180,7 @@ const ownPart = (m: Model): Model => ({
   services: m.services.filter(s => !s.generated),
   domainTypes: m.domainTypes?.filter(t => !t.generated),
   domainDefaults: m.domainDefaults?.filter(d => !d.generated),
+  domainMappers: m.domainMappers?.filter(d => !d.generated),
 });
 
 const when = stampLabel;

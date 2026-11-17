@@ -1,11 +1,13 @@
 // Admin: type mappers - conversions of one type into another, for the lines of every mapping in
 // the folder (`ClientMainType` → `ClientType`, `BigDecimalWrapper` → `BigDecimal`). They live in
-// the model.json; a line between their types converts with them, in the worker a method each.
+// the model.json; a line between their types converts with them - in the code an extension in the
+// `schema` of the level both types share, which the worker imports.
 import { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, Download, Plus, Repeat, Trash2, Upload, Wand2 } from 'lucide-react';
 import type { Model, TypeMapper } from '../types';
 import { indexTypes } from '../scala';
-import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperBody, mapperFile, mapperIssues, mapperMethod, prefilledCases } from '../typeMappers';
+import { isMember, isStandard, ORCHESCALA_MAPPERS, STANDARD_MAPPERS } from '../standardMappers';
+import { MAPPER_KINDS, cleanMapper, enumCases, importedMappers, mapperCode, mapperFile, mapperIssues, modelMappers, prefilledCases } from '../typeMappers';
 import { cls } from '../ui';
 import { uid } from '../util';
 import { AdminSection, SaveRow, flashOf, useFlash, type AdminTone } from './adminUi';
@@ -15,11 +17,13 @@ type Save = (m: Model) => Promise<{ ok: true } | { ok: false; message: string }>
 
 /** State for the status bar and the card header */
 export function typeMapperState(model: Model): { tone: AdminTone; label: string; detail?: string } {
-  const all = model.typeMappers ?? [];
+  // the model's and those of the code (catalog)
+  const all = modelMappers(model).filter(m => !isStandard(m));
   if (!all.length) return { tone: 'off', label: 'keine', detail: 'noch keine Typ-Mapper' };
   const idx = indexTypes([], model);
   const name = (ref: string) => idx.nameOf(ref).replace(/^.*\./, '');
-  return { tone: 'ok', label: `${all.length}`, detail: all.map(m => `${name(m.from)} → ${name(m.to)}`).join(', ') };
+  const code = all.filter(m => m.code).length;
+  return { tone: 'ok', label: `${all.length}`, detail: `${all.map(m => `${name(m.from)} → ${name(m.to)}`).join(', ')}${code ? ` (${code} aus dem Code)` : ''}` };
 }
 
 export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
@@ -35,11 +39,13 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
     setDraft(d => d.map(m => (m.id === id ? { ...m, ...patch } : m)));
     setFlash(null);
   };
-  /** the table filled where the cases are alike - when both are enums */
+  /** the table filled where the cases are alike - when both are enums; an enum onto values: a row per case */
   const filled = (m: TypeMapper): Partial<TypeMapper> => {
     const from = enumCases(m.from, idx);
     const to = enumCases(m.to, idx);
-    return from && to ? { cases: prefilledCases(from, to, m.cases) } : {};
+    if (from && to) return { cases: prefilledCases(from, to, m.cases) };
+    if (from) return { cases: from.map(f => (m.cases ?? []).find(x => x.from === f) ?? { from: f, to: '' }) };
+    return {};
   };
   const setTypes = (m: TypeMapper, patch: Pick<Partial<TypeMapper>, 'from' | 'to'>) => {
     const next = { ...m, ...patch };
@@ -85,8 +91,11 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
       more={<>Gilt für alle Mappings im Ordner (Skript-Aufgaben einer Service-Orchestrierung). Zieht man im
         Mapping eine Linie von einem <span className="font-mono">ClientMainType</span> auf einen{' '}
         <span className="font-mono">ClientType</span>, wandelt der Mapper dazwischen - ohne Warnung, und
-        «Automatisch zuordnen» nimmt solche Felder auch. Im Worker wird jeder benutzte Mapper eine eigene
-        Methode; eine Liste oder ein Option davon wird mitgemappt. <b>Tabelle</b>: ein Enum in ein Enum, Fall
+        «Automatisch zuordnen» nimmt solche Felder auch. Im Code wird jeder benutzte Mapper eine Extension
+        (<span className="font-mono">existing.kind.toClientType</span>) im <span className="font-mono">schema</span> der
+        tiefsten Ebene, die seine Typen des Projekts teilen (ein Typ eines anderen Projekts oder <span className="font-mono">LocalDate</span>{' '}
+        zählt nicht), Typen einer anderen API im <span className="font-mono">schema</span> der API des Exports - sonst in dem des Projekts; der Export bringt die Datei mit, der
+        Worker importiert sie. Eine Liste oder ein Option davon wird mitgemappt. <b>Tabelle</b>: ein Enum in ein Enum, Fall
         für Fall (gleiche Namen sind vorbelegt). <b>Feld</b>: ein Feld davon, z.B. <span className="font-mono">value</span>{' '}
         eines Wrappers. <b>Scala</b>: ein Ausdruck über <span className="font-mono">x</span>.{' '}
         <b>Deserialisierer</b>: der Decoder des Ziels im Code liest es (<span className="font-mono">x.asJson.as[Ziel]</span>).</>}>
@@ -139,7 +148,43 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
                     <Wand2 size={10} /> Ähnliche Namen
                   </button>
                 </div>
-              ) : <p className={`text-[10px] ${c.muted}`}>Eine Tabelle braucht als Von und Nach je ein Enum.</p>)}
+              ) : m.from && m.to ? (
+                // values: Von a simple type (or Nach) - row by row, a value and what it becomes
+                <div className="space-y-0.5">
+                  <div className={`grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)_16px] gap-2 text-[10px] uppercase tracking-wide ${c.muted}`}>
+                    <span className="truncate">{name(m.from)}</span><span /><span className="truncate">{name(m.to)}</span><span />
+                  </div>
+                  {(m.cases ?? []).map((row, k) => {
+                    const put = (patch: Partial<{ from: string; to: string }>) =>
+                      set(m.id, { cases: (m.cases ?? []).map((x, j) => (j === k ? { ...x, ...patch } : x)) });
+                    return (
+                      <div key={k} className="grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)_16px] gap-2 items-center text-[11px]">
+                        {fromCases
+                          ? <span className="font-mono break-all">{row.from}</span>
+                          : <input value={row.from} onChange={e => put({ from: e.target.value })} placeholder="1" className={`min-w-0 font-mono ${input}`} />}
+                        <ArrowRight size={11} className={c.muted} />
+                        {toCases
+                          ? (
+                            <select value={row.to} onChange={e => put({ to: e.target.value })} className={`min-w-0 font-mono ${input} ${row.to ? '' : (isDark ? 'border-amber-500/60' : 'border-amber-400')}`}>
+                              <option value="">- kein Fall -</option>
+                              {toCases.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          )
+                          : <input value={row.to} onChange={e => put({ to: e.target.value })} placeholder="de" className={`min-w-0 font-mono ${input}`} />}
+                        <button type="button" onClick={() => set(m.id, { cases: (m.cases ?? []).filter((_, j) => j !== k) })} title="Zeile löschen"
+                          className={`p-0.5 ${c.muted} hover:text-rose-500`}><Trash2 size={10} /></button>
+                      </div>
+                    );
+                  })}
+                  {!fromCases && (
+                    <button type="button" onClick={() => set(m.id, { cases: [...(m.cases ?? []), { from: '', to: '' }] })}
+                      className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${c.btn}`}>
+                      <Plus size={10} /> Zeile
+                    </button>
+                  )}
+                  <p className={`text-[10px] ${c.muted}`}>Werte wie im Code: ein String ohne Anführungszeichen (de), eine Zahl wie sie ist (1). Ein Wert ohne Zeile wirft zur Laufzeit.</p>
+                </div>
+              ) : <p className={`text-[10px] ${c.muted}`}>Erst Von und Nach wählen.</p>)}
               {m.kind === 'field' && (
                 <div className="flex items-center gap-2 text-[11px]">
                   <span className={`${c.muted} w-20`}>Feld</span>
@@ -163,12 +208,17 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
               {m.kind === 'decoder' && (
                 <p className={`text-[10px] ${c.muted}`}>Der Deserialisierer von {name(m.to)} im Code liest den Wert von {name(m.from)} - ohne Fall-Tabelle hier.</p>
               )}
-              <input value={m.description ?? ''} onChange={e => set(m.id, { description: e.target.value })} placeholder="Worum es geht (optional)" className={`w-full ${input}`} />
+              <div className="flex items-center gap-2">
+                <input value={m.name ?? ''} onChange={e => set(m.id, { name: e.target.value || undefined })} placeholder="Name (optional)"
+                  title="Mit Namen (Sprache, Land …) gilt er nur, wo eine Linie eines Mappings ihn wählt - so gehen mehrere mit denselben Typen (Int → String)"
+                  className={`w-40 ${input} ${m.kind === 'table' && !fromCases && !m.name?.trim() ? (isDark ? 'border-amber-500/60' : 'border-amber-400') : ''}`} />
+                <input value={m.description ?? ''} onChange={e => set(m.id, { description: e.target.value })} placeholder="Worum es geht (optional)" className={`flex-1 ${input}`} />
+              </div>
               {m.from && m.to && (
                 <details className="text-[10px]">
-                  <summary className={`cursor-pointer ${c.muted}`}>Im Worker</summary>
+                  <summary className={`cursor-pointer ${c.muted}`}>Im Code</summary>
                   <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap font-mono text-[10px] ${c.border}`}>
-                    {`def ${mapperMethod(m, idx.nameOf)}(x: ${name(m.from)}): ${name(m.to)} =\n${mapperBody(m, idx.nameOf, fromCases).replace(/^/gm, '  ')}`}
+                    {mapperCode(m, idx.nameOf, fromCases, toCases).replace(/^ {2}/gm, '')}
                   </pre>
                 </details>
               )}
@@ -179,12 +229,47 @@ export default function TypeMapperAdmin({ model, isDark, onSave, state }: {
           );
         })}
         {!draft.length && <p className={`text-[11px] ${c.muted}`}>Noch keine Typ-Mapper.</p>}
+        {/* those of the code - the catalog read them (extensions in the domain), not editable here */}
+        {!!(model.domainMappers ?? []).length && (
+          <div className={`rounded-lg border px-3 py-2 space-y-1 ${c.border2}`}>
+            <p className={`text-[10px] uppercase tracking-wide ${c.muted}`}>Aus dem Code (Katalog)</p>
+            {(model.domainMappers ?? []).map(d => {
+              const own = draft.some(m => name(m.from) === d.from && name(m.to) === d.to);
+              return (
+                <div key={d.id} className="flex items-baseline gap-2 flex-wrap text-[11px]" title={d.source ?? d.pkg}>
+                  <span className="font-mono">{d.from}</span><ArrowRight size={10} className={c.muted} /><span className="font-mono">{d.to}</span>
+                  <span className={`font-mono text-[10px] ${c.muted}`}>{d.object}.{d.method}</span>
+                  <span className={`font-mono text-[10px] ${c.muted} break-all`}>{d.pkg}</span>
+                  {d.descr && <span className={`text-[10px] ${c.muted}`}>{d.descr}</span>}
+                  {own && <span className={`text-[10px] ${c.muted}`}>· der eigene oben gilt</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* the generic ones every project has - none to define, none to copy */}
+        <details className={`rounded-lg border px-3 py-2 text-[11px] ${c.border2}`}>
+          <summary className={`cursor-pointer text-[10px] uppercase tracking-wide ${c.muted}`}>Standard (orchescala) · {STANDARD_MAPPERS.length}</summary>
+          <p className={`mt-1 text-[10px] ${c.muted}`}>Gelten in jedem Projekt, ohne Definition hier. Eine Methode des Typs ruft der Worker direkt
+            (<span className="font-mono">x.toString</span>), die übrigen kommen aus <span className="font-mono">{ORCHESCALA_MAPPERS.pkg}.{ORCHESCALA_MAPPERS.object}</span>.
+            Ein eigener Typ-Mapper mit denselben Typen geht vor.</p>
+          <div className="mt-1 grid grid-cols-[auto_12px_auto_1fr] gap-x-2 gap-y-0.5 items-baseline">
+            {STANDARD_MAPPERS.map(m => (
+              <div key={m.id} className="contents">
+                <span className="font-mono">{m.from}</span><ArrowRight size={10} className={c.muted} /><span className="font-mono">{m.to}</span>
+                <span className={`font-mono text-[10px] ${c.muted}`}>
+                  {isMember(m) ? `x.${m.code!.method}` : `${ORCHESCALA_MAPPERS.object}.${m.code!.method}`}{m.description ? ` · ${m.description.replace(/`/g, '')}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
         <SaveRow onSave={() => void save()} flash={flash} isDark={isDark}>
           <button onClick={add} className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>
             <Plus size={12} /> Typ-Mapper
           </button>
           <button onClick={() => fileRef.current?.click()} disabled={unsaved}
-            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiches Von → Nach wird ersetzt, die übrigen bleiben. Scala-Ausdrücke und Imports der Datei kommen so in den Worker - nur Dateien aus bekannter Quelle.'}
+            title={unsaved ? 'Erst speichern - der Import ergänzt die gespeicherten' : 'Typ-Mapper-Datei importieren - gleiches Von → Nach wird ersetzt, die übrigen bleiben. Scala-Ausdrücke und Imports der Datei kommen so in den Code - nur Dateien aus bekannter Quelle.'}
             className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border disabled:opacity-40 ${c.btn}`}>
             <Upload size={12} /> Importieren
           </button>
