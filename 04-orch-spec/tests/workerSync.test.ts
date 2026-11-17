@@ -81,7 +81,7 @@ test('a service call changed in the code: its input and output go into the step,
   assert.deepEqual(syncWorker(r.spec, again, code, ctx()).report.changed, []);
 });
 
-test('what the reader does not know stays - and is said; a call the flow does not have too', () => {
+test('what the reader does not know stays - and is said; a call more of a service: none of its steps is taken over', () => {
   const spec = described();
   const w = workerOf(spec);
   const hand = w.replace('name = "Muster"', 'name = compute("x") + 1')
@@ -89,7 +89,8 @@ test('what the reader does not know stays - and is said; a call the flow does no
   const r = syncWorker(spec, w, hand, ctx());
   assert.deepEqual(r.report.changed, []);
   assert.ok(r.report.hints.some(h => h.includes('Input name = compute("x") + 1 ist nicht lesbar')), r.report.hints.join('\n'));
-  assert.ok(r.report.hints.some(h => h.includes('runGetClient ruft der Code einmal mehr auf')), r.report.hints.join('\n'));
+  // the call is the step's only while both have as many - otherwise nothing of that service is taken over
+  assert.ok(r.report.hints.some(h => h.includes('runGetClient ruft der Code 2-mal auf, der Ablauf 1-mal')), r.report.hints.join('\n'));
   assert.equal(r.spec, spec);
 });
 
@@ -202,4 +203,16 @@ test('the whole plan from the exported files: In, Out and the worker are as the 
   const inType = changed.spec.types!.find(x => x.root)!;
   assert.deepEqual(inType.fields?.map(x => x.name), ['clientKey', 'note'], files.find(x => x.path.endsWith('/UpdateClient.scala'))!.text);
   assert.ok(changed.domain!.report.changed.includes('In'));
+});
+
+test('a call of a service removed in the code: its other steps are not matched by position - said, nothing taken over', () => {
+  const spec = described();
+  const w = workerOf(spec);
+  // GetClient no more - and PutClient changed: it stays with its own step
+  const code = w.replace('<- runGetClient(', '<- runOtherClient(').replace('name = "Muster"', 'name = "Meier"');
+  assert.notEqual(code, w);
+  const r = syncWorker(spec, w, code, ctx());
+  assert.ok(r.report.hints.some(h => h.includes('«Kunde lesen»: runGetClient ruft der Code 0-mal auf, der Ablauf 1-mal')), r.report.hints.join('\n'));
+  assert.ok(r.report.hints.some(h => h.includes('runOtherClient ruft der Code einmal auf, der Ablauf nicht')), r.report.hints.join('\n'));
+  assert.deepEqual(r.report.changed, ['«Kunde schreiben»: Input name = "Meier"'], code);
 });

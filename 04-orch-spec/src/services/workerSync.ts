@@ -80,10 +80,17 @@ export function syncWorker(spec: ServiceProcess, generated: string, code: string
       const g = calls(gen.items, name)[k];
       const c = calls(own.items, name)[k];
       if (!g) continue;
+      // the k-th call is the k-th step only while both have as many - otherwise said, not guessed
+      const counts = [calls(gen.items, name).length, calls(own.items, name).length];
+      if (counts[0] !== counts[1]) {
+        report.hints.push(`${label(s)}: run${name} ruft der Code ${counts[1]}-mal auf, der Ablauf ${counts[0]}-mal - welcher Aufruf zu welchem Schritt gehört, ist offen; nicht übernommen.`);
+        continue;
+      }
       if (!c) { report.hints.push(`${label(s)}: run${name} gibt es im Code nicht (mehr) - der Schritt bleibt.`); continue; }
       const u = serviceUpdate(s, g, c, exts, report);
       if (u) updates.set(s.id, u);
     } else if (s.kind === 'script' && s.fieldMapping) {
+      // camelName gives letters and digits only - safe in the expression below
       const base = camelName((s.name || s.id).replace(/Task$/, ''));
       const g = (gen.items ?? []).find(i => i.kind === 'mapping' && !usedMethods.has(i.method) && (i.method === base || new RegExp(`^${base}\\d+$`).test(i.method))) as Extract<WorkerItem, { kind: 'mapping' }> | undefined;
       if (!g) continue;
@@ -94,10 +101,10 @@ export function syncWorker(spec: ServiceProcess, generated: string, code: string
       if (u) updates.set(s.id, u);
     }
   }
-  // calls of the code the flow does not have
+  // calls of a service the flow does not have at all (one it has is said at its steps)
   for (const name of new Set((own.items ?? []).flatMap(i => (i.kind === 'service' ? [i.service] : [])))) {
-    const extra = calls(own.items, name).length - calls(gen.items, name).length;
-    if (extra > 0) report.hints.push(`run${name} ruft der Code ${extra === 1 ? 'einmal' : `${extra}-mal`} mehr auf als der Ablauf - nicht übernommen (den Schritt im Ablauf anlegen).`);
+    const extra = calls(own.items, name).length;
+    if (!calls(gen.items, name).length) report.hints.push(`run${name} ruft der Code ${extra === 1 ? 'einmal' : `${extra}-mal`} auf, der Ablauf nicht - nicht übernommen (den Schritt im Ablauf anlegen).`);
   }
   // branches: only said
   const blocks = (w: WorkerCode) => (w.items ?? []).filter(i => i.kind === 'block').map(i => norm(i.raw));
