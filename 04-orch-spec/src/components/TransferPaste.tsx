@@ -61,6 +61,8 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
   const apply = async () => {
     if (!plan || !model) return;
     const done: string[] = [];
+    /** the rows that went through - by kind and name, a title may be there twice */
+    const through = new Set<string>();
     const problems: string[] = [];
     let modelWritten = false;
     // anything written - the lists and the plan are read again, a retry sees the new versions
@@ -132,6 +134,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           }
         }
         done.push(row.title);
+        through.add(rowKey(row.item));
       }
       // what went wrong stays in sight - with what was written all the same; the lists show it
       if (problems.length) {
@@ -140,8 +143,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           ...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems,
         ].join(' · '));
         // what went through is not pasted again by a second «Übernehmen» - only what failed
-        const through = new Set(done);
-        setActions(a => ({ ...a, ...Object.fromEntries(plan.rows.filter(r => through.has(r.title)).map(r => [rowKey(r.item), 'skip' as PasteAction])) }));
+        setActions(a => ({ ...a, ...Object.fromEntries([...through].map(k => [k, 'skip' as PasteAction])) }));
         if (wrote || modelWritten) onWritten?.();
         return;
       }
