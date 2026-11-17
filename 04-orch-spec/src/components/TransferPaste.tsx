@@ -68,7 +68,8 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
     // anything written - the lists and the plan are read again, a retry sees the new versions
     let wrote = false;
     try {
-      // what the items use, first - a mapping then finds its type mapper
+      // what the items use, first - a mapping then finds its type mapper. Deliberately not undone when
+      // items fail: the message names them («Übernommen: …»), and a retry does not add them again
       if (plan.typeMappers.length || plan.patterns.length) {
         setBusy('Typ-Mapper und Patterns …');
         const r = await saveModel(withPasted(model, plan));

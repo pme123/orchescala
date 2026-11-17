@@ -162,7 +162,7 @@ export interface PastePlan {
 const titleOf = (i: TransferItem) => i.spec.title || i.slug;
 /** the same content - whatever the order of the keys */
 const stable = (v: unknown): unknown => (Array.isArray(v) ? v.map(stable)
-  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, stable(x)])) : v);
+  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, x]) => [k, stable(x)])) : v);
 const same = (a: unknown, b: unknown) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
 /** the key of a row - a process and a collection may have the same slug */
 export const rowKey = (i: TransferItem) => `${i.kind}:${i.slug}`;
