@@ -74,6 +74,51 @@ export function feelToScalaTyped(expression: string, vars: Map<string, ScalaVar>
   return translate(expression, vars, types, target);
 }
 
+/** The parts of `a + b + c` at the top level - not in a text, not in brackets; null: no `+`. */
+function plusParts(body: string): string[] | null {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '"') { for (i++; i < body.length && body[i] !== '"'; i++) if (body[i] === '\\') i++; continue; }
+    if ('([{'.includes(ch)) depth++;
+    else if (')]}'.includes(ch)) depth--;
+    else if (ch === '+' && depth === 0) { parts.push(body.slice(start, i).trim()); start = i + 1; }
+  }
+  if (!parts.length) return null;
+  parts.push(body.slice(start).trim());
+  return parts.every(Boolean) ? parts : null;
+}
+
+/**
+ * `"Datei " + fileId + " fehlt"` → a text joined in Scala, `n + 1` → a sum; `string(x)` → `x.toString`.
+ * A value that may be missing: in a text its value or `null` (as FEEL writes it), in a sum the sum
+ * only where it is there (one such value). null: no `+`, or a part that does not translate.
+ */
+function sumOf(body: string, vars: Map<string, ScalaVar>, types: TypeDef[]): Translated | null {
+  const parts = plusParts(body);
+  if (!parts) return null;
+  const one = (part: string): Translated => {
+    const str = /^string\(([\s\S]*)\)$/.exec(part);
+    if (str) {
+      const inner = translate(`= ${str[1]}`, vars, types);
+      return inner.todo ? inner : { scala: inner.optional ? `${inner.scala}.map(_.toString)` : `${inner.scala}.toString`, optional: inner.optional };
+    }
+    return translate(`= ${part}`, vars, types);
+  };
+  const xs = parts.map(one);
+  if (xs.some(x => x.todo)) return todo(body);
+  const text = parts.some(p => /^"/.test(p) || /^string\(/.test(p));
+  if (text) return { scala: xs.map(x => (x.optional ? `${x.scala}.fold("null")(_.toString)` : x.scala)).join(' + '), optional: false };
+  const missing = xs.filter(x => x.optional);
+  if (!missing.length) return { scala: xs.map(x => x.scala).join(' + '), optional: false };
+  if (missing.length > 1) return todo(body, 'mehr als ein Wert, der fehlen kann');
+  const at = xs.indexOf(missing[0]);
+  const rest = xs.map((x, i) => (i === at ? 'x' : x.scala)).join(' + ');
+  return { scala: `${missing[0].scala}.map(x => ${rest})`, optional: true };
+}
+
 /** `in.clientKey` → `clientKey`: `in` names the In, its fields are the variables (unless a variable is called `in`) */
 function withoutIn(body: string, vars: Map<string, ScalaVar>): string {
   return vars.has('in') ? body : body.replace(/^in\.(?=[A-Za-z_`])/, '');
@@ -94,6 +139,8 @@ function translate(expression: string, vars: Map<string, ScalaVar>, types: TypeD
   if (choice) return choice;
   const list = listOf(body, vars, types, target);
   if (list) return list;
+  const sum = sumOf(body, vars, types);
+  if (sum) return sum;
 
   // an element of a list: `persons[1]` (FEEL counts from 1, `[-1]` is the last) — it may be missing
   // only a path names a list (`persons[1]`, `body.persons[-1]`) — not a call (`f(x)[1]`)
