@@ -91,6 +91,10 @@ interface Ctx {
   scriptVars: Map<string, OrchVar>;
   /** the timer variables of its events (`timerWaitForStatus`) with their default - a method of the worker each, a test makes it zero */
   timers: Map<string, { default?: string; step: string }>;
+  /** methods of the worker beside runWorkZIO: an In with a TODO is built in one of its own - runWorkZIO has none */
+  helpers: { name: string; code: string }[];
+  /** what is still to do in the code of the run (an error path) - a TODO above runWorkZIO, not in it */
+  notes: string[];
 }
 
 /** The implementation of a script task as a method of the worker. */
@@ -923,6 +927,47 @@ function stopWithError(s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string |
   return `ZIO.fail(CustomError(${scala}))`;
 }
 
+/**
+ * The In of a call - with a place still to fill (`???`) in a method of its own, called with what it
+ * reads: runWorkZIO stays without TODOs, the method says what is missing.
+ */
+function inputCall(input: string, ref: ServiceRef, s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string {
+  if (!input.includes('???')) return input;
+  const svc = ref.service.name;
+  const base = `${svc.charAt(0).toLowerCase()}${svc.slice(1)}In`;
+  let name = base;
+  for (let i = 2; ctx.helpers.some(h => h.name === name) || ctx.scripts.some(m => m.method === name); i++) name = `${base}${i}`;
+  const params = [
+    ...(/\bin\./.test(input) ? [{ name: 'in', type: ctx.o.noIn ? 'NoInput' : 'In' }] : []),
+    ...[...vars.entries()]
+      .filter(([, v]) => /^[A-Za-z_]\w*$/.test(v.scala) && v.scala !== 'in' && new RegExp(`\\b${v.scala}\\b`).test(input))
+      .map(([n, v]) => ({ name: v.scala, type: fieldType({ id: n, name: n, type: v.type ?? 'String', ...(v.optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}) } as Field, ctx.idx) })),
+  ];
+  ctx.helpers.push({
+    name,
+    code: [
+      `  /** the In of «${s.name || s.id}» - still to complete (see the TODO) */`,
+      `  private def ${name}(${params.map(p => `${p.name}: ${p.type}`).join(', ')}): ${svc}.In =`,
+      indent(input, '    '),
+    ].join('\n'),
+  });
+  return `${name}(${params.map(p => p.name).join(', ')})`;
+}
+
+/**
+ * Each place still to fill in the code of the run (`??? /* TODO … *\/`) a method of its own - `todo1`,
+ * of type `Nothing`, so it fits wherever it stands: the run says what it does, the methods what is missing.
+ */
+function withoutTodos(code: string, ctx: Ctx): string {
+  return code.replace(/\?\?\? \/\* TODO ([\s\S]*?) \*\//g, (_, text: string) => {
+    let n = ctx.helpers.filter(h => /^todo\d+$/.test(h.name)).length + 1;
+    while (ctx.helpers.some(h => h.name === `todo${n}`)) n++;
+    const name = `todo${n}`;
+    ctx.helpers.push({ name, code: `  /** TODO ${text.replace(/\*\//g, '* /')} */\n  private def ${name}: Nothing = ???` });
+    return name;
+  });
+}
+
 /** An ISO 8601 duration (`PT1M`) as a ZIO Duration. */
 const isoDuration = (scala: string) => `zio.Duration.fromJava(java.time.Duration.parse(${scala}))`;
 
@@ -954,10 +999,10 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
     const vars = scalaVars(known);
     if (s.kind === 'service') {
       const ref = task?.service ? ctx.services.get(task.service) : undefined;
-      if (!ref) { lines.push(`_ <- ZIO.fail(CustomError(${JSON.stringify(`«${s.name || s.id}»: kein Service`)})) // TODO Service wählen`); continue; }
+      if (!ref) { lines.push(`_ <- ZIO.fail(CustomError(${JSON.stringify(`«${s.name || s.id}»: kein Service - im Schritt den Service wählen`)}))`); continue; }
       ctx.called.set(ref.topic, ref);
       const pre: string[] = [];
-      const input = serviceIn(ref, task, vars, ctx, pre);
+      const input = inputCall(serviceIn(ref, task, vars, ctx, pre), ref, s, vars, ctx);
       lines.push(...pre);
       const outputs = (task?.outputs ?? []).filter(m => !m.disabled && m.name.trim());
       const target = ref.service.noOut || (task?.outputs && !outputs.length) ? '_' : resultName(task, ref);
@@ -999,7 +1044,8 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
           }
         }
       }
-      if (s.errors?.length) lines.push(`// TODO Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
+      // not in runWorkZIO: a note above it
+      if (s.errors?.length) ctx.notes.push(`Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
     } else if (s.kind === 'script') {
       if (task?.mapping || task?.script?.trim()) {
         const c = task.mapping ? mappingCall(s, task.mapping, known, ctx) : scriptCall(s, task, known, ctx);
@@ -1234,7 +1280,8 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   if (loopAt >= 0) {
     const segment = steps.slice(loopAt);
     const target = steps[loopAt];
-    const name = uniqueMethod(ctx, camelName(target.name || target.id));
+    // English, whatever the step is called - its name is in the doc of the method
+    const name = uniqueMethod(ctx, 'repeat');
     const typeOfVar = (v: OrchVar, optional = !!v.optional) => fieldType({ id: v.name, name: v.name, type: v.type, ...(optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}) } as Field, ctx.idx);
     const carried = carriedVars(segment, o, ctx.services);
     const plain = known.filter(v => !carried.some(c => c.name === v.name) && /^[A-Za-z_]\w*$/.test(v.scala));
@@ -1261,7 +1308,7 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       { name: 'loopCounter', scala: 'loopCounter', type: 'Int', source: 'Script' },
       ...carried.map(v => ({ ...v, scala: `${v.name}Before`, optional: true })),
     ];
-    const zio = terminalZio(segment, inLoop, ctx, loop);
+    const zio = withoutTodos(terminalZio(segment, inLoop, ctx, loop), ctx);
     loopMethod = [
       `  /** «${target.name || target.id}»: the steps from here on - a jump back to it: once more, loopCounter + 1 */`,
       `  private def ${name}(${loop.params.map(p => `${p.name}: ${p.type}`).join(', ')}): RunWorkZIOOutput[${o.noOut ? 'NoOutput' : 'Out'}] =`,
@@ -1273,10 +1320,11 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   } else {
     out = outValue(o, known, ctx, pre);
   }
-  const lines = startWithGenerator([...body, ...pre]);
+  const lines = startWithGenerator([...body, ...pre]).map(l => withoutTodos(l, ctx));
+  const yielded = withoutTodos(out, ctx);
   const run = lines.length
-    ? ['    for', indent(lines.join('\n'), '      '), `    yield ${out.replace(/\n/g, '\n    ')}`]
-    : [`    ZIO.succeed(${out.replace(/\n/g, '\n    ')})`];
+    ? ['    for', indent(lines.join('\n'), '      '), `    yield ${yielded.replace(/\n/g, '\n    ')}`]
+    : [`    ZIO.succeed(${yielded.replace(/\n/g, '\n    ')})`];
   const api = orchestrationApi(o);
   const imports = workerImports(o, ctx, run.join('\n'), true);
   // per service it calls: one method - a test overrides it with what the service answers
@@ -1296,6 +1344,7 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   ].join('\n'));
   const scripts = [
     ...(loopMethod ? [loopMethod] : []),
+    ...ctx.helpers.map(h => h.code),
     ...timers,
     ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
     ...(ctx.scripts.some(m => m.io) ? [MAPPED] : []),
@@ -1309,7 +1358,7 @@ class ${o.name}Worker
 
   lazy val customTask = example
 
-  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
+${ctx.notes.map(n => `  // TODO ${n}\n`).join('')}  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
 ${run.join('\n')}
 ${scripts.length ? `\n${scripts.join('\n\n')}\n` : ''}${calls.length ? `\n${calls.join('\n\n')}\n` : ''}
 end ${o.name}Worker
@@ -1485,7 +1534,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
-    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(), timers: new Map(),
+    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(), timers: new Map(), helpers: [], notes: [],
   };
   // the classes of the catalog as types too - a path into one (`client.clientKey`) resolves like one into an own class
   for (const d of ctx.domain) {

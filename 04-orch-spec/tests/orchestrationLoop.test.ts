@@ -59,12 +59,12 @@ test('the loop: the steps from its target a method that calls itself once more -
   const files = orchestrationFiles(polling(), [collection()], null);
   const w = files.find(f => f.path.endsWith('/WaitForFileWorker.scala'))!.content;
   // runWorkZIO starts the loop with round 1, nothing carried yet
-  assert.match(w, /out <- abHier\(1, in, None\)/, w);
-  assert.match(w, /private def abHier\(loopCounter: Int, in: In, checksBefore: Option\[[^\]]+\]\): RunWorkZIOOutput\[Out\] =/, w);
+  assert.match(w, /out <- repeat\(1, in, None\)/, w);
+  assert.match(w, /private def repeat\(loopCounter: Int, in: In, checksBefore: Option\[[^\]]+\]\): RunWorkZIOOutput\[Out\] =/, w);
   // the service in the loop, then the decision: done - the Out; not done - max or wait and once more
   assert.match(w, /checkStatus <- runCheckStatus\(/, w);
   assert.match(w, /if loopCounter >= 10 then/, w);
-  assert.match(w, /_ <- ZIO\.sleep\(timerWaitForStatus\)\n\s+out <- abHier\(loopCounter \+ 1, in, Some\(checks\)\)/, w);
+  assert.match(w, /_ <- ZIO\.sleep\(timerWaitForStatus\)\n\s+out <- repeat\(loopCounter \+ 1, in, Some\(checks\)\)/, w);
   // the timer: a method with its default
   assert.match(w, /protected def timerWaitForStatus: zio\.Duration = zio\.Duration\.fromJava\(java\.time\.Duration\.parse\("PT1M"\)\)/, w);
   // the test does not wait
@@ -108,4 +108,17 @@ test('FEEL + in Scala: a text joined, a sum, string(x); a value that may be miss
   assert.equal(scala('= "x (" + c + ")"'), '"x (" + cBefore.fold("null")(_.toString) + ")"');
   // a + in a text is no plus
   assert.equal(scala('= "a+b"'), '"a+b"');
+  // brackets around a part: what is inside
+  assert.equal(scala('= "x " + (if c != null then string(c) else "-")'), '"x " + (cBefore match { case Some(c) => c.toString; case None => "-" })');
+});
+
+test('runWorkZIO without TODOs: an In still to complete is built in a method of its own, with what it reads', () => {
+  const c = collection();
+  c.types = c.types.map(x => (x.id === 'check-in' ? { ...x, fields: [...x.fields!, { id: 'kind', name: 'kind', type: 'String' }] } : x));
+  const files = orchestrationFiles(polling(), [c], null);
+  const w = files.find(f => f.path.endsWith('/WaitForFileWorker.scala'))!.content;
+  const run = w.slice(w.indexOf('def runWorkZIO'), w.indexOf('  /**', w.indexOf('def runWorkZIO')));
+  assert.doesNotMatch(run, /\?\?\?|TODO/, run);
+  assert.match(w, /checkStatus <- runCheckStatus\(checkStatusIn\(in\)\)/, w);
+  assert.match(w, /private def checkStatusIn\(in: In\): CheckStatus\.In =\n\s+CheckStatus\.In\(\n\s+fileId = in\.fileId,\n\s+kind = \?\?\? \/\* TODO kind: kein Mapping \*\/\n\s+\)/, w);
 });
