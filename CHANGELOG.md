@@ -24,10 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fuel limit:** Scala 3.10 stops recursive operations after a fuel of 550 (`Recursion limit exceeded`) - too little to derive the codec of a class with a few hundred fields. The generated builds set `-Xmax-fuel:2000`; a hand-maintained `Settings.scala` needs it added.
 - **Scala 3.10 breaking changes** that may hit own code: a `Double` literal is no longer taken where a `Float` is expected (`2.0` -> `2.0f`), `@throws` only on methods and constructors, `strictEqualityPatternMatching` is on by default, the `with` type operator is an error.
 - **chimney 2:** mapping code must be recompiled; `withCoproduct...` (deprecated) and `.toPartialResult` (use `.asResult`) are gone.
+- **sbt 2 for orchescala's own build:** orchescala is built with sbt 2.1.0. Company and project builds stay on sbt 1.13.1 - the helper writes their own sbt version (`BuildInfo.generatedSbtVersion`), no longer the one orchescala is built with. For work on orchescala itself: `sbt` runs the build in a background server (`sbt shutdown` ends it), the colon syntax is gone (`Test/compile`, not `test:compile`), and the build output is in `target/out/` of the root (e.g. the test reports in `target/out/jvm/scala-3.10.1/<module>/test-reports`).
 - **Removed `springBootVersion`:** `CompanyVersionConfig.springBootVersion` and the key `BuildInfo.springBootVersion` are gone - no generator read them; a company build that sets or reads one of them must drop it.
 
 ### Dependencies
-- Scala 3.10.1, sbt 1.13.1.
+- Scala 3.10.1; sbt 2.1.0 for orchescala's build, sbt 1.13.1 for the generated company and project builds.
 - Libraries: os-lib 0.11.10, circe 0.14.17, http4s 0.23.38, typesafe-config 1.4.10, scala-xml 2.5.0, munit 1.3.6, iron-circe 3.4.1, chimney 2.1.1, scala-java-time 2.11.0, coursier interface 1.0.30, jakarta.xml.bind-api 4.0.5, ZIO 2.1.27, zio-logging 2.5.4, logback 1.6.7, swagger-parser 2.1.48, java-jwt 4.6.2, jgit 7.8.1, postgresql 42.7.14, HikariCP 6.3.3.
 - tapir 1.14.1, openapi-circe-yaml 0.12.1, zio-http 3.11.6; DMN Tester: dmn-scala 1.12.6 (feel-scala 1.22.1).
 - sbt plugins: sbt-native-packager 1.13.0, sbt-ci-release 1.12.1, sbt-mdoc 2.9.2, sbt-buildinfo 0.13.2, sbt-scalajs 1.23.0 - their versions are only in `project/plugins.sbt`.
