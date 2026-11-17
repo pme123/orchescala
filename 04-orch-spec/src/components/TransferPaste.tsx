@@ -137,6 +137,9 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
           ...(modelWritten ? [`Übernommen: ${[...plan.typeMappers.map(m => `Typ-Mapper ${m.name?.trim() || m.id}`), ...plan.patterns.map(p => `Pattern ${String(p.name ?? p.id)}`)].join(', ')}`] : []),
           ...(done.length ? [`Eingefügt: ${done.join(', ')}`] : []), ...problems,
         ].join(' · '));
+        // what went through is not pasted again by a second «Übernehmen» - only what failed
+        const through = new Set(done);
+        setActions(a => ({ ...a, ...Object.fromEntries(plan.rows.filter(r => through.has(r.title)).map(r => [rowKey(r.item), 'skip' as PasteAction])) }));
         if (wrote || modelWritten) onWritten?.();
         return;
       }

@@ -30,7 +30,8 @@ export function workerFileOf(files: ProjectFile[], spec: ServiceProcess): Projec
   const name = `/${spec.service.name}Worker.scala`;
   const api = `/${spec.service.api.split('.').join('/')}/v${spec.service.apiVersion}/`;
   const candidates = files.filter(f => f.path.endsWith(name) && !f.path.includes('/src/test/'));
-  return candidates.find(f => f.path.includes(api)) ?? (candidates.length === 1 ? candidates[0] : undefined);
+  // only the one of its API - a worker of the same name in another API or version is another one
+  return candidates.find(f => f.path.includes(api));
 }
 
 /** The worker the export writes for `spec` - the one the code is compared with. */

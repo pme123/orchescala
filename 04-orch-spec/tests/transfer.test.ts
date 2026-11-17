@@ -114,3 +114,12 @@ test('pasted twice the same: refused; a process and a collection of the same nam
   const plan = planPaste(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model), { processes: new Map(), collections: new Map() }, { ...model, typeMappers: [reordered] } as Model);
   assert.deepEqual(plan.differing, []);
 });
+
+test('pasted from outside: a reserved name as DMN table, an item that is null - refused', () => {
+  const s = spec();
+  const p = JSON.parse(transferText(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model)));
+  p.items[0].dmns = JSON.parse('{"__proto__": "<dmn/>"}');
+  assert.deepEqual(readTransfer(JSON.stringify(p)), { error: `«${s.slug}»: eine DMN-Tabelle hat keinen gültigen Namen - nicht eingefügt.` });
+  p.items = [null];
+  assert.deepEqual(readTransfer(JSON.stringify(p)), { error: '«?» ist unvollständig - nicht eingefügt.' });
+});

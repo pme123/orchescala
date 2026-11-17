@@ -131,7 +131,7 @@ function wholeSteps(steps: unknown): boolean {
 /** a slug as the app writes it (slugify): no path, no dots */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** the id of a decision - the name of its DMN file */
-const DECISION_ID = /^[A-Za-z0-9_][\w-]*$/;
+const DECISION_ID = /^(?!(?:__proto__|constructor|prototype)$)[A-Za-z0-9_][\w-]*$/;
 
 export type PasteAction = 'create' | 'overwrite' | 'skip';
 
