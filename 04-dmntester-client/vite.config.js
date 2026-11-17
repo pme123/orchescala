@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import { resolve } from "path";
 import { defineConfig } from "vite";
 
@@ -10,15 +10,18 @@ function isDev() {
 //   fastLinkJS -> <target>/scalajs/dev      fullLinkJS -> <target>/scalajs/prod
 // `sbt dmnTesterClient/bundleClient` passes the directory (SCALAJS_OUTPUT). Without it
 // (`npm run dev`) it is looked up in sbt's target of the build:
-// target/out/sjs1/scala-<version>/orchescala-dmntester-client
+// target/out/sjs1/scala-<version>/orchescala-dmntester-client - after a Scala update the
+// one of the old version may still be there: the most recently linked one wins
 const stage = isDev() ? "dev" : "prod";
 function sbtTarget() {
   const base = resolve(__dirname, "..", "target", "out", "sjs1");
   const scalaDirs = existsSync(base) ? readdirSync(base).filter((d) => d.startsWith("scala-")) : [];
-  const candidates = scalaDirs.map((d) =>
-    resolve(base, d, "orchescala-dmntester-client", "scalajs", stage)
-  );
-  return candidates.find((c) => existsSync(resolve(c, "main.js"))) ?? candidates[0] ?? base;
+  const linked = scalaDirs
+    .map((d) => resolve(base, d, "orchescala-dmntester-client", "scalajs", stage))
+    .filter((c) => existsSync(resolve(c, "main.js")))
+    .sort((a, b) => statSync(resolve(b, "main.js")).mtimeMs - statSync(resolve(a, "main.js")).mtimeMs);
+  // none: the check below names the directory and how to link it
+  return linked[0] ?? resolve(base, "scala-<version>", "orchescala-dmntester-client", "scalajs", stage);
 }
 const scalaJSOutput = process.env.SCALAJS_OUTPUT || sbtTarget();
 

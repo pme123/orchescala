@@ -114,7 +114,7 @@ jobs:
         if: always()    # run this step even if previous step failed
         with:
           name: Test Report            # Name of the check run which will be created
-          path: "**/test-reports/*.xml"    # Path to test results (sbt 2: target/out/jvm/scala-*/<module>/test-reports)
+          path: "target/out/**/test-reports/*.xml"    # Path to test results (sbt 2: target/out/jvm/scala-*/<module>/test-reports)
           reporter: java-junit        # Format of test results
         env:
           JAVA_OPTS: "-Xmx3G"
