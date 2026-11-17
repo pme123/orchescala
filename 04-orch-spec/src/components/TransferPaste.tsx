@@ -105,7 +105,7 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
         } else {
           // where this place keeps its OpenAPI - in the spec before it is written, the file after it:
           // a spec that is not written leaves no OpenAPI behind
-          const spec = item.openApi
+          let spec = item.openApi
             ? { ...item.spec, source: { ...(item.spec.source ?? {}), stored: storedOpenApiPath(item.slug, item.openApi.file) } }
             : item.spec;
           // the OpenAPI it kept here before (overwrite) - only that one may go when the ending changes
@@ -120,6 +120,8 @@ export default function TransferPaste({ isDark, onClose, onDone, onWritten }: {
             if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
             if (cur.version !== row.existing?.version) { problems.push(`«${row.title}» wurde hier inzwischen geändert - nicht überschrieben, nochmals einfügen`); continue; }
             before = isCollection(cur.data) ? cur.data.source?.stored : undefined;
+            // without an OpenAPI of its own the one kept here stays its OpenAPI
+            if (!item.openApi && before) spec = { ...spec, source: { ...(spec.source ?? {}), stored: before } };
             const r = await saveService(spec, cur.version);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
             wrote = true;
