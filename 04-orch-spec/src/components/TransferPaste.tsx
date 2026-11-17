@@ -10,6 +10,7 @@ import { cls } from '../ui';
 import { callableServices } from '../services/serviceProcess';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
+import { storedOpenApiPath } from '../services/openApiFile';
 import { planPaste, readTransfer, withPasted, type PasteAction, type PastePlan, type Transfer } from '../transfer';
 
 /** why a save did not go through */
@@ -20,7 +21,7 @@ export default function TransferPaste({ isDark, onClose, onDone }: { isDark: boo
   const c = cls(isDark);
   const warn = isDark ? 'text-amber-400' : 'text-amber-600';
   const { model, specs, saveModel, createSpec, loadSpec, saveSpec, saveBpmn, saveDmn } = useStore();
-  const { services, createService, saveService, saveOpenApi } = useServices();
+  const { services, loadService, createService, saveService, saveOpenApi } = useServices();
   const author = useAuthor();
   const [text, setText] = useState('');
   const [actions, setActions] = useState<Record<string, PasteAction>>({});
@@ -70,25 +71,33 @@ export default function TransferPaste({ isDark, onClose, onDone }: { isDark: boo
             const r = await saveSpec(item.spec, cur.version, entry ? [entry] : []);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
           }
-          if (item.bpmn) { const w = await saveBpmn(item.slug, item.bpmn); if (!w.ok) problems.push(`«${row.title}» BPMN: ${w.message}`); }
+          // the spec is written - what of it is not is said with it, and it does not count as done
+          const before = problems.length;
+          if (item.bpmn) { const w = await saveBpmn(item.slug, item.bpmn); if (!w.ok) problems.push(`«${row.title}» angelegt, aber das BPMN nicht: ${w.message}`); }
           for (const [id, xml] of Object.entries(item.dmns ?? {})) {
             const w = await saveDmn(item.slug, id, xml);
-            if (!w.ok) problems.push(`«${row.title}» DMN ${id}: ${w.message}`);
+            if (!w.ok) problems.push(`«${row.title}» angelegt, aber die DMN-Tabelle ${id} nicht: ${w.message}`);
           }
+          if (problems.length > before) continue;
         } else {
-          let spec = item.spec;
-          // the OpenAPI next to it, where this place keeps it
-          if (item.openApi) {
-            const stored = await saveOpenApi(item.slug, item.openApi);
-            if (stored) spec = { ...spec, source: { ...(spec.source ?? {}), stored } };
-            else problems.push(`«${row.title}»: die OpenAPI wurde nicht gespeichert`);
-          }
+          // where this place keeps its OpenAPI - in the spec before it is written, the file after it:
+          // a spec that is not written leaves no OpenAPI behind
+          const spec = item.openApi
+            ? { ...item.spec, source: { ...(item.spec.source ?? {}), stored: storedOpenApiPath(item.slug, item.openApi.file) } }
+            : item.spec;
           if (action === 'create') {
             const r = await createService(spec);
             if (!r.ok) { problems.push(`«${row.title}»: ${r.message}`); continue; }
           } else {
-            const r = await saveService(spec, row.existing!.version);
+            // the version as it is now - as for a process
+            const cur = await loadService(item.slug);
+            if (!cur) { problems.push(`«${row.title}» gibt es hier nicht mehr`); continue; }
+            const r = await saveService(spec, cur.version);
             if (r.status !== 'saved') { problems.push(`«${row.title}»: ${saveProblem(r)}`); continue; }
+          }
+          if (item.openApi && !(await saveOpenApi(item.slug, item.openApi, item.spec.source?.stored))) {
+            problems.push(`«${row.title}» angelegt, aber die OpenAPI nicht`);
+            continue;
           }
         }
         done.push(row.title);
