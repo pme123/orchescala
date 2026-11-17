@@ -76,7 +76,6 @@ lazy val domain = project
       scalaVersion,
       sbtVersion,
       BuildInfoKey("camundaVersion", camundaVersion),
-      BuildInfoKey("springBootVersion", springBootVersion),
       BuildInfoKey("jaxbApiVersion", jaxbApiVersion),
       BuildInfoKey("osLibVersion", osLibVersion),
       BuildInfoKey("mUnitVersion", mUnitVersion),

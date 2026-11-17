@@ -1,5 +1,6 @@
 package orchescala.helper.dev.update
 
+import orchescala.BuildInfo
 import orchescala.api.VersionHelper
 import orchescala.helper.util.TestType
 
@@ -48,7 +49,7 @@ case class SbtGenerator()(using
        |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
        |
        |// docker image
-       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "1.11.4")
+       |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "${BuildInfo.sbtNativePackager}")
        |
        |""".stripMargin
 

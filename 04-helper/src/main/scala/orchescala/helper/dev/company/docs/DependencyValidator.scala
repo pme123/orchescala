@@ -9,8 +9,8 @@ case class DependencyValidator()(using
 
   /** A dependency on a project that is not in VERSIONS.conf stops the docs; one on another minor
     * than VERSIONS.conf is only a warning - the release page shows it in red (`2.30.*`).
+    * Throws an `IllegalStateException` for missing dependencies.
     */
-  @throws[IllegalStateException]
   lazy val validateDependencies: Unit =
     val (missing, otherMinor) = DependencyValidator.dependencyFailures(configs)
     def lines(failures: Seq[(String, Seq[String])]) =

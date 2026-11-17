@@ -76,7 +76,7 @@ trait OpWorkerClient:
     .backoffStrategy(
       new ExponentialBackoffStrategy(
         100L, // Initial backoff time in milliseconds
-        2.0,  // Backoff factor
+        2.0f, // Backoff factor
         maxTimeForAcquireJob.toMillis
       )
     )

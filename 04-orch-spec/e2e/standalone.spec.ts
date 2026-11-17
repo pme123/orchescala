@@ -57,9 +57,15 @@ async function openFolder(page: Page) {
   await expect(page.getByText('acme-demo-orderV1')).toBeVisible();
 }
 
+// the step in the list of the flow - not its label in the BPMN diagram (an SVG <tspan>): which of
+// the two comes first depends on when the diagram is drawn, and in the diagram bpmn-js' hit
+// area takes the click
+const approveOrderStep = (page: Page) =>
+  page.getByText('approve order').and(page.locator('span')).first();
+
 async function openProcess(page: Page) {
   await page.getByText('acme-demo-orderV1').click();
-  await expect(page.getByText('approve order').first()).toBeVisible();
+  await expect(approveOrderStep(page)).toBeVisible();
 }
 
 async function createPage(page: Page) {
@@ -212,7 +218,7 @@ test('a user task gets its page: a new one from the dialog «Neu» filled in, or
 
   await page.getByRole('button', { name: 'Prozesse', exact: true }).first().click();
   await openProcess(page);
-  await page.getByText('approve order').first().click();
+  await approveOrderStep(page).click();
 
   // an existing page: it gets a button «Abschliessen» for the task
   await page.getByTitle(/Eine bestehende Seite schliesst «ApproveOrderUT» ab/).selectOption({ label: 'Termin buchen' });
