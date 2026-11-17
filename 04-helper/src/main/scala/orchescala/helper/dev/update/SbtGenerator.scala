@@ -16,6 +16,8 @@ case class SbtGenerator()(using
   end generate
 
   def generateBuildProperties(replaceStr: String = helperDoNotAdjustText) =
+    SbtGenerator.sbtVersionWarning(config.versionConfig.sbtVersion, BuildInfo.sbtVersion)
+      .foreach(w => println(s"${Console.YELLOW}$w${Console.RESET}"))
     createOrUpdate(config.sbtProjectDir / "build.properties", buildProperties(replaceStr))
   lazy val generatePluginsSbt                                             =
     createOrUpdate(config.sbtProjectDir / "plugins.sbt", pluginsSbt)
@@ -38,6 +40,8 @@ case class SbtGenerator()(using
        |ThisBuild / libraryDependencySchemes += "io.github.pme123" %% "orchescala-api" % "early-semver"
        |ThisBuild / evictionErrorLevel := Level.Warn
        |ThisBuild / usePipelining := true
+       |// sbt 2 keeps the build loaded in a server - reload it when `./helper.scala update` changed it
+       |Global / onChangedBuildSource := ReloadOnSourceChanges
        |"""
 
   private def buildProperties(replaceStr: String) =
@@ -46,8 +50,6 @@ case class SbtGenerator()(using
        |""".stripMargin
   private lazy val pluginsSbt                     =
     s"""$helperDoNotAdjustText
-       |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
-       |
        |// docker image
        |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "${BuildInfo.sbtNativePackager}")
        |
@@ -179,4 +181,19 @@ case class SbtGenerator()(using
         s""",
            |    simulationSettings""".stripMargin
   private lazy val modulesTypes = config.apiProjectConfig.modules
+end SbtGenerator
+
+object SbtGenerator:
+  /** A build gets the sbt version of orchescala - unless its config sets an own one (e.g.
+    * `sbtVersion = BuildInfo.sbtVersion` in an old `CompanyDevConfig`: the version the company
+    * build runs with, so the builds would stay on it). Said on every `update`, not only in the
+    * CHANGELOG.
+    */
+  def sbtVersionWarning(configured: String, orchescalaSbt: String): Option[String] =
+    Option.when(configured != orchescalaSbt)(
+      s"WARNING: the build gets sbt $configured, orchescala is built with sbt $orchescalaSbt. " +
+        "Fine if you pinned it on purpose. If not: the CompanyVersionConfig of your CompanyDevConfig " +
+        "probably sets `sbtVersion = BuildInfo.sbtVersion` (the sbt the company build runs with) - " +
+        "remove that line, then the builds get the sbt version of orchescala."
+    )
 end SbtGenerator

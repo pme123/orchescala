@@ -137,7 +137,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
                 if moduleConfig.exclusions.isEmpty then s"\n      $dep"
                 else
                   moduleConfig.exclusions
-                    .map((org, name) => s"""\n        .exclude("$org", "$name")""")
+                    .map((org, name) => s"""\n        .excludeAll(ExclusionRule("$org", "$name"))""")
                     .mkString(s"\n      ($dep)", "", "")
               .mkString(",")
           }

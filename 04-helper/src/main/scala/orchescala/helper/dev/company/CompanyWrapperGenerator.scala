@@ -807,7 +807,8 @@ case class CompanyWrapperGenerator()(using config: DevConfig):
        |    scalaVersion = BuildInfo.scalaVersion,
        |    orchescalaVersion = BuildInfo.orchescalaV,
        |    companyOrchescalaVersion = BuildInfo.version,
-       |    sbtVersion = BuildInfo.sbtVersion,
+       |    // no sbtVersion: the default is the one of orchescala - `BuildInfo.sbtVersion` is the one
+       |    // this company build runs with, so the builds would never move to a new sbt
        |    otherVersions = Map()
        |  )
        |end CompanyDevConfig

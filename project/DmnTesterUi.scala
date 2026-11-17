@@ -26,19 +26,25 @@ object DmnTesterUi {
          |  npm --prefix ${clientDir.getName} run build""".stripMargin
     )
 
-  def build(clientDir: File, log: Logger): Unit = {
+  def build(clientDir: File, scalaJSOutput: File, log: Logger): Unit = {
     // install WITHOUT NODE_ENV=production - npm would omit the devDependencies,
     // and vite is one of them. `.bin/vite` is what the build needs, so a broken
     // or partial node_modules is repaired as well.
     if (!(clientDir / "node_modules" / ".bin" / "vite").exists())
       run("npm ci", clientDir, log)
-    // NODE_ENV selects the fullLinkJS output - see vite.config.js
-    run("npm run build", clientDir, log, "NODE_ENV" -> "production")
+    // NODE_ENV: a production build; SCALAJS_OUTPUT: where fullLinkJS linked to - see vite.config.js
+    run(
+      "npm run build",
+      clientDir,
+      log,
+      "NODE_ENV"       -> "production",
+      "SCALAJS_OUTPUT" -> scalaJSOutput.getAbsolutePath
+    )
   }
 
   private def run(command: String, cwd: File, log: Logger, env: (String, String)*): Unit = {
     log.info(s"DMN Tester UI: $command (in $cwd)")
-    val exitCode = Process(command, cwd, env: _*) ! log
+    val exitCode = Process(command, cwd, env*) ! log
     if (exitCode != 0)
       sys.error(s"'$command' failed in $cwd (exit code $exitCode)")
   }

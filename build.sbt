@@ -9,6 +9,8 @@ addCommandAlias(
 )
 
 ThisBuild / evictionErrorLevel     := Level.Warn
+// sbt 2 keeps the build loaded in a server - reload it when a build file changed
+Global / onChangedBuildSource := ReloadOnSourceChanges
 //Problems in Scala 3.5.0: ThisBuild / usePipelining := true
 
 lazy val root = project
@@ -117,15 +119,15 @@ lazy val dmnTester =
     .settings(projectSettings("dmntester"))
     .settings(
       libraryDependencies ++= Seq(
-        "io.circe" %%% "circe-core"    % circeVersion,
-        "io.circe" %%% "circe-generic" % circeVersion,
-        "io.circe" %%% "circe-parser"  % circeVersion
+        "io.circe" %% "circe-core"    % circeVersion,
+        "io.circe" %% "circe-generic" % circeVersion,
+        "io.circe" %% "circe-parser"  % circeVersion
       )
     )
     .jsSettings(
       // the model uses java.time.LocalDateTime, which Scala.js does not have
       libraryDependencies +=
-        "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTimeVersion
+        "io.github.cquiroz" %% "scala-java-time" % scalaJavaTimeVersion
     )
 
 // layer 03
@@ -296,17 +298,20 @@ lazy val dmnTesterClient = project
     },
     scalacOptions ++= Seq("-Xmax-inlines", "128"),
     // vite must know where the linked JS is. Asking sbt from vite.config.js
-    // is fragile (it silently produced an empty path on CI), so the linker
-    // writes to a fixed directory that vite simply points at.
+    // is fragile (it silently produced an empty path on CI), so `bundleClient`
+    // passes the directory to vite (SCALAJS_OUTPUT). It stays under sbt's
+    // `target` (target/out/sjs1/...): sbt 2 takes fullLinkJS from its cache and
+    // restores the files only there - not in a directory outside of it.
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory :=
       target.value / "scalajs" / "dev",
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
       target.value / "scalajs" / "prod",
     libraryDependencies ++= Seq(
-      "org.scala-js" %%% "scalajs-dom" % scalaJsDomVersion,
-      "com.raquo"    %%% "laminar"     % laminarVersion
+      "org.scala-js" %% "scalajs-dom" % scalaJsDomVersion,
+      "com.raquo"    %% "laminar"     % laminarVersion
     ),
-    bundleClient := {
+    // sbt 2 caches task results - not this one: it runs npm/vite and writes files; FileFunction.cached below decides whether to rebuild
+    bundleClient := Def.uncached {
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -329,7 +334,7 @@ lazy val dmnTesterClient = project
           FilesInfo.hash,
           FilesInfo.exists
         ) { _ =>
-          DmnTesterUi.build(clientDir, log)
+          DmnTesterUi.build(clientDir, linkedDir, log)
           bundled
         }
         bundle(inputs).toSeq
@@ -358,7 +363,7 @@ lazy val orchDocClient = project
   .settings(
     // NOT MIT like the rest: Business Source License 1.1 (see 04-orch-doc/LICENSE) - the apps
     // and this artifact are z9nai's, production use with a license key (LicenseKey)
-    licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
+    licenses := Seq(("BUSL-1.1", uri("https://mariadb.com/bsl11/"))),
     // no Scala sources - the jar carries the bundles only
     Compile / unmanagedSourceDirectories := Seq.empty,
     Test / unmanagedSourceDirectories := Seq.empty,
@@ -368,7 +373,8 @@ lazy val orchDocClient = project
     Compile / unmanagedResources := (Compile / unmanagedResources)
       .dependsOn(bundleDocClient)
       .value,
-    bundleDocClient := {
+    // sbt 2 caches task results - not this one: it runs npm/vite and writes files; FileFunction.cached below decides whether to rebuild
+    bundleDocClient := Def.uncached {
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -471,7 +477,7 @@ lazy val gateway = project
       oauth2Dependency
     ),
     // Task to generate OpenAPI specification (run manually with: sbt "project gateway" generateOpenApi)
-    generateOpenApi := {
+    generateOpenApi := Def.uncached { // writes a file - never from sbt's cache
       val log = streams.value.log
       log.info("Generating OpenAPI specification...")
       (Compile / runMain).toTask(" orchescala.gateway.GenerateOpenApiYaml").value
@@ -604,8 +610,10 @@ addCommandAlias(
       // and OpWorker, so this covers C7 Op as well), Camunda 7 and 8 (as existing companies)
       // and Operaton only (the generated sources without Camunda 7 - the module dependencies
       // stay the same)
+      // reload after generating: sbt 2's server keeps the state of the source files - without
+      // it, the compile right after the generator sometimes saw the files of the run before
       Seq("C7 C8 Op", "C7 C8", "Op").flatMap(engines =>
-        companyCheckGenerate(engines) +: companyCheckCompile
+        Seq(companyCheckGenerate(engines), "reload") ++ companyCheckCompile
       )
   ).mkString("; ")
 )

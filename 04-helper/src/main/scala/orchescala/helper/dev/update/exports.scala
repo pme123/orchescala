@@ -37,7 +37,10 @@ def createOrUpdate(file: os.Path, contentNew: String): Unit =
     if os.exists(file)
     then os.read(file)
     else doNotAdjust
-  if contentExisting.contains(doNotAdjust)
+  if contentExisting == contentNew then
+    // nothing to write - "Updated" would suggest a change that is not there
+    println(s"Unchanged - $file")
+  else if contentExisting.contains(doNotAdjust)
   then
     println(s"${Console.BLUE}Updated - $file${Console.RESET}")
     os.write.over(file, contentNew, createFolders = true)

@@ -1,1 +1,2 @@
 -XX:CompileCommand=exclude,dotty.tools.scaladoc.translators.SignatureBuilder::*
+-Xmx3G

@@ -1,6 +1,6 @@
 package orchescala.helper.openApi
 
-// helper/test:run
+// helper/Test/run
 object ProjectApiGenerator:
 
   def main(args: Array[String]): Unit =

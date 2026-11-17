@@ -6,6 +6,16 @@ class DevConfigTest extends munit.FunSuite:
 
   val testConfig = DevConfig.init(os.pwd / "04-helper" / "src" / "test" / "resources" / "PROJECT.conf")
 
+  test("without an own sbtVersion the builds get the sbt version of orchescala (sbt 2)"):
+    assertEquals(CompanyVersionConfig().sbtVersion, orchescala.BuildInfo.sbtVersion)
+    assert(CompanyVersionConfig().sbtVersion.startsWith("2."), CompanyVersionConfig().sbtVersion)
+
+  test("update warns when the build gets another sbt version than orchescala's"):
+    import orchescala.helper.dev.update.SbtGenerator
+    assertEquals(SbtGenerator.sbtVersionWarning("2.1.0", "2.1.0"), None)
+    val warning = SbtGenerator.sbtVersionWarning("1.13.1", "2.1.0")
+    assert(warning.exists(w => w.contains("sbt 1.13.1") && w.contains("sbtVersion = BuildInfo.sbtVersion")), warning)
+
   test("dependsOn with no dependencies"):
     assertEquals(
       testConfig.dependsOn(1),
