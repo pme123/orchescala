@@ -43,13 +43,13 @@ object Settings {
   lazy val githubUrl = "https://github.com/pme123/orchescala"
   lazy val publicationSettings = Seq(
     organization := "io.github.pme123",
-    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
-    homepage := Some(url(githubUrl)),
+    licenses += License.MIT,
+    homepage := Some(uri(githubUrl)),
     startYear := Some(2021),
     // logLevel := Level.Debug,
     scmInfo := Some(
       ScmInfo(
-        url(githubUrl),
+        uri(githubUrl),
         "scm:git:github.com:/pme123/orchescala"
       )
     ),
@@ -60,7 +60,7 @@ object Settings {
       id = "pme123",
       name = "Pascal Mengelt",
       email = "pascal.mengelt@gmail.com",
-      url = url("https://github.com/pme123")
+      url = uri("https://github.com/pme123")
     )
   )
   lazy val preventPublication = Seq(

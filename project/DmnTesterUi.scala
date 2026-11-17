@@ -38,7 +38,7 @@ object DmnTesterUi {
 
   private def run(command: String, cwd: File, log: Logger, env: (String, String)*): Unit = {
     log.info(s"DMN Tester UI: $command (in $cwd)")
-    val exitCode = Process(command, cwd, env: _*) ! log
+    val exitCode = Process(command, cwd, env*) ! log
     if (exitCode != 0)
       sys.error(s"'$command' failed in $cwd (exit code $exitCode)")
   }

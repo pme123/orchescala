@@ -118,15 +118,15 @@ lazy val dmnTester =
     .settings(projectSettings("dmntester"))
     .settings(
       libraryDependencies ++= Seq(
-        "io.circe" %%% "circe-core"    % circeVersion,
-        "io.circe" %%% "circe-generic" % circeVersion,
-        "io.circe" %%% "circe-parser"  % circeVersion
+        "io.circe" %% "circe-core"    % circeVersion,
+        "io.circe" %% "circe-generic" % circeVersion,
+        "io.circe" %% "circe-parser"  % circeVersion
       )
     )
     .jsSettings(
       // the model uses java.time.LocalDateTime, which Scala.js does not have
       libraryDependencies +=
-        "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTimeVersion
+        "io.github.cquiroz" %% "scala-java-time" % scalaJavaTimeVersion
     )
 
 // layer 03
@@ -304,10 +304,11 @@ lazy val dmnTesterClient = project
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
       target.value / "scalajs" / "prod",
     libraryDependencies ++= Seq(
-      "org.scala-js" %%% "scalajs-dom" % scalaJsDomVersion,
-      "com.raquo"    %%% "laminar"     % laminarVersion
+      "org.scala-js" %% "scalajs-dom" % scalaJsDomVersion,
+      "com.raquo"    %% "laminar"     % laminarVersion
     ),
-    bundleClient := {
+    // sbt 2 caches task results - not this one: it runs npm/vite and writes files; FileFunction.cached below decides whether to rebuild
+    bundleClient := Def.uncached {
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -369,7 +370,8 @@ lazy val orchDocClient = project
     Compile / unmanagedResources := (Compile / unmanagedResources)
       .dependsOn(bundleDocClient)
       .value,
-    bundleDocClient := {
+    // sbt 2 caches task results - not this one: it runs npm/vite and writes files; FileFunction.cached below decides whether to rebuild
+    bundleDocClient := Def.uncached {
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -472,7 +474,7 @@ lazy val gateway = project
       oauth2Dependency
     ),
     // Task to generate OpenAPI specification (run manually with: sbt "project gateway" generateOpenApi)
-    generateOpenApi := {
+    generateOpenApi := Def.uncached { // writes a file - never from sbt's cache
       val log = streams.value.log
       log.info("Generating OpenAPI specification...")
       (Compile / runMain).toTask(" orchescala.gateway.GenerateOpenApiYaml").value

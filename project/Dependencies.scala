@@ -139,7 +139,7 @@ object Dependencies {
     // with a cross-version clash. Covered by the engine tests, which parse
     // FEEL (fastparse) and read DMNs via os-lib (geny) in one JVM.
     ("org.camunda.bpm.extension.dmn.scala" % "dmn-engine" % dmnScalaVersion)
-      .exclude("com.lihaoyi", "geny_2.13"),
+      .excludeAll(ExclusionRule("com.lihaoyi", "geny_2.13")), // the Scala 2.13 artifact - not cross-versioned
     "org.http4s"                         %% "http4s-dsl"          % http4sVersion,
     "org.http4s"                         %% "http4s-ember-server" % http4sVersion,
     "org.http4s"                         %% "http4s-circe"        % http4sVersion,
