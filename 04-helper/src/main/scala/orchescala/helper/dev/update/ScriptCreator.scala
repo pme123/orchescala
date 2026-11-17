@@ -1,7 +1,6 @@
 package orchescala.helper.dev.update
 
-import orchescala.BuildInfo
-import orchescala.helper.util.CompanyVersionHelper
+import orchescala.helper.util.{CompanyVersionHelper, ScalaCliDirectives}
 
 case class ScriptCreator()(using config: DevConfig):
 
@@ -21,8 +20,7 @@ case class ScriptCreator()(using config: DevConfig):
     s"""#!/usr/bin/env -S scala shebang
        |$helperDoNotAdjustText
        |
-       |//> using scala ${BuildInfo.scalaVersion}
-       |//> using dep $companyName::$companyName-orchescala-helper:${versionHelper.companyOrchescalaVersion}
+       |${ScalaCliDirectives(s"$companyName::$companyName-orchescala-helper:${versionHelper.companyOrchescalaVersion}")}
        |
        |import $companyName.orchescala.helper.*
        |""".stripMargin
