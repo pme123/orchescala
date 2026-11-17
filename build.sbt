@@ -297,8 +297,10 @@ lazy val dmnTesterClient = project
     },
     scalacOptions ++= Seq("-Xmax-inlines", "128"),
     // vite must know where the linked JS is. Asking sbt from vite.config.js
-    // is fragile (it silently produced an empty path on CI), so the linker
-    // writes to a fixed directory that vite simply points at.
+    // is fragile (it silently produced an empty path on CI), so `bundleClient`
+    // passes the directory to vite (SCALAJS_OUTPUT). It stays under sbt's
+    // `target` (target/out/sjs1/...): sbt 2 takes fullLinkJS from its cache and
+    // restores the files only there - not in a directory outside of it.
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory :=
       target.value / "scalajs" / "dev",
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
@@ -331,7 +333,7 @@ lazy val dmnTesterClient = project
           FilesInfo.hash,
           FilesInfo.exists
         ) { _ =>
-          DmnTesterUi.build(clientDir, log)
+          DmnTesterUi.build(clientDir, linkedDir, log)
           bundled
         }
         bundle(inputs).toSeq
@@ -360,7 +362,7 @@ lazy val orchDocClient = project
   .settings(
     // NOT MIT like the rest: Business Source License 1.1 (see 04-orch-doc/LICENSE) - the apps
     // and this artifact are z9nai's, production use with a license key (LicenseKey)
-    licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
+    licenses := Seq(("BUSL-1.1", uri("https://mariadb.com/bsl11/"))),
     // no Scala sources - the jar carries the bundles only
     Compile / unmanagedSourceDirectories := Seq.empty,
     Test / unmanagedSourceDirectories := Seq.empty,
