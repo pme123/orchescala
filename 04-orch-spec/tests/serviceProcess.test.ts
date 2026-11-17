@@ -260,7 +260,9 @@ test('service mode: what a worker cannot do is an error, an error path a warning
   assert.deepEqual(levels(step({ topic: 'a.B' })), []);
   assert.deepEqual(levels(step({})), ['error']);
   assert.deepEqual(levels(step({ kind: 'user' as Step['kind'] })), ['error']);
-  assert.ok(levels(step({ topic: 'a.B', loop: { kind: 'multi' } } as Partial<Step>)).includes('error'));
+  // the target of a jump back is fine - the worker repeats from there
+  assert.deepEqual(levels(step({ kind: 'gateway', gatewayType: 'exclusive', loop: { condition: 'Wiederholung' } })), []);
+  assert.ok(levels(step({ topic: 'a.B', multiInstance: { collection: 'items' } })).includes('error'));
   assert.deepEqual(levels(step({ topic: 'a.B', errors: [{ code: 'E', label: 'E' }] } as Partial<Step>)), ['warn']);
 });
 

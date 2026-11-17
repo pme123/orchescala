@@ -9,7 +9,7 @@ export interface ServiceStepIssue {
 }
 
 /**
- * Service and script tasks, parallel and exclusive gateways — nothing that waits or loops.
+ * Service and script tasks, parallel and exclusive gateways, timers (a duration) and jumps back (a loop).
  * `chosen`: whether the step's service counts as chosen (an orchestration of before keeps it apart).
  */
 export function serviceStepIssues(s: Step, chosen = !!(s.topic || s.serviceId)): ServiceStepIssue[] {
@@ -26,7 +26,9 @@ export function serviceStepIssues(s: Step, chosen = !!(s.topic || s.serviceId)):
   } else if (!['start', 'end', 'service', 'script'].includes(s.kind)) {
     out.push({ level: 'error', text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks, Timer und Schleifen zurück.` });
   }
-  if (s.loop || s.multiInstance) out.push({ level: 'error', text: `«${name}»: Schleifen gibt es in einer Orchestrierung nicht.` });
+  // `loop` only marks the target of a jump back - the worker repeats from there (`repeat`); running a step
+  // once per element of a list is no loop of the worker
+  if (s.multiInstance) out.push({ level: 'error', text: `«${name}»: Mehrfachausführung gibt es in einem Worker nicht - eine Schleife geht mit einem Sprung zurück.` });
   const errors = s.errors ?? [];
   // a boundary error is described as in a process — the worker handles it in code (a TODO in the export)
   if (errors.some(e => !e.side && !e.timer && !isEventBoundary(e))) out.push({ level: 'warn', text: `«${name}»: Fehlerpfad — im Export ein TODO, der Worker behandelt den Fehler im Code.` });
