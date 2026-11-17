@@ -240,3 +240,24 @@ test('an output set to None in the code: removed from the step, said - no crash'
   assert.deepEqual(r.report.changed, ['«Kunde lesen»: Output etag entfernt']);
   assert.deepEqual(r.spec.steps.find(s => s.id === 'Get')!.outputs, []);
 });
+
+test('the reader and own code: a comment with a bracket or quote, an output after own code, a comparison', () => {
+  const code = `class XWorker
+    extends CompanyCustomWorkerDsl[In, Out]:
+
+  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
+    for
+      getClient <- runGetClient(GetClient.In(clientKey = in.clientKey)) // a comment with ( and "
+      _ <- ZIO.when(in.flag == true)(ZIO.unit)
+      etag = getClient.etag
+    yield NoOutput()
+end XWorker
+`;
+  const w = readWorkerCode(code);
+  // the call with its input - the comment counts for nothing
+  const call = w.items?.find(i => i.kind === 'service');
+  assert.ok(call && call.kind === 'service' && call.args?.get('clientKey') === 'in.clientKey', JSON.stringify(w.items));
+  // after own code (a block) the output is own code too - not one of the call
+  assert.equal(call && call.kind === 'service' ? call.outputs.size : -1, 0);
+  assert.deepEqual(w.items?.map(i => i.kind), ['service', 'block', 'block']);
+});

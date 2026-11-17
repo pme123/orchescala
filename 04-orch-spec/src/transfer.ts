@@ -113,6 +113,9 @@ export function readTransfer(text: string): Transfer | { error: string } {
   if (Array.isArray(t.typeMappers) && typeMappers.length !== t.typeMappers.length) return { error: 'Ein mitkopierter Typ-Mapper ist unvollständig - nicht eingefügt.' };
   const patterns = Array.isArray(t.patterns) ? t.patterns : [];
   if (patterns.some(p => !p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id || typeof p.name !== 'string')) return { error: 'Ein mitkopiertes Pattern ist unvollständig - nicht eingefügt.' };
+  // each one once - a second of the same id would be added twice
+  const ids = [...typeMappers.map(m => `m:${m.id}`), ...patterns.map(p => `p:${p.id}`)];
+  if (ids.some((id, n) => ids.indexOf(id) !== n)) return { error: 'Ein Typ-Mapper oder Pattern ist zweimal darin - nicht eingefügt.' };
   // a built-in one is never copied - one claiming to be is none of this app's
   if (patterns.some(p => p.builtin)) return { error: 'Ein mitkopiertes Pattern gibt sich als eingebaut aus - nicht eingefügt.' };
   return {

@@ -58,6 +58,8 @@ export function closing(text: string, at: number): number {
       continue;
     }
     if (ch === '/' && text[i + 1] === '*') { const e = text.indexOf('*/', i + 2); if (e < 0) return -1; i = e + 1; continue; }
+    // a line comment: to the end of its line - a bracket or quote in it counts for nothing
+    if (ch === '/' && text[i + 1] === '/') { const e = text.indexOf('\n', i); if (e < 0) return -1; i = e; continue; }
     if (ch === open) depth++;
     else if (ch === close && --depth === 0) return i;
   }
@@ -87,6 +89,7 @@ export function splitTop(text: string, sep = ','): string[] {
     const ch = text[i];
     if (ch === '"') { for (i++; i < text.length && text[i] !== '"'; i++) if (text[i] === '\\') i++; continue; }
     if (ch === '/' && text[i + 1] === '*') { const e = text.indexOf('*/', i + 2); if (e >= 0) i = e + 1; continue; }
+    if (ch === '/' && text[i + 1] === '/') { const e = text.indexOf('\n', i); i = e < 0 ? text.length : e; continue; }
     if ('([{'.includes(ch)) depth++;
     else if (')]}'.includes(ch)) depth--;
     else if (depth === 0 && text.startsWith(sep, i)) { out.push(text.slice(start, i)); start = i + sep.length; i += sep.length - 1; }
@@ -158,7 +161,7 @@ function fromOption(io: string): string | null {
 
 /** `name <- rhs` / `name = rhs` - the name (a pattern) and the right side. */
 function bindOf(st: string): { name: string; op: '<-' | '='; rhs: string } | null {
-  const m = /^(_|[A-Za-z_]\w*|`[^`]+`|\([^)]*\))\s*(<-|=)\s*([\s\S]*)$/.exec(st);
+  const m = /^(_|[A-Za-z_]\w*|`[^`]+`|\([^)]*\))\s*(<-|=(?!=))\s*([\s\S]*)$/.exec(st);
   return m ? { name: m[1], op: m[2] as '<-' | '=', rhs: m[3].trim() } : null;
 }
 
@@ -195,7 +198,9 @@ export function readWorkerCode(text: string): WorkerCode {
     if (!b) { items.push({ kind: 'block', raw: st }); continue; }
     if (b.op === '=') {
       // an output of the call before it (or of a script)
-      const last = [...items].reverse().find((x): x is Exclude<WorkerItem, { kind: 'block' }> => x.kind !== 'block');
+      // an output of the call right before it - after own code it is own code too
+      const prev = items[items.length - 1];
+      const last = prev && prev.kind !== 'block' ? prev : undefined;
       if (last) last.outputs.set(b.name.replace(/^`|`$/g, ''), b.rhs);
       else items.push({ kind: 'block', raw: st });
       continue;

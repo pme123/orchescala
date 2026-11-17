@@ -130,3 +130,10 @@ test('a pasted pattern claiming to be built in: refused', () => {
   p.patterns = [{ ...pattern, builtin: true }];
   assert.deepEqual(readTransfer(JSON.stringify(p)), { error: 'Ein mitkopiertes Pattern gibt sich als eingebaut aus - nicht eingefügt.' });
 });
+
+test('the same type mapper twice in the pasted text: refused', () => {
+  const s = spec();
+  const p = JSON.parse(transferText(transferOf([{ kind: 'process', slug: s.slug, spec: s }], model)));
+  p.typeMappers = [mapper, mapper];
+  assert.deepEqual(readTransfer(JSON.stringify(p)), { error: 'Ein Typ-Mapper oder Pattern ist zweimal darin - nicht eingefügt.' });
+});
