@@ -185,3 +185,21 @@ end MapClientWorker
   assert.deepEqual([...links.cases], [['dst', { from: 'src', cases: [{ from: 'A', to: 'X' }] }]]);
   assert.deepEqual(Object.fromEntries([...links.fields].map(([k, v]) => [k, v.from.join(' | ')])), { 'dst.id': 'src.id', 'dst.a': 'src.a' });
 });
+
+test('the whole plan from the exported files: In, Out and the worker are as the spec has them; a field added in the code comes in', async () => {
+  const { planCodeSync } = await import('../src/services/codeSync');
+  const spec = described();
+  const files = orchestrationFiles(asOrchestration(spec), [collection()], null).map(x => ({ path: `acme-crm/${x.path}`, text: x.content }));
+  const plan = planCodeSync(spec, files, null, [collection()]);
+  assert.ok(plan.workerPath?.endsWith('/UpdateClientWorker.scala'), plan.workerPath);
+  assert.deepEqual(plan.worker?.changed, []);
+  assert.deepEqual(plan.worker?.hints, []);
+  assert.ok(plan.domain, 'the CustomTask object by its topic');
+  assert.deepEqual([plan.domain!.report.added, plan.domain!.report.stale], [[], []]);
+  // a field of the In added in the code
+  const more = files.map(x => (x.path.endsWith('/UpdateClient.scala') ? { ...x, text: x.text.replace(/clientKey: Long/, 'clientKey: Long,\n      note: Option[String] = None') } : x));
+  const changed = planCodeSync(spec, more, null, [collection()]);
+  const inType = changed.spec.types!.find(x => x.root)!;
+  assert.deepEqual(inType.fields?.map(x => x.name), ['clientKey', 'note'], files.find(x => x.path.endsWith('/UpdateClient.scala'))!.text);
+  assert.ok(changed.domain!.report.changed.includes('In'));
+});

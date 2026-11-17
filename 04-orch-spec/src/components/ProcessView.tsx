@@ -45,6 +45,7 @@ import { useAiConfig } from '../ai/useAiConfig';
 import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
+import CodeSyncPanel from './CodeSyncPanel';
 import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
 import { collectDiagram, overlayPasted } from '../copyPaste';
@@ -209,6 +210,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const [engineOpen, setEngineOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
+  /** «Mit Code abgleichen» of a service orchestration open */
+  const [codeSync, setCodeSync] = useState(false);
   /** selected BPMN waiting in the preview («Mit BPMN abgleichen») */
   const [sync, setSync] = useState<{ raw: string; from: string; mode?: 'bpmn' | 'domain' } | null>(null);
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
@@ -1147,6 +1150,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                       className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
                   </>
                 )}
+                {serviceMode && (
+                  <button onClick={() => setCodeSync(true)}
+                    title="Mit Code abgleichen — der CustomWorker und seine Klassen aus dem Projekt: Service-Aufrufe, Mapping-Linien, Typ-Mapper, In und Out"
+                    className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncDataIcon size={14} /></button>
+                )}
                 {xml && !serviceMode && (
                   <button onClick={() => setSync({ raw: xml, from: 'Domain', mode: 'domain' })}
                     title="Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt"
@@ -1244,6 +1252,20 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           )}
           <button onClick={() => setNotice(null)} className="flex-shrink-0 opacity-60 hover:opacity-100"><X size={10} /></button>
         </div>
+      )}
+
+      {codeSync && canEdit && isServiceProcess(spec) && (
+        <CodeSyncPanel current={spec} model={model} collections={collections} isDark={isDark}
+          onClose={() => setCodeSync(false)}
+          onApply={(p, from) => {
+            setCodeSync(false);
+            const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
+            update(p.spec, {
+              source: 'code-sync',
+              note: `Mit Code abgleichen: ${from}`,
+              report: { ...(p.worker?.changed.length ? { 'Worker geändert': p.worker.changed } : {}), ...(p.domain ? teil('Datenmodell', domainReport(p.domain.report)) : {}) },
+            });
+          }} />
       )}
 
       {sync && canEdit && (
