@@ -495,7 +495,9 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
       } else if (isScriptValue(m.expression)) {
         warnings.push(`«${m.name}»: ${scriptWarning(spec.engine)}`);
       } else if (isJuel(m.expression)) {
-        warnings.push(`«${m.name}»: JUEL aus dem Import, nicht nach FEEL übersetzbar.`);
+        // C8 and a worker know no JUEL - there it does not run at all
+        if (spec.engine === 'c8') errors.push(`«${m.name}»: JUEL gibt es hier nicht (${C8_LABEL} / Worker) - als «= …» schreiben.`);
+        else warnings.push(`«${m.name}»: JUEL aus dem Import, nicht nach FEEL übersetzbar.`);
       }
     }
   };

@@ -107,6 +107,12 @@ const ASSIGNMENT_FIELDS = [
 /** Warning for JUEL the import could not translate — with the reason, if known; `todo` is what to do */
 const untranslatable = (value: string, todo: string): string => untranslatableText(value, 'JUEL,', todo);
 
+/** JUEL where there is none: C8 and a service orchestration (a worker) only know FEEL */
+const NO_JUEL = `JUEL gibt es hier nicht (${C8_LABEL} / Worker) - als «= …» schreiben.`;
+/** what is said about JUEL that stays: for Camunda 7 a hint, where there is none an error */
+const juelLeft = (value: string, engine: EngineId | undefined, todo: string): FeelIssue =>
+  engine === 'c8' ? { level: 'error', text: untranslatableText(value, 'JUEL,', NO_JUEL) } : { level: 'warn', text: untranslatable(value, todo) };
+
 function juelIssues(expression: string, engine: EngineId | undefined, json = false): FeelIssue[] {
   if (engine === 'c8') return [];
   const body = feelBody(expression);
@@ -936,9 +942,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
                 ? [...checkFeel(b.condition, variables, conditionExpected(spec.engine)).issues, ...juelIssues(b.condition, spec.engine)]
                 : !b.isDefault && b.condition && isJuel(b.condition)
-                  ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
-                      ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'
-                      : untranslatable(b.condition, 'als «= …» schreiben.') }]
+                  ? [importExpression(b.condition) !== b.condition
+                      ? { level: 'warn', text: 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.' }
+                      : juelLeft(b.condition, spec.engine, 'als «= …» schreiben.')]
                   : [];
               const condErr = cond.some(i => i.level === 'error');
               const condConvertible = !b.isDefault && !!b.condition && isJuel(b.condition) && importExpression(b.condition) !== b.condition;
@@ -1121,7 +1127,8 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
   const issuesOf = (v: string | undefined): FeelIssue[] => {
     if (!v?.trim()) return [];
     if (isFeel(v)) return [...checkFeel(v, variables).issues, ...juelIssues(v, engine)];
-    return isJuel(v) ? [{ level: 'warn', text: 'JUEL — als «= …» schreiben, dann gilt es für beide Engines.' }] : [];
+    if (!isJuel(v)) return [];
+    return [engine === 'c8' ? { level: 'error', text: NO_JUEL } : { level: 'warn', text: 'JUEL — als «= …» schreiben, dann gilt es für beide Engines.' }];
   };
   return (
     <div className={`rounded border px-2 py-1.5 space-y-1 ${patternTone(isDark)}`}>
@@ -1747,9 +1754,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             ...(!off && isScriptValue(m.expression) ? [{ level: 'warn' as const, text: scriptWarning(engine) }] : []),
             // JUEL the import could not translate — stays until someone writes it as FEEL
             ...(!off && !feel && !isScriptValue(m.expression) && isJuel(m.expression)
-              ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
-                  ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
-                  : untranslatable(m.expression, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.') }]
+              ? [importExpression(m.expression) !== m.expression
+                  ? { level: 'warn' as const, text: 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.' }
+                  : juelLeft(m.expression, engine, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.')]
               : []),
           ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
