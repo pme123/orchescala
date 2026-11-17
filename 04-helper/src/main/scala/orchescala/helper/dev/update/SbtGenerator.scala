@@ -192,7 +192,8 @@ object SbtGenerator:
   def sbtVersionWarning(configured: String, orchescalaSbt: String): Option[String] =
     Option.when(configured != orchescalaSbt)(
       s"WARNING: the build gets sbt $configured, orchescala is built with sbt $orchescalaSbt. " +
-        "If the CompanyVersionConfig of your CompanyDevConfig sets `sbtVersion = BuildInfo.sbtVersion`, " +
-        "remove that line - then the builds get the sbt version of orchescala."
+        "Fine if you pinned it on purpose. If not: the CompanyVersionConfig of your CompanyDevConfig " +
+        "probably sets `sbtVersion = BuildInfo.sbtVersion` (the sbt the company build runs with) - " +
+        "remove that line, then the builds get the sbt version of orchescala."
     )
 end SbtGenerator
