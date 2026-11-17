@@ -245,14 +245,16 @@ object DmnScalaEngine:
 
   def apply(): DmnScalaEngine = new DmnScalaEngine(new DmnEngine())
 
-  /** taken from the jars, so it cannot drift away from `Dependencies.scala`. */
+  /** taken from the jars (`Implementation-Version` of their manifest), so it cannot drift away from
+    * `Dependencies.scala`.
+    */
   lazy val engineName: String =
-    val dmnVersion = implementationVersion(classOf[DmnEngine], "1.11.0")
-    val feelVersion = implementationVersion(classOf[ValError], "1.20.0")
+    val dmnVersion = implementationVersion(classOf[DmnEngine])
+    val feelVersion = implementationVersion(classOf[ValError])
     s"dmn-scala $dmnVersion (feel-scala $feelVersion) - Camunda 8 semantics"
 
-  private def implementationVersion(clazz: Class[?], fallback: String): String =
+  private def implementationVersion(clazz: Class[?]): String =
     Option(clazz.getPackage)
       .flatMap(p => Option(p.getImplementationVersion))
-      .getOrElse(fallback)
+      .getOrElse("(unknown version)")
 end DmnScalaEngine

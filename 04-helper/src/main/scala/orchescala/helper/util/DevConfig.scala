@@ -259,7 +259,6 @@ case class CompanyVersionConfig(
     companyOrchescalaVersion: String = "0.1.0-SNAPSHOT",
     camundaVersion: String = BuildInfo.camundaVersion,
     sbtVersion: String = BuildInfo.sbtVersion,
-    springBootVersion: String = BuildInfo.springBootVersion,
     jaxbXmlVersion: String = BuildInfo.jaxbApiVersion,
     munitVersion: String = BuildInfo.mUnitVersion,
     zioVersion: String = BuildInfo.zioVersion,

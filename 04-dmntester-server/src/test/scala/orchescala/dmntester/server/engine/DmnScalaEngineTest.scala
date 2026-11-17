@@ -19,10 +19,12 @@ class DmnScalaEngineTest extends FunSuite:
     try engine.parse(stream, dmnName).fold(e => fail(e.msg), identity)
     finally stream.close()
 
-  test("the engine says which DMN semantics it implements"):
-    assert(engine.name.contains("dmn-scala 1.11.0"), engine.name)
-    assert(engine.name.contains("feel-scala 1.20.0"), engine.name)
-    assert(engine.name.contains("Camunda 8"), engine.name)
+  test("the engine says which DMN semantics it implements - the versions from the jars"):
+    val version = """\d+\.\d+\.\d+"""
+    assert(
+      engine.name.matches(s"dmn-scala $version \\(feel-scala $version\\) - Camunda 8 semantics"),
+      engine.name
+    )
 
   test("parse a DMN and enumerate its decisions"):
     assertEquals(parse("c8", "c8-dish.dmn").decisionIds, Seq("c8-dish"))

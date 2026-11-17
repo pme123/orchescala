@@ -9,7 +9,7 @@ object Settings {
 
   lazy val projectVersion =
     Using(scala.io.Source.fromFile("version"))(_.mkString.trim).get
-  val scalaV = "3.8.3"
+  val scalaV = "3.10.1"
   val org = "io.github.pme123"
 
   def projectSettings(projName: String) = Seq(
@@ -87,7 +87,8 @@ object Settings {
   lazy val mdocSettings = Seq(
     mdocIn                    := baseDirectory.value / "src" / "docs",
     mdocVariables             := Map(
-      "VERSION"-> projectVersion
+      "VERSION"-> projectVersion,
+      "SCALA_VERSION" -> scalaV
     ),
     mdocExtraArguments        := Seq("--no-link-hygiene"),
   )
