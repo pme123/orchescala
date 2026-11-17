@@ -22,7 +22,8 @@
 // change comes back from the process to the same selection.
 import { overallStatus } from '../status';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FileCode2, FilePlus2, FolderOpen, Loader2, MessageSquare, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ClipboardPaste, FileCode2, FilePlus2, FolderOpen, Loader2, MessageSquare, Trash2, Upload, X } from 'lucide-react';
+import TransferPaste from './TransferPaste';
 import { ProjectGroups, SpecListHead, useSpecList, type ListEntry } from './SpecList';
 import { collectFindings, withServiceRows } from '../findings';
 import { enrichSpec, findDomain, prepareInteractions, readProjectDir, readProjectZip, scanDomain, type Enriched } from '../projectImport';
@@ -66,7 +67,7 @@ function relativeTime(iso: string | undefined): string {
 }
 
 export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => void }) {
-  const { isDark, specs: allSpecs, specsLoading, createSpec, saveBpmn, saveDmn, deleteSpec, model } = useStore();
+  const { isDark, specs: allSpecs, specsLoading, refreshSpecs, createSpec, saveBpmn, saveDmn, deleteSpec, model } = useStore();
   // a process in service mode is a service orchestration — listed under Services
   const specs = useMemo(() => allSpecs.filter(s => !s.data.service), [allSpecs]);
   const { canEdit, canDelete } = usePermissions();
@@ -107,6 +108,9 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
   })), [specs, model]);
   const { visible, groups } = list;
   const [newOpen, setNewOpen] = useState(false);
+  /** «Einfügen» open - and what it took over */
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
@@ -264,6 +268,10 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
               <Upload size={12} /> Aus BPMN
             </button>
+            <button onClick={() => { setPasting(true); setPasted(null); }} title="Was in einer anderen Orch Spec kopiert wurde — ein Prozess mit BPMN und DMN-Tabellen"
+              className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border ${c.btn}`}>
+              <ClipboardPaste size={12} /> Einfügen
+            </button>
 
             <button onClick={() => {
               setCompany(v => v || letztes.company);
@@ -276,6 +284,9 @@ export default function ProcessesView({ onOpen }: { onOpen: (slug: string) => vo
           </div>
         )}
       </div>
+
+      {pasting && <TransferPaste isDark={isDark} onClose={() => setPasting(false)} onDone={titles => { setPasting(false); setPasted(`Eingefügt: ${titles.join(', ')}`); void refreshSpecs(); }} onWritten={() => void refreshSpecs()} />}
+      {pasted && <p className={`text-[11px] mb-2 ${c.muted2}`}>{pasted}</p>}
 
       {error && (
         <div className={`mb-4 text-[11px] px-3 py-2 rounded border ${isDark ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-rose-300 bg-rose-50 text-rose-700'}`}>

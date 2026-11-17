@@ -1,6 +1,6 @@
 // Import an existing collection:
-//   · from the catalog — a project whose services exist already, with the APIs
-//     to take (all, or some of them — see catalogCollections.ts)
+//   · from the catalog — a project whose services exist already, one of its APIs: a collection
+//     is one API (see catalogCollections.ts)
 //   · from a file — a collection of another folder (`services/<slug>.json`)
 import { AlertTriangle, Boxes, ChevronDown, ChevronRight, FileJson, Library, Search, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
@@ -27,8 +27,8 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
   const described = useMemo(() => describedTopics(existing), [existing]);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  /** per project the chosen APIs (prefix) — without a choice: all not yet described */
-  const [chosen, setChosen] = useState<Record<string, Set<string>>>({});
+  /** per project the chosen API (prefix) — a collection is one API; without a choice: the first not yet described */
+  const [chosen, setChosen] = useState<Record<string, string | null>>({});
   const [error, setError] = useState('');
   /** per project the name as the user changed it — otherwise from the chosen APIs */
   const [titles, setTitles] = useState<Record<string, string>>({});
@@ -45,12 +45,9 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
 
   /** where an API is described already — the collection of its first described service */
   const describedIn = (a: CatalogApi) => a.services.map(s => described.get(topicOf(a, TOPIC_NAME(s.topic ?? s.id)))).find(Boolean);
-  const choiceOf = (p: CatalogProject) => chosen[p.project] ?? new Set(p.apis.filter(a => !describedIn(a)).map(a => a.prefix));
-  const toggle = (p: CatalogProject, prefix: string) => setChosen(prev => {
-    const next = new Set(choiceOf(p));
-    if (next.has(prefix)) next.delete(prefix); else next.add(prefix);
-    return { ...prev, [p.project]: next };
-  });
+  const choiceOf = (p: CatalogProject): string | null =>
+    chosen[p.project] !== undefined ? chosen[p.project] : (p.apis.find(a => !describedIn(a))?.prefix ?? null);
+  const choose = (p: CatalogProject, prefix: string) => setChosen(prev => ({ ...prev, [p.project]: prefix }));
 
   const create = async (spec: ServiceCollectionSpec, key: string) => {
     setBusy(key); setError('');
@@ -100,7 +97,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
         </div>
         <div className="px-4 py-3 space-y-2 flex-1 min-h-0 flex flex-col">
           <p className={`text-[10px] ${c.muted}`}>
-            Ein Projekt, dessen Services es schon gibt — alle seine APIs oder eine Auswahl. Gelesen wird wie bei «Aus BPMN»: der
+            Ein Projekt, dessen Services es schon gibt — eine seiner APIs: eine Collection ist eine API. Gelesen wird wie bei «Aus BPMN»: der
             Projekt-Ordner (Admin → Katalog → Projekt-Ordner), sonst der <b>Katalog</b>. Aus dem ServiceTask
             kommen In, Out, Methode, Pfad, Bodies und die Typen der API; der Basispfad der Firma (<span className="font-mono">/banks/{'{bankNumber}'}</span>)
             wird erkannt. Query und Header kennt der Katalog nicht: eine danach importierte OpenAPI ergänzt sie (gleicher Name).
@@ -127,9 +124,9 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
             {visible.map(p => {
               const isOpen = open === p.project || (visible.length === 1);
               const choice = choiceOf(p);
-              const picked = p.apis.filter(a => choice.has(a.prefix));
+              const picked = p.apis.filter(a => a.prefix === choice);
               const n = picked.reduce((sum, a) => sum + a.services.length, 0);
-              // the name follows the choice: the project for all APIs, otherwise project and APIs
+              // the name follows the choice: the project for its only API, otherwise project and API
               const title = titles[p.project] ?? catalogTitle(p, picked);
               const slug = collectionSlug({ project: p.project, title });
               const taken = slugs.has(slug);
@@ -149,7 +146,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                     <button disabled={!!busy || !picked.length || !title.trim() || taken}
                       title={!picked.length ? 'keine API gewählt'
                         : taken ? `services/${slug}.json gibt es schon — einen anderen Namen wählen`
-                          : `«${title}» — ${picked.length} API(s), ${n} Services als eine Collection (services/${slug}.json)`}
+                          : `«${title}» — ${n} Services von ${picked[0].api} v${picked[0].apiVersion} als Collection (services/${slug}.json)`}
                       onClick={() => void fromDomain(p, picked, title)}
                       className={`text-[11px] px-2.5 py-1 rounded border border-transparent whitespace-nowrap disabled:opacity-40 ${c.btnPrimary}`}>
                       {busy === p.project ? '…' : `${n} übernehmen`}
@@ -161,7 +158,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                         const where = describedIn(a);
                         return (
                           <label key={a.prefix} className={`flex items-center gap-2 text-[11px] cursor-pointer ${c.hover} rounded px-1`}>
-                            <input type="checkbox" checked={choice.has(a.prefix)} onChange={() => toggle(p, a.prefix)} />
+                            <input type="radio" name={`api-${p.project}`} checked={choice === a.prefix} onChange={() => choose(p, a.prefix)} />
                             <span className={`w-40 font-mono ${c.text}`}>{a.api} v{a.apiVersion}</span>
                             <span className={`w-64 truncate font-mono text-[10px] ${c.muted}`}>{collectionPackage(a)}</span>
                             <span className={`flex-1 truncate text-[10px] ${c.muted}`} title={a.services.map(s => s.name).join(', ')}>
@@ -177,7 +174,7 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
                         <input value={title} onChange={e => setTitles(t => ({ ...t, [p.project]: e.target.value }))}
                           className={`w-72 px-1.5 py-0.5 rounded border text-[11px] outline-none ${c.input}`} />
                         {titles[p.project] !== undefined && (
-                          <button onClick={() => setTitles(({ [p.project]: _drop, ...rest }) => rest)} title="wieder aus den gewählten APIs"
+                          <button onClick={() => setTitles(({ [p.project]: _drop, ...rest }) => rest)} title="wieder aus der gewählten API"
                             className={`text-[10px] hover:underline ${c.muted}`}>zurücksetzen</button>
                         )}
                         <span className={`text-[10px] font-mono truncate ${taken ? 'text-rose-500' : c.muted}`}>

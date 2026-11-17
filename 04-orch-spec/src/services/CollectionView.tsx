@@ -6,7 +6,7 @@
 //
 // Saved automatically like a process (version/ETag, a change elsewhere is a
 // conflict and nothing is overwritten).
-import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, FileCode2, FileUp, FolderOpen, Layers, ListOrdered, Loader2, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Boxes, Braces, Check, ClipboardCopy, FileCode2, FileUp, FolderOpen, Layers, ListOrdered, Loader2, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '../auth';
 import { useConfirm } from '../components/Confirm';
@@ -30,6 +30,7 @@ import { AdoptDialog, AdoptList } from './AdoptChoice';
 import { readSources } from '../projects';
 import { findSyncDomainFor, readProjectZip, rememberOwnFolder, scanDomain, serviceProjectTarget, type DomainHit } from '../projectImport';
 import CollectionExport from './CollectionExport';
+import { transferOf, transferText } from '../transfer';
 import { MethodChip } from './ui';
 import { headerVar } from './names';
 import { useServices } from './store';
@@ -56,7 +57,9 @@ function useTypeModel(): Model | null {
 
 export default function CollectionView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const { isDark, model } = useStore();
-  const { loadService, saveService, services } = useServices();
+  const { loadService, saveService, services, loadOpenApi } = useServices();
+  /** «Kopieren» done (or not) - said next to the buttons */
+  const [copied, setCopied] = useState<string | null>(null);
   // the classes of the other collections — a type here can refer to them (a copied class to its original)
   const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
   const typeModel = useMemo(() => withCollectionTypes(model, collections, slug), [model, collections, slug]);
@@ -276,6 +279,18 @@ export default function CollectionView({ slug, onBack }: { slug: string; onBack:
             <FileUp size={12} /> OpenAPI importieren
           </button>
         )}
+        {copied && <span className={`text-[10px] ${c.muted2}`}>{copied}</span>}
+        <button onClick={() => void (async () => {
+          try {
+            // the OpenAPI it keeps comes along - the Abgleich of the other place reads it
+            const openApi = spec.source?.stored && spec.source.file ? await loadOpenApi(spec.source.stored, spec.source.file) : null;
+            await navigator.clipboard.writeText(transferText(transferOf([{ kind: 'collection', slug: spec.slug, spec, ...(openApi ? { openApi } : {}) }], model)));
+            setCopied('kopiert — in der anderen Orch Spec unter Services «Einfügen»');
+          } catch (e) {
+            setCopied(`Kopieren ging nicht: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        })()} title="Kopieren — mit der OpenAPI; in einer anderen Orch Spec unter Services «Einfügen»"
+          className={`p-1.5 rounded border flex-shrink-0 ${c.btn}`}><ClipboardCopy size={12} /></button>
         <button onClick={() => setExportOpen(true)} disabled={!spec.services.length && !schemaTypes.length}
           title="Scala-Code der Services und der Befehl für den Helper"
           className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border border-transparent disabled:opacity-40 ${c.btnPrimary}`}>

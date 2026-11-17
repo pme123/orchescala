@@ -468,19 +468,23 @@ export function resolveType(base: string, model: Model | null, pkg?: string): Do
   const named = index.byName.get(base) ?? [];
   // `t.name.endsWith(".X.Out")`: such names all end in the same last part (`Out`)
   const suffixed = (index.byLast.get(base.slice(base.lastIndexOf('.') + 1)) ?? []).filter(t => t.name.endsWith(`.${base}`));
-  const kandidaten = [
-    (t: DomainType) => t.name === base && t.pkg === pkg,
-    (t: DomainType) => t.name === base && !!pkg && t.pkg.startsWith(pkg.replace(/\.schema$/, '')),
+  // the packages around it, the nearest first - Scala sees them (`package acme.domain` / `package client.v1.schema`
+  // sees `acme.domain.ClientType`): before a class of the same name of another project
+  const around = (pkg ?? '').split('.').map((_, i, parts) => parts.slice(0, parts.length - 1 - i).join('.')).filter(Boolean);
+  // per candidate the names it looks at: the exact name, or the ending (`X.Out` for `Out`)
+  const kandidaten: Array<{ pool: DomainType[]; match: (t: DomainType) => boolean }> = [
+    { pool: named, match: t => t.name === base && t.pkg === pkg },
+    { pool: named, match: t => t.name === base && !!pkg && t.pkg.startsWith(pkg.replace(/\.schema$/, '')) },
+    ...around.map(p => ({ pool: named, match: (t: DomainType) => t.name === base && t.pkg === p })),
     // what Orchescala brings without an import takes precedence over a type of the same name
     // from another project (`ProcessStatus`, not `…directActivation.ProcessStatus`)
-    (t: DomainType) => t.name === base && (t.pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(t.pkg)),
-    (t: DomainType) => t.name === base,
-    (t: DomainType) => t.name.endsWith(`.${base}`) && t.pkg === pkg,
-    (t: DomainType) => t.name.endsWith(`.${base}`),
+    { pool: named, match: t => t.name === base && (t.pkg === 'orchescala.domain' || /^\w+\.orchescala\.domain$/.test(t.pkg)) },
+    { pool: named, match: t => t.name === base },
+    { pool: suffixed, match: t => t.name.endsWith(`.${base}`) && t.pkg === pkg },
+    { pool: suffixed, match: t => t.name.endsWith(`.${base}`) },
   ];
-  for (const [i, passt] of kandidaten.entries()) {
-    // the first four require the exact name, the last two the ending
-    const treffer = (i < 4 ? named : suffixed).find(passt);
+  for (const k of kandidaten) {
+    const treffer = k.pool.find(k.match);
     if (treffer) return treffer;
   }
   return null;
