@@ -158,7 +158,7 @@ function serviceUpdate(s: Step, g: Extract<WorkerItem, { kind: 'service' }>, c: 
     if (next === null) { report.hints.push(`${label}: Output ${n} = ${cv} ist nicht lesbar - bleibt.`); continue; }
     outputs = next;
     changed = true;
-    report.changed.push(`${label}: Output ${n} ${cv === undefined ? 'entfernt' : `= ${asFeel(cv)!.slice(2)}`}`);
+    report.changed.push(`${label}: Output ${n} ${cv === undefined || cv === 'None' ? 'entfernt' : `= ${asFeel(cv)!.slice(2)}`}`);
   }
   return changed ? { inputs, outputs } : null;
 }

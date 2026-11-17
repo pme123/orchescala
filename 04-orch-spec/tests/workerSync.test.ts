@@ -230,3 +230,13 @@ test('code the reader does not know in a mapping: a method of a value, a text wi
   assert.ok(r.report.hints.some(h => h.includes('newClient.firstName ist im Code nicht lesbar')), r.report.hints.join('\n'));
   assert.equal(r.spec, spec);
 });
+
+test('an output set to None in the code: removed from the step, said - no crash', () => {
+  const spec = described();
+  const w = workerOf(spec);
+  const code = w.replace('etag = getClient.etag', 'etag = None');
+  assert.notEqual(code, w);
+  const r = syncWorker(spec, w, code, ctx());
+  assert.deepEqual(r.report.changed, ['«Kunde lesen»: Output etag entfernt']);
+  assert.deepEqual(r.spec.steps.find(s => s.id === 'Get')!.outputs, []);
+});
