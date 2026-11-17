@@ -26,13 +26,14 @@ import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, is
 import { domainRef } from '../serviceTypes.ts';
 import type { CaseLink, DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
 import { isAdt, SCALA_TYPES } from '../types.ts';
+import { timerVariable } from '../bpmn.ts';
 import { isMember, isStandard } from '../standardMappers.ts';
 import { resolveType } from '../interactions.ts';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, feelToScalaTyped, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import {
-  allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
+  allTypes, conditionOf, elseBranch, flatSteps, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
 } from './orchestration.ts';
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
@@ -88,6 +89,8 @@ interface Ctx {
   builtTypes: Set<string>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
+  /** the timer variables of its events (`timerWaitForStatus`) with their default - a method of the worker each, a test makes it zero */
+  timers: Map<string, { default?: string; step: string }>;
 }
 
 /** The implementation of a script task as a method of the worker. */
@@ -906,6 +909,28 @@ function serviceIn(ref: ServiceRef, task: ServiceOrchestrationSpec['tasks'][stri
   return `${ctor}(\n${indent(args.join(',\n'), '  ')}\n)`;
 }
 
+/** An ISO 8601 duration (`PT1M`) as a ZIO Duration. */
+const isoDuration = (scala: string) => `zio.Duration.fromJava(java.time.Duration.parse(${scala}))`;
+
+/**
+ * How long a timer event waits: a duration as text (`PT1M`), a variable in scope (`= waitFor`), or a
+ * timer variable of the orchestration (`= timerWaitForStatus`) - then a method of the worker with
+ * its default, which a test makes zero. A date or a cycle: a TODO (a worker waits a duration).
+ */
+function timerDuration(s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string {
+  const t = s.timer;
+  if (!t || t.kind !== 'duration') return todo(`«${s.name || s.id}»: ein Worker wartet eine Dauer - kein Datum, kein Zyklus`);
+  const name = timerVariable(t);
+  if (name) {
+    const v = vars.get(name);
+    if (v) return isoDuration(v.optional ? `${v.scala}.getOrElse(${JSON.stringify(t.default?.trim() || 'PT0S')})` : v.scala);
+    ctx.timers.set(name, { ...(t.default?.trim() ? { default: t.default.trim() } : {}), step: s.name || s.id });
+    return scalaIdent(name);
+  }
+  const text = t.expression.trim().replace(/^=\s*/, '').replace(/^"(.*)"$/, '$1');
+  return /^P/.test(text) ? isoDuration(JSON.stringify(text)) : todo(`«${s.name || s.id}»: Dauer ${t.expression}`);
+}
+
 /** The lines of the `for` for a list of steps — and the variables known after them. */
 function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
   const lines: string[] = [];
@@ -977,6 +1002,10 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
         known = [...known, { name: a.name.trim(), scala: scalaIdent(a.name.trim()), type: 'String', source: 'Script', ...(t.optional ? { optional: true } : {}) }];
       }
       continue;
+    } else if (s.kind === 'event' && s.eventKind === 'timer') {
+      // a timer in a worker: it waits - ZIO.sleep
+      lines.push(`_ <- ZIO.sleep(${timerDuration(s, vars, ctx)})`);
+      continue;
     } else if (s.kind === 'gateway' && s.gatewayType === 'parallel') {
       // each branch on its own fiber — then joined, its results by name
       const fibers = (s.branches ?? []).map(b => {
@@ -985,6 +1014,9 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       });
       for (const f of fibers) lines.push(`${f.fiber} <- (`, indent(f.body, '  '), ').fork');
       for (const f of fibers) lines.push(`${pattern(f.produced.map(v => v.name))} <- ${f.fiber}.join`);
+    } else if (s.kind === 'gateway' && !(s.branches ?? []).length) {
+      // a gateway without branches only joins (the start of a loop) - nothing to run
+      continue;
     } else if (s.kind === 'gateway' && s.gatewayType === 'exclusive') {
       // one branch runs: what the branches produce is an Option afterwards
       const produced = producedBy([s], ctx.o, ctx.services).map(v => v.name);
@@ -1090,14 +1122,135 @@ function outValue(o: ServiceOrchestrationSpec, vars: OrchVar[], ctx: Ctx, pre: s
   return `Out(\n${indent(args.join(',\n'), '  ')}\n)`;
 }
 
+/** A loop of the flow: a step a jump back (`goto`) leads to - from it on the steps are a method of the worker. */
+interface Loop {
+  /** the method: `wiederholungAbHier` */
+  method: string;
+  /** what it is called with: `loopCounter`, the In, the variables known before it */
+  params: { name: string; type: string; arg: (known: Map<string, ScalaVar>) => string }[];
+}
+
+/**
+ * The steps to the end of the flow, each path a ZIO of the Out: the steps before the gateway that
+ * decides as lines of a `for`, a branch the same again - a jump back calls the loop once more
+ * (`loopCounter + 1`), the end of a path gives the Out with what is known there.
+ */
+function terminalZio(steps: Step[], known: OrchVar[], ctx: Ctx, loop: Loop): string {
+  const deciding = (st: Step) => st.kind === 'goto'
+    || (st.kind === 'gateway' && st.gatewayType === 'exclusive' && flatSteps((st.branches ?? []).flatMap(b => b.steps)).some(x => x.kind === 'goto' || x.kind === 'end'));
+  const at = steps.findIndex(deciding);
+  const before = (at < 0 ? steps : steps.slice(0, at)).filter(st => st.kind !== 'end');
+  const lines = forLines(before, known, ctx);
+  const produced = producedBy(before, ctx.o, ctx.services);
+  // what a step sets here is the value from now on - also of a variable the loop carries
+  const after = [...known.filter(k => !produced.some(v => v.name === k.name)), ...produced]
+    .map(v => (ctx.scriptVars.has(v.name) ? { ...ctx.scriptVars.get(v.name)!, ...(v.optional ? { optional: true } : {}) } : v));
+  const vars = scalaVars(after);
+  let tail: string;
+  const step = at < 0 ? undefined : steps[at];
+  if (!step) {
+    const pre: string[] = [];
+    const out = outValue(ctx.o, after, ctx, pre);
+    lines.push(...pre);
+    tail = `ZIO.succeed(${out})`;
+  } else if (step.kind === 'goto') {
+    tail = `${loop.method}(${loop.params.map(p => p.arg(vars)).join(', ')})`;
+  } else {
+    const branches = step.branches ?? [];
+    const fallback = elseBranch(ctx.o, step);
+    const cases = branches.filter(b => b !== fallback).map(b => {
+      const cond = conditionOf(ctx.o, b);
+      const t = cond ? feelCondition(cond, vars, ctx.types) : null;
+      const scalaCond = !t ? todo(`Bedingung für «${b.label || b.id}»`) : t.todo ? todo(`Bedingung: ${cond}`) : t.scala;
+      return `if ${scalaCond} then\n${indent(terminalZio(b.steps, after, ctx, loop), '  ')}`;
+    });
+    const els = fallback ? terminalZio(fallback.steps, after, ctx, loop) : `ZIO.fail(CustomError(${JSON.stringify(`«${step.name || step.id}»: kein Zweig passt`)}))`;
+    tail = cases.length ? `${cases.join('\nelse ')}\nelse\n${indent(els, '  ')}` : els;
+  }
+  if (!lines.length) return tail;
+  return `(for {\n${indent([...startWithGenerator(lines), `out <- ${tail.includes('\n') ? `(\n${indent(tail, '  ')}\n)` : tail}`].join('\n'), '  ')}\n} yield out)`;
+}
+
+/**
+ * The names a loop carries from one round to the next: set in it and read before - in the same round
+ * not yet (`checkStatusCount = checkStatusCount + 1`).
+ */
+function carriedVars(steps: Step[], o: ServiceOrchestrationSpec, services: Map<string, ServiceRef>): OrchVar[] {
+  const all = producedBy(steps, o, services);
+  const names = new Set(all.map(v => v.name));
+  const set = new Set<string>();
+  const carried = new Set<string>();
+  const reads = (text: string | undefined) => { for (const m of (text ?? '').matchAll(/[A-Za-z_]\w*/g)) if (names.has(m[0]) && !set.has(m[0])) carried.add(m[0]); };
+  const walk = (list: Step[]) => {
+    for (const st of list) {
+      const task = o.tasks[st.id];
+      // an output of a service reads its Out (`isDone = isDone`) - only one it computes reads variables
+      for (const m of [...(task?.inputs ?? []), ...(task?.outputs ?? []).filter(m => !m.fromService), ...(task?.assignments ?? [])]) reads(m.expression);
+      reads(task?.script);
+      for (const b of st.branches ?? []) reads(conditionOf(o, b));
+      for (const v of producedBy([st], o, services)) set.add(v.name);
+      for (const b of st.branches ?? []) walk(b.steps);
+    }
+  };
+  walk(steps);
+  return all.filter(v => carried.has(v.name));
+}
+
 function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   const steps = flowOf(o).steps;
-  const body = forLines(steps, inVars(o), ctx);
+  // a jump back to a step of the flow: from it on a method that calls itself again
+  const back = flatSteps(steps).find(st => st.kind === 'goto' && st.back && st.gotoId && steps.some(x => x.id === st.gotoId));
+  const loopAt = back ? steps.findIndex(x => x.id === back.gotoId) : -1;
+  const before = loopAt < 0 ? steps : steps.slice(0, loopAt);
+  const body = forLines(before, inVars(o), ctx);
   // a script's result with the type the export derived (producedBy only knows the declared one)
-  const known = [...inVars(o), ...producedBy(steps, o, ctx.services)]
+  const known = [...inVars(o), ...producedBy(before, o, ctx.services)]
     .map(v => (ctx.scriptVars.has(v.name) ? { ...ctx.scriptVars.get(v.name)!, ...(v.optional ? { optional: true } : {}) } : v));
   const pre: string[] = [];
-  const out = outValue(o, known, ctx, pre);
+  let out: string;
+  let loopMethod = '';
+  if (loopAt >= 0) {
+    const segment = steps.slice(loopAt);
+    const target = steps[loopAt];
+    const name = uniqueMethod(ctx, camelName(target.name || target.id));
+    const typeOfVar = (v: OrchVar, optional = !!v.optional) => fieldType({ id: v.name, name: v.name, type: v.type, ...(optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}) } as Field, ctx.idx);
+    const carried = carriedVars(segment, o, ctx.services);
+    const plain = known.filter(v => !carried.some(c => c.name === v.name) && /^[A-Za-z_]\w*$/.test(v.scala));
+    const usesIn = known.some(v => v.scala.startsWith('in.'));
+    const loop: Loop = {
+      method: name,
+      params: [
+        { name: 'loopCounter', type: 'Int', arg: () => 'loopCounter + 1' },
+        ...(usesIn ? [{ name: 'in', type: o.noIn ? 'NoInput' : 'In', arg: () => 'in' }] : []),
+        ...plain.map(v => ({ name: scalaIdent(v.name), type: typeOfVar(v), arg: () => scalaIdent(v.name) })),
+        // carried: the value of the round before - None in the first
+        ...carried.map(v => ({
+          name: `${v.name}Before`, type: typeOfVar(v, true),
+          arg: (vars: Map<string, ScalaVar>) => {
+            const now = vars.get(v.name);
+            if (!now || now.scala === `${v.name}Before`) return `${v.name}Before`;
+            return now.optional ? now.scala : `Some(${now.scala})`;
+          },
+        })),
+      ],
+    };
+    const inLoop: OrchVar[] = [
+      ...known.filter(v => !carried.some(c => c.name === v.name)),
+      { name: 'loopCounter', scala: 'loopCounter', type: 'Int', source: 'Script' },
+      ...carried.map(v => ({ ...v, scala: `${v.name}Before`, optional: true })),
+    ];
+    const zio = terminalZio(segment, inLoop, ctx, loop);
+    loopMethod = [
+      `  /** «${target.name || target.id}»: the steps from here on - a jump back to it: once more, loopCounter + 1 */`,
+      `  private def ${name}(${loop.params.map(p => `${p.name}: ${p.type}`).join(', ')}): RunWorkZIOOutput[${o.noOut ? 'NoOutput' : 'Out'}] =`,
+      indent(zio, '    '),
+    ].join('\n');
+    const first = loop.params.map(p => (p.name === 'loopCounter' ? '1' : p.name.endsWith('Before') && carried.some(c => `${c.name}Before` === p.name) ? 'None' : p.name)).join(', ');
+    pre.push(`out <- ${name}(${first})`);
+    out = 'out';
+  } else {
+    out = outValue(o, known, ctx, pre);
+  }
   const lines = startWithGenerator([...body, ...pre]);
   const run = lines.length
     ? ['    for', indent(lines.join('\n'), '      '), `    yield ${out.replace(/\n/g, '\n    ')}`]
@@ -1115,7 +1268,13 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       `      .mapError(e => ${failWith(`${name}: `, 'e.errorMsg')})`,
     ].join('\n');
   });
+  const timers = [...ctx.timers].map(([name, t]) => [
+    `  /** «${t.step}»: how long it waits - a test makes it zero */`,
+    `  protected def ${scalaIdent(name)}: zio.Duration = ${t.default ? isoDuration(JSON.stringify(t.default)) : todo(`${name}: wie lange? (ISO 8601, z. B. PT1M)`)}`,
+  ].join('\n'));
   const scripts = [
+    ...(loopMethod ? [loopMethod] : []),
+    ...timers,
     ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
     ...(ctx.scripts.some(m => m.io) ? [MAPPED] : []),
   ];
@@ -1224,7 +1383,7 @@ class ${o.name}WorkerTest extends munit.FunSuite:
 
   /** the services answer with their examples - a test overrides the one that decides */
   class Mocked extends ${o.name}Worker:
-${refs.map(r => override(r, answer(r), '    ')).join('\n')}
+${refs.map(r => override(r, answer(r), '    ')).join('\n')}${[...ctx.timers.keys()].map(n => `\n    override protected def ${scalaIdent(n)}: zio.Duration = zio.Duration.Zero`).join('')}
 
   private def run(worker: ${o.name}Worker, in: ${o.noIn ? 'NoInput' : 'In'}): Either[CustomError, ${outType}] =
     given EngineRunContext = EngineRunContext(DefaultEngineContext.example, GeneralVariables())
@@ -1304,7 +1463,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
-    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(),
+    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(), timers: new Map(),
   };
   // the classes of the catalog as types too - a path into one (`client.clientKey`) resolves like one into an own class
   for (const d of ctx.domain) {

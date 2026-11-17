@@ -17,8 +17,14 @@ export function serviceStepIssues(s: Step, chosen = !!(s.topic || s.serviceId)):
   const name = s.name || s.id;
   if (s.kind === 'gateway') {
     if (s.gatewayType !== 'parallel' && s.gatewayType !== 'exclusive') out.push({ level: 'error', text: `«${name}»: nur parallele und exklusive Gateways.` });
+  } else if (s.kind === 'event' && s.eventKind === 'timer') {
+    // a timer waits - ZIO.sleep; only a duration (not a date, not a cycle)
+    if (s.timer?.kind && s.timer.kind !== 'duration') out.push({ level: 'error', text: `«${name}»: ein Worker wartet eine Dauer - kein Datum, kein Zyklus.` });
+  } else if (s.kind === 'goto') {
+    // a jump back is a loop of the worker: the steps from its target on, once more
+    if (!s.back) out.push({ level: 'error', text: `«${name}»: nur ein Sprung zurück (eine Schleife) - kein Sprung vorwärts.` });
   } else if (!['start', 'end', 'service', 'script'].includes(s.kind)) {
-    out.push({ level: 'error', text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks.` });
+    out.push({ level: 'error', text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks, Timer und Schleifen zurück.` });
   }
   if (s.loop || s.multiInstance) out.push({ level: 'error', text: `«${name}»: Schleifen gibt es in einer Orchestrierung nicht.` });
   const errors = s.errors ?? [];
