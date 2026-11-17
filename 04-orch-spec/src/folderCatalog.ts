@@ -71,11 +71,17 @@ export function domainOfSpec(spec: ProcessSpec, model: Model | null, collections
 
 const released = (model: Model | null) => {
   const services = (model?.services ?? []).filter((s) => s.generated);
+  // a project built here («Neu aufbauen») replaces what the catalog delivers of it - what its code has
+  // (an object with `topicName`) is released all the same, not only in the folder
+  const inCode = (model?.domainTypes ?? []).flatMap((t) => (t.topicName ? [t.topicName] : []));
   return {
     // without a catalog nothing can be told released or not - nothing is marked
-    any: services.length > 0,
-    topic: new Set(services.map((s) => s.topic ?? s.id)),
-    process: new Set(services.flatMap((s) => (s.kind === 'call' && s.calledProcess ? [s.calledProcess] : []))),
+    any: services.length > 0 || inCode.length > 0,
+    topic: new Set([...services.map((s) => s.topic ?? s.id), ...inCode]),
+    process: new Set([
+      ...services.flatMap((s) => (s.kind === 'call' && s.calledProcess ? [s.calledProcess] : [])),
+      ...(model?.domainTypes ?? []).flatMap((t) => (t.processName ? [t.processName] : [])),
+    ]),
   };
 };
 

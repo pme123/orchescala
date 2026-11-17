@@ -65,6 +65,16 @@ test('what the catalog has is released - the folder does not add it again, nothi
   assert.equal(m.services.filter((s) => (s.topic ?? s.id) === UPDATE).length, 1);
 });
 
+test('a project built here: what its code has is released - though the catalog it replaced delivered it', () => {
+  // «Neu aufbauen» of acme-crm: its services without `generated`, its objects with their topic
+  const built = { ...catalog, services: [...catalog.services, { id: GET, name: 'GetClient', kind: 'service', topic: GET, builtAt: '2026-01-01T00:00:00Z' }],
+    domainTypes: [{ id: 'acme.crm.domain.client.v1.GetClient.In', name: 'GetClient.In', pkg: 'acme.crm.domain.client.v1', owner: 'GetClient', topicName: GET, kind: 'case' }] } as unknown as Model;
+  const m = folderCatalog(built, folder)!;
+  assert.equal(m.services.find((s) => (s.topic ?? s.id) === GET)?.unreleased, undefined);
+  // the orchestration of the folder has no code yet
+  assert.equal(m.services.find((s) => (s.topic ?? s.id) === UPDATE)?.unreleased, true);
+});
+
 test('the open spec is not in it (a process does not call itself); without a catalog nothing is marked', () => {
   const m = folderCatalog(catalog, folder, order.slug)!;
   assert.equal(m.services.some((s) => s.calledProcess === ORDER), false);
