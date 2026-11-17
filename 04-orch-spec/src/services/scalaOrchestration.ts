@@ -908,21 +908,66 @@ function serviceIn(ref: ServiceRef, task: ServiceOrchestrationSpec['tasks'][stri
   const chosen = inType.kind === 'enum'
     ? (inType.values ?? []).find(v => v.name === task?.inCase) ?? ((inType.values ?? []).length === 1 ? inType.values![0] : undefined)
     : undefined;
-  if (inType.kind === 'enum' && !chosen) return todo(`${name}.In ist ein ADT — beim Schritt die Ausprägung wählen`);
+  if (inType.kind === 'enum' && !chosen) {
+    return byInCase(ref, inType, task, vars, ctx) ?? todo(`${name}.In ist ein ADT — beim Schritt die Ausprägung wählen`);
+  }
   const ctor = chosen ? `${name}.In.${caseIdent(chosen.name)}` : `${name}.In`;
   const fields = chosen ? caseFields(inType, chosen.name) : (inType.fields ?? []);
-  const args = fields.filter(f => isFinished(f, ctx.idx)).map(f => {
+  return construct(ctor, chosen ? ctor : `${name}.In()`, inArgs(name, fields, task, vars, ctx, pre));
+}
+
+/** `Ctor(\n  a = x,\n  b = y\n)` - without arguments `empty`. */
+const construct = (ctor: string, empty: string, args: string[]) =>
+  (args.length ? `${ctor}(\n${indent(args.join(',\n'), '  ')}\n)` : empty);
+
+/**
+ * The arguments of a service's In - per field its mapping of the step (or the variable of its name).
+ * A required field that is optional on the way: before the call a step that fails with a message
+ * (`pre`); without `pre` (inside a match) a place to fill.
+ */
+function inArgs(name: string, fields: Field[], task: ServiceOrchestrationSpec['tasks'][string] | undefined, vars: Map<string, ScalaVar>, ctx: Ctx, pre: string[] | null): string[] {
+  return fields.filter(f => isFinished(f, ctx.idx)).map(f => {
     const expr = (task?.inputs ?? []).find(m => m.name === f.name)?.expression?.trim() || (vars.has(f.name) ? `= ${f.name}` : '');
     if (!expr) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: kein Mapping`)}`;
     const v = forTarget(feelToScala(expr, vars, ctx.types, f), !!f.optional);
     if (!v.needed) return `${scalaName(f.name)} = ${v.scala}`;
+    if (!pre) return `${scalaName(f.name)} = ${v.scala}.getOrElse(${todo(`${f.name} fehlt`)})`;
     // required, but optional on the way: a step that fails with a message
     const tmp = `${f.name}${++ctx.n.value}`;
     pre.push(`${tmp} <- ZIO.fromOption(${v.scala}).orElseFail(CustomError(${JSON.stringify(`${name}: ${f.name} fehlt`)}))`);
     return `${scalaName(f.name)} = ${tmp}`;
   });
-  if (!args.length) return chosen ? ctor : `${name}.In()`;
-  return `${ctor}(\n${indent(args.join(',\n'), '  ')}\n)`;
+}
+
+/**
+ * The In of a service is an ADT and the step chose no case («alle Ausprägungen - Worker entscheidet»):
+ * where the In of the worker is an ADT with cases of the same names, its case decides - a match, each
+ * case builds the service's case of its name from the mappings, the fields of the case read as they are
+ * there (`in.action` of `In.ByFile` is an Action, of `In.Simple` a text). null: no such case.
+ */
+function byInCase(ref: ServiceRef, inType: TypeDef, task: ServiceOrchestrationSpec['tasks'][string] | undefined, vars: Map<string, ScalaVar>, ctx: Ctx): string | null {
+  const own = ctx.o.noIn ? undefined : ctx.o.types.find(t => t.id === ctx.o.inTypeId);
+  if (own?.kind !== 'enum' || !own.values?.length) return null;
+  const targets = inType.values ?? [];
+  if (!own.values.some(c => targets.some(t => t.name === c.name))) return null;
+  const name = ref.service.name;
+  const arms = own.values.map(c => {
+    const target = targets.find(t => t.name === c.name);
+    const body = target
+      ? (() => {
+          // inside the case its fields as they are there - not through a match of the whole In
+          const scope = new Map(vars);
+          for (const f of caseFields(own, c.name)) {
+            if (!f.name.trim()) continue;
+            scope.set(f.name, { scala: `in.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection });
+          }
+          const ctor = `${name}.In.${caseIdent(target.name)}`;
+          return construct(ctor, ctor, inArgs(name, caseFields(inType, target.name), task, scope, ctx, null));
+        })()
+      : todo(`${name}.In: keine Ausprägung ${c.name} - welche?`);
+    return `case in: In.${caseIdent(c.name)} =>\n${indent(body, '  ')}`;
+  });
+  return `in match\n${indent(arms.join('\n'), '  ')}`;
 }
 
 /**
@@ -944,7 +989,9 @@ function stopWithError(s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string |
  * reads: runWorkZIO stays without TODOs, the method says what is missing.
  */
 function inputCall(input: string, ref: ServiceRef, s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string {
-  if (!input.includes('???')) return input;
+  const open = input.includes('???');
+  // a place to fill or a match over the cases of the In: a mapping In -> <Service>.In of its own
+  if (!open && !input.startsWith('in match\n')) return input;
   const svc = ref.service.name;
   const base = `${svc.charAt(0).toLowerCase()}${svc.slice(1)}In`;
   let name = base;
@@ -959,7 +1006,7 @@ function inputCall(input: string, ref: ServiceRef, s: Step, vars: Map<string, Sc
   ctx.helpers.push({
     name,
     code: [
-      `  /** maps the In of the worker to the In of «${s.name || s.id}» (${svc}) - still to complete (see the TODO) */`,
+      `  /** maps the In of the worker to the In of «${s.name || s.id}» (${svc})${open ? ' - still to complete (see the TODO)' : ''} */`,
       `  private def ${name}(${params.map(p => `${p.name}: ${p.type}`).join(', ')}): ${svc}.In =`,
       indent(input, '    '),
     ].join('\n'),

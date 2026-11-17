@@ -181,6 +181,38 @@ function namedArgs(call: string): Map<string, string> | null {
   return args;
 }
 
+/**
+ * The In of a call built in a method of the worker (`postFileActionIn(in)`, a mapping In -> <Service>.In):
+ * its body is the In (`Svc.In(…)`) or a match over the cases of the worker's In, each building a case
+ * (`case in: In.Simple => Svc.In.Simple(…)`) - the arguments of all, a field that differs between the
+ * cases as it is (not readable as one mapping). The parameters named as at the call. null: not that form.
+ */
+function mapperArgs(input: string, methods: Map<string, ScalaMethod>): Map<string, string> | null {
+  const call = /^([a-z]\w*)\(([\s\S]*)\)$/.exec(input.trim());
+  const m = call ? methods.get(call[1]) : undefined;
+  if (!call || !m) return null;
+  const given = splitTop(call[2]).map(a => a.trim()).filter(Boolean);
+  // a parameter passed under another name: that name in the body
+  const rename = (v: string) => m.params.reduce((acc, p, i) => {
+    const a = given[i];
+    return a && a !== p.name && /^\w+$/.test(p.name) ? acc.replace(new RegExp(`\\b${p.name}\\b`, 'g'), a) : acc;
+  }, v);
+  const body = m.body.trim();
+  if (!body.startsWith('in match') && !/^\w+ match\b/.test(body)) {
+    const args = namedArgs(body);
+    return args && new Map([...args].map(([k, v]) => [k, rename(v)]));
+  }
+  // the arms: `case x: In.Case =>` and what it builds
+  const arms = body.split(/\n\s*case\s+[\w`]+\s*:\s*[\w.`]+\s*=>/).slice(1).map(a => namedArgs(a.trim()));
+  if (!arms.length || arms.some(a => !a)) return null;
+  const out = new Map<string, string>();
+  for (const k of new Set(arms.flatMap(a => [...a!.keys()]))) {
+    const values = new Set(arms.flatMap(a => (a!.has(k) ? [rename(a!.get(k)!)] : [])));
+    out.set(k, values.size === 1 ? [...values][0] : [...values].join(' | '));
+  }
+  return out;
+}
+
 /** The statements of `runWorkZIO`. */
 export function readWorkerCode(text: string): WorkerCode {
   const methods = methodsOf(text);
@@ -212,7 +244,7 @@ export function readWorkerCode(text: string): WorkerCode {
       const open = b.rhs.indexOf('(');
       const close = closing(b.rhs, open);
       const input = close < 0 ? null : b.rhs.slice(open + 1, close).trim();
-      const args = input === null ? null : input === 'NoInput()' ? new Map<string, string>() : namedArgs(input);
+      const args = input === null ? null : input === 'NoInput()' ? new Map<string, string>() : namedArgs(input) ?? mapperArgs(input, methods);
       // a required input resolved before the call: its expression
       if (args) for (const [k, v] of args) if (binds.has(v)) args.set(k, `${binds.get(v)!}!`);
       items.push({ kind: 'service', service: svc[1], target: b.name, args, outputs: new Map(), raw: st });

@@ -128,3 +128,28 @@ test('runWorkZIO without TODOs: an In still to complete is built in a method of 
   assert.match(w2, /checkStatus <- runCheckStatus\(checkStatusIn\(in\)\)/, w2);
   assert.match(w2, /private def checkStatusIn\(in: In\): CheckStatus\.In =/, w2);
 });
+
+test('a service In that is an ADT, no case chosen: the case of the worker In of its name decides - a mapping In -> CheckStatus.In, read back by the code sync', async () => {
+  const { readWorkerCode } = await import('../src/services/workerScan');
+  const c = collection();
+  // CheckStatus.In: ByFile(fileId) | ByAction(action: Action, user?)
+  c.types = c.types.map(x => (x.id === 'check-in' ? { ...x, kind: 'enum', fields: [], values: [
+    { name: 'ByFile', fields: [{ id: 'c1', name: 'fileId', type: 'String' }] },
+    { name: 'ByAction', fields: [{ id: 'c2', name: 'fileAction', type: 'String' }, { id: 'c3', name: 'user', type: 'String', optional: true }] },
+  ] } as TypeDef : x));
+  const o = polling();
+  const inType = o.types.find(x => x.id === o.inTypeId)!;
+  Object.assign(inType, { kind: 'enum', fields: [], values: [
+    { name: 'ByFile', fields: [{ id: 'w1', name: 'fileId', type: 'String' }] },
+    { name: 'ByAction', fields: [{ id: 'w2', name: 'fileAction', type: 'String' }, { id: 'w3', name: 'user', type: 'String', optional: true }] },
+  ] });
+  o.tasks.Check = { ...o.tasks.Check, inputs: [{ name: 'fileId', expression: '= fileId' }, { name: 'fileAction', expression: '= fileAction' }, { name: 'user', expression: '= user' }] };
+  const w = orchestrationFiles(o, [c], null).find(f => f.path.endsWith('/WaitForFileWorker.scala'))!.content;
+  assert.match(w, /checkStatus <- runCheckStatus\(checkStatusIn\(in\)\)/, w);
+  assert.match(w, /private def checkStatusIn\(in: In\): CheckStatus\.In =\n\s+in match\n\s+case in: In\.ByFile =>\n\s+CheckStatus\.In\.ByFile\(\n\s+fileId = in\.fileId\n\s+\)\n\s+case in: In\.ByAction =>\n\s+CheckStatus\.In\.ByAction\(\n\s+fileAction = in\.fileAction,\n\s+user = in\.user\n\s+\)/, w);
+  assert.doesNotMatch(w, /still to complete|\?\?\?/, w);
+  // the code sync reads the inputs from it - a field of one case as it is there
+  const run = readWorkerCode(`class X:\n  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =\n    for\n      checkStatus <- runCheckStatus(checkStatusIn(in))\n    yield out\n\n${w.slice(w.indexOf('  /** maps the In'))}`);
+  const call = run.items!.find(i => i.kind === 'service') as { args: Map<string, string> | null };
+  assert.deepEqual([...call.args!], [['fileId', 'in.fileId'], ['fileAction', 'in.fileAction'], ['user', 'in.user']]);
+});
