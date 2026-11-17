@@ -69,9 +69,9 @@ object SbtConfig:
     val setting =
       if options.isEmpty then ""
       else s"\n    dockerBuildOptions ++= Seq(${options.map(SbtCode.literal).mkString(", ")})\n  "
-    // `Setting[_]`: sbt's build definition is Scala 2.12 - it has no `?`
+    // `Setting[?]`: sbt 2 compiles the build definition with Scala 3
     s"""  // the options of `docker build` (SbtConfig.dockerBuildOptions in CompanyDevConfig)
-       |  lazy val dockerBuildSettings: Seq[Setting[_]] = Seq($setting)""".stripMargin
+       |  lazy val dockerBuildSettings: Seq[Setting[?]] = Seq($setting)""".stripMargin
   end dockerBuildSettings
 
 end SbtConfig

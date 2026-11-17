@@ -46,7 +46,7 @@ class SbtSettingsGeneratorTest extends FunSuite:
     inProject(SbtConfig(dockerBuildOptions = Seq.empty)): projectDir =>
       SbtSettingsGenerator(isGateway = false).generate
       val settings = os.read(projectDir / "project" / "Settings.scala")
-      assert(settings.contains("lazy val dockerBuildSettings: Seq[Setting[_]] = Seq()"), settings)
+      assert(settings.contains("lazy val dockerBuildSettings: Seq[Setting[?]] = Seq()"), settings)
       // not the default of sbt-native-packager (`openjdk:8`) - it is no longer on Docker Hub
       assert(
         settings.contains("""lazy val dockerSettings = Seq(dockerBaseImage := "eclipse-temurin:21-jre")"""),
@@ -165,7 +165,7 @@ class SbtSettingsGeneratorTest extends FunSuite:
         RepoCheck.releaseArtifactUrls("https://repo", org, modules.map(m => s"$name-$m"), "1.2.3").sorted
       )
 
-  /** Parses the generated sbt code with the dialect of sbt (Scala 2.12) - a syntax error in a
+  /** Parses the generated sbt code as sbt 2 does (Scala 3, top-level terms in build.sbt) - a syntax error in a
     * template shows up here, not only in the build of a project.
     *
     * The semantics are not checked here (the sbt API is not on the test classpath) - after a
@@ -176,15 +176,22 @@ class SbtSettingsGeneratorTest extends FunSuite:
     *      `{COMPANY}_DOCKER_*` variables set, unset, empty and with an `@`: the resolvers, the
     *      host of the credentials and the warnings follow them, `update` loads from the repos.
     */
+  // sbt 2 compiles the build definition with Scala 3 - scalameta has no sbt 2 dialect
+  private lazy val sbt2Dialect = scala.meta.dialects.Scala3.withAllowToplevelTerms(true)
+
   private def assertParses(code: String, file: String): Unit =
     import scala.meta.*
-    dialects.Sbt1(code).parse[Source] match
+    sbt2Dialect(code).parse[Source] match
       case Parsed.Success(_)   => ()
       case error: Parsed.Error => fail(s"$file does not parse: $error\n$code")
 
   test("the parse check finds a syntax error"):
     import scala.meta.*
-    assert(dialects.Sbt1("object Settings { lazy val x = { }").parse[Source].isInstanceOf[Parsed.Error])
+    assert(sbt2Dialect("object Settings { lazy val x = { }").parse[Source].isInstanceOf[Parsed.Error])
+
+  test("the parse check reads Scala 3 - the `Setting[?]` wildcard"):
+    import scala.meta.*
+    assert(sbt2Dialect("object Settings { val x: Seq[Setting[?]] = Seq() }").parse[Source].isInstanceOf[Parsed.Success[?]])
 
   test("the generated build parses - the repos and the docker settings from the env variables"):
     import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig}

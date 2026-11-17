@@ -14,7 +14,7 @@ class SbtConfigTest extends FunSuite:
 
   test("no options: an empty setting, so `build.sbt` still compiles"):
     val settings = SbtConfig.dockerBuildSettings(Seq.empty)
-    assert(settings.contains("lazy val dockerBuildSettings: Seq[Setting[_]] = Seq()"), settings)
+    assert(settings.contains("lazy val dockerBuildSettings: Seq[Setting[?]] = Seq()"), settings)
     assert(!settings.contains("dockerBuildOptions ++="), settings)
 
   test("an option with quotes or backslashes is a valid Scala string"):

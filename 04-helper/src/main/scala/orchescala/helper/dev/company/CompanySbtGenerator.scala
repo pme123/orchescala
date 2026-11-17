@@ -154,7 +154,7 @@ case class CompanySbtGenerator(
        |    // cross versions, which sbt refuses. The engine works fine with
        |    // geny_3, so the 2.13 one is excluded here as well as upstream.
        |    ("io.github.pme123" %% "orchescala-dmntester-server" % orchescalaV)
-       |      .exclude("com.lihaoyi", "geny_2.13")
+       |      .excludeAll(ExclusionRule("com.lihaoyi", "geny_2.13"))
        |  )
        |  lazy val simulationDeps = Seq(
        |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV,
@@ -360,8 +360,6 @@ case class CompanySbtGenerator(
        |addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "${BuildInfo.sbtCiRelease}")
        |
        |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "${BuildInfo.sbtBuildInfo}")
-       |
-       |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
        |""".stripMargin
 
 end CompanySbtGenerator

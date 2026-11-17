@@ -46,8 +46,6 @@ case class SbtGenerator()(using
        |""".stripMargin
   private lazy val pluginsSbt                     =
     s"""$helperDoNotAdjustText
-       |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
-       |
        |// docker image
        |addSbtPlugin("com.github.sbt" % "sbt-native-packager" % "${BuildInfo.sbtNativePackager}")
        |
