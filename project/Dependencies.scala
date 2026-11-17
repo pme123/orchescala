@@ -73,8 +73,13 @@ object Dependencies {
   val testcontainersVersion = "1.21.4"
 
   // sbt plugins - their versions are only in project/plugins.sbt, read from there
-  // (BuildInfo passes them on to the generated company builds)
-  private lazy val pluginsSbt = IO.read(file("project/plugins.sbt"))
+  // (BuildInfo passes them on to the generated company builds).
+  // Relative to the working directory, like the `version` file in Settings.scala: sbt runs in the
+  // root of the build (also for IDE / BSP imports). Commented-out lines do not count.
+  private lazy val pluginsSbt =
+    IO.readLines(file("project/plugins.sbt"))
+      .filterNot(_.trim.startsWith("//"))
+      .mkString("\n")
   private def pluginVersion(name: String): String =
     ("\"" + java.util.regex.Pattern.quote(name) + "\"\\s*%\\s*\"([^\"]+)\"").r
       .findFirstMatchIn(pluginsSbt)
