@@ -101,7 +101,10 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
       el.setSelectionRange(ed.from, ed.to);
       // `execCommand` keeps the browser's undo; where it is not there, the value goes through the caller
       done = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
-      if (!done) onChange(value.slice(0, ed.from) + ed.insert + value.slice(ed.to));
+      // the value always goes to the caller - not only through the browser's input event: without it the
+      // field shows the brackets, the state does not have them, and the next render takes them away
+      const typed = done ? el.value : value.slice(0, ed.from) + ed.insert + value.slice(ed.to);
+      if (typed !== value) onChange(typed);
     }
     if (done) el.setSelectionRange(ed.selStart, ed.selEnd);
     // the value comes back from the caller — the selection once it is rendered, unless typed on already
