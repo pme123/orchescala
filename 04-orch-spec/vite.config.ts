@@ -94,6 +94,8 @@ export default defineConfig(({ mode }) => ({
     // diagram. The DMN editor (dmn-js, about 800 kB) is one chunk that is only loaded when a
     // table opens: split further, Rolldown runs its modules in the wrong order (a class extends
     // one that is not defined yet). The limit is above it, so a warning means a new big chunk.
+    // The build does not show such an order problem - the e2e test «a DMN table opens in the built
+    // app» does (`npm run test:standalone`): run it after any change to the chunk rules.
     chunkSizeWarningLimit: 850,
     // The libraries get their own chunks: they only change with an
     // update and thus stay in the browser cache across releases of the app.
@@ -118,4 +120,3 @@ function libraryChunk(id: string): string | null {
   if (['marked', 'js-yaml', 'fflate'].includes(pkg)) return 'text';
   return null;
 }
-

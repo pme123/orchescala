@@ -41,7 +41,7 @@ export default defineConfig({
   },
   build: {
     rolldownOptions: {
-      output: { codeSplitting: { groups: [{ name: 'msal', test: /node_modules[\\/]@azure[\\/]msal-browser[\\/]/ }] } },
+      output: { codeSplitting: { groups: [{ name: 'msal', test: /node_modules[\\/]@azure[\\/]msal-/ }] } },
     },
   },
 });
