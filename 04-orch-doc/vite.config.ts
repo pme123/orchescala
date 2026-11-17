@@ -33,6 +33,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), sampleData()],
   server: { port: Number(process.env.PORT) || 3003, watch: { ignored: ['**/sample-data/**'] } },
   build: {
+    // the diagram viewer (bpmn-js, dmn-js) is one chunk of about 640 kB, only loaded when a
+    // diagram shows - the limit is above it, so a warning means a new big chunk
+    chunkSizeWarningLimit: 700,
     rolldownOptions: {
       input: {
         // the full documentation app …
