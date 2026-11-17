@@ -100,6 +100,11 @@ function withDecision(files: Record<string, string>): Record<string, string> {
     .replace(/<bpmn:serviceTask id="CheckOrderTask"[^>]*>/,
       '<bpmn:businessRuleTask id="CheckOrderTask" name="check order" camunda:decisionRef="acme-demo-orderV1-checkOrder" camunda:mapDecisionResult="singleEntry">')
     .replace('</bpmn:serviceTask>', '</bpmn:businessRuleTask>');
+  // a changed fixture fails here, not later as a timeout in the UI
+  if (!bpmn.includes('<bpmn:businessRuleTask id="CheckOrderTask"') || bpmn.includes('<bpmn:serviceTask id="CheckOrderTask"'))
+    throw new Error('withDecision: the fixture has no service task CheckOrderTask to turn into a decision');
+  if (!spec.interactions.some((i: { kind: string }) => i.kind === 'decision'))
+    throw new Error('withDecision: the fixture has no interaction ia-check');
   return { ...files, 'processes/order.json': JSON.stringify(spec), 'processes/order.bpmn': bpmn };
 }
 
