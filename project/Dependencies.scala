@@ -72,6 +72,10 @@ object Dependencies {
   val postgresqlVersion     = "42.7.14"
   val testcontainersVersion = "1.21.4"
 
+  // the sbt version of the generated company and project builds - separate from orchescala's
+  // own (project/build.properties), so orchescala can move to a new sbt without the companies
+  val generatedSbtVersion = "1.13.1"
+
   // sbt plugins - their versions are only in project/plugins.sbt, read from there
   // (BuildInfo passes them on to the generated company builds).
   // Relative to the working directory, like the `version` file in Settings.scala: sbt runs in the

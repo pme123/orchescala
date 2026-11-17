@@ -258,7 +258,8 @@ case class CompanyVersionConfig(
     orchescalaVersion: String = BuildInfo.version,
     companyOrchescalaVersion: String = "0.1.0-SNAPSHOT",
     camundaVersion: String = BuildInfo.camundaVersion,
-    sbtVersion: String = BuildInfo.sbtVersion,
+    // the generated builds have their own sbt version - not the one orchescala is built with
+    sbtVersion: String = BuildInfo.generatedSbtVersion,
     jaxbXmlVersion: String = BuildInfo.jaxbApiVersion,
     munitVersion: String = BuildInfo.mUnitVersion,
     zioVersion: String = BuildInfo.zioVersion,
