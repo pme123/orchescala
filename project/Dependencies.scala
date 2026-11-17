@@ -9,9 +9,9 @@ object Dependencies {
   // 04-helper
   val osLibVersion          = "0.11.10"
   // 01-domain
-  val openapiCirceVersion   = "0.11.10"
-  val tapirVersion          = "1.13.33"
-  val ironCirceVersion      = "3.3.2"
+  val openapiCirceVersion   = "0.12.1"
+  val tapirVersion          = "1.14.1"
+  val ironCirceVersion      = "3.4.1"
   val mUnitVersion          = "1.3.6"
   val scala3MockVersion     = "0.6.6"
   // 02-bpmn
@@ -32,7 +32,7 @@ object Dependencies {
   val http4sVersion         = "0.23.38"
   val laminarVersion        = "17.2.1"
   // java.time for Scala.js - the model uses LocalDateTime
-  val scalaJavaTimeVersion  = "2.7.0"
+  val scalaJavaTimeVersion  = "2.11.0"
   val scalaJsDomVersion     = "2.8.1"
   // - mUnitVersion
   // 03-simulation
@@ -55,7 +55,7 @@ object Dependencies {
   val scaffeineV            = "5.3.0"  // caching
   val zioVersion            = "2.1.27" // zio
   val zioHttpVersion        = "3.11.6" // zio http
-  val zioLoggingVersion     = "2.5.3" // logging
+  val zioLoggingVersion     = "2.5.4" // logging
   val logbackVersion        = "1.6.7" // logging
   // - sttpClient3
 
