@@ -545,3 +545,33 @@ test('a topic of the older naming without the API: its API from the package, lis
   const file = collectionFiles(c).find(f => f.path.endsWith('/PatchFile.scala'))!;
   assert.match(file.content, /final val topicName = "acme-crmV1\.PatchFile"/, file.content);
 });
+
+test('a topic of the older naming without a version: callable by an orchestration, its object and worker where the project has them', async () => {
+  const { callableServices } = await import('../src/services/serviceProcess');
+  const { servicePackages } = await import('../src/services/orchestration');
+  const topic = 'acme-docs-eventStatus.get';
+  const code = `package acme.docs.domain
+
+object GetEventStatus extends CompanyBpmnServiceTaskDsl:
+  final val topicName = "${topic}"
+  val path = "GET: /events/{eventId}"
+
+  type ServiceIn = NoInput
+  type ServiceOut = NoOutput
+
+  case class In(
+      eventId: String
+  )
+  case class Out(
+      isDone: Boolean
+  )
+end GetEventStatus
+`;
+  const model = { version: 1, domainTypes: scanScala(code, 'GetEventStatus.scala'), services: [{ id: topic, name: 'eventStatus.get', kind: 'service', topic }] } as never;
+  // no collection of it - it would write the object anew, in the packages of an API
+  assert.equal(catalogProjects(model).length, 0);
+  const ref = callableServices([], model).get(topic)!;
+  assert.ok(ref, 'callable by its topic');
+  assert.equal(ref.service.name, 'GetEventStatus');
+  assert.deepEqual(servicePackages(ref), { domain: 'acme.docs.domain', worker: 'acme.docs.worker.eventStatus' });
+});

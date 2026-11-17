@@ -133,6 +133,7 @@ export function servicesByTopic(collections: ServiceCollectionSpec[]): Map<strin
 
 /** Domain and worker package of a service — `acme.crm.domain.client.v1`, `acme.crm.worker.client.v1`. */
 export const servicePackages = (ref: ServiceRef) => {
+  if (ref.service.packages) return ref.service.packages;
   const api = apiOf(ref.collection, ref.service);
   return { domain: collectionPackage(api), worker: workerPackage(api) };
 };
