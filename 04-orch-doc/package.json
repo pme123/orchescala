@@ -17,8 +17,8 @@
     "test": "esbuild tests/*.test.ts --bundle --platform=node --format=esm --outdir=dist-tests --out-extension:.js=.mjs --packages=external --loader:.css=empty --loader:.png=empty --log-level=warning && node --test \"dist-tests/*.test.mjs\""
   },
   "dependencies": {
-    "bpmn-js": "^18.31.1",
-    "dmn-js": "^17.13.0",
+    "bpmn-js": "^18.33.0",
+    "dmn-js": "^18.0.3",
     "lucide-react": "^0.546.0",
     "marked": "^18.2.0",
     "react": "^19.3.1",
