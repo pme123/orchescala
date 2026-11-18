@@ -23,6 +23,9 @@ export interface StorageBackend {
   write(path: string, text: string, opts?: { ifMatch?: string; createOnly?: boolean }): Promise<WriteResult>;
   /** files only; empty if the folder is missing */
   list(dir: string): Promise<FileInfo[]>;
+  /** the names of the folders in `dir` - for what takes the whole folder (the run of the studio);
+   *  a backend without it only knows the folders orch-spec writes */
+  dirs?(dir: string): Promise<string[]>;
   ensureDir(dir: string): Promise<void>;
   /** Remove a file; a missing file counts as removed. With `ifMatch` only this version
    *  (otherwise `conflict`) - atomic in SharePoint, locally checked right before removing */
@@ -94,6 +97,18 @@ export class LocalBackend implements StorageBackend {
       // folder missing
     }
     return out;
+  }
+
+  async dirs(dir: string): Promise<string[]> {
+    try {
+      const d = await dir.split('/').filter(Boolean)
+        .reduce<Promise<FileSystemDirectoryHandle>>(async (parent, p) => (await parent).getDirectoryHandle(p), Promise.resolve(this.root));
+      const names: string[] = [];
+      for await (const [name, handle] of d.entries()) if (handle.kind === 'directory') names.push(name);
+      return names.sort();
+    } catch {
+      return []; // folder missing
+    }
   }
 
   async ensureDir(dir: string): Promise<void> {

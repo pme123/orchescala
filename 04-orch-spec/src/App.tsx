@@ -5,6 +5,7 @@ import { Sun, Moon, FolderOpen, AlertTriangle, Wrench, LogIn, LogOut, ShieldChec
 import { AiDialog } from './ai/AiDialog';
 import { anyAi } from './ai/config';
 import { useAiConfig } from './ai/useAiConfig';
+import RunControls from './platform/RunControls';
 import { useStore } from './store';
 import { APP_VERSION } from './version';
 import { GUID_RE, useAuth, usePermissions } from './auth';
@@ -282,6 +283,9 @@ export default function App() {
               {auth.status === 'signedIn' && auth.user && (
                 <AccountChip isDark={isDark} user={auth.user} level={level} onLogout={auth.logout} />
               )}
+
+              {/* The runs of the studio - only when it has them for the project of this folder (E25) */}
+              {navOn && <RunControls isDark={isDark} />}
 
               {/* Display and the AI mode - only when the studio turns it on (E23) */}
               <span className={`w-px h-5 mx-1 ${isDark ? 'bg-white/10' : 'bg-black/10'}`} />

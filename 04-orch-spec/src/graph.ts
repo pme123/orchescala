@@ -92,6 +92,23 @@ export class GraphBackend implements StorageBackend {
     return { ok: false, reason: 'error', message: `Schreiben fehlgeschlagen (HTTP ${res.status}).` };
   }
 
+  async dirs(dir: string): Promise<string[]> {
+    // the folder itself has no path after the item
+    const first = dir.split('/').some(Boolean)
+      ? `${this.itemPath(dir)}:/children?$select=name,folder&$top=200`
+      : `/drives/${enc(this.folder.driveId)}/items/${enc(this.folder.itemId)}/children?$select=name,folder&$top=200`;
+    const page = async (url: string): Promise<string[]> => {
+      const res: Response = await this.f(url.startsWith('http') ? url.slice(this.base.length) : url);
+      if (res.status === 404) return [];
+      if (!res.ok) throw new Error(`Auflisten fehlgeschlagen (HTTP ${res.status}).`);
+      const json = await res.json();
+      const names = ((json.value ?? []) as { name: string; folder?: unknown }[]).filter(it => it.folder).map(it => it.name);
+      const next: string | undefined = json['@odata.nextLink'];
+      return next ? [...names, ...(await page(next))] : names;
+    };
+    return (await page(first)).sort();
+  }
+
   async list(dir: string): Promise<FileInfo[]> {
     const out: FileInfo[] = [];
     let next: string | null = `${this.itemPath(dir)}:/children?$select=name,eTag,file&$top=200`;

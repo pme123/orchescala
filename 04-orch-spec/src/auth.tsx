@@ -19,6 +19,7 @@
 // IDs is loaded. MSAL is only loaded when a sign-in is due.
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { AccountInfo, PublicClientApplication } from '@azure/msal-browser';
+import { useSpecLocked } from './platform/lock';
 import type { AuthSettings } from './types';
 
 export type AuthConfig = AuthSettings;
@@ -408,16 +409,21 @@ export function useAuthor(): { name: string; email?: string } {
   return user?.email ? { name, email: user.email } : { name };
 }
 
-export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEdit: boolean; canView: boolean; canDelete: boolean } {
+export function usePermissions(): { level: AccessLevel; canAdmin: boolean; canEdit: boolean; mayEdit: boolean; canView: boolean; canDelete: boolean } {
   const { status, user } = useAuth();
   const level: AccessLevel = status === 'disabled' ? 'admin' : (user?.level ?? 'none');
+  // while a run of the studio is running or waiting, the spec is locked for everybody (E25)
+  const locked = useSpecLocked();
+  const mayEdit = level === 'admin' || level === 'reviewer';
   return {
     level,
     canAdmin: level === 'admin',
-    canEdit: level === 'admin' || level === 'reviewer',
+    canEdit: mayEdit && !locked,
+    // the role alone, without the lock of a run - who may start and end runs
+    mayEdit,
     canView: level !== 'none',
     // Deleting whole specifications: only with the admin role — or without
     // mandatory sign-in, because then «everything allowed» applies anyway (level admin).
-    canDelete: level === 'admin',
+    canDelete: level === 'admin' && !locked,
   };
 }
