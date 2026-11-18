@@ -15,37 +15,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## Unreleased
-
-### To note when upgrading
-- **Scala 3.10.1:** orchescala is built with Scala 3.10 - a build on an older Scala version cannot read it. Company and project builds get Scala 3.10.1, sbt 2.1.0 and the new sbt plugin versions through the helper.
-- **scala-cli scripts:** the generated `helperCompany.scala` and `helper.scala` now pin the Scala version (`//> using scala 3.10.1`). Before the first `update` with this version, add that line by hand to the existing scripts - without it scala-cli takes its default version (3.8 with scala-cli 1.13), which cannot read the helper.
-- **Order for a company:** the helper of a company writes the versions of the orchescala it is built with - an `update` with the old company helper writes the old versions again. So, once:
-  1. In the company's `*-orchescala`, set `scalaV = "3.10.1"` and `orchescalaV` by hand in `project/Settings.scala` (the build stays on its sbt 1 for this step). If `04-helper/.../CompanyDevConfig.scala` sets `sbtVersion = BuildInfo.sbtVersion` in its `CompanyVersionConfig`, remove that line - it is the sbt version the company build runs with, so `update` would write sbt 1 again; without it the helper takes orchescala's. Then `sbt publishLocal`.
-  2. `./helper.scala update` there - it writes sbt 2.1.0 to `project/build.properties` and the new `plugins.sbt`, `build.sbt` and `Settings.scala` (the ones marked `DO NOT ADJUST`). Adapt hand-maintained build files (see sbt 2 below), then `sbt publishLocal` again - now on sbt 2.
-  3. `./helper.scala update` in the projects - they move to sbt 2 as well.
-- **Fuel limit:** Scala 3.10 stops recursive operations after a fuel of 550 (`Recursion limit exceeded`) - too little to derive the codec of a class with a few hundred fields. The generated builds set `-Xmax-fuel:2000`; a hand-maintained `Settings.scala` needs it added.
-- **Scala 3.10 breaking changes** that may hit own code: a `Double` literal is no longer taken where a `Float` is expected (`2.0` -> `2.0f`), `@throws` only on methods and constructors, `strictEqualityPatternMatching` is on by default, the `with` type operator is an error.
-- **chimney 2:** mapping code must be recompiled; `withCoproduct...` (deprecated) and `.toPartialResult` (use `.asResult`) are gone.
-- **sbt 2:** orchescala and the generated company and project builds run on sbt 2.1.0.
-  - The build code (`build.sbt`, `project/*.scala`) is compiled with Scala 3. The generated files are adapted; a hand-maintained one needs: `BuildInfoKey(version)` instead of `version` in `buildInfoKeys` (Scala 3 converts the keys only in `.sbt` files), no `addDependencyTreePlugin` (built into sbt 2), `excludeAll(ExclusionRule(org, name))` instead of `exclude(org, name)`, `Setting[?]` instead of `Setting[_]`, `x*` instead of `x: _*`, `uri(...)` instead of `url(...)`, `%%` instead of `%%%` (Scala.js). A task that writes files outside of sbt's `target` (npm, code generators) needs `Def.uncached` - sbt 2 caches task results.
-  - The colon syntax is gone: `Test/compile`, `worker/Test/run` - not `test:compile`.
-  - The build output is in `target/out/` of the root, not in `target/` of each module - e.g. `target/out/jvm/scala-3.10.1/<module>/test-reports` and the docker stage `target/out/jvm/u/<module>/docker/stage`. Pipelines and scripts that use such paths need them adapted.
-  - `sbt` runs the build in a background server that stays (`sbt shutdown` ends it). The generated builds reload when a build file changes (`Global / onChangedBuildSource := ReloadOnSourceChanges`); the helper runs releases and deploys with `sbt --server` (sbt in its own JVM), so a release never builds with a build the server loaded before. That needs a current sbt runner (`sbt --server`).
-- **DMN data types in Orch Spec and Orch Doc (dmn-js 18):** the type list of a column now has the names of the DMN spec - `date and time`, `days and time duration`, `years and months duration` instead of `dateTime`, `dayTimeDuration`, `yearMonthDuration`. Existing tables keep their `typeRef`. Camunda 8 and the DMN Tester (dmn-scala) accept both names; Camunda 7 knows neither and passes such a value on unchanged (with a warning in its log) - for Camunda 7 use `date`.
-- **Removed `springBootVersion`:** `CompanyVersionConfig.springBootVersion` and the key `BuildInfo.springBootVersion` are gone - no generator read them; a company build that sets or reads one of them must drop it.
-
-### Dependencies
-- Scala 3.10.1, sbt 2.1.0.
-- Libraries: os-lib 0.11.10, circe 0.14.17, http4s 0.23.38, typesafe-config 1.4.10, scala-xml 2.5.0, munit 1.3.6, iron-circe 3.4.1, chimney 2.1.1, scala-java-time 2.11.0, coursier interface 1.0.30, jakarta.xml.bind-api 4.0.5, ZIO 2.1.27, zio-logging 2.5.4, logback 1.6.7, swagger-parser 2.1.48, java-jwt 4.6.2, jgit 7.8.1, postgresql 42.7.14, HikariCP 7.1.0; for the tests testcontainers 2.0.5.
-- tapir 1.14.1, openapi-circe-yaml 0.12.1, zio-http 3.11.6; DMN Tester: dmn-scala 1.12.6 (feel-scala 1.22.1).
-- sbt plugins: sbt-native-packager 1.13.0, sbt-ci-release 1.12.1, sbt-mdoc 2.9.2, sbt-buildinfo 0.13.2, sbt-scalajs 1.23.0 - their versions are only in `project/plugins.sbt`.
-- Frontends: React 19.3.1, bpmn-js 18.33.0, dmn-js 18.0.3, camunda-bpmn-moddle 8.0.2, zeebe-bpmn-moddle 2.0.0, @azure/msal-browser 5.29.1, @anthropic-ai/sdk 1.8.0, marked 18.2.0, js-yaml 5.5.0, yaml 2.9.1, linkedom 0.18.15, lucide-react 1.74.0, tailwindcss 4.3.5, @playwright/test 1.65.1, vite-plugin-singlefile 2.3.4; source-map-js 1.2.2 (security fix GHSA-68fv-2mgg-jv7q).
-- Frontend tooling: vite 8.3.8 (Rolldown) and @vitejs/plugin-react 6.3.0 in all frontends (the DMN Tester client was on vite 7), esbuild 0.28.2 (vite no longer brings it - Orch Doc and Orch Ops list it themselves for their tests), TypeScript 7.0.2, vitest 5.1.0 (docs site).
-- Orch Studio: hono 4.13.18, @hono/node-server 2.1.8.
-
-### Removed
-- The unused dependency blocks of the build (`zeebeDependencies`, `camundaDependencies`, `camunda7workerDependencies`) and with them Spring Boot, Jackson, netty, h2, groovy, Spin and twitter4j.
+## 0.10.0 - 2026-11-18
+### Changed 
+- Major updates: vite 8, TypeScript 7, dmn-js 18, lucide-react 1, HikariCP 7, testcontainers 2 (#163) - see [Commit](https://github.com/pme123/orchescala/commit/69d29d5e55ec90bad307c5be2a6118b68c7c44f9)
+- sbt 2.1.0 for orchescala and the generated company and project builds (#162) - see [Commit](https://github.com/pme123/orchescala/commit/b59c823ec78d9afd54a8e3463aaac0ce42862cf9)
+- Orch Spec: «Mit Code abgleichen» for service orchestrations, copy and paste between Orch Spec places (#160) - see [Commit](https://github.com/pme123/orchescala/commit/71edd858b183bca78e65eb18528fc9d7dc55cb36)
+- Scala 3.10 follow-ups: fuel limit in generated builds, upgrade order, source-map-js 1.2.2 (#161) - see [Commit](https://github.com/pme123/orchescala/commit/40005546f6fdfb8a568912956928518aaf6665f8)
+- Dependency updates: Scala 3.10.1, sbt 1.13.1, libraries, sbt plugins and frontends (#159) - see [Commit](https://github.com/pme123/orchescala/commit/13b75cb61c65faff119fc579ee3d372a195b06d8)
+- Orch Spec: type mappers in the code, mappings onto enums with cases, mapping methods in ZIO (#158) - see [Commit](https://github.com/pme123/orchescala/commit/7c0b3e461c5fa06a19d84f7e7cc9e15338dfb791)
+- Orch Spec: a script task of a service orchestration as a field mapping - lines from In to Out, type mappers (#157) - see [Commit](https://github.com/pme123/orchescala/commit/4ebbc1bb2c629136174413b09d89066657d7761b)
+- Orch Spec outputs: the type comes from the source, not from the name of the target (#155) - see [Commit](https://github.com/pme123/orchescala/commit/e7b4ea1ac24c7d09443764c9871dff0db5301fae)
+- Skills: names in the language of the domain, English by default (#156) - see [Commit](https://github.com/pme123/orchescala/commit/00f6d483ad8f1a5432b18a171d81b961109969ee)
+- Orch Spec: a Groovy list imports as FEEL, choosing a service fills the source of its outputs (#154) - see [Commit](https://github.com/pme123/orchescala/commit/3ec03a1ca043a3a673f81dc4a9d647fab9c6f91b)
+- AI: the loop runs only on the studio - the browser loop, POST /ai/<task>/v1/messages and STUDIO_AI_AGENT are gone (#153) - see [Commit](https://github.com/pme123/orchescala/commit/c49dbd6ef7a28c2563507935018537f6a4f0de4f)
+- Orch Spec collections: the Abgleich names the missing API and lists what the project no longer has (#152) - see [Commit](https://github.com/pme123/orchescala/commit/b5baa2c0afefdb3b148b3d2aae69fbd3700f772c)
+- Orch Spec: the own instance is always camunda.processInstance - in C7 too, mapped on import and export (#151) - see [Commit](https://github.com/pme123/orchescala/commit/c1b4c5870e63b3f6bb7067ae3ddc60a6c10a2e8e)
+- Publish: the release check names the artifacts as sbt does - a name in camel case in lower case (#150) - see [Commit](https://github.com/pme123/orchescala/commit/d814e48a4b1925760dbb08141d9619cc4270ea4b)
+- Orch Spec collections: the OpenAPI kept, one API each, collections of classes, JUEL guards read back (#149) - see [Commit](https://github.com/pme123/orchescala/commit/0a63f42a22990d18ced6d58a2928e02dc9b11da2)
+- orch-spec: gateway mappings between C7 and C8 - an output becomes a listener, counters stay null-safe (#148) - see [Commit](https://github.com/pme123/orchescala/commit/9317afd1b80a0dfd2bb73b7eb07ef71f9367387f)
+- The loop of the agent on the studio, with the limits of the skill (E28, step 5) (#147) - see [Commit](https://github.com/pme123/orchescala/commit/a51fc2632c3d481110649c9cff4b5f87e322964a)
+- Orch Spec orchestrations: a match per gateway, typed mappings, script tasks in FEEL, a worker test (#146) - see [Commit](https://github.com/pme123/orchescala/commit/f608c98e134bd06b4d295272b8ff5a8e4a25cdce)
+- orch-spec: the folder as a whole with the catalog («noch nicht released»), a page for a user task (E28, step 4) (#145) - see [Commit](https://github.com/pme123/orchescala/commit/fca91124446de68f84883f581efc060f832f783d)
+- orch-spec: the process and the page stay as they are while Claude works on a draft (#144) - see [Commit](https://github.com/pme123/orchescala/commit/46a2de4ff1b9fe5a660d797d8ff382701edd173b)
+- Orch Studio in TypeScript: the same contract on Node 22, one image the company configures (E28, step 3) (#143) - see [Commit](https://github.com/pme123/orchescala/commit/f5764a6f75bf887ad04f48252b7001ef85146352)
+- Orch Spec: Abgleich and types from the hierarchy, merge from Orch Spec into the code (#142) - see [Commit](https://github.com/pme123/orchescala/commit/9d6f25ffb67900d5f9598945e7630421c633ac41)
+- orch-spec: the core as one entry for the studio, its boundary on CI (E28, step 2) (#141) - see [Commit](https://github.com/pme123/orchescala/commit/e7eeb1fff365d6ee697fc4cd79a88e17fdb49cef)
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](https://github.com/pme123/orchescala/commit/d8eb3cda3dc3150e807c5d8de2adcac780816481)
+- orch-spec: the page differences back in TypeScript, orch-spec-core removed (E28, step 1) (#140) - see [Commit](https://github.com/pme123/orchescala/commit/88eb630713391e714dc4e20d799ebb52fb96388c)
+- orch-spec: test that it works without a server (E28, step 0) (#139) - see [Commit](https://github.com/pme123/orchescala/commit/7f1ad96e93937d3e42cd5d03b68ea49984a74123)
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](https://github.com/pme123/orchescala/commit/9b249823491e78c2a8cedd42be514f241f471bb2)
+- Docs: every project of a company in its group of the dependency graph - see [Commit](https://github.com/pme123/orchescala/commit/24eb0a27d1ac195f20bf05bfba259396a5bab9c8)
+- Generated build: no company-specific fallback - the repo variables are required (#138) - see [Commit](https://github.com/pme123/orchescala/commit/b7682dd3e23b418e51bd8d0b0e466e7935356605)
+- Generated sbt build: the repos and the docker settings from the env variables of the company (#137) - see [Commit](https://github.com/pme123/orchescala/commit/4a5035b61912ed8a9a0b8be615061b25eb0eefe0)
+- Publish: the CHANGELOG may be edited for a project in a subdirectory of its repository (#136) - see [Commit](https://github.com/pme123/orchescala/commit/2ac0caae3044cae8b5d15d55465fdb4a906a5b74)
+- orch-spec AI: an In/Out with cases shows its cases; ambiguous classes by package (#135) - see [Commit](https://github.com/pme123/orchescala/commit/34445bce22901540726cb239406a0eaf1ab6a5df)
+- orch-spec AI: the data model of processes and orchestrations; the services as a step sees them (#134) - see [Commit](https://github.com/pme123/orchescala/commit/f8e1e05580d14cabc677a3de7654b34ed6c8085f)
+- Orch Studio: skills for processes and service orchestrations (#133) - see [Commit](https://github.com/pme123/orchescala/commit/441db152c981c9d06cd6104d613061857b5ca393)
+- Changelog 0.9.0: structured by area, with notes for upgrading - all commits kept below - see [Commit](https://github.com/pme123/orchescala/commit/db747d63d755ac7f151f17d3a25491dc883189f5)
 
 ## 0.9.0 - 2026-11-08
 
