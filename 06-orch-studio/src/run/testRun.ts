@@ -108,21 +108,21 @@ async function command(c: Ctx, script: string, env: Record<string, string> = {})
 const ended = (what: string, r: ExecResult, c: Ctx) =>
   r.timedOut ? `${what} hat länger als ${c.project.timeoutMinutes} Minuten gebraucht und wurde beendet.` : `${what} ist gescheitert (Exit ${r.code}).`;
 
-/** The JUnit reports (`test-reports/*.xml`) under `dir`, each with the time it was written. */
-export function reportTimes(dir: string): Map<string, number> {
+/** The JUnit reports of the simulations are those of a module «simulation» (`<project>-simulation`,
+  * `05-simulation`) - all others are the tests. */
+const SIMULATION = /simulation/i;
+
+/** What the JUnit reports (`test-reports/*.xml`) under `dir` say - of the simulations, or of the tests.
+  * Not only those a step wrote: sbt takes tests whose code did not change from its cache and leaves
+  * their reports as they are. None: null. */
+export function countReports(dir: string, what: 'tests' | 'simulations'): Counts | null {
   const reports = (d: string): string[] =>
     !existsSync(d) ? [] : readdirSync(d, { withFileTypes: true }).flatMap((e) => {
       if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') return [];
       const sub = join(d, e.name);
       return e.name === 'test-reports' ? readdirSync(sub).filter((f) => f.endsWith('.xml')).map((f) => join(sub, f)) : reports(sub);
     });
-  return new Map(reports(dir).map((f) => [f, statSync(f).mtimeMs]));
-}
-
-/** What the reports under `dir` say that are new or rewritten since `before` - those of this step, not
-  * of an earlier one (the tests, when the simulations are counted). None: null. */
-export function countReports(dir: string, before: Map<string, number> = new Map()): Counts | null {
-  const files = [...reportTimes(dir)].filter(([f, time]) => before.get(f) !== time).map(([f]) => f);
+  const files = reports(dir).filter((f) => SIMULATION.test(relative(dir, f)) === (what === 'simulations'));
   if (!files.length) return null;
   const attr = (suite: string, name: string) => Number(new RegExp(`\\b${name}="(\\d+)"`).exec(suite)?.[1] ?? 0);
   return files
@@ -243,9 +243,8 @@ const mergeStep: Step = async (c) => {
 };
 
 const testStep: Step = async (c) => {
-  const before = reportTimes(c.p.projectDir);
   const r = await command(c, c.project.commands.test);
-  const tests = countReports(c.p.projectDir, before);
+  const tests = countReports(c.p.projectDir, 'tests');
   if (r.code !== 0 || tests?.failed)
     throw new StepFailed(
       tests?.failed ? `${tests.failed === 1 ? 'Ein Test ist' : `${tests.failed} Tests sind`} fehlgeschlagen.` : ended('Kompilieren und Testen', r, c),
@@ -271,9 +270,8 @@ const deployStep: Step = async (c) => {
 };
 
 const simulateStep: Step = async (c) => {
-  const before = reportTimes(c.p.projectDir);
   const r = await command(c, c.project.commands.simulate);
-  const simulations = countReports(c.p.projectDir, before);
+  const simulations = countReports(c.p.projectDir, 'simulations');
   if (r.code !== 0 || simulations?.failed)
     throw new StepFailed(
       simulations?.failed

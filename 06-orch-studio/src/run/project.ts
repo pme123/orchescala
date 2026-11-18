@@ -40,13 +40,14 @@ export type Project = {
 };
 
 /** The steps of a project of Orchescala - only `deploy` is the company's. `sbt test` would run the
-  * simulations too, against a worker on the host. */
+  * simulations too, against a worker on the host. The simulations with `testFull` (sbt 2): `test` takes
+  * what did not change from its cache - but the test environment did change. */
 export const DEFAULT_COMMANDS: Omit<StepCommands, 'deploy'> = {
   check: './helper.scala processFromSpec --check --from "$ORCH_SPEC_DIR" --json "$ORCH_PLAN_FILE"',
   merge: './helper.scala processFromSpec --merge --from "$ORCH_SPEC_DIR" --markers --yes --json "$ORCH_PLAN_FILE"',
   test: 'sbt --server -batch "compile; worker/test"',
   release: './helper.scala publish "$ORCH_VERSION"',
-  simulate: 'sbt --server -batch simulation/test',
+  simulate: 'sbt --server -batch simulation/testFull',
 };
 export const DEFAULT_TIMEOUT_MINUTES = 30;
 

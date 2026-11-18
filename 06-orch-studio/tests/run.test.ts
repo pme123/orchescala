@@ -15,7 +15,7 @@ import { gitHub, type GitHost, type PullRequest } from '../src/run/gitHost.ts';
 import { parseProject, parseProjects, repoName, workBranch, type Project } from '../src/run/project.ts';
 import { BRANCH, fixture, git, ME, ok, RE, write } from './runFixture.ts';
 import { readJson, writeJson, type RunStatus, type Work } from '../src/run/status.ts';
-import { baseVersion, cancelRun, continueRun, countReports, handOver, reportTimes, runStatus, startTest, STEPS } from '../src/run/testRun.ts';
+import { baseVersion, cancelRun, continueRun, countReports, handOver, runStatus, startTest, STEPS } from '../src/run/testRun.ts';
 
 test('two rounds on the same work branch - both on the test environment, one pull request', async () => {
   const f = fixture();
@@ -236,17 +236,19 @@ test('a command that takes too long is stopped with what it started; one that is
 test('the reports and the version of a project', () => {
   const dir = mkdtempSync(join(tmpdir(), 'reports-'));
   try {
-    assert.equal(countReports(dir), null);
+    assert.equal(countReports(dir, 'tests'), null);
     write(join(dir, 'target/out/jvm/u/app-worker/test-reports/TEST-a.xml'), '<testsuite name="a" tests="5" errors="1" failures="1" skipped="1" time="0.1">\n<testcase/></testsuite>');
     write(join(dir, '03-worker/target/test-reports/TEST-b.xml'), '<testsuites><testsuite tests="2" failures="0" errors="0"></testsuite><testsuite tests="1"></testsuite></testsuites>');
     write(join(dir, 'node_modules/x/test-reports/c.xml'), '<testsuite tests="100">');
     write(join(dir, 'target/test-reports/notes.txt'), '<testsuite tests="100">');
-    assert.deepEqual(countReports(dir), { passed: 5, failed: 2 });
-    // only what this step wrote: the reports that are new or rewritten
-    const before = reportTimes(dir);
-    assert.equal(countReports(dir, before), null);
-    write(join(dir, 'target/out/jvm/u/app-simulation/test-reports/TEST-s.xml'), '<testsuite tests="4" failures="0" errors="0" skipped="0">');
-    assert.deepEqual(countReports(dir, before), { passed: 4, failed: 0 });
+    assert.deepEqual(countReports(dir, 'tests'), { passed: 5, failed: 2 });
+    // the reports of a module «simulation» are the simulations - whenever they were written: sbt leaves
+    // the reports of tests it took from its cache
+    assert.equal(countReports(dir, 'simulations'), null);
+    write(join(dir, 'target/out/jvm/scala-3.10.1/app-simulation/test-reports/TEST-s.xml'), '<testsuite tests="4" failures="0" errors="0" skipped="0">');
+    write(join(dir, '05-simulation/target/test-reports/TEST-t.xml'), '<testsuite tests="1" failures="1" errors="0" skipped="0">');
+    assert.deepEqual(countReports(dir, 'simulations'), { passed: 4, failed: 1 });
+    assert.deepEqual(countReports(dir, 'tests'), { passed: 5, failed: 2 });
     assert.equal(baseVersion(dir), undefined);
     write(join(dir, 'project/ProjectDef.scala'), 'object ProjectDef {\n  val name = "app"\n  val version = "1.12.3-SNAPSHOT"\n  lazy val otherVersion = "9.9.9"\n}');
     assert.equal(baseVersion(dir), '1.12.3');
@@ -263,6 +265,7 @@ test('the projects of the company - the defaults of an Orchescala project, what 
   );
   assert.equal(p.commands.merge, './helper.scala processFromSpec --merge --from "$ORCH_SPEC_DIR" --markers --yes --json "$ORCH_PLAN_FILE"');
   assert.deepEqual([p.commands.test, p.commands.release, p.commands.deploy, p.commands.checkImport], ['sbt --server -batch "compile; worker/test"', './helper.scala publish "$ORCH_VERSION"', './deploy.sh', undefined]);
+  assert.equal(p.commands.simulate, 'sbt --server -batch simulation/testFull');
   assert.equal(repoName(p), 'orchescala-democompany');
   assert.equal(repoName({ ...p, repo: 'https://github.com/pme123/orchescala-democompany/' }), 'orchescala-democompany');
   assert.equal(workBranch(p, 'termin-filiale'), 'orch-spec/democompany-customer/termin-filiale');

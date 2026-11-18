@@ -67,10 +67,10 @@ shows as waiting and can go on.
 | 2 Auschecken | a clone of the repo in the workspace of the studio (never the checkout of a developer), fetched; a worktree for the project | git |
 | 3 Branch | the first run of a work creates `orch-spec/<project>/<work>` from develop and pushes it, every later one goes on with it; develop is merged in | git |
 | 4 Merge | the spec merged into the code - the RE is the author, the studio commits and pushes; conflicts go along with their markers | `commands.merge`: `./helper.scala processFromSpec --merge --from "$ORCH_SPEC_DIR" --markers --yes --json "$ORCH_PLAN_FILE"` |
-| 5 Kompilieren und testen | the tests counted from `test-reports/*.xml` | `commands.test`: `sbt --server -batch "compile; worker/test"` |
+| 5 Kompilieren und testen | the tests counted from `test-reports/*.xml` (those of a module «simulation» are the simulations) | `commands.test`: `sbt --server -batch "compile; worker/test"` |
 | 6 Release | the version `x.y.z-<runId>` (`x.y.z` from `project/ProjectDef.scala`) - not committed | `commands.release`: `./helper.scala publish "$ORCH_VERSION"` |
 | 7 Deploy auf Test | that version on the test environment | `commands.deploy` - the company's |
-| 8 Simulationen, Import prüfen | the simulations counted; does the engine have the BPMN/DMN | `commands.simulate`: `sbt --server -batch simulation/test`, `commands.checkImport` (optional) |
+| 8 Simulationen, Import prüfen | the simulations counted; does the engine have the BPMN/DMN | `commands.simulate`: `sbt --server -batch simulation/testFull` (`test` would take unchanged simulations from sbt's cache), `commands.checkImport` (optional) |
 
 - **A step that fails makes the run wait** (`waiting`, with the last 200 lines of its log): development
   fixes it on the work branch, then the run goes on. A failed step 1-3, or a merge that itself failed,
