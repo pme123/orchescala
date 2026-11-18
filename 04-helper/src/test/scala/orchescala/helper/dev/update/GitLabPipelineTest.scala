@@ -5,6 +5,8 @@ import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
 import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig}
 import orchescala.helper.util.{DevConfig, PipelineConfig, SbtConfig}
 
+import scala.jdk.CollectionConverters.*
+
 /** The generated `.gitlab-ci.yml` uses the same env names as the generated sbt build - and has
   * nothing company-specific of the update for the repos from the variables.
   */
@@ -91,17 +93,21 @@ class GitLabPipelineTest extends FunSuite:
       assertEquals(out, host, url)
 
   test("the sbt line: one argument with `;` - the sbt 2 client joins its arguments with a space"):
-    val parsed = org.yaml.snakeyaml.Yaml().load[java.util.Map[String, Any]](pipeline(fromEnv))
-    val script = parsed.get("worker-test").asInstanceOf[java.util.Map[String, Any]]
-      .get("script").asInstanceOf[java.util.List[String]]
-    val sbt    = script.stream().filter(_.startsWith("sbt ")).findFirst().get
-    assertEquals(
-      sbt,
-      """sbt --server "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test""""
-    )
-    // as the shell splits it: the options, then one command line
-    val args   = os.proc("bash", "-c", s"""set -- ${sbt.stripPrefix("sbt ")}; printf '%s\\n' "$$@"""").call().out.lines()
-    assertEquals(args, Seq("--server", "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test"))
+    val parsed   = org.yaml.snakeyaml.Yaml().load[java.util.Map[String, Any]](pipeline(fromEnv))
+    val script   = parsed.get("worker-test").asInstanceOf[java.util.Map[String, Any]]
+      .get("script").asInstanceOf[java.util.List[String]].asScala.toSeq
+    val sbtLines = script.filter(_.startsWith("sbt "))
+    assertEquals(sbtLines.size, 1, script.mkString("\n"))
+    // the options, then the commands as one quoted argument - nothing after it that the client
+    // would join into the same line
+    val SbtLine  = """sbt --server "([^"]+)"""".r
+    sbtLines.head match
+      case SbtLine(commands) =>
+        assertEquals(
+          commands.split(";").map(_.trim).toSeq,
+          Seq("set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2))", "domain/test", "worker/test")
+        )
+      case other             => fail(s"not one quoted argument after `sbt --server`: $other")
 
   test("configured repos without variables - their url and host as before"):
     val credentials = RepoCredentials.UserPassword("acme", "bin.example.com", "U", "P")
