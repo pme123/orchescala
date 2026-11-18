@@ -483,6 +483,10 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     const t = l.kind === 'timer' ? 'Iso8601Duration' : 'Int';
     add(nodeOf(l.name, t, { optional: false, collection: false, source: SOURCE_IN_CONFIG, label: t }, b, 0, new Set()));
   }
+  // a loop of a service orchestration (a jump back): its round, from 1 - the worker counts it
+  if (spec.service && allSteps(spec.steps).some(s => s.kind === 'goto' && s.back)) {
+    add({ name: 'loopCounter', type: 'number', label: 'Int', source: 'Schleife', description: 'Nummer der Runde der Schleife, ab 1 - zählt der Worker' });
+  }
 
   // The In — as an ADT the shared fields and those of all cases (in JSON
   // they sit side by side; which case it is is decided at runtime)

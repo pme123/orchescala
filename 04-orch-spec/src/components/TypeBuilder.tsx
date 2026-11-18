@@ -27,6 +27,7 @@ import FeelInput from './FeelInput';
 import { checkTypes, classOrigins, constraintKind, dmnIssues, defaultIsUsed, fieldType, homeOf, indexTypes, isScalaTypeExpression, isScalaTypeName, packageOf, referencedClass, renderType } from '../scala';
 import { BRANCH_COLORS, PanelWidthHandle, cls, patternTone, useStoredWidth } from '../ui';
 import { classesNotInDomain, referenceExistingClasses, sharedFields } from '../projectImport';
+import { fieldOfVariable, outFieldIssues, outVariables } from '../services/outVariables';
 import { CommentBubble } from './Comments';
 import { useConfirm } from './Confirm';
 import { iaTarget, sub, typeTarget } from '../comments';
@@ -264,7 +265,8 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
   }, [focusIaId, onFocusedIa]);
 
   const idx = useMemo(() => indexTypes(types, model, homeOf(spec)), [types, model, spec]);
-  const issues = useMemo(() => checkTypes(types, model), [types, model]);
+  // the Out of an orchestration also against the process variables it is filled from
+  const issues = useMemo(() => [...checkTypes(types, model), ...outFieldIssues(spec, model)], [types, model, spec]);
   // classes that already exist in the domain — do not belong in the data model (see referencedClass)
   const existing = useMemo(() => referenceExistingClasses(spec, model), [spec, model]);
   // … and classes that do not exist there (yet) — new, or the import is missing
@@ -1134,6 +1136,8 @@ function TypeEditor({ type: t, types, spec, isDark, canEdit, issues, idx, model,
                   <Plus size={11} /> Feld
                 </button>
                 <PasteFieldButton typeId={t.id} isDark={isDark} />
+                {t.processOut && <OutVariablePicker spec={spec} model={model} fields={fields} isDark={isDark}
+                  onPick={f => onPatch({ fields: [...fields, f] })} />}
               </div>
             )}
           </div>
@@ -1587,6 +1591,30 @@ function EnumEditor({ type: t, types, isDark, canEdit, idx, model, issues, onPat
   );
 }
 
+/**
+ * The Out of a process: a field for a process variable - picked from those there are (the In, the
+ * outputs and results of the steps), with the type its source gives it.
+ */
+function OutVariablePicker({ spec, model, fields, isDark, onPick }: {
+  spec: ProcessSpec; model: Model | null; fields: Field[]; isDark: boolean; onPick: (f: Field) => void;
+}) {
+  const c = cls(isDark);
+  const vars = useMemo(() => outVariables(spec, model), [spec, model]);
+  const open = vars.filter(v => !fields.some(f => f.name === v.name));
+  if (!open.length) return null;
+  return (
+    <select value="" onChange={e => {
+      const v = open.find(x => x.name === e.target.value);
+      if (v) onPick(fieldOfVariable(v, spec.types ?? []));
+    }}
+      title="Ein Feld für eine Prozessvariable - mit dem Typ, den ihre Quelle ihr gibt"
+      className={`text-[11px] px-2 py-1.5 rounded border outline-none ${c.input}`}>
+      <option value="">+ Prozessvariable…</option>
+      {open.map(v => <option key={v.name} value={v.name}>{v.name}: {v.label} — {v.source}</option>)}
+    </select>
+  );
+}
+
 function CopyButton({ text, isDark }: { text: string; isDark: boolean }) {
   const c = cls(isDark);
   const [done, setDone] = useState(false);
@@ -1623,7 +1651,7 @@ export function StandaloneTypeEditor({ type, spec, isDark, canEdit, model, fixed
 }) {
   const types = useMemo(() => spec.types ?? [], [spec.types]);
   const idx = useMemo(() => indexTypes(types, model, homeOf(spec)), [types, model, spec]);
-  const issues = useMemo(() => checkTypes(types, model).filter(i => i.typeId === type.id), [types, model, type.id]);
+  const issues = useMemo(() => [...checkTypes(types, model), ...outFieldIssues(spec, model)].filter(i => i.typeId === type.id), [types, model, spec, type.id]);
   // a new type from the type picker and the field that points to it come in one go —
   // the second change builds on the first, not on the state of the last render
   const latest = useRef(types);

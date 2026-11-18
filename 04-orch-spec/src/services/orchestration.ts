@@ -8,6 +8,7 @@
 //
 // In Orchescala this is a CustomTask (`CompanyBpmnCustomTaskDsl`) and its CustomWorker —
 // see scalaOrchestration.ts.
+import { feelValueType, type TypedName } from './feelValueType.ts';
 import { importBpmn } from '../bpmn.ts';
 import { serviceStepIssues } from './serviceMode.ts';
 import type { Branch, Field, Mapping, Step, TypeDef } from '../types';
@@ -133,6 +134,7 @@ export function servicesByTopic(collections: ServiceCollectionSpec[]): Map<strin
 
 /** Domain and worker package of a service — `acme.crm.domain.client.v1`, `acme.crm.worker.client.v1`. */
 export const servicePackages = (ref: ServiceRef) => {
+  if (ref.service.packages) return ref.service.packages;
   const api = apiOf(ref.collection, ref.service);
   return { domain: collectionPackage(api), worker: workerPackage(api) };
 };
@@ -172,15 +174,17 @@ export interface OrchVar {
  */
 export function producedBy(steps: Step[], o: ServiceOrchestrationSpec, services: Map<string, ServiceRef>): OrchVar[] {
   const out: OrchVar[] = [];
+  // what an expression may read to tell its type: the In and what the steps produced before
+  const scope = () => [...inVars(o), ...out];
   for (const s of steps) {
     const task = o.tasks[s.id];
     if (s.kind === 'service' && task?.service) {
       const ref = services.get(task.service);
       const outType = ref ? serviceMembers(ref).out : undefined;
-      if (task.outputs) out.push(...outputVars(task.outputs, ref && !ref.service.noOut ? outType : undefined, task.outCase ?? task.inCase));
+      if (task.outputs) out.push(...outputVars(task.outputs, ref && !ref.service.noOut ? outType : undefined, task.outCase ?? task.inCase, scope()));
       else if (ref && !ref.service.noOut && outType) out.push({ name: resultName(task, ref), scala: resultName(task, ref), type: outType.id, source: 'Service' });
     } else if (s.kind === 'script') {
-      for (const a of task?.assignments ?? []) if (a.name.trim()) out.push({ name: a.name.trim(), scala: a.name.trim(), type: 'String', source: 'Script' });
+      for (const a of task?.assignments ?? []) if (a.name.trim()) out.push({ name: a.name.trim(), scala: a.name.trim(), type: feelValueType(a.expression, scope()) ?? 'String', source: 'Script' });
       const result = task?.script?.trim() ? scriptResultVar(o, task) : null;
       if (result) { const { typed: _typed, ...v } = result; out.push(v); }
     } else if (s.kind === 'gateway') {
@@ -221,13 +225,16 @@ const outFieldsOf = (outType: TypeDef | undefined, outCase?: string): Field[] =>
     : (outType?.fields ?? []);
 
 /** The variables a service task sets as a process describes it: per enabled output, typed by the `Out` field it reads. */
-export function outputVars(outputs: Mapping[], outType: TypeDef | undefined, outCase?: string): OrchVar[] {
+export function outputVars(outputs: Mapping[], outType: TypeDef | undefined, outCase?: string, known: readonly TypedName[] = []): OrchVar[] {
+  const fields = outFieldsOf(outType, outCase);
+  // what a computing row may read: the fields of the Out and what is known before
+  const scope = [...fields.filter(f => f.name), ...known];
   return outputs.filter(m => !m.disabled && m.name.trim()).map(m => {
     const read = /^=\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(m.expression.trim())?.[1];
-    const f = read ? outFieldsOf(outType, outCase).find(x => x.name === read) : undefined;
+    const f = read ? fields.find(x => x.name === read) : undefined;
     const name = m.name.trim();
     return {
-      name, scala: name, type: m.mapTo || (f?.type ?? 'String'), source: 'Service' as const,
+      name, scala: name, type: m.mapTo || (f?.type ?? feelValueType(m.expression, scope) ?? 'String'), source: 'Service' as const,
       ...(f?.collection ? { collection: true } : {}), ...(f?.optional ? { optional: true } : {}),
     };
   });

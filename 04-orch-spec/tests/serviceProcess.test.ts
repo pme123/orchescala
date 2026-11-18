@@ -260,7 +260,9 @@ test('service mode: what a worker cannot do is an error, an error path a warning
   assert.deepEqual(levels(step({ topic: 'a.B' })), []);
   assert.deepEqual(levels(step({})), ['error']);
   assert.deepEqual(levels(step({ kind: 'user' as Step['kind'] })), ['error']);
-  assert.ok(levels(step({ topic: 'a.B', loop: { kind: 'multi' } } as Partial<Step>)).includes('error'));
+  // the target of a jump back is fine - the worker repeats from there
+  assert.deepEqual(levels(step({ kind: 'gateway', gatewayType: 'exclusive', loop: { condition: 'Wiederholung' } })), []);
+  assert.ok(levels(step({ topic: 'a.B', multiInstance: { collection: 'items' } })).includes('error'));
   assert.deepEqual(levels(step({ topic: 'a.B', errors: [{ code: 'E', label: 'E' }] } as Partial<Step>)), ['warn']);
 });
 
@@ -280,4 +282,20 @@ test('the folder catalog: an orchestrator finds the classes another one exports 
   assert.ok(ids.includes('acme.crm.domain.client.v1.GetClient.In'), ids.join(', '));
   // its own classes are not in it - they are its own types
   assert.ok(!(folderCatalog(null, { specs: [a], collections: [] }, a.slug)?.domainTypes ?? []).some(d => d.name === 'Client'));
+});
+
+test('a service orchestration loads as Camunda 8 - FEEL conditions, never JUEL', async () => {
+  const { withoutRetiredFields } = await import('../src/specLoad');
+  const { spec } = newServiceProcess({ title: 'Kunde ändern', project: 'acme-crm', api: 'client', apiVersion: 1, name: 'UpdateClient' });
+  assert.equal(withoutRetiredFields({ ...spec, engine: 'c7' }).engine, 'c8');
+  // a process stays as it is
+  const { service: _s, ...process } = spec;
+  assert.equal(withoutRetiredFields({ ...process, engine: 'c7' } as never).engine, 'c7');
+});
+
+test('a service orchestration stays Camunda 8 when its diagram is read again - even one drawn for Camunda 7', async () => {
+  const { mergeSpec } = await import('../src/bpmn');
+  const spec = described();
+  const fresh = { ...spec, engine: 'c7' as const };
+  assert.equal(mergeSpec(fresh, { ...spec, engine: 'c8' }).spec.engine, 'c8');
 });

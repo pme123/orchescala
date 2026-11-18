@@ -9,7 +9,7 @@ export interface ServiceStepIssue {
 }
 
 /**
- * Service and script tasks, parallel and exclusive gateways — nothing that waits or loops.
+ * Service and script tasks, parallel and exclusive gateways, timers (a duration) and jumps back (a loop).
  * `chosen`: whether the step's service counts as chosen (an orchestration of before keeps it apart).
  */
 export function serviceStepIssues(s: Step, chosen = !!(s.topic || s.serviceId)): ServiceStepIssue[] {
@@ -17,10 +17,18 @@ export function serviceStepIssues(s: Step, chosen = !!(s.topic || s.serviceId)):
   const name = s.name || s.id;
   if (s.kind === 'gateway') {
     if (s.gatewayType !== 'parallel' && s.gatewayType !== 'exclusive') out.push({ level: 'error', text: `«${name}»: nur parallele und exklusive Gateways.` });
+  } else if (s.kind === 'event' && s.eventKind === 'timer') {
+    // a timer waits - ZIO.sleep; only a duration (not a date, not a cycle)
+    if (s.timer?.kind && s.timer.kind !== 'duration') out.push({ level: 'error', text: `«${name}»: ein Worker wartet eine Dauer - kein Datum, kein Zyklus.` });
+  } else if (s.kind === 'goto') {
+    // a jump back is a loop of the worker: the steps from its target on, once more
+    if (!s.back) out.push({ level: 'error', text: `«${name}»: nur ein Sprung zurück (eine Schleife) - kein Sprung vorwärts.` });
   } else if (!['start', 'end', 'service', 'script'].includes(s.kind)) {
-    out.push({ level: 'error', text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks.` });
+    out.push({ level: 'error', text: `«${name}» (${s.kind}): eine Orchestrierung kennt nur Service- und Script-Tasks, Timer und Schleifen zurück.` });
   }
-  if (s.loop || s.multiInstance) out.push({ level: 'error', text: `«${name}»: Schleifen gibt es in einer Orchestrierung nicht.` });
+  // `loop` only marks the target of a jump back - the worker repeats from there (`repeat`); running a step
+  // once per element of a list is no loop of the worker
+  if (s.multiInstance) out.push({ level: 'error', text: `«${name}»: Mehrfachausführung gibt es in einem Worker nicht - eine Schleife geht mit einem Sprung zurück.` });
   const errors = s.errors ?? [];
   // a boundary error is described as in a process — the worker handles it in code (a TODO in the export)
   if (errors.some(e => !e.side && !e.timer && !isEventBoundary(e))) out.push({ level: 'warn', text: `«${name}»: Fehlerpfad — im Export ein TODO, der Worker behandelt den Fehler im Code.` });

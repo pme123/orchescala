@@ -44,7 +44,8 @@ export default function CollectionImport({ model, existing, isDark, onClose, onC
     `${p.project} ${p.group ?? ''} ${p.apis.map(a => `${a.prefix} ${a.services.map(s => s.name).join(' ')}`).join(' ')}`.toLowerCase().includes(w)));
 
   /** where an API is described already — the collection of its first described service */
-  const describedIn = (a: CatalogApi) => a.services.map(s => described.get(topicOf(a, TOPIC_NAME(s.topic ?? s.id)))).find(Boolean);
+  // by its own topic first - one of the older naming keeps it in the collection too
+  const describedIn = (a: CatalogApi) => a.services.map(s => described.get(s.topic ?? s.id) ?? described.get(topicOf(a, TOPIC_NAME(s.topic ?? s.id)))).find(Boolean);
   const choiceOf = (p: CatalogProject): string | null =>
     chosen[p.project] !== undefined ? chosen[p.project] : (p.apis.find(a => !describedIn(a))?.prefix ?? null);
   const choose = (p: CatalogProject, prefix: string) => setChosen(prev => ({ ...prev, [p.project]: prefix }));

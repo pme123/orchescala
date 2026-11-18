@@ -45,6 +45,7 @@ import { useAiConfig } from '../ai/useAiConfig';
 import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
+import { detectEngine } from '../engineConvert';
 import CodeSyncPanel from './CodeSyncPanel';
 import { transferOf, transferText } from '../transfer';
 import { helperDmnRefs } from '../exporters';
@@ -953,7 +954,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       setNotice({ tone: 'warn', message: !x ? 'Pattern brauchen das Diagramm — zuerst ein BPMN laden.' : `Pattern «${patternId}» ist im Admin nicht (mehr) definiert.` });
       return;
     }
-    const engine = cur.engine ?? 'c7';
+    // a service orchestration is c8, its diagram may be drawn for another engine - a pattern in the diagram's form
+    const engine = cur.service ? detectEngine(x) : cur.engine ?? 'c7';
     const r = action === 'add' ? applyPattern(x, def, engine, targetId, params)
       : action === 'remove' ? removePattern(x, def, engine, targetId, defs, params)
         : updatePattern(x, def, engine, targetId, params, defs, previous);
@@ -1427,7 +1429,8 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                 )}
                 <div className={`flex items-center gap-2 mt-1 text-[10px] ${c.muted}`}>
                   {spec.project && <span className="font-mono opacity-70 truncate">{spec.project}</span>}
-                  {canEdit
+                  {/* a service orchestration runs as a worker - FEEL, no engine to choose */}
+                  {serviceMode ? null : canEdit
                     ? <button onClick={() => setEngineOpen(true)} title={`In ${engineLabel((spec.engine ?? 'c7') === 'c7' ? 'c8' : 'c7')} umwandeln …`}
                         className="flex-shrink-0 opacity-70 hover:opacity-100 hover:underline">· {engineLabel(spec.engine)}</button>
                     : spec.engine && <span className="flex-shrink-0 opacity-70">· {engineLabel(spec.engine)}</span>}

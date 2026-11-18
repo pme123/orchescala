@@ -2,7 +2,7 @@ package orchescala.helper.dev.update.merge
 
 import munit.FunSuite
 import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
-import orchescala.helper.dev.update.{ModuleConfig, OrchSpecGenerator, OrchSpecMergeCommand}
+import orchescala.helper.dev.update.{MergeReport, ModuleConfig, OrchSpecGenerator, OrchSpecMergeCommand}
 import orchescala.helper.util.DevConfig
 
 /** The merge from Orch Spec: the export of the spec before (base) and after (new) against the
@@ -217,6 +217,43 @@ class SpecMergeTest extends FunSuite:
       os.write(dir / "extra" / "Deeper.scala", "package acme.demo.domain\npackage order.v1.extra\n\ncase class Deeper(x: Int)\n", createFolders = true)
       val plan    = SpecMerge.plan(project, Seq(order), Seq(order))
       assertEquals(plan.removals.map(f => f.path -> f.removal.get.names), Seq((dir / "Old.scala").relativeTo(project).toString -> Seq("Old")))
+
+  test("a file next to the domain classes that the folder still uses: not asked - the trait of an API its services extend"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val dir = file(project, "CheckOrder.scala") / os.up
+      // the API's trait of a collection, its service extends it - an orchestration exported into the same API
+      os.write(dir / "OrderV1.scala", "package acme.demo.domain\npackage order.v1\n\ntrait OrderV1\n")
+      os.write(dir / "GetOrder.scala", "package acme.demo.domain\npackage order.v1\n\nobject GetOrder extends OrderV1:\n  val topicName = \"acme-demo-orderV1.GetOrder\"\n")
+      os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n")
+      // only mentioned - in a comment, a text: no use, it is asked
+      os.write(dir / "Stale.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Stale(x: Int)\n")
+      os.write(dir / "Mentions.scala", "package acme.demo.domain\npackage order.v1\n\n// once like Stale\n/** see Stale */\nobject Mentions:\n  val text = \"Stale\"\n")
+      val plan = SpecMerge.plan(project, Seq(order), Seq(order))
+      assertEquals(plan.removals.map(_.path.split('/').last).sorted, Seq("Mentions.scala", "Old.scala", "Stale.scala"))
+
+  test("what code uses, not what it mentions: comments and texts left out"):
+    // what stays and what goes - not the exact spaces
+    def reads(code: String, used: String, gone: String) =
+      val read = SpecMerge.codeOnly(code)
+      assert(read.contains(used) && !read.contains(gone), s"$code\n-> $read")
+    reads("val a = Used // Stale\n/* Stale\n */ val b = \"Stale\" + \"\"\"Stale\"\"\"", "Used", "Stale")
+    // a comment start in a text, a quote as a char, an interpolation with a text (and a brace) in it,
+    // nested comments: read as the compiler does - the code after them stays
+    reads("val p = \"/files/*\"; Used1 /* Stale */", "Used1", "Stale")
+    reads("val q = '\"'; Used2 '\\'' // Stale", "Used2", "Stale")
+    reads("s\"${f(\"x\")} Stale\" + Used3", "Used3", "Stale")
+    reads("s\"${m(\"}\")} Stale\" + Used6", "Used6", "Stale")
+    reads("s\"${Inner} Stale\"", "Inner", "Stale")
+    reads("/* a /* b */ Stale */ Used4", "Used4", "Stale")
+    reads("\"\"\"a \"Stale\" b\"\"\"\" Used5", "Used5", "Stale")
+    // `$name` is code, `$$` a dollar; an escaped char (`'\u0041'`) before a quote char
+    reads("s\"$Named Stale $$x\"", "Named", "Stale")
+    reads("val c = '\\u0041'; val d = '\"'; Used7 // Stale", "Used7", "Stale")
+    assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorker.scala"))
+    assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorkerTest.scala"))
+    assert(!SpecMerge.isWorkerCode(os.rel / "bpmn" / "order.bpmn"))
+    assert(!SpecMerge.isWorkerCode(os.rel / "worker" / "exports.scala"))
 
   test("a file next to the domain classes with more than classes: only its classes go - a helper of its own stays"):
     inProject: project =>
@@ -435,6 +472,75 @@ class SpecMergeTest extends FunSuite:
       assert(obj.contains("reason: Option[String]") && obj.contains("lazy val own = 1"), obj)
       // a worker that exists stays without a base
       assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
+
+  private def questionOf(plan: MergePlan): String =
+    var q = ""
+    MergeReport.askReplace(plan, x => { q = x; None })
+    q
+
+  test("a worker created once that differs from Orch Spec: said and kept - overwritten only when asked"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val worker = file(project, "OrderWorker.scala")
+      val fresh  = os.read(worker)
+      val rel    = worker.relativeTo(project).toString
+      // as Orch Spec gives it: nothing to ask
+      assertEquals(SpecMerge.plan(project, Seq.empty, Seq(order)).replaceable, Seq.empty)
+      editFile(project, "OrderWorker.scala")(_ + "\n// my change\n")
+      // its test too - the same question
+      val tests  = os.walk(project).filter(_.last.endsWith("WorkerTest.scala"))
+      tests.foreach(t => os.write.over(t, os.read(t) + "\n// my test\n"))
+      val plan0  = SpecMerge.plan(project, Seq.empty, Seq(order))
+      assertEquals(plan0.replaceable.map(_.path).toSet, (worker +: tests).map(_.relativeTo(project).toString).toSet)
+      tests.foreach(t => os.write.over(t, os.read(t).replace("\n// my test\n", "")))
+      val plan   = SpecMerge.plan(project, Seq.empty, Seq(order))
+      assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
+      assertEquals(plan.replaceable.map(_.path), Seq(rel))
+      assertEquals(plan.replaceable.head.replacement, Some(fresh))
+      assertEquals(MergePlan.fromJson(plan.toJsonString), plan)
+      // not asked to: it stays
+      SpecMerge.merge(project, plan, OnConflict.KeepCode)
+      assert(os.read(worker).contains("// my change"))
+      // the question: y overwrites, no answer keeps it
+      val again  = SpecMerge.plan(project, Seq.empty, Seq(order))
+      assertEquals(MergeReport.askReplace(again, _ => None), Set.empty[String])
+      val replace = MergeReport.askReplace(again, _ => Some("y"))
+      assertEquals(replace, Set(rel))
+      // the answers in order - each asked once
+      def answering(answers: String*): (String => Option[String], () => Int) =
+        val left = answers.iterator
+        var n    = 0
+        (_ => { n += 1; Option.when(left.hasNext)(left.next()) }, () => n)
+      // N keeps it; e asks each on its own - also of one file
+      assertEquals(MergeReport.askReplace(again, _ => Some("N")), Set.empty[String])
+      assert(questionOf(again).contains("e = show it once more"))
+      val (one, oneAsked) = answering("e", "y")
+      assertEquals(MergeReport.askReplace(again, one), Set(rel))
+      assertEquals(oneAsked(), 2)
+      val two    = again.copy(files = again.files ++ again.replaceable.map(f => f.copy(path = s"${f.path}.copy")))
+      val (each, eachAsked) = answering("e", "y", "n")
+      assertEquals(MergeReport.askReplace(two, each), Set(rel))
+      assertEquals(eachAsked(), 3)
+      // --yes: nothing asked, nothing overwritten
+      assertEquals(MergeReport.decisions(again, yes = true, _ => fail("asked with --yes")), (Set.empty[String], Set.empty[String]))
+      // changed between the plan and the merge: nothing written
+      editFile(project, "OrderWorker.scala")(_ + "\n// later\n")
+      intercept[MergeAborted](SpecMerge.merge(project, again, OnConflict.KeepCode, replace = replace))
+      editFile(project, "OrderWorker.scala")(_.replace("\n// later\n", ""))
+      val result = SpecMerge.merge(project, again, OnConflict.KeepCode, replace = replace)
+      assertEquals(result.replaced, Seq(rel))
+      assertEquals(os.read(worker), fresh)
+
+  test("the answers of a merge: first what only the code has, then what is overwritten - with --yes neither"):
+    val plan  = MergePlan("demo", Seq(
+      PlannedFile("a/Old.scala", Owner.generated, Action.unchanged, removal = Some(Removal(Seq("Old"), None))),
+      PlannedFile("w/GetWorker.scala", Owner.generated, Action.unchanged, replacement = Some("new"))
+    ))
+    val asked = Seq.newBuilder[String]
+    assertEquals(MergeReport.decisions(plan, yes = false, q => { asked += q; Some("y") }), (Set("a/Old.scala"), Set("w/GetWorker.scala")))
+    val qs    = asked.result()
+    assert(qs.size == 2 && qs(0).contains("Only in the code") && qs(1).contains("Created once"), qs.mkString("\n"))
+    assertEquals(MergeReport.decisions(plan, yes = true, _ => fail("asked with --yes")), (Set.empty[String], Set.empty[String]))
 
   test("processFromSpec orchspec: (one process, no base) - creates, then merges into the code; asks what only the code has"):
     inProject: project =>
