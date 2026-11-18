@@ -56,8 +56,7 @@ final class OrchSpecGenerator(
         MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode), project, Some(before))
       else
         MergeReport.printPlan(plan, project)
-        val remove  = MergeReport.askRemoval(plan, ask)
-        val replace = MergeReport.askReplace(plan, ask)
+        val (remove, replace) = MergeReport.decisions(plan, yes = false, ask)
         MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove, replace), project)
     catch
       case e: MergeAborted    => println(MergeReport.colored(Console.YELLOW, s"${e.getMessage} - run it again."))

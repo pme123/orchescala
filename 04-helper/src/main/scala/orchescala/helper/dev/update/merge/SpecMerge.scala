@@ -52,6 +52,8 @@ object SpecMerge:
   /** Scala without its comments and texts - what the code uses, not what it mentions. One pass, as
     * the compiler reads it: a text (`"…"`, `"""…"""`, also interpolated - its `${…}` is code) or a char
     * (`'"'`) is read before a comment could start in it; block comments nest. A text becomes `""`.
+    * So a name only in a text (reflection, `classOf` by name, a macro) counts as not used - the
+    * developer is asked before anything goes.
     */
   private[merge] def codeOnly(code: String): String =
     val out = new StringBuilder
@@ -83,13 +85,22 @@ object SpecMerge:
         else if !triple && code(i) == '\n' then return i
         else if !triple && code(i) == '\\' then i += 2
         else if interpolated && at(i, "${") then
+          // its code to the brace that closes it - a text in it skipped, so a brace there does not count
           var depth = 1
           var j     = i + 2
-          val from  = j
+          val start = j
           while j < n && depth > 0 do
-            if code(j) == '{' then depth += 1 else if code(j) == '}' then depth -= 1
-            j += 1
-          out ++= " " ++= codeOnly(code.substring(from, math.max(from, j - 1))) ++= " "
+            if at(j, "\"\"\"") then
+              val close = code.indexOf("\"\"\"", j + 3)
+              j = if close < 0 then n else close + 3
+            else if code(j) == '"' then
+              var k = j + 1
+              while k < n && code(k) != '"' && code(k) != '\n' do k += (if code(k) == '\\' then 2 else 1)
+              j = k + 1
+            else
+              if code(j) == '{' then depth += 1 else if code(j) == '}' then depth -= 1
+              j += 1
+          out ++= " " ++= codeOnly(code.substring(start, math.max(start, j - 1))) ++= " "
           i = j
         else i += 1
       n
@@ -102,8 +113,8 @@ object SpecMerge:
         i = blockEnd(i)
         out += ' '
       else if c == '"' then
-        // `s"…"`, `f"…"`: the letters before it are already out - an identifier right before the quote
-        val interpolated = i > 0 && (code(i - 1).isLetterOrDigit || code(i - 1) == '_')
+        // `s"…"`, `f"…"`: the letters before it are already out - an interpolator right before the quote
+        val interpolated = i > 0 && (code(i - 1).isLetter || code(i - 1) == '_')
         i = text(i, interpolated)
       else if c == '\'' && i + 2 < n && (code(i + 2) == '\'' || (code(i + 1) == '\\' && i + 3 < n && code(i + 3) == '\'')) then
         // a char: `'"'`, `'\''`

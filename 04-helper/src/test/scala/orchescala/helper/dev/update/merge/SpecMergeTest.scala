@@ -233,14 +233,20 @@ class SpecMergeTest extends FunSuite:
       assertEquals(plan.removals.map(_.path.split('/').last).sorted, Seq("Mentions.scala", "Old.scala", "Stale.scala"))
 
   test("what code uses, not what it mentions: comments and texts left out"):
-    assertEquals(SpecMerge.codeOnly("val a = Used // Stale\n/* Stale\n */ val b = \"Stale\" + \"\"\"Stale\"\"\""), "val a = Used \n  val b = \"\" + \"\"")
-    // a comment start in a text, a quote as a char, an interpolation with a text in it, nested comments:
-    // read as the compiler does - the code after them stays
-    assertEquals(SpecMerge.codeOnly("val p = \"/files/*\"; Used1 /* c */"), "val p = \"\"; Used1  ")
-    assertEquals(SpecMerge.codeOnly("val q = '\"'; Used2 '\\''"), "val q = ' '; Used2 ' '")
-    assertEquals(SpecMerge.codeOnly("s\"${f(\"x\")} Stale\" + Used3"), "s\"\" f(\"\")  + Used3")
-    assertEquals(SpecMerge.codeOnly("/* a /* b */ Stale */ Used4"), "  Used4")
-    assertEquals(SpecMerge.codeOnly("\"\"\"a \"quoted\" b\"\"\"\" Used5"), "\"\" Used5")
+    // what stays and what goes - not the exact spaces
+    def reads(code: String, used: String, gone: String) =
+      val read = SpecMerge.codeOnly(code)
+      assert(read.contains(used) && !read.contains(gone), s"$code\n-> $read")
+    reads("val a = Used // Stale\n/* Stale\n */ val b = \"Stale\" + \"\"\"Stale\"\"\"", "Used", "Stale")
+    // a comment start in a text, a quote as a char, an interpolation with a text (and a brace) in it,
+    // nested comments: read as the compiler does - the code after them stays
+    reads("val p = \"/files/*\"; Used1 /* Stale */", "Used1", "Stale")
+    reads("val q = '\"'; Used2 '\\'' // Stale", "Used2", "Stale")
+    reads("s\"${f(\"x\")} Stale\" + Used3", "Used3", "Stale")
+    reads("s\"${m(\"}\")} Stale\" + Used6", "Used6", "Stale")
+    reads("s\"${Inner} Stale\"", "Inner", "Stale")
+    reads("/* a /* b */ Stale */ Used4", "Used4", "Stale")
+    reads("\"\"\"a \"Stale\" b\"\"\"\" Used5", "Used5", "Stale")
     assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorker.scala"))
     assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorkerTest.scala"))
     assert(!SpecMerge.isWorkerCode(os.rel / "bpmn" / "order.bpmn"))
@@ -486,17 +492,40 @@ class SpecMergeTest extends FunSuite:
       assertEquals(MergeReport.askReplace(again, _ => None), Set.empty[String])
       val replace = MergeReport.askReplace(again, _ => Some("y"))
       assertEquals(replace, Set(rel))
-      // each on its own (of one file it is the plain question), N keeps it
+      // the answers in order - each asked once
+      def answering(answers: String*): (String => Option[String], () => Int) =
+        val left = answers.iterator
+        var n    = 0
+        (_ => { n += 1; Option.when(left.hasNext)(left.next()) }, () => n)
+      // N keeps it; e asks each on its own - also of one file
       assertEquals(MergeReport.askReplace(again, _ => Some("N")), Set.empty[String])
-      assertEquals(MergeReport.askReplace(again, _ => Some("e")), Set.empty[String])
+      val (one, oneAsked) = answering("e", "y")
+      assertEquals(MergeReport.askReplace(again, one), Set(rel))
+      assertEquals(oneAsked(), 2)
       val two    = again.copy(files = again.files ++ again.replaceable.map(f => f.copy(path = s"${f.path}.copy")))
-      var asked  = Seq.empty[String]
-      val each   = MergeReport.askReplace(two, q => { asked :+= q; if asked.size == 1 then Some("e") else Some(if asked.size == 2 then "y" else "n") })
-      assertEquals(each, Set(rel))
-      assertEquals(asked.size, 3)
+      val (each, eachAsked) = answering("e", "y", "n")
+      assertEquals(MergeReport.askReplace(two, each), Set(rel))
+      assertEquals(eachAsked(), 3)
+      // --yes: nothing asked, nothing overwritten
+      assertEquals(MergeReport.decisions(again, yes = true, _ => fail("asked with --yes")), (Set.empty[String], Set.empty[String]))
+      // changed between the plan and the merge: nothing written
+      editFile(project, "OrderWorker.scala")(_ + "\n// later\n")
+      intercept[MergeAborted](SpecMerge.merge(project, again, OnConflict.KeepCode, replace = replace))
+      editFile(project, "OrderWorker.scala")(_.replace("\n// later\n", ""))
       val result = SpecMerge.merge(project, again, OnConflict.KeepCode, replace = replace)
       assertEquals(result.replaced, Seq(rel))
       assertEquals(os.read(worker), fresh)
+
+  test("the answers of a merge: first what only the code has, then what is overwritten - with --yes neither"):
+    val plan  = MergePlan("demo", Seq(
+      PlannedFile("a/Old.scala", Owner.generated, Action.unchanged, removal = Some(Removal(Seq("Old"), None))),
+      PlannedFile("w/GetWorker.scala", Owner.generated, Action.unchanged, replacement = Some("new"))
+    ))
+    val asked = Seq.newBuilder[String]
+    assertEquals(MergeReport.decisions(plan, yes = false, q => { asked += q; Some("y") }), (Set("a/Old.scala"), Set("w/GetWorker.scala")))
+    val qs    = asked.result()
+    assert(qs.size == 2 && qs(0).contains("Only in the code") && qs(1).contains("Created once"), qs.mkString("\n"))
+    assertEquals(MergeReport.decisions(plan, yes = true, _ => fail("asked with --yes")), (Set.empty[String], Set.empty[String]))
 
   test("processFromSpec orchspec: (one process, no base) - creates, then merges into the code; asks what only the code has"):
     inProject: project =>

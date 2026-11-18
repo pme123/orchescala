@@ -129,11 +129,19 @@ object MergeReport:
       val listed  = files.map(f => s"  ${f.path}").mkString("\n")
       val answer  = ask(s"\nCreated once, differs from Orch Spec now:\n$listed\nOverwrite ${if several then "them" else "it"} with Orch Spec's version (your changes there are lost)? ${if several then "[y = all / e = each / N = none]" else "[y/N]"} ")
       if isYes(answer) then files.map(_.path).toSet
-      else if several && answer.exists(_.trim.toLowerCase == "e") then
+      // each on its own - also of one file, where `e` is no option shown
+      else if answer.exists(_.trim.toLowerCase == "e") then
         files.collect { case f if isYes(ask(s"Overwrite ${f.path}? [y/N] ")) => f.path }.toSet
       else Set.empty
     end if
   end askReplace
+
+  /** The answers of a merge: what goes of what only the code has, which files created once are
+    * overwritten - with `--yes` nothing of either (nothing asked), otherwise first the one, then the other.
+    */
+  def decisions(plan: MergePlan, yes: Boolean, ask: String => Option[String] = readAnswer): (Set[String], Set[String]) =
+    if yes then (Set.empty, Set.empty)
+    else (askRemoval(plan, ask), askReplace(plan, ask))
 
   /** The question on the console - its answer; None at the end of the input (no console, a closed
     * stdin): that is a no.

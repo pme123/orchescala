@@ -70,7 +70,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       json.foreach: file =>
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
-      def mergeWith(remove: Set[String], replace: Set[String] = Set.empty): Boolean =
+      def mergeWith(remove: Set[String], replace: Set[String]): Boolean =
         try
           val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove, replace)
           println()
@@ -102,15 +102,15 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
           keptByYes()
           true
         else
-          val remove  = MergeReport.askRemoval(plan)
-          val replace = MergeReport.askReplace(plan)
+          val (remove, replace) = MergeReport.decisions(plan, yes)
           if remove.isEmpty && replace.isEmpty then
             println("Nothing deleted or overwritten.")
             true
           else mergeWith(remove, replace)
       else if yes || confirm(plan, markers) then
         if yes then keptByYes()
-        if yes then mergeWith(Set.empty) else mergeWith(MergeReport.askRemoval(plan), MergeReport.askReplace(plan))
+        val (remove, replace) = MergeReport.decisions(plan, yes)
+        mergeWith(remove, replace)
       else
         println("Not merged.")
         true
