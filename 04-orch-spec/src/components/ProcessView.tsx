@@ -21,7 +21,7 @@ import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions, variableOverview } from '../feel';
-import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus, withStatusForAll } from '../status';
+import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, partsText, withDataStatus, withStatusForAll } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields, patternDefs } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
@@ -1554,9 +1554,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
       {statusAllOpen && <StatusAllDialog spec={spec} isDark={isDark} canEdit={canEdit}
         onFilter={s => { setStatusFilter(s); setFindingsOnly(false); setStatusAllOpen(false); }}
         onApply={(status, n) => {
-          const parts = [n.steps && `${n.steps} Schritt${n.steps === 1 ? '' : 'e'}`, n.types && `${n.types} Klasse${n.types === 1 ? '' : 'n'}`,
-            n.interactions && `${n.interactions} Interaktion${n.interactions === 1 ? '' : 'en'}`].filter(Boolean).join(', ');
-          update(withStatusForAll(spec, status), { source: 'manual', note: `Status «${STATUS_META[status].label}» für alle Teile (${parts})` });
+          update(withStatusForAll(spec, status), { source: 'manual', note: `Status «${STATUS_META[status].label}» für alle Teile (${partsText(n)})` });
           setStatusFilter(null);
           setStatusAllOpen(false);
         }}

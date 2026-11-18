@@ -108,3 +108,34 @@ test('one status for all parts: steps on all levels, classes and interactions', 
   assert.equal(overallStatus(next), 'final');
   assert.equal(spec.steps[0].status, 'accepted');   // the original stays
 });
+
+test('one status for all: parts without a status and jumps', async () => {
+  const { partsText, partsToChange, partsWithoutStatus, withStatusForAll } = await import('../src/status');
+  const spec = {
+    steps: [
+      step('a', 'final'),
+      step('g', 'final', { kind: 'gateway', branches: [{ id: 'b', label: 'ja', steps: [step('j', 'draft', { kind: 'goto' })] }] }),
+      step('s', 'final', { kind: 'subprocess', errors: [{ id: 'e', steps: [step('f', 'review')] }] }),
+    ],
+    types: [{ id: 't', name: 'In', kind: 'case', status: 'final' }, { id: 'u', name: 'Old', kind: 'case' }],
+    interactions: [{ id: 'ia', name: 'Msg', kind: 'message', stepId: 'a' }],
+  } as unknown as ProcessSpec;
+  const frozen = structuredClone(spec);
+
+  assert.deepEqual(partsWithoutStatus(spec), { steps: 0, types: 1, interactions: 1 });
+  // without a status counts as a change — the jump does not
+  assert.deepEqual(partsToChange(spec, 'final'), { steps: 1, types: 1, interactions: 1 });
+  assert.deepEqual(partsToChange(spec, 'draft'), { steps: 4, types: 2, interactions: 1 });
+  assert.equal(partsText(partsToChange(spec, 'final')), '1 Schritt, 1 Klasse, 1 Interaktion');
+  assert.equal(partsText(partsToChange(spec, 'draft')), '4 Schritte, 2 Klassen, 1 Interaktion');
+
+  const next = withStatusForAll(spec, 'final');
+  assert.deepEqual(partsToChange(next, 'final'), { steps: 0, types: 0, interactions: 0 });
+  assert.deepEqual(partsWithoutStatus(next), { steps: 0, types: 0, interactions: 0 });
+  assert.equal(next.steps[1].branches![0].steps[0].status, 'final');   // the jump gets it too
+  assert.deepEqual(spec, frozen);                                        // the original stays, on all levels
+
+  // only parts without a status: there is still something to set
+  const bare = { steps: [], types: [{ id: 'u', name: 'Old', kind: 'case' }], interactions: [] } as unknown as ProcessSpec;
+  assert.deepEqual(partsToChange(bare, 'draft'), { steps: 0, types: 1, interactions: 0 });
+});

@@ -6,18 +6,9 @@
 // filters the flow by it instead.
 import { useEffect, useMemo, useState } from 'react';
 import { Check, X } from 'lucide-react';
-import { partCounts, type PartCount } from '../status';
+import { partCounts, partsText, partsToChange, partsWithoutStatus, partTotal, type PartCount } from '../status';
 import { STATUSES, STATUS_META, type ProcessSpec, type Status } from '../types';
 import { cls } from '../ui';
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-/** «3 Schritte, 2 Klassen, 1 Interaktion» — only what there is. */
-const partsText = (p: PartCount) => [
-  p.steps ? plural(p.steps, 'Schritt', 'Schritte') : '',
-  p.types ? plural(p.types, 'Klasse', 'Klassen') : '',
-  p.interactions ? plural(p.interactions, 'Interaktion', 'Interaktionen') : '',
-].filter(Boolean).join(', ');
 
 export default function StatusAllDialog({ spec, isDark, canEdit, onApply, onFilter, onClose }: {
   spec: ProcessSpec;
@@ -32,21 +23,13 @@ export default function StatusAllDialog({ spec, isDark, canEdit, onApply, onFilt
   const c = cls(isDark);
   const [picked, setPicked] = useState<Status | null>(null);
   const counts = useMemo(() => partCounts(spec), [spec]);
-  const present = STATUSES.filter(s => counts[s].steps + counts[s].types + counts[s].interactions > 0);
+  const present = STATUSES.filter(s => partTotal(counts[s]) > 0);
+  const none = useMemo(() => partsWithoutStatus(spec), [spec]);
+  const hasParts = present.length > 0 || partTotal(none) > 0;
 
-  // what changes: everything that carries another status than the picked one
-  const changed = useMemo<PartCount | null>(() => {
-    if (!picked) return null;
-    const sum = { steps: 0, types: 0, interactions: 0 };
-    for (const s of STATUSES) {
-      if (s === picked) continue;
-      sum.steps += counts[s].steps;
-      sum.types += counts[s].types;
-      sum.interactions += counts[s].interactions;
-    }
-    return sum;
-  }, [picked, counts]);
-  const changes = changed ? changed.steps + changed.types + changed.interactions : 0;
+  // what changes: everything that carries another status than the picked one, or none
+  const changed = useMemo(() => (picked ? partsToChange(spec, picked) : null), [picked, spec]);
+  const changes = changed ? partTotal(changed) : 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
@@ -73,7 +56,7 @@ export default function StatusAllDialog({ spec, isDark, canEdit, onApply, onFilt
 
         <div className={`text-[10px] uppercase tracking-wide mb-1 ${c.muted}`}>Heute</div>
         <div className="space-y-1 mb-4">
-          {present.length === 0 && <div className={`text-[11px] ${c.muted}`}>Noch keine Teile mit Status.</div>}
+          {!hasParts && <div className={`text-[11px] ${c.muted}`}>Noch keine Teile mit Status.</div>}
           {present.map(s => (
             <button key={s} onClick={() => onFilter(s)} title={`«${STATUS_META[s].label}» im Ablauf zeigen`}
               className={`w-full flex items-center gap-2 text-left px-1.5 py-1 rounded ${c.hover}`}>
@@ -81,9 +64,15 @@ export default function StatusAllDialog({ spec, isDark, canEdit, onApply, onFilt
               <span className={`text-[11px] ${c.muted2}`}>{partsText(counts[s])}</span>
             </button>
           ))}
+          {partTotal(none) > 0 && (
+            <div className="flex items-center gap-2 px-1.5 py-1" title="Zählen nicht für den Status der Spezifikation">
+              <span className={`text-[10px] px-2 py-0.5 rounded border border-dashed whitespace-nowrap ${c.border2} ${c.muted}`}>Ohne Status</span>
+              <span className={`text-[11px] ${c.muted2}`}>{partsText(none)}</span>
+            </div>
+          )}
         </div>
 
-        {canEdit && present.length > 0 && (
+        {canEdit && hasParts && (
           <>
             <div className={`text-[10px] uppercase tracking-wide mb-1.5 ${c.muted}`}>Für alle Teile setzen</div>
             <div role="radiogroup" aria-label="Neuer Status für alle Teile" className="flex flex-wrap gap-1.5 mb-3">
@@ -107,7 +96,7 @@ export default function StatusAllDialog({ spec, isDark, canEdit, onApply, onFilt
 
         <div className="flex justify-end gap-2 mt-3">
           <button onClick={onClose} className={`text-[11px] px-3 py-1.5 rounded border ${c.btn}`}>{canEdit ? 'Abbrechen' : 'Schliessen'}</button>
-          {canEdit && present.length > 0 && (
+          {canEdit && hasParts && (
             <button disabled={!picked || !changes || !changed} onClick={() => { if (picked && changed) onApply(picked, changed); }}
               className={`text-[11px] px-3 py-1.5 rounded font-semibold disabled:opacity-30 disabled:cursor-not-allowed ${c.btnPrimary}`}>
               {picked ? `Alle auf «${STATUS_META[picked].label}» setzen` : 'Status setzen'}
