@@ -49,7 +49,69 @@ orch-spec shares with the studio - bundled for the studio with `npm run core` (t
 `core/orch-spec-core.mjs`, not in Git; `core/orch-spec-core.d.mts` holds the types the studio uses).
 `npm run lint`, `npm test` and the image need it.
 
-Later: the AI per person (`usd_per_person_day`), the buttons of orch-spec and the runner.
+Later: the AI per person (`usd_per_person_day`) and the buttons of orch-spec.
+
+## «Auf Testumgebung» - the runs (`src/run`)
+
+The run that brings a spec of orch-spec to the test environment (E25, P1 of the
+[plan](https://github.com/z9nai/orch-platform/blob/develop/docs/export-pipeline.md)) - a library with a
+command line, without an engine; the routes of the studio and the buttons of orch-spec come next.
+
+| Step | What | The command |
+|---|---|---|
+| 1 Projekt | the spec of the run is one | – |
+| 2 Auschecken | a clone of the repo in the workspace of the studio (never the checkout of a developer), fetched; a worktree for the project | git |
+| 3 Branch | the first run of a work creates `orch-spec/<project>/<work>` from develop and pushes it, every later one goes on with it; develop is merged in | git |
+| 4 Merge | the spec merged into the code - the RE is the author, the studio commits and pushes; conflicts go along with their markers | `commands.merge`: `./helper.scala processFromSpec --merge --from "$ORCH_SPEC_DIR" --markers --yes --json "$ORCH_PLAN_FILE"` |
+| 5 Kompilieren und testen | the tests counted from `test-reports/*.xml` | `commands.test`: `sbt --server -batch "compile; worker/test"` |
+| 6 Release | the version `x.y.z-<runId>` (`x.y.z` from `project/ProjectDef.scala`) - not committed | `commands.release`: `./helper.scala publish "$ORCH_VERSION"` |
+| 7 Deploy auf Test | that version on the test environment | `commands.deploy` - the company's |
+| 8 Simulationen, Import prüfen | the simulations counted; does the engine have the BPMN/DMN | `commands.simulate`: `sbt --server -batch simulation/test`, `commands.checkImport` (optional) |
+
+- **A step that fails makes the run wait** (`waiting`, with the last 200 lines of its log): development
+  fixes it on the work branch, then the run goes on. A failed step 1-3, or a merge that itself failed,
+  runs again; after conflicts of the merge and after any later error the run fetches the branch and
+  goes on at step 5. A run whose process is gone (`running`, but interrupted) goes on at its step.
+  While a run is running or waiting, the project takes no second one - `cancel` gives it up, the
+  work branch stays.
+- **The commands** run with `sh -c` in the folder of the project, at most `timeoutMinutes` (30), with
+  `ORCH_RUN_ID`, `ORCH_VERSION`, `ORCH_PROJECT`, `ORCH_WORK`, `ORCH_BRANCH`, `ORCH_SPEC_DIR`,
+  `ORCH_PLAN_FILE` and `ORCH_PROJECT_DIR` in their environment.
+- **«Übergeben»** (`hand-over`): the pull request of the work branch into develop - one per work,
+  with its rounds; merged by the studio for a project with `autoMerge`. GitHub for now.
+- **The projects** are configuration (`STUDIO_PROJECTS`, a JSON file):
+
+  ```json
+  { "projects": [ {
+      "name": "democompany-customer",
+      "repo": "git@github.com:pme123/orchescala-democompany.git",
+      "path": "projects/democompany-customer",
+      "gitHost": { "kind": "github", "repo": "pme123/orchescala-democompany" },
+      "testUrl": "http://localhost:8889/app/democompany-customer/",
+      "commands": { "deploy": "<how $ORCH_VERSION gets to the test environment>" }
+  } ] }
+  ```
+
+  `develop`, `master`, `autoMerge`, `timeoutMinutes` and the other `commands` have defaults.
+
+```bash
+npm run platform -- test --project democompany-customer --spec <folder of orch-spec> --work termin-filiale \
+  --summary "Feld Filiale" --author "Rita RE <re@democompany.ch>"
+npm run platform -- continue  --project democompany-customer   # after the fix on the work branch
+npm run platform -- cancel    --project democompany-customer
+npm run platform -- status    --project democompany-customer   # the status.json orch-spec will read
+npm run platform -- hand-over --project democompany-customer
+```
+
+Exit 0: ok, 2: the run waits, 1: it did not start. It needs `git` and what the commands need (`sbt`,
+`scala-cli`, `node`, Docker) - so it runs on the host, not in the image.
+
+| Setting | Default | |
+|---|---|---|
+| `STUDIO_PROJECTS` | – | the projects of the company (or `--projects <file>`) |
+| `STUDIO_WORKSPACE` | `~/.orch-platform/workspaces` | the clones, worktrees and runs: `<repo>/repo`, `<repo>/work/<project>`, `<repo>/runs/<project>/status.json`, `…/<runId>/<step>.log` |
+| `STUDIO_GIT_NAME`, `STUDIO_GIT_EMAIL` | `Orch Studio`, `orch-studio@localhost` | who commits for the studio |
+| `STUDIO_GIT_TOKEN` | – | the token of the Git platform for «Übergeben» - pull requests of this repo only; never in orch-spec, never logged |
 
 - **Who wins:** first files in memory (the folders of orch-spec and orch-ops, `spec/folder.json`,
   `ops/folder.json`), then the apps - the version the studio is built with, also when the company's
