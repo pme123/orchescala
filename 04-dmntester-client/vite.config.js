@@ -14,7 +14,7 @@ function isDev() {
 // one of the old version may still be there: the most recently linked one wins
 const stage = isDev() ? "dev" : "prod";
 function sbtTarget() {
-  const base = resolve(__dirname, "..", "target", "out", "sjs1");
+  const base = resolve(import.meta.dirname, "..", "target", "out", "sjs1");
   const scalaDirs = existsSync(base) ? readdirSync(base).filter((d) => d.startsWith("scala-")) : [];
   const linked = scalaDirs
     .map((d) => resolve(base, d, "orchescala-dmntester-client", "scalajs", stage))

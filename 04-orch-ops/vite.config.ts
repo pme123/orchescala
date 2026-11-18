@@ -8,7 +8,7 @@ import { defineConfig, type Plugin } from 'vite';
 // starts right away with data via `?demo` (without picking a folder).
 // Directories answer with their file list as JSON.
 function sampleData(): Plugin {
-  const root = path.resolve(__dirname, 'sample-data');
+  const root = path.resolve(import.meta.dirname, 'sample-data');
   return {
     name: 'orch-ops:sample-data',
     apply: 'serve',
@@ -32,7 +32,7 @@ export default defineConfig({
   base: '/orch-ops/',
   plugins: [react(), tailwindcss(), sampleData()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, '.') },
+    alias: { '@': path.resolve(import.meta.dirname, '.') },
   },
   server: {
     // sample-data can be picked as the shared folder — the app's writes must
@@ -40,8 +40,8 @@ export default defineConfig({
     watch: { ignored: ['**/sample-data/**'] },
   },
   build: {
-    rollupOptions: {
-      output: { manualChunks: { msal: ['@azure/msal-browser'] } },
+    rolldownOptions: {
+      output: { codeSplitting: { groups: [{ name: 'msal', test: /node_modules[\\/]@azure[\\/]msal-/ }] } },
     },
   },
 });
