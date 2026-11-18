@@ -34,7 +34,20 @@ jobs:
       - name: Build the documentation apps
         run: sbt orchDocClient/bundleDocClient
       - name: Publish
-        run: sbt ci-release
+        # --server: sbt in its own JVM with this step's environment. Without it, the sbt 2 client
+        # hands ci-release to the server the steps above started - without the secrets, and
+        # ci-release then says "No access to secret variables, doing nothing" and publishes nothing,
+        # with exit code 0. So the step checks the secrets first and fails on that message.
+        run: |
+          set -o pipefail
+          for v in PGP_SECRET PGP_PASSPHRASE SONATYPE_USERNAME SONATYPE_PASSWORD; do
+            test -n "${!v}" || { echo "::error::$v is empty - the secret is not set"; exit 1; }
+          done
+          sbt --server ci-release 2>&1 | tee "$RUNNER_TEMP/ci-release.log"
+          if grep -q "No access to secret variables" "$RUNNER_TEMP/ci-release.log"; then
+            echo "::error::ci-release did not see the secrets - nothing was published"
+            exit 1
+          fi
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
