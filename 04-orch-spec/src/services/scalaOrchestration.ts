@@ -22,17 +22,19 @@
 // type the Out defines - `Client.Person(…)` field by field. The test of the worker runs each branch
 // with the services answering their examples.
 // What does not translate is a `???` with the reason — the project compiles once it is filled.
+import { feelValueType } from './feelValueType.ts';
 import { caseIdent, caseName, exampleValue, fieldType, importsOf, indexTypes, isFinished, packageClause, renderType, scalaKey, scalaName, type ScalaFile, type TypeIndex } from '../scala.ts';
 import { domainRef } from '../serviceTypes.ts';
 import type { CaseLink, DomainField, DomainType, Field, FieldLink, FieldMapping, Mapping, TypeMapper, Model, Step, TypeDef } from '../types';
 import { isAdt, SCALA_TYPES } from '../types.ts';
+import { timerVariable } from '../bpmn.ts';
 import { isMember, isStandard } from '../standardMappers.ts';
 import { resolveType } from '../interactions.ts';
 import { collectionPackage, domainDir, typeHome, workerDir } from './collection.ts';
 import { schemaPackageOf } from './hierarchy.ts';
 import { feelCondition, feelToScala, feelToScalaTyped, forTarget, scalaIdent, type ScalaVar, type Translated } from './feelScala.ts';
 import {
-  allTypes, conditionOf, elseBranch, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
+  allTypes, conditionOf, elseBranch, flatSteps, flowOf, inVars, orchestrationApi, orchestrationTopic, producedBy, resultName, scriptResultVar, serviceMembers, servicePackages,
   servicesByTopic, type OrchVar, type ServiceRef,
 } from './orchestration.ts';
 import { caseChain, outCaseFields, outCaseMapping, outCaseOf } from './outCases.ts';
@@ -88,6 +90,12 @@ interface Ctx {
   builtTypes: Set<string>;
   /** what the script tasks set, with the type the export derived - for the Out at the end */
   scriptVars: Map<string, OrchVar>;
+  /** the timer variables of its events (`timerWaitForStatus`) with their default - a method of the worker each, a test makes it zero */
+  timers: Map<string, { default?: string; step: string }>;
+  /** methods of the worker beside runWorkZIO: an In with a TODO is built in one of its own - runWorkZIO has none */
+  helpers: { name: string; code: string }[];
+  /** what is still to do in the code of the run (an error path) - a TODO above runWorkZIO, not in it */
+  notes: string[];
 }
 
 /** The implementation of a script task as a method of the worker. */
@@ -579,21 +587,32 @@ function mappingValues(m: FieldMapping, scope: Map<string, ScalaVar>, ctx: Ctx, 
   return { value, checks, binds: () => binds };
 }
 
+const upperFirst = (n: string) => `${n.charAt(0).toUpperCase()}${n.slice(1)}`;
+
+/**
+ * The method of a mapping - English, whatever the step is called: `map` and what it builds
+ * (`mapFilClient`), its first Out. The code sync finds it by the same name (workerSync.ts).
+ */
+export function mappingMethodName(m: Pick<FieldMapping, 'out'>): string {
+  const first = m.out.find(f => f.name.trim())?.name.trim();
+  return `map${upperFirst(camelName(first || 'value'))}`;
+}
+
 /** A script task as a mapping: its method - In the parameters, Out the result (a tuple for several) - and its call. */
 function mappingCall(s: Step, stored: FieldMapping, known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar[] } {
   const m = mappingOf(stored);
   const where = s.name || s.id;
   const params = m.in.filter(f => f.name.trim() && f.type);
   const outs = m.out.filter(f => f.name.trim() && f.type);
-  if (!outs.length) return { line: `// TODO «${where}»: das Mapping hat kein Out`, produced: [] };
+  if (!outs.length) { ctx.notes.push(`«${where}»: das Mapping hat kein Out`); return { line: '', produced: [] }; }
   // a name twice (see inOutIssues) would be a parameter or a binding twice - no method
   const dups = (fs: Field[]) => fs.map(f => f.name.trim()).filter((n, i, l) => l.indexOf(n) !== i);
   const twice = [...dups(params), ...dups(outs)];
-  if (twice.length) return { line: `// TODO «${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`, produced: [] };
+  if (twice.length) { ctx.notes.push(`«${where}»: im Mapping zweimal: ${[...new Set(twice)].join(', ')}`); return { line: '', produced: [] }; }
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const one = outs.length === 1;
   // the method of the mapping first - the methods of the cases of an enum follow it
-  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
+  const method = uniqueMethod(ctx, mappingMethodName(m));
   const entry: ScriptMethod = {
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result: outs[0], ...(one ? {} : { results: outs }), body: '', cases: [], io: true,
@@ -654,7 +673,7 @@ function derivedType(body: string, reads: OrchVar[]): Partial<OrchVar> {
 function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], known: OrchVar[], ctx: Ctx): { line: string; produced: OrchVar | null } {
   const where = s.name || s.id;
   const declared = scriptResultVar(ctx.o, task);
-  if (!declared) return { line: `// TODO «${where}»: die Implementierung hat keine Ergebnis-Variable`, produced: null };
+  if (!declared) { ctx.notes.push(`«${where}»: die Implementierung hat keine Ergebnis-Variable`); return { line: '', produced: null }; }
   const body = (task.script ?? '').trim().replace(/^=\s*/, '');
   const reads = readVars(body, known);
   const { typed, ...produced0 } = declared;
@@ -669,7 +688,7 @@ function scriptCall(s: Step, task: ServiceOrchestrationSpec['tasks'][string], kn
   };
   const scope = new Map<string, ScalaVar>(params.map(f => [f.name, { scala: scalaIdent(f.name), type: f.type, optional: !!f.optional, collection: !!f.collection }]));
   const t = scriptScala(body, scope, result, ctx, where);
-  const method = uniqueMethod(ctx, camelName((s.name || s.id).replace(/Task$/, '')));
+  const method = uniqueMethod(ctx, `compute${upperFirst(camelName(produced.name))}`);
   ctx.scripts.push({
     step: where, method, ...(s.description?.trim() ? { description: s.description.trim() } : {}),
     params, result, body: t.scala, ...(t.concat ? { concat: t.concat } : {}), cases: t.cases,
@@ -889,21 +908,146 @@ function serviceIn(ref: ServiceRef, task: ServiceOrchestrationSpec['tasks'][stri
   const chosen = inType.kind === 'enum'
     ? (inType.values ?? []).find(v => v.name === task?.inCase) ?? ((inType.values ?? []).length === 1 ? inType.values![0] : undefined)
     : undefined;
-  if (inType.kind === 'enum' && !chosen) return todo(`${name}.In ist ein ADT — beim Schritt die Ausprägung wählen`);
+  if (inType.kind === 'enum' && !chosen) {
+    return byInCase(ref, inType, task, vars, ctx) ?? todo(`${name}.In ist ein ADT — beim Schritt die Ausprägung wählen`);
+  }
   const ctor = chosen ? `${name}.In.${caseIdent(chosen.name)}` : `${name}.In`;
   const fields = chosen ? caseFields(inType, chosen.name) : (inType.fields ?? []);
-  const args = fields.filter(f => isFinished(f, ctx.idx)).map(f => {
+  return construct(ctor, chosen ? ctor : `${name}.In()`, inArgs(name, fields, task, vars, ctx, pre));
+}
+
+/** `Ctor(\n  a = x,\n  b = y\n)` - without arguments `empty`. */
+const construct = (ctor: string, empty: string, args: string[]) =>
+  (args.length ? `${ctor}(\n${indent(args.join(',\n'), '  ')}\n)` : empty);
+
+/**
+ * The arguments of a service's In - per field its mapping of the step (or the variable of its name).
+ * A required field that is optional on the way: before the call a step that fails with a message
+ * (`pre`); without `pre` (inside a match) a place to fill.
+ */
+function inArgs(name: string, fields: Field[], task: ServiceOrchestrationSpec['tasks'][string] | undefined, vars: Map<string, ScalaVar>, ctx: Ctx, pre: string[] | null): string[] {
+  return fields.filter(f => isFinished(f, ctx.idx)).map(f => {
     const expr = (task?.inputs ?? []).find(m => m.name === f.name)?.expression?.trim() || (vars.has(f.name) ? `= ${f.name}` : '');
     if (!expr) return `${scalaName(f.name)} = ${f.optional ? 'None' : todo(`${f.name}: kein Mapping`)}`;
     const v = forTarget(feelToScala(expr, vars, ctx.types, f), !!f.optional);
     if (!v.needed) return `${scalaName(f.name)} = ${v.scala}`;
+    if (!pre) return `${scalaName(f.name)} = ${v.scala}.getOrElse(${todo(`${f.name} fehlt`)})`;
     // required, but optional on the way: a step that fails with a message
     const tmp = `${f.name}${++ctx.n.value}`;
     pre.push(`${tmp} <- ZIO.fromOption(${v.scala}).orElseFail(CustomError(${JSON.stringify(`${name}: ${f.name} fehlt`)}))`);
     return `${scalaName(f.name)} = ${tmp}`;
   });
-  if (!args.length) return chosen ? ctor : `${name}.In()`;
-  return `${ctor}(\n${indent(args.join(',\n'), '  ')}\n)`;
+}
+
+/**
+ * The In of a service is an ADT and the step chose no case («alle Ausprägungen - Worker entscheidet»):
+ * where the In of the worker is an ADT with cases of the same names, its case decides - a match, each
+ * case builds the service's case of its name from the mappings, the fields of the case read as they are
+ * there (`in.action` of `In.ByFile` is an Action, of `In.Simple` a text). null: no such case.
+ */
+function byInCase(ref: ServiceRef, inType: TypeDef, task: ServiceOrchestrationSpec['tasks'][string] | undefined, vars: Map<string, ScalaVar>, ctx: Ctx): string | null {
+  const own = ctx.o.noIn ? undefined : ctx.o.types.find(t => t.id === ctx.o.inTypeId);
+  if (own?.kind !== 'enum' || !own.values?.length) return null;
+  const targets = inType.values ?? [];
+  if (!own.values.some(c => targets.some(t => t.name === c.name))) return null;
+  const name = ref.service.name;
+  const arms = own.values.map(c => {
+    const target = targets.find(t => t.name === c.name);
+    const body = target
+      ? (() => {
+          // inside the case its fields as they are there - not through a match of the whole In
+          const scope = new Map(vars);
+          for (const f of caseFields(own, c.name)) {
+            if (!f.name.trim()) continue;
+            scope.set(f.name, { scala: `in.${scalaName(f.name)}`, type: f.type, optional: !!f.optional, collection: !!f.collection });
+          }
+          const ctor = `${name}.In.${caseIdent(target.name)}`;
+          return construct(ctor, ctor, inArgs(name, caseFields(inType, target.name), task, scope, ctx, null));
+        })()
+      : todo(`${name}.In: keine Ausprägung ${c.name} - welche?`);
+    return `case in: In.${caseIdent(c.name)} =>\n${indent(body, '  ')}`;
+  });
+  return `in match\n${indent(arms.join('\n'), '  ')}`;
+}
+
+/**
+ * «Prozess mit Fehler stoppen» on an end of the flow: in a worker the path fails - `ZIO.fail` with
+ * its message (text or FEEL). null: not that end.
+ */
+function stopWithError(s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string | null {
+  const p = (s.patterns ?? []).find(x => x.id === 'stop-with-error');
+  if (!p || s.kind !== 'end') return null;
+  const message = (p.params?.message ?? '').trim() || 'Der Prozess wurde mit einem Fehler gestoppt.';
+  const scala = message.startsWith('=')
+    ? feelToScala(message, vars, ctx.types, { id: 'message', name: 'message', type: 'String' } as Field).scala
+    : /\$\{/.test(message) ? todo(`«${s.name || s.id}»: die Fehlermeldung als «= …» schreiben`) : JSON.stringify(message);
+  return `ZIO.fail(CustomError(${scala}))`;
+}
+
+/**
+ * The In of a call - with a place still to fill (`???`) in a method of its own, called with what it
+ * reads: runWorkZIO stays without TODOs, the method says what is missing.
+ */
+function inputCall(input: string, ref: ServiceRef, s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string {
+  const open = input.includes('???');
+  // a place to fill or a match over the cases of the In: a mapping In -> <Service>.In of its own
+  if (!open && !input.startsWith('in match\n')) return input;
+  const svc = ref.service.name;
+  const base = `${svc.charAt(0).toLowerCase()}${svc.slice(1)}In`;
+  let name = base;
+  for (let i = 2; ctx.helpers.some(h => h.name === name) || ctx.scripts.some(m => m.method === name); i++) name = `${base}${i}`;
+  // a mapping In -> <Service>.In: the In of the worker always, the variables of the run it uses besides
+  const params = [
+    ...(ctx.o.noIn && !/\bin\b/.test(input) ? [] : [{ name: 'in', type: ctx.o.noIn ? 'NoInput' : 'In' }]),
+    ...[...vars.entries()]
+      .filter(([, v]) => /^[A-Za-z_]\w*$/.test(v.scala) && v.scala !== 'in' && new RegExp(`\\b${v.scala}\\b`).test(input))
+      .map(([n, v]) => ({ name: v.scala, type: fieldType({ id: n, name: n, type: v.type ?? 'String', ...(v.optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}) } as Field, ctx.idx) })),
+  ];
+  ctx.helpers.push({
+    name,
+    code: [
+      `  /** maps the In of the worker to the In of «${s.name || s.id}» (${svc})${open ? ' - still to complete (see the TODO)' : ''} */`,
+      `  private def ${name}(${params.map(p => `${p.name}: ${p.type}`).join(', ')}): ${svc}.In =`,
+      indent(input, '    '),
+    ].join('\n'),
+  });
+  return `${name}(${params.map(p => p.name).join(', ')})`;
+}
+
+/**
+ * Each place still to fill in the code of the run (`??? /* TODO … *\/`) a method of its own - `todo1`,
+ * of type `Nothing`, so it fits wherever it stands: the run says what it does, the methods what is missing.
+ */
+function withoutTodos(code: string, ctx: Ctx): string {
+  return code.replace(/\?\?\? \/\* TODO ([\s\S]*?) \*\//g, (_, text: string) => {
+    let n = ctx.helpers.filter(h => /^todo\d+$/.test(h.name)).length + 1;
+    while (ctx.helpers.some(h => h.name === `todo${n}`)) n++;
+    const name = `todo${n}`;
+    ctx.helpers.push({ name, code: `  /** TODO ${text.replace(/\*\//g, '* /')} */\n  private def ${name}: Nothing = ???` });
+    return name;
+  });
+}
+
+/** An ISO 8601 duration (`PT1M`) as a ZIO Duration. */
+const isoDuration = (scala: string) => `zio.Duration.fromJava(java.time.Duration.parse(${scala}))`;
+
+/**
+ * How long a timer event waits: a duration as text (`PT1M`), a variable in scope (`= waitFor`), or a
+ * timer variable of the orchestration (`= timerWaitForStatus`) - then a method of the worker with
+ * its default, which a test makes zero. A date or a cycle: a TODO (a worker waits a duration).
+ */
+function timerDuration(s: Step, vars: Map<string, ScalaVar>, ctx: Ctx): string {
+  const t = s.timer;
+  if (!t || t.kind !== 'duration') return todo(`«${s.name || s.id}»: ein Worker wartet eine Dauer - kein Datum, kein Zyklus`);
+  const name = timerVariable(t);
+  if (name) {
+    const v = vars.get(name);
+    if (v) return isoDuration(v.optional ? `${v.scala}.getOrElse(${JSON.stringify(t.default?.trim() || 'PT0S')})` : v.scala);
+    ctx.timers.set(name, { ...(t.default?.trim() ? { default: t.default.trim() } : {}), step: s.name || s.id });
+    return scalaIdent(name);
+  }
+  const text = t.expression.trim().replace(/^=\s*/, '').replace(/^"(.*)"$/, '$1');
+  return /^P/.test(text) ? isoDuration(JSON.stringify(text)) : todo(`«${s.name || s.id}»: Dauer ${t.expression}`);
 }
 
 /** The lines of the `for` for a list of steps — and the variables known after them. */
@@ -915,10 +1059,10 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
     const vars = scalaVars(known);
     if (s.kind === 'service') {
       const ref = task?.service ? ctx.services.get(task.service) : undefined;
-      if (!ref) { lines.push(`_ <- ZIO.fail(CustomError(${JSON.stringify(`«${s.name || s.id}»: kein Service`)})) // TODO Service wählen`); continue; }
+      if (!ref) { lines.push(`_ <- ZIO.fail(CustomError(${JSON.stringify(`«${s.name || s.id}»: kein Service - im Schritt den Service wählen`)}))`); continue; }
       ctx.called.set(ref.topic, ref);
       const pre: string[] = [];
-      const input = serviceIn(ref, task, vars, ctx, pre);
+      const input = inputCall(serviceIn(ref, task, vars, ctx, pre), ref, s, vars, ctx);
       lines.push(...pre);
       const outputs = (task?.outputs ?? []).filter(m => !m.disabled && m.name.trim());
       const target = ref.service.noOut || (task?.outputs && !outputs.length) ? '_' : resultName(task, ref);
@@ -960,11 +1104,12 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
           }
         }
       }
-      if (s.errors?.length) lines.push(`// TODO Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
+      // not in runWorkZIO: a note above it
+      if (s.errors?.length) ctx.notes.push(`Fehlerpfad${s.errors.length === 1 ? '' : 'e'} von «${s.name || s.id}»: ${s.errors.map(e => e.label || e.code || 'Fehler').join(', ')} — im Code behandeln (catchSome)`);
     } else if (s.kind === 'script') {
       if (task?.mapping || task?.script?.trim()) {
         const c = task.mapping ? mappingCall(s, task.mapping, known, ctx) : scriptCall(s, task, known, ctx);
-        lines.push(c.line);
+        if (c.line) lines.push(c.line);
         for (const v of Array.isArray(c.produced) ? c.produced : c.produced ? [c.produced] : []) {
           known = [...known.filter(k => k.name !== v.name), v];
           ctx.scriptVars.set(v.name, v);
@@ -974,8 +1119,16 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
         if (!a.name.trim()) continue;
         const t = feelToScala(a.expression, scalaVars(known), ctx.types);
         lines.push(`${scalaIdent(a.name.trim())} = ${t.scala}`);
-        known = [...known, { name: a.name.trim(), scala: scalaIdent(a.name.trim()), type: 'String', source: 'Script', ...(t.optional ? { optional: true } : {}) }];
+        known = [...known, { name: a.name.trim(), scala: scalaIdent(a.name.trim()), type: feelValueType(a.expression, known) ?? 'String', source: 'Script', ...(t.optional ? { optional: true } : {}) }];
       }
+      continue;
+    } else if (s.kind === 'end' && stopWithError(s, vars, ctx)) {
+      // the path ends with an error - the worker fails with its message
+      lines.push(`_ <- ${stopWithError(s, vars, ctx)}`);
+      continue;
+    } else if (s.kind === 'event' && s.eventKind === 'timer') {
+      // a timer in a worker: it waits - ZIO.sleep
+      lines.push(`_ <- ZIO.sleep(${timerDuration(s, vars, ctx)})`);
       continue;
     } else if (s.kind === 'gateway' && s.gatewayType === 'parallel') {
       // each branch on its own fiber — then joined, its results by name
@@ -985,6 +1138,9 @@ function forLines(steps: Step[], before: OrchVar[], ctx: Ctx): string[] {
       });
       for (const f of fibers) lines.push(`${f.fiber} <- (`, indent(f.body, '  '), ').fork');
       for (const f of fibers) lines.push(`${pattern(f.produced.map(v => v.name))} <- ${f.fiber}.join`);
+    } else if (s.kind === 'gateway' && !(s.branches ?? []).length) {
+      // a gateway without branches only joins (the start of a loop) - nothing to run
+      continue;
     } else if (s.kind === 'gateway' && s.gatewayType === 'exclusive') {
       // one branch runs: what the branches produce is an Option afterwards
       const produced = producedBy([s], ctx.o, ctx.services).map(v => v.name);
@@ -1090,18 +1246,145 @@ function outValue(o: ServiceOrchestrationSpec, vars: OrchVar[], ctx: Ctx, pre: s
   return `Out(\n${indent(args.join(',\n'), '  ')}\n)`;
 }
 
+/** A loop of the flow: a step a jump back (`goto`) leads to - from it on the steps are a method of the worker. */
+interface Loop {
+  /** the method: `wiederholungAbHier` */
+  method: string;
+  /** what it is called with: `loopCounter`, the In, the variables known before it */
+  params: { name: string; type: string; arg: (known: Map<string, ScalaVar>) => string }[];
+}
+
+/**
+ * The steps to the end of the flow, each path a ZIO of the Out: the steps before the gateway that
+ * decides as lines of a `for`, a branch the same again - a jump back calls the loop once more
+ * (`loopCounter + 1`), the end of a path gives the Out with what is known there.
+ */
+function terminalZio(steps: Step[], known: OrchVar[], ctx: Ctx, loop: Loop): string {
+  const deciding = (st: Step) => st.kind === 'goto'
+    || (st.kind === 'gateway' && st.gatewayType === 'exclusive' && flatSteps((st.branches ?? []).flatMap(b => b.steps)).some(x => x.kind === 'goto' || x.kind === 'end'));
+  const at = steps.findIndex(deciding);
+  const before = (at < 0 ? steps : steps.slice(0, at)).filter(st => st.kind !== 'end');
+  const lines = forLines(before, known, ctx);
+  const produced = producedBy(before, ctx.o, ctx.services);
+  // what a step sets here is the value from now on - also of a variable the loop carries
+  const after = [...known.filter(k => !produced.some(v => v.name === k.name)), ...produced]
+    .map(v => (ctx.scriptVars.has(v.name) ? { ...ctx.scriptVars.get(v.name)!, ...(v.optional ? { optional: true } : {}) } : v));
+  const vars = scalaVars(after);
+  let tail: string;
+  const step = at < 0 ? undefined : steps[at];
+  const stop = !step ? steps.map(st => stopWithError(st, vars, ctx)).find(Boolean) : null;
+  if (stop) {
+    // the path ends with «Prozess mit Fehler stoppen»: it fails
+    tail = stop;
+  } else if (!step) {
+    const pre: string[] = [];
+    const out = outValue(ctx.o, after, ctx, pre);
+    lines.push(...pre);
+    tail = `ZIO.succeed(${out})`;
+  } else if (step.kind === 'goto') {
+    tail = `${loop.method}(${loop.params.map(p => p.arg(vars)).join(', ')})`;
+  } else {
+    const branches = step.branches ?? [];
+    const fallback = elseBranch(ctx.o, step);
+    const cases = branches.filter(b => b !== fallback).map(b => {
+      const cond = conditionOf(ctx.o, b);
+      const t = cond ? feelCondition(cond, vars, ctx.types) : null;
+      const scalaCond = !t ? todo(`Bedingung für «${b.label || b.id}»`) : t.todo ? todo(`Bedingung: ${cond}`) : t.scala;
+      return `if ${scalaCond} then\n${indent(terminalZio(b.steps, after, ctx, loop), '  ')}`;
+    });
+    const els = fallback ? terminalZio(fallback.steps, after, ctx, loop) : `ZIO.fail(CustomError(${JSON.stringify(`«${step.name || step.id}»: kein Zweig passt`)}))`;
+    tail = cases.length ? `${cases.join('\nelse ')}\nelse\n${indent(els, '  ')}` : els;
+  }
+  if (!lines.length) return tail;
+  return `(for {\n${indent([...startWithGenerator(lines), `out <- ${tail.includes('\n') ? `(\n${indent(tail, '  ')}\n)` : tail}`].join('\n'), '  ')}\n} yield out)`;
+}
+
+/**
+ * The names a loop carries from one round to the next: set in it and read before - in the same round
+ * not yet (`checkStatusCount = checkStatusCount + 1`).
+ */
+function carriedVars(steps: Step[], o: ServiceOrchestrationSpec, services: Map<string, ServiceRef>): OrchVar[] {
+  const all = producedBy(steps, o, services);
+  const names = new Set(all.map(v => v.name));
+  const set = new Set<string>();
+  const carried = new Set<string>();
+  const reads = (text: string | undefined) => { for (const m of (text ?? '').matchAll(/[A-Za-z_]\w*/g)) if (names.has(m[0]) && !set.has(m[0])) carried.add(m[0]); };
+  const walk = (list: Step[]) => {
+    for (const st of list) {
+      const task = o.tasks[st.id];
+      // an output of a service reads its Out (`isDone = isDone`) - only one it computes reads variables
+      for (const m of [...(task?.inputs ?? []), ...(task?.outputs ?? []).filter(m => !m.fromService), ...(task?.assignments ?? [])]) reads(m.expression);
+      reads(task?.script);
+      for (const b of st.branches ?? []) reads(conditionOf(o, b));
+      for (const v of producedBy([st], o, services)) set.add(v.name);
+      for (const b of st.branches ?? []) walk(b.steps);
+    }
+  };
+  walk(steps);
+  return all.filter(v => carried.has(v.name));
+}
+
 function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
   const steps = flowOf(o).steps;
-  const body = forLines(steps, inVars(o), ctx);
+  // a jump back to a step of the flow: from it on a method that calls itself again
+  const back = flatSteps(steps).find(st => st.kind === 'goto' && st.back && st.gotoId && steps.some(x => x.id === st.gotoId));
+  const loopAt = back ? steps.findIndex(x => x.id === back.gotoId) : -1;
+  const before = loopAt < 0 ? steps : steps.slice(0, loopAt);
+  const body = forLines(before, inVars(o), ctx);
   // a script's result with the type the export derived (producedBy only knows the declared one)
-  const known = [...inVars(o), ...producedBy(steps, o, ctx.services)]
+  const known = [...inVars(o), ...producedBy(before, o, ctx.services)]
     .map(v => (ctx.scriptVars.has(v.name) ? { ...ctx.scriptVars.get(v.name)!, ...(v.optional ? { optional: true } : {}) } : v));
   const pre: string[] = [];
-  const out = outValue(o, known, ctx, pre);
-  const lines = startWithGenerator([...body, ...pre]);
+  let out: string;
+  let loopMethod = '';
+  if (loopAt >= 0) {
+    const segment = steps.slice(loopAt);
+    const target = steps[loopAt];
+    // English, whatever the step is called - its name is in the doc of the method
+    const name = uniqueMethod(ctx, 'repeat');
+    const typeOfVar = (v: OrchVar, optional = !!v.optional) => fieldType({ id: v.name, name: v.name, type: v.type, ...(optional ? { optional: true } : {}), ...(v.collection ? { collection: true } : {}) } as Field, ctx.idx);
+    const carried = carriedVars(segment, o, ctx.services);
+    const plain = known.filter(v => !carried.some(c => c.name === v.name) && /^[A-Za-z_]\w*$/.test(v.scala));
+    const usesIn = known.some(v => v.scala.startsWith('in.'));
+    const loop: Loop = {
+      method: name,
+      params: [
+        { name: 'loopCounter', type: 'Int', arg: () => 'loopCounter + 1' },
+        ...(usesIn ? [{ name: 'in', type: o.noIn ? 'NoInput' : 'In', arg: () => 'in' }] : []),
+        ...plain.map(v => ({ name: scalaIdent(v.name), type: typeOfVar(v), arg: () => scalaIdent(v.name) })),
+        // carried: the value of the round before - None in the first
+        ...carried.map(v => ({
+          name: `${v.name}Before`, type: typeOfVar(v, true),
+          arg: (vars: Map<string, ScalaVar>) => {
+            const now = vars.get(v.name);
+            if (!now || now.scala === `${v.name}Before`) return `${v.name}Before`;
+            return now.optional ? now.scala : `Some(${now.scala})`;
+          },
+        })),
+      ],
+    };
+    const inLoop: OrchVar[] = [
+      ...known.filter(v => !carried.some(c => c.name === v.name)),
+      { name: 'loopCounter', scala: 'loopCounter', type: 'Int', source: 'Script' },
+      ...carried.map(v => ({ ...v, scala: `${v.name}Before`, optional: true })),
+    ];
+    const zio = withoutTodos(terminalZio(segment, inLoop, ctx, loop), ctx);
+    loopMethod = [
+      `  /** «${target.name || target.id}»: the steps from here on - a jump back to it: once more, loopCounter + 1 */`,
+      `  private def ${name}(${loop.params.map(p => `${p.name}: ${p.type}`).join(', ')}): RunWorkZIOOutput[${o.noOut ? 'NoOutput' : 'Out'}] =`,
+      indent(zio, '    '),
+    ].join('\n');
+    const first = loop.params.map(p => (p.name === 'loopCounter' ? '1' : p.name.endsWith('Before') && carried.some(c => `${c.name}Before` === p.name) ? 'None' : p.name)).join(', ');
+    pre.push(`out <- ${name}(${first})`);
+    out = 'out';
+  } else {
+    out = outValue(o, known, ctx, pre);
+  }
+  const lines = startWithGenerator([...body, ...pre]).map(l => withoutTodos(l, ctx));
+  const yielded = withoutTodos(out, ctx);
   const run = lines.length
-    ? ['    for', indent(lines.join('\n'), '      '), `    yield ${out.replace(/\n/g, '\n    ')}`]
-    : [`    ZIO.succeed(${out.replace(/\n/g, '\n    ')})`];
+    ? ['    for', indent(lines.join('\n'), '      '), `    yield ${yielded.replace(/\n/g, '\n    ')}`]
+    : [`    ZIO.succeed(${yielded.replace(/\n/g, '\n    ')})`];
   const api = orchestrationApi(o);
   const imports = workerImports(o, ctx, run.join('\n'), true);
   // per service it calls: one method - a test overrides it with what the service answers
@@ -1115,7 +1398,14 @@ function worker(o: ServiceOrchestrationSpec, ctx: Ctx): string {
       `      .mapError(e => ${failWith(`${name}: `, 'e.errorMsg')})`,
     ].join('\n');
   });
+  const timers = [...ctx.timers].map(([name, t]) => [
+    `  /** «${t.step}»: how long it waits - a test makes it zero */`,
+    `  protected def ${scalaIdent(name)}: zio.Duration = ${t.default ? isoDuration(JSON.stringify(t.default)) : todo(`${name}: wie lange? (ISO 8601, z. B. PT1M)`)}`,
+  ].join('\n'));
   const scripts = [
+    ...(loopMethod ? [loopMethod] : []),
+    ...ctx.helpers.map(h => h.code),
+    ...timers,
     ...ctx.scripts.map(m => scriptMethod(m, ctx.idx)),
     ...(ctx.scripts.some(m => m.io) ? [MAPPED] : []),
   ];
@@ -1128,7 +1418,7 @@ class ${o.name}Worker
 
   lazy val customTask = example
 
-  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
+${ctx.notes.map(n => `  // TODO ${n}\n`).join('')}  override def runWorkZIO(in: In): RunWorkZIOOutput[Out] =
 ${run.join('\n')}
 ${scripts.length ? `\n${scripts.join('\n\n')}\n` : ''}${calls.length ? `\n${calls.join('\n\n')}\n` : ''}
 end ${o.name}Worker
@@ -1224,7 +1514,7 @@ class ${o.name}WorkerTest extends munit.FunSuite:
 
   /** the services answer with their examples - a test overrides the one that decides */
   class Mocked extends ${o.name}Worker:
-${refs.map(r => override(r, answer(r), '    ')).join('\n')}
+${refs.map(r => override(r, answer(r), '    ')).join('\n')}${[...ctx.timers.keys()].map(n => `\n    override protected def ${scalaIdent(n)}: zio.Duration = zio.Duration.Zero`).join('')}
 
   private def run(worker: ${o.name}Worker, in: ${o.noIn ? 'NoInput' : 'In'}): Either[CustomError, ${outType}] =
     given EngineRunContext = EngineRunContext(DefaultEngineContext.example, GeneralVariables())
@@ -1304,7 +1594,7 @@ export function orchestrationFiles(o: ServiceOrchestrationSpec, all: ServiceSpec
   const ctx: Ctx = {
     o, services: servicesByTopic(collections), types: [...types, ...domEnums], idx, called: new Map(), n: { value: 0 }, domEnums,
     sources: new Map(), conversions: new Map(), gateways: [], collections, domain: model?.domainTypes ?? [], scripts: [], scriptVars: new Map(),
-    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(),
+    mappers: modelMappers(model), usedMappers: new Map(), builtTypes: new Set(), timers: new Map(), helpers: [], notes: [],
   };
   // the classes of the catalog as types too - a path into one (`client.clientKey`) resolves like one into an own class
   for (const d of ctx.domain) {

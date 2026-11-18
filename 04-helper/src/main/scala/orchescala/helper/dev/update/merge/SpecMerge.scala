@@ -43,6 +43,104 @@ import scala.util.{Failure, Success, Try}
   */
 object SpecMerge:
 
+  /** A worker of the export or its test (`GetClientWorker.scala`, `GetClientWorkerTest.scala`) - the files
+    * created once a developer is asked to overwrite when Orch Spec gives another version.
+    */
+  private[merge] def isWorkerCode(rel: os.RelPath): Boolean =
+    rel.last.matches("""[A-Z]\w*Worker(Test)?\.scala""")
+
+  /** Scala without its comments and texts - what the code uses, not what it mentions. One pass, as
+    * the compiler reads it: a text (`"…"`, `"""…"""`, also interpolated - its `$name` and `${…}` are code) or a char
+    * (`'"'`) is read before a comment could start in it; block comments nest. A text becomes `""`.
+    * So a name only in a text (reflection, `classOf` by name, a macro) counts as not used - the
+    * developer is asked before anything goes.
+    */
+  private[merge] def codeOnly(code: String): String =
+    val out = new StringBuilder
+    val n   = code.length
+    def at(i: Int, s: String) = code.startsWith(s, i)
+    // the end of a char literal from its quote at i (after it) - 0: no char (a symbol, an apostrophe)
+    def charEnd(from: Int): Int =
+      if from + 2 < n && code(from + 1) != '\\' && code(from + 2) == '\'' then from + 3
+      else if from + 3 < n && code(from + 1) == '\\' then
+        val close = code.indexOf('\'', from + 3)
+        if close > 0 && close - from <= 7 then close + 1 else 0
+      else 0
+    // the end of a block comment from `/*` at i - nested ones included
+    def blockEnd(from: Int): Int =
+      var depth = 0
+      var i     = from
+      while i < n do
+        if at(i, "/*") then { depth += 1; i += 2 }
+        else if at(i, "*/") then
+          depth -= 1
+          i += 2
+          if depth == 0 then return i
+        else i += 1
+      n
+    // a text from its opening quote at i: the code of its `${…}` kept, the rest dropped
+    def text(from: Int, interpolated: Boolean): Int =
+      val triple = at(from, "\"\"\"")
+      var i      = from + (if triple then 3 else 1)
+      out ++= "\"\""
+      while i < n do
+        if triple && at(i, "\"\"\"") then
+          // a run of more quotes: the last three close it
+          while at(i + 1, "\"\"\"") do i += 1
+          return i + 3
+        else if !triple && code(i) == '"' then return i + 1
+        else if !triple && code(i) == '\n' then return i
+        else if !triple && code(i) == '\\' then i += 2
+        else if interpolated && at(i, "$$") then i += 2
+        else if interpolated && code(i) == '$' && i + 1 < n && (code(i + 1).isLetter || code(i + 1) == '_') then
+          // `$name`: the name is code
+          var j = i + 1
+          while j < n && (code(j).isLetterOrDigit || code(j) == '_') do j += 1
+          out ++= " " ++= code.substring(i + 1, j) ++= " "
+          i = j
+        else if interpolated && at(i, "${") then
+          // its code to the brace that closes it - a text in it skipped, so a brace there does not count
+          var depth = 1
+          var j     = i + 2
+          val start = j
+          while j < n && depth > 0 do
+            if at(j, "\"\"\"") then
+              val close = code.indexOf("\"\"\"", j + 3)
+              j = if close < 0 then n else close + 3
+            else if code(j) == '"' then
+              var k = j + 1
+              while k < n && code(k) != '"' && code(k) != '\n' do k += (if code(k) == '\\' then 2 else 1)
+              j = k + 1
+            else
+              if code(j) == '{' then depth += 1 else if code(j) == '}' then depth -= 1
+              j += 1
+          out ++= " " ++= codeOnly(code.substring(start, math.max(start, j - 1))) ++= " "
+          i = j
+        else i += 1
+      n
+    var i = 0
+    while i < n do
+      val c = code(i)
+      if at(i, "//") then
+        while i < n && code(i) != '\n' do i += 1
+      else if at(i, "/*") then
+        i = blockEnd(i)
+        out += ' '
+      else if c == '"' then
+        // `s"…"`, `f"…"`: the letters before it are already out - an interpolator right before the quote
+        val interpolated = i > 0 && (code(i - 1).isLetter || code(i - 1) == '_')
+        i = text(i, interpolated)
+      else if c == '\'' && charEnd(i) > 0 then
+        // a char: `'"'`, `'\''`, `'\u0041'`
+        out ++= "' '"
+        i = charEnd(i)
+      else
+        out += c
+        i += 1
+    end while
+    out.result()
+  end codeOnly
+
   /** A file of type mappers of Orch Spec (`TypeMappers.scala`, `ClientMasterV1TypeMappers.scala`) - extensions it adds to a
     * schema: named as Orch Spec names them (`<Level>[V<n>]TypeMappers`), in a `schema` folder. Asked only of the files
     * the export generates - a hand-written `CustomTypeMappers.scala` of the project never comes here.
@@ -167,8 +265,9 @@ object SpecMerge:
     * it stops there - `MergeIncomplete` tells what was done before.
     * @param remove the files whose removal applies - what only the code has goes there (the
     *               developer said so, `MergeReport.askRemoval`); elsewhere it stays
+    * @param replace the files created once that Orch Spec's version replaces (`MergeReport.askReplace`)
     */
-  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Set[String] = Set.empty): MergeResult =
+  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Set[String] = Set.empty, replace: Set[String] = Set.empty): MergeResult =
     val changed = plan.files.filter(f => hashOf(project / os.RelPath(f.path)) != f.codeHash).map(_.path)
     if changed.nonEmpty then throw MergeAborted(changed)
     val written = Seq.newBuilder[String]
@@ -197,7 +296,8 @@ object SpecMerge:
       written += f.path
     val removed   = Seq.newBuilder[String]
     val removedIn = Seq.newBuilder[String]
-    def result    = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result(), removedIn.result())
+    val replaced  = Seq.newBuilder[String]
+    def result    = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result(), removedIn.result(), replaced.result())
     def planned(f: PlannedFile): Unit = f.action match
       case Action.create | Action.update | Action.merged       => write(f)
       case Action.delete                                       =>
@@ -222,7 +322,13 @@ object SpecMerge:
             write(f.copy(content = Some(content), binary = false))
             removed ++= names
             removedIn += f.path
-          case None                                => planned(f)
+          case None                                =>
+            f.replacement.filter(_ => replace(f.path) && f.action == Action.unchanged) match
+              // a file created once - the developer said Orch Spec's version replaces it
+              case Some(content) =>
+                write(f.copy(content = Some(content), binary = false))
+                replaced += f.path
+              case None          => planned(f)
       catch case NonFatal(e) => throw MergeIncomplete(result, f.path, e)
     result
   end merge
@@ -245,9 +351,10 @@ object SpecMerge:
         content: Option[String] = None,
         conflicts: Seq[Conflict] = Seq.empty,
         note: Option[String] = None,
-        removal: Option[Removal] = None
+        removal: Option[Removal] = None,
+        replacement: Option[String] = None
     ) =
-      Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note, removal = removal))
+      Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note, removal = removal, replacement = replacement))
     // a Scala file of the export: by structure into the code - the code is the basis
     // code it does not read (tabs, braces) or a result whose brackets do not close: as text, like
     // git - what differs is a conflict, nothing of the code is lost unseen
@@ -304,6 +411,10 @@ object SpecMerge:
         else
           n.kind match
             case FileKind.Simulation    => file(Action.update, Some(n.content))
+            // a worker or its test: the developer is asked whether Orch Spec's version replaces it -
+            // another skeleton (a template BPMN, the base paths to fill) only stays
+            case FileKind.Scaffold if isWorkerCode(rel) =>
+              file(Action.unchanged, note = Some("exists, differs from Orch Spec - created once, it stays unless you say so"), replacement = Some(n.content))
             case FileKind.Scaffold      => file(Action.unchanged, note = Some("exists - created once, it stays"))
             case FileKind.ProcessObject => processObject(n, c)
             case FileKind.Export        => threeWay("", c, n.content)
@@ -402,11 +513,22 @@ object SpecMerge:
         .filterNot(planned).sortBy(_.toString).map(rel => rel -> Try(os.read(project / rel)).toOption)
       if others.exists((_, code) => code.exists(ofProcess.findFirstIn(_).isDefined)) then Seq.empty
       else
+        // what the other files of the folder use is still needed - the trait of an API (`FileV1`) its
+        // services extend, when an orchestration is exported into the API of a collection
+        // as code: a mention in a comment or a text (a topic) is no use
+        val inFolder = (others.flatMap((rel, code) => code.map(rel -> _)) ++
+          generated.filter(_.rel / os.up == dir).map(f => f.rel -> f.content)).map((rel, code) => rel -> codeOnly(code))
+        // per name its pattern once
+        val words = scala.collection.mutable.Map.empty[String, scala.util.matching.Regex]
+        def used(rel: os.RelPath, names: Seq[String]): Boolean =
+          names.exists: n =>
+            val word = words.getOrElseUpdate(n, s"\\b${java.util.regex.Pattern.quote(n)}\\b".r)
+            inFolder.exists((other, code) => other != rel && word.findFirstIn(code).isDefined)
         others.flatMap: (rel, read) =>
           read.flatMap: code =>
             if ownObject.findFirstIn(code).isDefined then None
             else
-              orphaned(code).map: r =>
+              orphaned(code).filterNot(r => used(rel, r.names)).map: r =>
                 PlannedFile(rel.toString, Owner.generated, Action.unchanged, hashOf(project / rel), note = Some("not in orch-spec"),
                   removal = Some(r))
   end orphans

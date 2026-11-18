@@ -180,6 +180,8 @@ test('an Out that is an enum without cases yet: a TODO to choose the case - no c
   out.fields = [];
   out.values = [];
   const w = orchestrationFiles({ ...o, outMappings: [] }, collections())[1].content;
-  assert.match(w, /\?\?\? \/\* TODO Out ist eine Auswahl \(enum\) — den Fall wählen: noch keine Fälle \*\//, w);
+  // in a method of its own - runWorkZIO has no TODO
+  assert.match(w, /yield todo1\n/, w);
+  assert.match(w, /\/\*\* TODO Out ist eine Auswahl \(enum\) — den Fall wählen: noch keine Fälle \*\/\n\s+private def todo1: Nothing = \?\?\?/, w);
   assert.doesNotMatch(w, /out\d+ <- \(/, w);
 });

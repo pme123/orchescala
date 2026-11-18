@@ -39,12 +39,15 @@ object MergeReport:
         println(colored(Console.YELLOW, s"ONLY IN THE CODE - you are asked: ${what(f, r)}"))
         // what goes - against what is written otherwise
         for c <- r.content; before <- f.content.orElse(code) do changes(before, c).foreach(println)
+      f.replacement.foreach: n =>
+        println(colored(Console.YELLOW, s"DIFFERS from Orch Spec - you are asked whether it is overwritten: ${f.path}"))
+        changes(code.getOrElse(""), n).foreach(println)
     printNotes(plan)
     printSummary(plan, None, planned = true)
 
   /** The texts of the files before the merge - for their changes in `printMerged`. */
   def before(project: os.Path, plan: MergePlan): Map[String, String] =
-    plan.files.filter(f => !f.binary && (f.action != Action.unchanged || f.removal.nonEmpty))
+    plan.files.filter(f => !f.binary && (f.action != Action.unchanged || f.removal.nonEmpty || f.replacement.nonEmpty))
       .flatMap(f => read(project, f.path).map(f.path -> _)).toMap
 
   /** What the merge did - in the words `processFromSpec` always used.
@@ -62,7 +65,7 @@ object MergeReport:
     before.foreach: old =>
       plan.files.foreach: f =>
         header(f, planned = false, Some(result), markers).foreach(println)
-        if result.written.contains(f.path) && f.action != Action.create then
+        if (result.written.contains(f.path) || result.replaced.contains(f.path)) && f.action != Action.create then
           if f.binary then println(colored(Grey, "    a binary file - its changes are not shown"))
           else changes(old.getOrElse(f.path, ""), read(project, f.path).getOrElse("")).foreach(println)
         conflictLines(f).foreach(println)
@@ -113,6 +116,33 @@ object MergeReport:
     end if
   end askRemoval
 
+  /** Ask whether Orch Spec's version replaces a file created once that differs from it (a worker, its
+    * test) - `ask` gets each question; their changes are shown before (`printPlan`). Of several files:
+    * all (`y`), none (`N`) or each on its own (`e`).
+    * @return the paths of the files to overwrite (`SpecMerge.merge` with `replace`)
+    */
+  def askReplace(plan: MergePlan, ask: String => Option[String] = readAnswer): Set[String] =
+    val files = plan.replaceable
+    if files.isEmpty then Set.empty
+    else
+      val several = files.size > 1
+      val listed  = files.map(f => s"  ${f.path}").mkString("\n")
+      val answer  = ask(s"\nCreated once, differs from Orch Spec now:\n$listed\nOverwrite ${if several then "them" else "it"} with Orch Spec's version (your changes there are lost)? ${if several then "[y = all / e = each / N = none]" else "[y = yes / e = show it once more / N = no]"} ")
+      if isYes(answer) then files.map(_.path).toSet
+      // each on its own - of one file its question once more
+      else if answer.exists(_.trim.toLowerCase == "e") then
+        files.collect { case f if isYes(ask(s"Overwrite ${f.path}? [y/N] ")) => f.path }.toSet
+      else Set.empty
+    end if
+  end askReplace
+
+  /** The answers of a merge: what goes of what only the code has, which files created once are
+    * overwritten - with `--yes` nothing of either (nothing asked), otherwise first the one, then the other.
+    */
+  def decisions(plan: MergePlan, yes: Boolean, ask: String => Option[String] = readAnswer): (Set[String], Set[String]) =
+    if yes then (Set.empty, Set.empty)
+    else (askRemoval(plan, ask), askReplace(plan, ask))
+
   /** The question on the console - its answer; None at the end of the input (no console, a closed
     * stdin): that is a no.
     */
@@ -153,6 +183,8 @@ object MergeReport:
         Some(colored(Console.YELLOW, s"DIFFERS from Orch Spec: ${f.path}$note - $todo."))
       case Action.unchanged if removed(f, result) =>
         Some(colored(Console.BLUE, s" - REMOVED: ${what(f, f.removal.get)}"))
+      case Action.unchanged if result.exists(_.replaced.contains(f.path)) =>
+        Some(colored(Console.GREEN, s"OVERWRITTEN with Orch Spec: ${f.path}"))
       case Action.unchanged                       => None
 
   /** The changes of a file as `git diff` shows them: each with the line of the code and two lines
@@ -208,7 +240,8 @@ object MergeReport:
     def withNote(f: PlannedFile) = s"${f.path}${f.note.fold("")(n => s" ($n)")}"
     def of(a: Action)            = plan.withAction(a)
     val (gone, kept)             = plan.removals.partition(removed(_, result))
-    val unchanged                = of(Action.unchanged).filter(_.removal.isEmpty)
+    val (overwritten, differ)    = plan.replaceable.partition(f => result.exists(_.replaced.contains(f.path)))
+    val unchanged                = of(Action.unchanged).filter(f => f.removal.isEmpty && f.replacement.isEmpty)
     println("-" * maxLine)
     group(Console.BLUE, if planned then "To create" else "Created", of(Action.create).map(_.path))
     group(Console.GREEN, if planned then "To update" else "Updated", of(Action.update).map(withNote))
@@ -221,6 +254,8 @@ object MergeReport:
     )
     group(Console.BLUE, "Removed - only in the code", gone.map(f => what(f, f.removal.get)))
     group(Console.YELLOW, if planned then "Only in the code - you are asked" else "Only in the code - kept", kept.map(f => what(f, f.removal.get)))
+    group(Console.GREEN, "Overwritten with Orch Spec", overwritten.map(_.path))
+    group(Console.YELLOW, if planned then "Differs from Orch Spec - you are asked" else "Differs from Orch Spec - kept", differ.map(_.path))
     group(Console.RESET, "Unchanged", unchanged.map(withNote))
     val count = Seq(
       "created"                            -> of(Action.create).size,
@@ -230,6 +265,8 @@ object MergeReport:
       "removed"                            -> gone.size,
       "conflicts"                          -> of(Action.conflict).size,
       (if planned then "asked" else "kept") -> kept.size,
+      "overwritten"                        -> overwritten.size,
+      (if planned then "to overwrite?" else "differ") -> differ.size,
       "unchanged"                          -> unchanged.size
     ).filter(_._2 > 0).map((w, n) => s"$n $w")
     val open  = of(Action.conflict).nonEmpty || (!planned && kept.nonEmpty)

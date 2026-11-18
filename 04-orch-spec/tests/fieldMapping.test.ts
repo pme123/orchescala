@@ -156,13 +156,13 @@ test('the checks: the In known before the step, names there, a field of the Out 
 test('in Scala: a method from the In to the Out - a copy of the line onto the object, the first one set by orElse; the test checks it', () => {
   const { worker, test: t } = files(merge);
   // a ZIO: what is required resolved first - here nothing, it succeeds
-  assert.match(worker, /newClient <- mapClient\(in\.existingClient, in\.client\)\n/, worker);
+  assert.match(worker, /newClient <- mapNewClient\(in\.existingClient, in\.client\)\n/, worker);
   assert.match(worker, /import zio\.\{IO, ZIO\}/, worker);
-  assert.match(worker, /def mapClient\(existingClient: Client, client: Client\): IO\[CustomError, Client\] =\n\s+mapped\("Map Client"\)\(\n\s+existingClient\.copy\(\n\s+name = client\.name\.orElse\(existingClient\.name\),\n\s+firstName = client\.firstName\n\s+\)/, worker);
-  assert.match(t, /val existingClient = Client\.example\n\s+val client = Client\.example\n\s+val result = runIO\(Mocked\(\)\.mapClient\(existingClient, client\)\)\n\s+assertEquals\(result\.name, client\.name\.orElse\(existingClient\.name\)\)\n\s+assertEquals\(result\.firstName, client\.firstName\)/, t);
+  assert.match(worker, /def mapNewClient\(existingClient: Client, client: Client\): IO\[CustomError, Client\] =\n\s+mapped\("Map Client"\)\(\n\s+existingClient\.copy\(\n\s+name = client\.name\.orElse\(existingClient\.name\),\n\s+firstName = client\.firstName\n\s+\)/, worker);
+  assert.match(t, /val existingClient = Client\.example\n\s+val client = Client\.example\n\s+val result = runIO\(Mocked\(\)\.mapNewClient\(existingClient, client\)\)\n\s+assertEquals\(result\.name, client\.name\.orElse\(existingClient\.name\)\)\n\s+assertEquals\(result\.firstName, client\.firstName\)/, t);
 
   // and the examples: those of the In give the one of the Out
-  assert.match(t, /test\("mapClient: the example gives the example of Client"\):\n\s+val existingClient = Client\.example\n\s+val client = Client\.example\n\s+\/\/ TODO Map Client: [^\n]+\n\s+val expected = Client\.example\n\s+assertEquals\(runIO\(Mocked\(\)\.mapClient\(existingClient, client\)\), expected\)/, t);
+  assert.match(t, /test\("mapNewClient: the example gives the example of Client"\):\n\s+val existingClient = Client\.example\n\s+val client = Client\.example\n\s+\/\/ TODO Map Client: [^\n]+\n\s+val expected = Client\.example\n\s+assertEquals\(runIO\(Mocked\(\)\.mapNewClient\(existingClient, client\)\), expected\)/, t);
 });
 
 test('in Scala without a line onto the object: its class field by field - optional not mapped None, required a TODO, optional onto required fails', () => {
@@ -187,8 +187,8 @@ test('in Scala an object in an object: a copy of its own - mapped into an option
 test('in Scala several variables in the Out: a tuple - its call sets each one', () => {
   const m = mapping([{ field: 'newClient', from: ['existingClient'] }, { field: 'changed', from: [], expression: '= true' }], { out: [f('newClient', 'client'), f('changed', 'Boolean')] });
   const { worker, test: t } = files(m);
-  assert.match(worker, /\(newClient, changed\) <- mapClient\(in\.existingClient, in\.client\)\n/, worker);
-  assert.match(worker, /def mapClient\(existingClient: Client, client: Client\): IO\[CustomError, \(Client, Boolean\)\] =\n\s+mapped\("Map Client"\)\(\n\s+\(\n\s+existingClient,\n\s+true\n\s+\)/, worker);
+  assert.match(worker, /\(newClient, changed\) <- mapNewClient\(in\.existingClient, in\.client\)\n/, worker);
+  assert.match(worker, /def mapNewClient\(existingClient: Client, client: Client\): IO\[CustomError, \(Client, Boolean\)\] =\n\s+mapped\("Map Client"\)\(\n\s+\(\n\s+existingClient,\n\s+true\n\s+\)/, worker);
   assert.match(t, /assertEquals\(result\._1, existingClient\)\n\s+assertEquals\(result\._2, true\)/, t);
 });
 

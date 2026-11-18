@@ -107,6 +107,12 @@ const ASSIGNMENT_FIELDS = [
 /** Warning for JUEL the import could not translate — with the reason, if known; `todo` is what to do */
 const untranslatable = (value: string, todo: string): string => untranslatableText(value, 'JUEL,', todo);
 
+/** JUEL where there is none: C8 and a service orchestration (a worker) only know FEEL */
+const NO_JUEL = `JUEL gibt es hier nicht (${C8_LABEL} / Worker) - als «= …» schreiben.`;
+/** what is said about JUEL that stays: for Camunda 7 a hint, where there is none an error */
+const juelLeft = (value: string, engine: EngineId | undefined, todo: string): FeelIssue =>
+  engine === 'c8' ? { level: 'error', text: untranslatableText(value, 'JUEL,', NO_JUEL) } : { level: 'warn', text: untranslatable(value, todo) };
+
 function juelIssues(expression: string, engine: EngineId | undefined, json = false): FeelIssue[] {
   if (engine === 'c8') return [];
   const body = feelBody(expression);
@@ -936,9 +942,9 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               const cond: FeelIssue[] = !b.isDefault && b.condition && isFeel(b.condition)
                 ? [...checkFeel(b.condition, variables, conditionExpected(spec.engine)).issues, ...juelIssues(b.condition, spec.engine)]
                 : !b.isDefault && b.condition && isJuel(b.condition)
-                  ? [{ level: 'warn', text: importExpression(b.condition) !== b.condition
-                      ? 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.'
-                      : untranslatable(b.condition, 'als «= …» schreiben.') }]
+                  ? [importExpression(b.condition) !== b.condition
+                      ? { level: 'warn', text: 'JUEL aus einem älteren Stand — «→ FEEL» übersetzt es.' }
+                      : juelLeft(b.condition, spec.engine, 'als «= …» schreiben.')]
                   : [];
               const condErr = cond.some(i => i.level === 'error');
               const condConvertible = !b.isDefault && !!b.condition && isJuel(b.condition) && importExpression(b.condition) !== b.condition;
@@ -1121,7 +1127,8 @@ function AppliedPatternCard({ applied, def, isDark, editable, engine, atProcess,
   const issuesOf = (v: string | undefined): FeelIssue[] => {
     if (!v?.trim()) return [];
     if (isFeel(v)) return [...checkFeel(v, variables).issues, ...juelIssues(v, engine)];
-    return isJuel(v) ? [{ level: 'warn', text: 'JUEL — als «= …» schreiben, dann gilt es für beide Engines.' }] : [];
+    if (!isJuel(v)) return [];
+    return [engine === 'c8' ? { level: 'error', text: NO_JUEL } : { level: 'warn', text: 'JUEL — als «= …» schreiben, dann gilt es für beide Engines.' }];
   };
   return (
     <div className={`rounded border px-2 py-1.5 space-y-1 ${patternTone(isDark)}`}>
@@ -1747,9 +1754,9 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             ...(!off && isScriptValue(m.expression) ? [{ level: 'warn' as const, text: scriptWarning(engine) }] : []),
             // JUEL the import could not translate — stays until someone writes it as FEEL
             ...(!off && !feel && !isScriptValue(m.expression) && isJuel(m.expression)
-              ? [{ level: 'warn' as const, text: importExpression(m.expression) !== m.expression
-                  ? 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.'
-                  : untranslatable(m.expression, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.') }]
+              ? [importExpression(m.expression) !== m.expression
+                  ? { level: 'warn' as const, text: 'JUEL aus einem älteren Stand — «JUEL → FEEL» oben übersetzt es.' }
+                  : juelLeft(m.expression, engine, 'als «= …» schreiben; bis dahin geht es unverändert ins BPMN.')]
               : []),
           ];
           const feelOk = feel && !feel.issues.some(i => i.level === 'error');
@@ -2363,13 +2370,13 @@ function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
           {(Object.keys(TIMER_KIND_LABEL) as TimerSpec['kind'][]).map(k => <option key={k} value={k}>{TIMER_KIND_LABEL[k]}</option>)}
         </select>
         <input value={t.expression} disabled={!canEdit || !!lockedBy} onChange={e => onChange({ ...t, expression: e.target.value })}
-          placeholder="= timerWait — eine Variable aus dem InConfig"
+          placeholder={spec.service ? '= timerWait — eine Methode des Workers' : '= timerWait — eine Variable aus dem InConfig'}
           title={lockedBy ? `Setzt das Pattern «${lockedBy}»` : 'Mit = eine Variable bzw. ein FEEL-Ausdruck, sonst fester Wert (ISO 8601, z. B. P7D)'}
           className={`flex-1 min-w-0 ${input}`} />
       </div>
       {name && (
         <div className="flex items-center gap-1.5">
-          <span className={`text-[10px] ${c.muted} flex-shrink-0`}>Vorgabe im InConfig</span>
+          <span className={`text-[10px] ${c.muted} flex-shrink-0`}>{spec.service ? 'Vorgabe im Worker' : 'Vorgabe im InConfig'}</span>
           {own
             ? <span className={`text-[10px] font-mono ${c.muted2}`} title="Steht schon im eigenen InConfig — dort pflegen">{own.default ? `${name} = ${own.default}` : name} (eigenes Feld)</span>
             : <input value={t.default ?? ''} disabled={!canEdit} onChange={e => onChange({ ...t, default: e.target.value || undefined })}
@@ -2380,7 +2387,9 @@ function TimerSection({ timer, spec, isDark, canEdit, lockedBy, onChange }: {
       )}
       <p className={`text-[10px] ${c.muted}`}>
         {name
-          ? <>Der Timer liest <span className="font-mono">{name}</span> — eine Konstante im InConfig; im Test lässt sie sich verkürzen.</>
+          ? spec.service
+            ? <>Der Timer wartet <span className="font-mono">{name}</span> — eine Methode des Workers mit dieser Vorgabe; im Test wartet er nicht.</>
+            : <>Der Timer liest <span className="font-mono">{name}</span> — eine Konstante im InConfig; im Test lässt sie sich verkürzen.</>
           : t.expression.trim()
             ? 'Fester Wert — besser eine Variable (= timerWait) mit dieser Vorgabe im InConfig.'
             : 'Noch kein Wert — eine Variable setzen, z. B. = timerWait.'}

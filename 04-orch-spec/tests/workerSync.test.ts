@@ -120,7 +120,7 @@ test('the reader: the lines of a mapping method - a copy onto the object, the fi
     { field: 'newClient.country', from: ['client.code'], mapper: 'country' },
   ]));
   const w = mapWorker(spec);
-  const links = mappingLinks(readWorkerCode(w), 'mapClient', ['newClient'], new Set(['toCountry']));
+  const links = mappingLinks(readWorkerCode(w), 'mapNewClient', ['newClient'], new Set(['toCountry']));
   assert.deepEqual(Object.fromEntries([...links.fields].map(([k, v]) => [k, `${v.from.join(' | ')}${v.ext ? ` ${v.ext}` : ''}`])), {
     newClient: 'existingClient',
     'newClient.name': 'client.name | existingClient.name',

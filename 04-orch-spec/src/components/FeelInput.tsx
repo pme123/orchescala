@@ -3,13 +3,13 @@
 // If the value starts with `=`, it is a FEEL expression (Camunda 8). While typing,
 // the field suggests the process variables and their paths — `client.` shows
 // the fields of `client`, `client.addr` filters within them. Arrow keys select,
-// Enter or Tab accepts, Escape closes. Brackets as in a code editor: a selection is
-// wrapped, in an expression the closing one comes along (see bracketPairs.ts). The check of the expression
+// Enter or Tab accepts, Escape closes. Brackets only where one would be missing: a selection is
+// wrapped, an opening one gets its closing one where none waits for it (see bracketPairs.ts). The check of the expression
 // (syntax, paths, type) is done by the caller; this is only about typing.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FEEL_TYPE_LABEL, completions, isFeel, tokenizeFeel, type Completion, type FeelTokenKind, type VarNode } from '../feel';
 import { cls } from '../ui';
-import { backspaceEdit, bracketEdit, type BracketEdit } from '../bracketPairs';
+import { bracketEdit, type BracketEdit } from '../bracketPairs';
 
 export default function FeelInput({ value, onChange, variables, isDark, disabled, placeholder, title, className, size, multiline, mono = true }: {
   value: string;
@@ -69,6 +69,22 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
 
   const close = () => { setRange(null); setItems([]); };
 
+  /** where the cursor stands after a function the suggestion brought with its brackets - `not(|)` */
+  const afterCall = useRef<number | null>(null);
+  /**
+   * The selection after an insert, once the value is rendered - right after the render, not on the next
+   * frame: a key typed before it (or a frame that does not come) would land at the end of the text
+   */
+  const pendingSel = useRef<{ start: number; end: number; value: string } | null>(null);
+  useLayoutEffect(() => {
+    const p = pendingSel.current;
+    const el = inputRef.current;
+    if (!p || !el || el.value !== p.value) return;
+    pendingSel.current = null;
+    if (document.activeElement !== el) el.focus();
+    el.setSelectionRange(p.start, p.end);
+  });
+
   const accept = (item: Completion) => {
     if (!range) return;
     // if there is already a parenthesis after it (`string|(x)`), only the name is inserted
@@ -79,13 +95,9 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
     const cursor = range.from + insert.length - (hasParen ? 0 : (item.back ?? 0));
     onChange(next);
     close();
+    afterCall.current = insert.endsWith(')') && insert.length - (item.back ?? 0) > 0 && insert[cursor - range.from - 1] === '(' ? cursor : null;
     // cursor after the inserted text — the next level comes with «.»
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(cursor, cursor);
-    });
+    pendingSel.current = { start: cursor, end: cursor, value: next };
   };
 
   // keep the active entry in view
@@ -101,21 +113,29 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
       el.setSelectionRange(ed.from, ed.to);
       // `execCommand` keeps the browser's undo; where it is not there, the value goes through the caller
       done = ed.insert ? document.execCommand('insertText', false, ed.insert) : document.execCommand('delete');
-      if (!done) onChange(value.slice(0, ed.from) + ed.insert + value.slice(ed.to));
+      // the value always goes to the caller - not only through the browser's input event: without it the
+      // field shows the brackets, the state does not have them, and the next render takes them away
+      const typed = done ? el.value : value.slice(0, ed.from) + ed.insert + value.slice(ed.to);
+      if (typed !== value) onChange(typed);
     }
     if (done) el.setSelectionRange(ed.selStart, ed.selEnd);
     // the value comes back from the caller — the selection once it is rendered, unless typed on already
     const expected = value.slice(0, ed.from) + ed.insert + value.slice(ed.to);
-    requestAnimationFrame(() => { if (document.activeElement === el && el.value === expected) el.setSelectionRange(ed.selStart, ed.selEnd); });
+    pendingSel.current = { start: ed.selStart, end: ed.selEnd, value: expected };
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
+    // the `(` after a function the suggestion brought - it has it already: `not(|)` stays, no `not((|))`
+    const call = afterCall.current;
+    afterCall.current = null;
+    if (e.key === '(' && call != null && el.selectionStart === call && el.selectionEnd === call && value[call - 1] === '(') {
+      e.preventDefault();
+      return;
+    }
     // `[` and `{` come with Option (Mac) or AltGr (Ctrl+Alt on Windows) — only shortcuts are left out
-    if (!e.nativeEvent.isComposing && !e.metaKey && !(e.ctrlKey && !e.altKey)) {
-      const ed = e.key === 'Backspace'
-        ? (isFeel(value) ? backspaceEdit(value, el.selectionStart, el.selectionEnd) : null)
-        : e.key.length === 1 ? bracketEdit(value, el.selectionStart, el.selectionEnd, e.key, isFeel(value)) : null;
+    if (!e.nativeEvent.isComposing && !e.metaKey && !(e.ctrlKey && !e.altKey) && e.key.length === 1) {
+      const ed = bracketEdit(value, el.selectionStart, el.selectionEnd, e.key, isFeel(value));
       if (ed) { e.preventDefault(); applyEdit(el, ed); return; }
     }
     if (!open) return;

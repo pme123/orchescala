@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.10.1 - 2026-11-18
+### Changed 
+- Orch Spec: service orchestrations to a compiling worker - loops, timers, ADT mappings, types from FEEL; helper asks before overwriting a worker (#165) - see [Commit](https://github.com/pme123/orchescala/commit/bdb9539dc126002bde799672241f7b1da7b3049b)
+- Release: run ci-release in its own sbt JVM - v0.10.0 was not published (#164) - see [Commit](https://github.com/pme123/orchescala/commit/c808a082f783f7780b4b96b93e1b628c0e40b214)
+
 ## 0.10.0 - 2026-11-18
 ### Changed 
 - Major updates: vite 8, TypeScript 7, dmn-js 18, lucide-react 1, HikariCP 7, testcontainers 2 (#163) - see [Commit](https://github.com/pme123/orchescala/commit/69d29d5e55ec90bad307c5be2a6118b68c7c44f9)

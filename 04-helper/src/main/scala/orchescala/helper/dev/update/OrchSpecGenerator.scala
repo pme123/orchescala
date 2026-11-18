@@ -51,13 +51,13 @@ final class OrchSpecGenerator(
   // before stays): said, as `processFromSpec --merge` says it
   private def mergeAndPrint(project: os.Path, plan: MergePlan): Unit =
     try
-      if plan.removals.isEmpty then
+      if plan.removals.isEmpty && plan.replaceable.isEmpty then
         val before = MergeReport.before(project, plan)
         MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode), project, Some(before))
       else
         MergeReport.printPlan(plan, project)
-        val remove = MergeReport.askRemoval(plan, ask)
-        MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove), project)
+        val (remove, replace) = MergeReport.decisions(plan, yes = false, ask)
+        MergeReport.printMerged(plan, SpecMerge.merge(project, plan, OnConflict.KeepCode, remove, replace), project)
     catch
       case e: MergeAborted    => println(MergeReport.colored(Console.YELLOW, s"${e.getMessage} - run it again."))
       case e: MergeIncomplete => MergeReport.printIncomplete(e)

@@ -7,7 +7,7 @@
 // Steps the code calls but the flow does not have, and branches, are said too - the flow stays.
 import type { CaseLink, FieldLink, Mapping, Status, Step, TypeMapper } from '../types';
 import { isNamed, mapperExtension } from '../typeMappers';
-import { camelName } from './names';
+import { mappingMethodName } from './scalaOrchestration';
 import { mappingLinks, readWorkerCode, feelOf, type CodeCases, type CodeLink, type WorkerCode, type WorkerItem } from './workerScan';
 import type { ServiceRef } from './orchestration';
 import type { ServiceProcess } from './serviceProcess';
@@ -95,8 +95,8 @@ export function syncWorker(spec: ServiceProcess, generated: string, code: string
       const u = serviceUpdate(s, g, c, exts, report);
       if (u) updates.set(s.id, u);
     } else if (s.kind === 'script' && s.fieldMapping) {
-      // camelName gives letters and digits only - safe in the expression below
-      const base = camelName((s.name || s.id).replace(/Task$/, ''));
+      // the export names it after what it builds (mappingMethodName) - letters and digits only, safe below
+      const base = mappingMethodName(s.fieldMapping);
       const g = (gen.items ?? []).find(i => i.kind === 'mapping' && !usedMethods.has(i.method) && (i.method === base || new RegExp(`^${base}\\d+$`).test(i.method))) as Extract<WorkerItem, { kind: 'mapping' }> | undefined;
       if (!g) continue;
       usedMethods.add(g.method);

@@ -31,6 +31,8 @@ export function withoutRetiredFields(spec: ProcessSpec): ProcessSpec {
     return next;
   });
   const { sourceUrl: _s, ...rest } = spec as ProcessSpec & { sourceUrl?: unknown };
+  // a service orchestration runs as a worker - no Camunda 7: its conditions stay FEEL, never JUEL
+  const engine = spec.service && spec.engine !== 'c8' ? { engine: 'c8' as const } : {};
   // an interaction prepared earlier on a pattern step (see wiringSteps)
-  return withoutWiringInteractions({ ...rest, steps: clean(spec.steps) ?? [] });
+  return withoutWiringInteractions({ ...rest, ...engine, steps: clean(spec.steps) ?? [] });
 }
