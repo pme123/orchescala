@@ -81,14 +81,6 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |      // "-rewrite", "-source", "3.4-migration", // migrate automatically to scala 3.4
        |      // "-Vprofile",
        |    ),
-       |    javaOptions ++= Seq(
-       |      "-Xmx3g",
-       |      "-Xss2m",
-       |      "-XX:+UseG1GC",
-       |      "-XX:InitialCodeCacheSize=512m",
-       |      "-XX:ReservedCodeCacheSize=512m",
-       |      "-Dfile.encoding=UTF8"
-       |    ),
        |    credentials ++= Seq(${repoConfig.sbtCredentials}),
        |    resolvers ++= Seq(${repoConfig.sbtRepos}),
        |    autoImportSetting(
