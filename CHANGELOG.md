@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+### Fixed
+- **Generated `.gitlab-ci.yml` on sbt 2:** the test job failed with `end of statement expected` in the `set` expression. The sbt 2 client joins its arguments with a space, so `"domain/test; worker/test"` ended up in the `set`. The job now runs `sbt --server "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test"`. `./helper.scala update` writes the new line (as long as the file still has its `DO NOT ADJUST` line); until then, change it by hand in the project's `.gitlab-ci.yml`.
+
 ## 0.10.1 - 2026-11-18
 ### Changed 
 - Orch Spec: service orchestrations to a compiling worker - loops, timers, ADT mappings, types from FEEL; helper asks before overwriting a worker (#165) - see [Commit](https://github.com/pme123/orchescala/commit/bdb9539dc126002bde799672241f7b1da7b3049b)
