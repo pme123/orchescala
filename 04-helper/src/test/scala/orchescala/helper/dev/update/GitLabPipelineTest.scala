@@ -90,6 +90,19 @@ class GitLabPipelineTest extends FunSuite:
         .call(env = Map("URL" -> url), propagateEnv = false).out.text()
       assertEquals(out, host, url)
 
+  test("the sbt line: one argument with `;` - the sbt 2 client joins its arguments with a space"):
+    val parsed = org.yaml.snakeyaml.Yaml().load[java.util.Map[String, Any]](pipeline(fromEnv))
+    val script = parsed.get("worker-test").asInstanceOf[java.util.Map[String, Any]]
+      .get("script").asInstanceOf[java.util.List[String]]
+    val sbt    = script.stream().filter(_.startsWith("sbt ")).findFirst().get
+    assertEquals(
+      sbt,
+      """sbt --server "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test""""
+    )
+    // as the shell splits it: the options, then one command line
+    val args   = os.proc("bash", "-c", s"""set -- ${sbt.stripPrefix("sbt ")}; printf '%s\\n' "$$@"""").call().out.lines()
+    assertEquals(args, Seq("--server", "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test"))
+
   test("configured repos without variables - their url and host as before"):
     val credentials = RepoCredentials.UserPassword("acme", "bin.example.com", "U", "P")
     val static      = ReposConfig(

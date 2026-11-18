@@ -220,8 +220,11 @@ case class GenericFileGenerator()(using config: DevConfig):
        |        maven-central
        |      EOF
        |    # limit concurrent sub-project compilation: the pod's CPU count is often uncapped even
-       |    # though its memory is - sbt then schedules too many parallel Scala compilers and gets OOMKilled
-       |    - sbt "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2))" "domain/test; worker/test"
+       |    # though its memory is - sbt then schedules too many parallel Scala compilers and gets OOMKilled.
+       |    # One argument with `;`: the sbt 2 client joins its arguments with a space, so a separate
+       |    # "domain/test" would end up in the `set` expression. --server: sbt in this JVM, no
+       |    # background server left in the job.
+       |    - sbt --server "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test"
        |
        |""".stripMargin
   end gitLabPipeline
