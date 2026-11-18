@@ -49,7 +49,8 @@ test('preview, «Auf Testumgebung», status, «Übergeben» - the run goes on in
     const preview = (await first.json()) as Json;
     assert.match(preview.previewId, /^p20261118-0900\d\d$/);
     assert.deepEqual([preview.work, preview.plan.summary, preview.plan.conflicts], [null, { update: 2, conflict: 0 }, []]);
-    assert.deepEqual(preview.plan.files, [{ path: 'a', action: 'update' }]);
+    // with what is not from the change of the spec: the code of `c` differed from the spec before
+    assert.deepEqual(preview.plan.files, [{ path: 'a', action: 'update' }, { path: 'c', action: 'merged', drift: 'only' }, { path: 'd', action: 'merged' }]);
     assert.deepEqual(preview.before, [{ path: 'config/model.json', text: '{"v":1}\n' }]);
     assert.throws(() => f.onBranch('projects/app/spec/config/model.json'));
     assert.deepEqual(f.calls(), ['check']);

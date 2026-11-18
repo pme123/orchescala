@@ -4,14 +4,14 @@
 //     first run of a work asks for its name;
 //   - the run: the status of every step, what failed with its log, go on or cancel;
 //   - «Übergeben»: the pull request.
-import { AlertTriangle, Check, Circle, ExternalLink, GitPullRequest, Loader2, Lock, Play, Rocket, X } from 'lucide-react';
+import { AlertTriangle, Check, Circle, ExternalLink, GitPullRequest, Info, Loader2, Lock, Play, Rocket, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuthor } from '../auth';
 import { diffSpecFolders, formatSpecDiff, isEmptyDiff, type SpecDiff } from '../specDiff';
 import { useStore } from '../store';
 import { cls } from '../ui';
 import { collectSpec, memoryFolder } from './collect';
-import { callPlatform, duration, PLAN_ACTION, planLine, platformPath, runOpen, WORK_NAME, type PlatformProject, type Preview, type ProjectStatus, type RunStatus, type RunStep } from './config';
+import { callPlatform, driftForCommit, driftNote, duration, PLAN_ACTION, planLine, platformPath, runOpen, WORK_NAME, type PlatformProject, type Preview, type ProjectStatus, type RunStatus, type RunStep } from './config';
 import type { RunDialog } from './RunControls';
 
 type Props = {
@@ -86,6 +86,8 @@ function PreviewDialog(p: Props) {
   const name = first ? work.trim() : loaded?.preview.work ?? '';
   const changes = !!loaded && (!isEmptyDiff(loaded.diff) || Object.entries(plan?.summary ?? {}).some(([action, n]) => action !== 'unchanged' && n > 0));
   const diffText = loaded ? formatSpecDiff(loaded.diff).trimEnd() : '';
+  // what the merge changes although the RE did not: the project's code and spec were not in sync
+  const drift = driftNote(plan?.files ?? []);
   const start = async () => {
     if (!loaded) return;
     setBusy(true);
@@ -93,8 +95,8 @@ function PreviewDialog(p: Props) {
     const r = await callPlatform<ProjectStatus>(platformPath(p.project.name, 'test'), {
       previewId: loaded.preview.previewId,
       ...(first ? { work: name } : {}),
-      // the commit: what the RE wrote, then what changed in the spec
-      summary: [summary.trim() || `Orch Spec: ${name}`, '', diffText].join('\n'),
+      // the commit: what the RE wrote, what changed in the spec - and what changes without that
+      summary: [summary.trim() || `Orch Spec: ${name}`, '', diffText, ...(drift ? ['', driftForCommit(plan?.files ?? [])] : [])].join('\n'),
       ...(author.email ? { author: { name: author.name, email: author.email } } : {}),
     });
     setBusy(false);
@@ -132,10 +134,20 @@ function PreviewDialog(p: Props) {
                   {plan.conflicts.map(f => <div key={f} className="font-mono text-[10px] break-all">{f}</div>)}
                 </div>
               )}
+              {drift && (
+                <div data-run="drift" className={`flex items-start gap-1.5 text-[11px] rounded border px-2 py-1 ${p.isDark ? 'border-sky-400/40 bg-sky-400/10 text-sky-200' : 'border-sky-400 bg-sky-50 text-sky-800'}`}>
+                  <Info size={12} className="mt-0.5 flex-shrink-0" /> <span>{drift}</span>
+                </div>
+              )}
               {!!plan?.files.length && (
                 <details className={`text-[10px] ${c.muted2}`}>
                   <summary className="cursor-pointer">Dateien</summary>
-                  {plan.files.map(f => <div key={f.path} className="font-mono break-all">{ACTION[f.action] ?? f.action}: {f.path}</div>)}
+                  {plan.files.map(f => (
+                    <div key={f.path} className="font-mono break-all">
+                      {ACTION[f.action] ?? f.action}: {f.path}
+                      {f.drift && <span className="font-sans italic"> – {f.drift === 'only' ? 'nicht von dieser Änderung' : 'wich schon vorher ab'}</span>}
+                    </div>
+                  ))}
                 </details>
               )}
               {!!loaded.skipped.length && (

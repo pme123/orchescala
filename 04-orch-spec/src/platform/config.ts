@@ -54,11 +54,14 @@ export const NO_STATUS: ProjectStatus = { status: null, work: null };
 /** A file of the spec as it goes to the studio and comes back. */
 export type SpecFile = { path: string; text?: string; base64?: string };
 /** What the studio answers before a run: the plan of the merge and the spec on the branch. */
+/** A file the merge changes. `drift`: its code differed from the spec before this change - `only`: the file
+ *  changes because of that alone, `also`: and because of this change. */
+export type PlanFile = { path: string; action: string; drift?: 'only' | 'also' };
 export type Preview = {
   previewId: string;
   /** the open work - null: the run is the first of a new one and names it */
   work: string | null;
-  plan: { summary: Record<string, number>; conflicts: string[]; files: { path: string; action: string }[] } | null;
+  plan: { summary: Record<string, number>; conflicts: string[]; files: PlanFile[] } | null;
   before: SpecFile[];
 };
 
@@ -129,5 +132,30 @@ export const PLAN_ACTION: Record<string, string> = { create: 'neu', update: 'akt
 /** «12 gemergt · 2 neu · 1 gelöscht» - what the merge does, without what stays. */
 export const planLine = (summary: Record<string, number>): string =>
   Object.entries(PLAN_ACTION).flatMap(([action, word]) => (summary[action] ? [`${summary[action]} ${word}`] : [])).join(' · ') || 'keine Änderung im Code';
+
+/** The files that change (also) because their code differed from the spec before - not what the RE changed. */
+export const driftOf = (files: PlanFile[]): { only: string[]; also: string[] } => ({
+  only: files.filter(f => f.drift === 'only').map(f => f.path),
+  also: files.filter(f => f.drift === 'also').map(f => f.path),
+});
+
+/** What the RE reads about them - '' when code and spec were in sync. */
+export function driftNote(files: PlanFile[]): string {
+  const { only, also } = driftOf(files);
+  return [
+    ...(only.length ? [`${only.length === 1 ? 'Eine Datei ändert' : `${only.length} Dateien ändern`} sich nicht wegen dieser Änderung: Der Code wich dort schon vorher von der Spez ab.`] : []),
+    ...(also.length ? [`${also.length === 1 ? 'Eine Datei wich' : `${also.length} Dateien wichen`} schon vorher ab und ${also.length === 1 ? 'ändert' : 'ändern'} sich auch wegen dieser Änderung.`] : []),
+    ...(only.length || also.length ? ['Der Merge bringt dort den Stand der Spez in den Code – die Entwicklung sollte das prüfen.'] : []),
+  ].join(' ');
+}
+
+/** The same for the commit of the run - what development reads there; '' when there is nothing. */
+export function driftForCommit(files: PlanFile[]): string {
+  const { only, also } = driftOf(files);
+  return [
+    ...(only.length ? ['Nicht von dieser Änderung – der Code wich schon vorher von der Spez ab:', ...only.map(f => `- ${f}`)] : []),
+    ...(also.length ? ['Auch von dieser Änderung – der Code wich schon vorher von der Spez ab:', ...also.map(f => `- ${f}`)] : []),
+  ].join('\n');
+}
 
 export const duration = (ms: number): string => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`);

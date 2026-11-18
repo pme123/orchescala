@@ -142,18 +142,22 @@ export function baseVersion(projectDir: string): string | undefined {
   }
 }
 
-export type Plan = { summary: Record<string, number>; conflicts: string[]; files: { path: string; action: string }[] };
+/** A file the merge changes. `drift`: its code differed from the spec before the change - `only`: the file
+ *  changes because of that alone, `also`: and because of the change of the spec. */
+export type PlanFile = { path: string; action: string; drift?: 'only' | 'also' };
+export type Plan = { summary: Record<string, number>; conflicts: string[]; files: PlanFile[] };
 
-/** The plan of the merge (`--json`): files per action, those with conflicts, and what changes. */
+/** The plan of the merge (`--json`): files per action, those with conflicts, and what changes - with what
+ *  is not from the change of the spec (a helper that does not say it: nothing marked). */
 function readPlan(file: string): Plan | undefined {
   const plan = readJson<{ summary?: unknown; files?: unknown }>(file);
   if (!plan) return undefined;
   const summary = plan.summary && typeof plan.summary === 'object'
     ? Object.fromEntries(Object.entries(plan.summary).filter((e): e is [string, number] => typeof e[1] === 'number'))
     : {};
-  const files = (Array.isArray(plan.files) ? (plan.files as { path?: unknown; action?: unknown }[]) : [])
-    .filter((f): f is { path: string; action: string } => typeof f?.path === 'string' && typeof f.action === 'string')
-    .map((f) => ({ path: f.path, action: f.action }));
+  const files = (Array.isArray(plan.files) ? (plan.files as { path?: unknown; action?: unknown; drift?: unknown }[]) : [])
+    .filter((f): f is { path: string; action: string; drift?: unknown } => typeof f?.path === 'string' && typeof f.action === 'string')
+    .map((f): PlanFile => ({ path: f.path, action: f.action, ...(f.drift === 'only' || f.drift === 'also' ? { drift: f.drift } : {}) }));
   return { summary, conflicts: files.filter((f) => f.action === 'conflict').map((f) => f.path), files: files.filter((f) => f.action !== 'unchanged') };
 }
 

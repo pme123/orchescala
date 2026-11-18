@@ -43,7 +43,7 @@ export function fixture(over: Partial<Project> = {}) {
   const report = (dir: string, tests: number, failures: string) =>
     `mkdir -p target/out/${dir}/test-reports && printf '<testsuite name="a" tests="${tests}" failures="%s" errors="0" skipped="0">' ${failures} > target/out/${dir}/test-reports/a.xml`;
   const plan = `if [ -f "$ORCH_SPEC_DIR/conflict" ]; then echo '{"summary":{"conflict":1},"files":[{"path":"projects/app/src/Main.scala","action":"conflict"}]}' > "$ORCH_PLAN_FILE"; `
-    + `else echo '{"summary":{"update":2,"conflict":0},"files":[{"path":"a","action":"update"},{"path":"b","action":"unchanged"}]}' > "$ORCH_PLAN_FILE"; fi`;
+    + `else echo '{"summary":{"update":2,"conflict":0},"files":[{"path":"a","action":"update"},{"path":"b","action":"unchanged"},{"path":"c","action":"merged","drift":"only"},{"path":"d","action":"merged","drift":"?"}]}' > "$ORCH_PLAN_FILE"; fi`;
   const project = parseProject({
     name: 'app', repo: origin, path: 'projects/app', testUrl: 'http://localhost:8889/app/app',
     gitHost: { kind: 'github', repo: 'democompany/company' },

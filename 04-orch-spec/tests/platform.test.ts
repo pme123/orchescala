@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import type { FileInfo, StorageBackend } from '../src/backend';
 import { collectSpec, memoryFolder } from '../src/platform/collect';
 import {
-  callPlatform, duration, loadPlatformConfig, parsePlatformConfig, PLATFORM_OFF, planLine, platformPath, projectOf, runLabel, runOpen, WORK_NAME,
+  callPlatform, driftForCommit, driftNote, duration, loadPlatformConfig, parsePlatformConfig, PLATFORM_OFF, planLine, platformPath, projectOf, runLabel, runOpen, WORK_NAME,
   type RunStatus,
 } from '../src/platform/config';
 import { diffSpecFolders, formatSpecDiff, isEmptyDiff } from '../src/specDiff';
@@ -112,6 +112,13 @@ test('what the header and the dialog say of a run', () => {
   assert.deepEqual([runOpen(run({})), runOpen(run({ state: 'waiting' })), runOpen(run({ state: 'ok' })), runOpen(run({ state: 'error' })), runOpen(null)], [true, true, false, false, false]);
   assert.equal(planLine({ create: 2, update: 0, merged: 12, delete: 1, unchanged: 50, conflict: 1 }), '2 neu · 12 gemergt · 1 gelöscht · 1 Konflikt');
   assert.equal(planLine({ unchanged: 50, conflict: 0 }), 'keine Änderung im Code');
+  // what the merge changes although the RE did not: the code differed from the spec before
+  const merged = [{ path: 'A.scala', action: 'merged', drift: 'only' as const }, { path: 'B.scala', action: 'merged', drift: 'only' as const }, { path: 'C.scala', action: 'merged', drift: 'also' as const }, { path: 'D.scala', action: 'merged' }];
+  assert.equal(driftNote(merged), '2 Dateien ändern sich nicht wegen dieser Änderung: Der Code wich dort schon vorher von der Spez ab. Eine Datei wich schon vorher ab und ändert sich auch wegen dieser Änderung. Der Merge bringt dort den Stand der Spez in den Code – die Entwicklung sollte das prüfen.');
+  assert.equal(driftNote(merged.slice(0, 1)), 'Eine Datei ändert sich nicht wegen dieser Änderung: Der Code wich dort schon vorher von der Spez ab. Der Merge bringt dort den Stand der Spez in den Code – die Entwicklung sollte das prüfen.');
+  assert.equal(driftNote(merged.slice(3)), '');
+  assert.equal(driftForCommit(merged), 'Nicht von dieser Änderung – der Code wich schon vorher von der Spez ab:\n- A.scala\n- B.scala\nAuch von dieser Änderung – der Code wich schon vorher von der Spez ab:\n- C.scala');
+  assert.equal(driftForCommit(merged.slice(3)), '');
   assert.deepEqual([duration(400), duration(13_100), duration(59_999), duration(180_000)], ['1 s', '13 s', '60 s', '3 min']);
   assert.deepEqual(['termin-filiale', '2-runde', 'Termin', 'a b', '-x', ''].map(n => WORK_NAME.test(n)), [true, true, false, false, false, false]);
 });

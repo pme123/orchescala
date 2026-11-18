@@ -254,6 +254,13 @@ file only when nothing else is in it (an extension or a `def` of your own stays)
 lists every file and what goes of it; of several files you answer `y` (all), `e` (each on its own)
 or `N` (none). `--yes` deletes nothing of it.
 
+So keep the spec and the generated parts of the code in sync: a generated member you change by
+hand (an example, a default, a doc comment) is written over by the next merge - whatever changed
+in the spec. Change it in _Orch Spec_ instead. The plan says where that happens: a file whose code
+differed from the spec before the change is noted with _not from this change of the spec_ (in
+the JSON `"drift": "only"`) - or `"drift": "also"` when the change of the spec changes the file
+too. With the spec unchanged, `--check` then shows exactly what is not in sync.
+
 The output is laid out like the one of a simulation: every file that changes with its changes as
 `git diff` shows them (the line, two lines around it - the code's lines red, _Orch Spec_'s green, a
 change of the form grey), then the files grouped by what happens to them and an `END` line with

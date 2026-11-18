@@ -62,7 +62,7 @@ shows as waiting and can go on.
 
 | Step | What | The command |
 |---|---|---|
-| Preview | before a run (P12): the plan of the merge - what would be created, merged, in conflict - and the spec as it is on the branch; nothing is built or written to the branch | `commands.check`: `./helper.scala processFromSpec --check --from "$ORCH_SPEC_DIR" --json "$ORCH_PLAN_FILE"` |
+| Preview | before a run (P12): the plan of the merge - what would be created, merged, in conflict - and the spec as it is on the branch; nothing is built or written to the branch. A file whose code differed from the spec before the change carries `drift` (`only`: it changes because of that alone, `also`: and because of the change): the merge brings the spec's side into a generated class whatever the change was, so orch-spec says what is not from the RE's change - and writes it into the commit for development | `commands.check`: `./helper.scala processFromSpec --check --from "$ORCH_SPEC_DIR" --json "$ORCH_PLAN_FILE"` |
 | 1 Projekt | the spec of the run is one | – |
 | 2 Auschecken | a clone of the repo in the workspace of the studio (never the checkout of a developer), fetched; a worktree for the project | git |
 | 3 Branch | the first run of a work creates `orch-spec/<project>/<work>` from develop and pushes it, every later one goes on with it; develop is merged in | git |

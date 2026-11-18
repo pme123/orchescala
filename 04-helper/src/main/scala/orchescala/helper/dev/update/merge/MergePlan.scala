@@ -34,6 +34,16 @@ case class Conflict(line: Int, spec: String, code: String)
   */
 case class Removal(names: Seq[String], content: Option[String])
 
+/** The code of a file differed from what the spec gave before its change - in a part Orch Spec
+  * generates (a domain class, the process object): there the spec's side comes in, whatever the
+  * change of the spec was. So the one who changed the spec sees what is not from that change.
+  */
+enum Drift:
+  /** the file changes only because of that - the change of the spec adds nothing to it */
+  case only
+  /** and the change of the spec changes it too */
+  case also
+
 /** One file of the plan.
   * @param codeHash hash of the file in the project at the check - None if it does not exist
   * @param content  what `merge` writes: the new content (create, update, merged) - for a conflict
@@ -42,6 +52,8 @@ case class Removal(names: Seq[String], content: Option[String])
   * @param removal  what only the code has - removed only when asked (`SpecMerge.merge` with `remove`)
   * @param replacement a file created once (a worker, its test) that differs from what Orch Spec
   *                 gives now: the export's version - written only when asked (`SpecMerge.merge` with `replace`)
+  * @param drift    the code differed from the spec before the change - what the merge does to the file
+  *                 is (also) from that, see `Drift`
   */
 case class PlannedFile(
     path: String,
@@ -54,7 +66,8 @@ case class PlannedFile(
     // `content` is base64 - a file of the spec that is no text (a logo of a theme)
     binary: Boolean = false,
     removal: Option[Removal] = None,
-    replacement: Option[String] = None
+    replacement: Option[String] = None,
+    drift: Option[Drift] = None
 )
 
 /** What `merge` will do - decided by `checkMerge`, executed as it is (nothing is recomputed).
@@ -73,6 +86,9 @@ case class MergePlan(project: String, files: Seq[PlannedFile], notes: Seq[String
   /** The files with what only the code has - the question whether it goes. */
   def removals: Seq[PlannedFile] = files.filter(_.removal.nonEmpty)
 
+  /** The files whose code differed from the spec before its change - changed (also) because of that. */
+  def drifted: Seq[PlannedFile] = files.filter(_.drift.nonEmpty)
+
   /** The files created once that differ from the export - the question whether it overwrites them. */
   def replaceable: Seq[PlannedFile] = files.filter(_.replacement.nonEmpty)
 
@@ -90,6 +106,9 @@ object MergePlan:
   given Decoder[Owner]  = Decoder.decodeString.emapTry(s => scala.util.Try(Owner.valueOf(s)))
   given Encoder[Action] = Encoder.encodeString.contramap(_.toString)
   given Decoder[Action] = Decoder.decodeString.emapTry(s => scala.util.Try(Action.valueOf(s)))
+
+  given Encoder[Drift]  = Encoder.encodeString.contramap(_.toString)
+  given Decoder[Drift]  = Decoder.decodeString.emapTry(s => scala.util.Try(Drift.valueOf(s)))
 
   given Encoder[Conflict] = c => Json.obj("line" -> c.line.asJson, "spec" -> c.spec.asJson, "code" -> c.code.asJson)
   given Decoder[Conflict] = c =>
@@ -115,6 +134,7 @@ object MergePlan:
         Option.when(f.binary)("encoding" -> "base64".asJson) ++
         f.removal.map("removal" -> _.asJson) ++
         f.replacement.map("replacement" -> _.asJson) ++
+        f.drift.map("drift" -> _.asJson) ++
         f.content.map("content" -> _.asJson)*
     )
   given Decoder[PlannedFile] = c =>
@@ -129,7 +149,8 @@ object MergePlan:
       encoding  <- c.get[Option[String]]("encoding")
       removal   <- c.get[Option[Removal]]("removal")
       replace   <- c.get[Option[String]]("replacement")
-    yield PlannedFile(path, owner, action, codeHash, content, conflicts.getOrElse(Seq.empty), note, encoding.contains("base64"), removal, replace)
+      drift     <- c.get[Option[Drift]]("drift")
+    yield PlannedFile(path, owner, action, codeHash, content, conflicts.getOrElse(Seq.empty), note, encoding.contains("base64"), removal, replace, drift)
 
   given Encoder[MergePlan] = p =>
     Json.obj(

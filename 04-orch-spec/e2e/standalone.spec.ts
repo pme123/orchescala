@@ -282,7 +282,7 @@ test('the runs of the studio: «Auf Testumgebung» with the preview, the spec lo
     sent.preview = route.request().postDataJSON();
     // on the branch the process still has its old title
     const before = Object.entries(files).map(([file, text]) => ({ path: file, text: file === 'processes/order.json' ? JSON.stringify({ ...JSON.parse(text), title: 'Bestellung' }) : text }));
-    return route.fulfill({ json: { previewId: 'p20261118-090001', work: null, plan: { summary: { create: 1, merged: 3, unchanged: 12, conflict: 0 }, conflicts: [], files: [{ path: 'src/Order.scala', action: 'merged' }] }, before } });
+    return route.fulfill({ json: { previewId: 'p20261118-090001', work: null, plan: { summary: { create: 1, merged: 3, unchanged: 12, conflict: 0 }, conflicts: [], files: [{ path: 'src/Order.scala', action: 'merged' }, { path: 'src/CheckOrder.scala', action: 'merged', drift: 'only' }] }, before } });
   });
   await page.route('**/platform/acme-demo/test', (route) => {
     sent.test = route.request().postDataJSON();
@@ -314,6 +314,8 @@ test('the runs of the studio: «Auf Testumgebung» with the preview, the spec lo
   await expect(dialog.locator('[data-run="plan"]')).toHaveText('1 neu · 3 gemergt');
   await expect(dialog.locator('[data-run="diff"]')).toContainText('Prozess Order');
   await expect(dialog.locator('[data-run="diff"]')).toContainText('Bestellung');
+  // and what the merge changes although the RE did not: the code differed from the spec before
+  await expect(dialog.locator('[data-run="drift"]')).toContainText('Eine Datei ändert sich nicht wegen dieser Änderung');
   const start = dialog.getByRole('button', { name: 'Auf Testumgebung' });
   await expect(start).toBeDisabled();
   await dialog.getByPlaceholder('termin-filiale').fill('Meine Arbeit');
@@ -324,6 +326,7 @@ test('the runs of the studio: «Auf Testumgebung» with the preview, the spec lo
   expect(sent.preview.files!.map((f) => f.path)).toEqual(['config/model.json', 'processes/order.bpmn', 'processes/order.json']);
   expect([sent.test.previewId, sent.test.work]).toEqual(['p20261118-090001', 'filiale']);
   expect(sent.test.summary).toMatch(/^Orch Spec: filiale\n\n[~+-] Prozess Order/);
+  expect(sent.test.summary).toMatch(/\n\nNicht von dieser Änderung – der Code wich schon vorher von der Spez ab:\n- src\/CheckOrder\.scala$/);
 
   // the run: its steps in the dialog, in the header the step it is in - and the spec is locked
   await expect(dialog).toContainText('Auf die Testumgebung – läuft');

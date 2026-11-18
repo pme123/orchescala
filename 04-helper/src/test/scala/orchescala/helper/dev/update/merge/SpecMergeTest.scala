@@ -169,6 +169,37 @@ class SpecMergeTest extends FunSuite:
       assert(!merged.contains("<<<<<<<"), merged)
       assert(result.written.contains(path(project, "CheckOrder.scala")))
 
+  test("the code differed from the spec before (a generated member changed by hand): the file changes without a change of the spec - the plan says it is not from the change"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = false"))
+      val plan = SpecMerge.plan(project, Seq(order), Seq(order))
+      assertEquals(actionOf(plan, project, "CheckOrder.scala"), Action.merged)
+      assertEquals(plan.drifted.map(f => f.path -> f.drift), Seq(path(project, "CheckOrder.scala") -> Some(Drift.only)))
+      val json = plan.toJsonString
+      assert(json.contains("\"drift\" : \"only\""), json)
+      assertEquals(MergePlan.fromJson(json), plan)
+      val out  = new java.io.ByteArrayOutputStream
+      Console.withOut(out)(MergeReport.printPlan(plan, project))
+      assert(out.toString.contains("not from this change of the spec"), out.toString)
+      assert(out.toString.contains("1 of these file(s) change without this change of the spec"), out.toString)
+
+  test("the code differed from the spec before, and the spec changes the file too: said as well"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      editFile(project, "CheckOrder.scala")(_.replace("ok = true", "ok = true // as the developer wants it"))
+      val plan = SpecMerge.plan(project, Seq(order), Seq(editScala(order)(_.replace("ok = true", "ok = false"))))
+      assertEquals(plan.drifted.map(f => f.path -> f.drift), Seq(path(project, "CheckOrder.scala") -> Some(Drift.also)))
+
+  test("code and spec in sync before: nothing is said to differ - a change of the spec, an own member of the developer"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      editFile(project, "CheckOrder.scala")(_.replace("end CheckOrder", "  lazy val own = 1\nend CheckOrder"))
+      val plan = SpecMerge.plan(project, Seq(order), Seq(editScala(order)(_.replace("ok = true", "ok = false"))))
+      assertEquals(actionOf(plan, project, "CheckOrder.scala"), Action.merged)
+      assertEquals(plan.drifted, Seq.empty)
+      assert(!plan.toJsonString.contains("\"drift\""))
+
   test("a class only the code has: asked - it stays without a yes, goes with one"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
