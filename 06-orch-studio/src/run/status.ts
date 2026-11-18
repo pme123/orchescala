@@ -6,6 +6,7 @@
 //   <workspace>/<repo>/runs/<project>/work.json       the open work: its branch, rounds and pull request
 //   <workspace>/<repo>/runs/<project>/durations.json  how long each step took in the last run that was ok
 //   <workspace>/<repo>/runs/<project>/<runId>/        the spec of the run, its plan and the logs of the steps
+//   <workspace>/<repo>/runs/<project>/previews/<id>/  the spec of a preview and its plan - the last one only
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PullRequest } from './gitHost.ts';
@@ -56,7 +57,7 @@ export type RunStatus = {
 export type Round = { runId: string; summary: string; version: string | null; tests: Counts | null; simulations: Counts | null };
 export type Work = { work: string; branch: string; rounds: Round[]; pullRequest: PullRequest | null };
 
-export type Paths = { repo: string; tree: string; projectDir: string; runs: string; status: string; work: string; durations: string };
+export type Paths = { repo: string; tree: string; projectDir: string; runs: string; status: string; work: string; durations: string; previews: string };
 
 export function pathsOf(workspace: string, project: Project): Paths {
   const base = join(workspace, repoName(project));
@@ -70,6 +71,7 @@ export function pathsOf(workspace: string, project: Project): Paths {
     status: join(runs, 'status.json'),
     work: join(runs, 'work.json'),
     durations: join(runs, 'durations.json'),
+    previews: join(runs, 'previews'),
   };
 }
 
@@ -100,7 +102,5 @@ export function alive(pid: number): boolean {
   }
 }
 
-/** `running` with a process that is gone: the studio was stopped - the run waits and can go on (P1). */
-export const interrupted = (s: RunStatus) => s.state === 'running' && !alive(s.pid);
 /** A run that holds the lock of its project: the spec is locked, no second run. */
 export const open = (s: RunStatus) => s.state === 'running' || s.state === 'waiting';

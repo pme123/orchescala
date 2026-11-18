@@ -13,14 +13,14 @@
 // spec is on the branch since step 4. A run that was interrupted goes on at the step it was in.
 //
 // The texts of the status are German: the RE reads them in orch-spec. The log of the studio is English.
-import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import type { Log } from '../log.ts';
 import { tail, type Exec, type ExecResult } from './exec.ts';
 import type { GitHost, PullRequest } from './gitHost.ts';
 import { workBranch, type Project } from './project.ts';
 import {
-  interrupted, open, pathsOf, readJson, writeJson,
+  alive, open, pathsOf, readJson, writeJson,
   type Counts, type Paths, type RunStatus, type StepStatus, type Work,
 } from './status.ts';
 
@@ -36,7 +36,13 @@ export type Deps = {
   committer: Person;
   /** the Git platform of a project, for «Übergeben» - or why there is none */
   gitHost?: (project: Project) => GitHost | string;
+  /** is this run, which says `running`, still at work? Without it: does its process live. The studio
+    * knows the runs it started - one that is not among them was interrupted. */
+  running?: (status: RunStatus) => boolean;
 };
+
+/** `running`, but nobody runs it any more: the studio was stopped - the run waits and can go on (P1). */
+export const interrupted = (d: Pick<Deps, 'running'>, s: RunStatus) => s.state === 'running' && !(d.running ? d.running(s) : alive(s.pid));
 
 export const STEPS = [
   'Projekt', 'Auschecken', 'Branch', 'Merge', 'Kompilieren und testen', 'Release', 'Deploy auf Test', 'Simulationen, Import prüfen',
@@ -136,15 +142,19 @@ export function baseVersion(projectDir: string): string | undefined {
   }
 }
 
-/** The plan of the merge (`--json`): files per action, and those with conflicts. */
-function readPlan(file: string): { summary: Record<string, number>; conflicts: string[] } | undefined {
+export type Plan = { summary: Record<string, number>; conflicts: string[]; files: { path: string; action: string }[] };
+
+/** The plan of the merge (`--json`): files per action, those with conflicts, and what changes. */
+function readPlan(file: string): Plan | undefined {
   const plan = readJson<{ summary?: unknown; files?: unknown }>(file);
   if (!plan) return undefined;
   const summary = plan.summary && typeof plan.summary === 'object'
     ? Object.fromEntries(Object.entries(plan.summary).filter((e): e is [string, number] => typeof e[1] === 'number'))
     : {};
-  const files = Array.isArray(plan.files) ? (plan.files as { path?: unknown; action?: unknown }[]) : [];
-  return { summary, conflicts: files.filter((f) => f?.action === 'conflict' && typeof f.path === 'string').map((f) => f.path as string) };
+  const files = (Array.isArray(plan.files) ? (plan.files as { path?: unknown; action?: unknown }[]) : [])
+    .filter((f): f is { path: string; action: string } => typeof f?.path === 'string' && typeof f.action === 'string')
+    .map((f) => ({ path: f.path, action: f.action }));
+  return { summary, conflicts: files.filter((f) => f.action === 'conflict').map((f) => f.path), files: files.filter((f) => f.action !== 'unchanged') };
 }
 
 /** The tree as Git has it - what a step left behind (the version of a release) is gone. */
@@ -346,7 +356,7 @@ export async function startTest(
   const p = pathsOf(d.workspace, project);
   const last = readJson<RunStatus>(p.status);
   if (last && open(last))
-    return `Das Projekt «${project.name}» hat den Lauf ${last.runId} offen (${interrupted(last) ? 'unterbrochen' : last.state === 'waiting' ? 'wartet' : 'läuft'}) – zuerst fortsetzen oder abbrechen.`;
+    return `Das Projekt «${project.name}» hat den Lauf ${last.runId} offen (${interrupted(d, last) ? 'unterbrochen' : last.state === 'waiting' ? 'wartet' : 'läuft'}) – zuerst fortsetzen oder abbrechen.`;
   const openWork = readJson<Work>(p.work);
   const work = o.work ?? openWork?.work;
   if (!work) return 'Der erste Lauf einer Arbeit braucht ihren Namen.';
@@ -377,7 +387,7 @@ export async function startTest(
 export async function continueRun(d: Deps, project: Project): Promise<RunStatus | string> {
   const status = readJson<RunStatus>(pathsOf(d.workspace, project).status);
   if (!status || !open(status)) return `Das Projekt «${project.name}» hat keinen Lauf, der wartet.`;
-  if (status.state === 'running' && !interrupted(status)) return `Der Lauf ${status.runId} läuft noch.`;
+  if (status.state === 'running' && !interrupted(d, status)) return `Der Lauf ${status.runId} läuft noch.`;
   // interrupted: the step it was in runs again - every step can
   const from = status.resumeAt ?? (status.step ? status.step.index - 1 : 0);
   d.log.info(`${project.name} ${status.runId} - goes on at step ${from + 1}`);
@@ -394,7 +404,7 @@ export function cancelRun(d: Deps, project: Project): RunStatus | string {
   const p = pathsOf(d.workspace, project);
   const status = readJson<RunStatus>(p.status);
   if (!status || !open(status)) return `Das Projekt «${project.name}» hat keinen Lauf, der wartet.`;
-  if (status.state === 'running' && !interrupted(status)) return `Der Lauf ${status.runId} läuft noch.`;
+  if (status.state === 'running' && !interrupted(d, status)) return `Der Lauf ${status.runId} läuft noch.`;
   const cancelled: RunStatus = {
     ...status, state: 'error', waitingFor: null, resumeAt: null, step: null,
     error: { step: status.error?.step ?? status.step?.name ?? '', message: 'Abgebrochen.', log: status.error?.log ?? '', conflicts: status.error?.conflicts ?? [] },
@@ -407,9 +417,94 @@ export function cancelRun(d: Deps, project: Project): RunStatus | string {
 /** The status of the project: its last run, with one that was interrupted shown as waiting. */
 export function runStatus(d: Deps, project: Project): RunStatus | undefined {
   const status = readJson<RunStatus>(pathsOf(d.workspace, project).status);
-  return status && interrupted(status)
+  return status && interrupted(d, status)
     ? { ...status, state: 'waiting', waitingFor: 'developer', resumeAt: status.step ? status.step.index - 1 : 0 }
     : status;
+}
+
+/** A file of a spec as orch-spec sends it - text, or base64 for what is none. */
+export type SpecFile = { path: string; text?: string; base64?: string };
+
+/** Writes the files of a spec into `dir` - or the path that is not one inside it. */
+export function writeSpec(dir: string, files: SpecFile[]): string | undefined {
+  const bad = files.find((f) =>
+    typeof f?.path !== 'string' || !f.path || f.path.startsWith('/') || f.path.includes('\\') || f.path.split('/').some((part) => part === '..' || part === '')
+    || (typeof f.text !== 'string' && typeof f.base64 !== 'string'));
+  if (bad) return `Die Datei «${String(bad?.path)}» der Spez hat keinen Pfad im Ordner oder keinen Inhalt.`;
+  files.forEach((f) => {
+    const file = join(dir, ...f.path.split('/'));
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, typeof f.text === 'string' ? f.text : Buffer.from(f.base64!, 'base64'));
+  });
+  return undefined;
+}
+
+/** The files of the folder `dir`, as orch-spec reads them back. */
+export function readSpec(dir: string): SpecFile[] {
+  const walk = (d: string): string[] =>
+    !existsSync(d) ? [] : readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : e.isFile() ? [join(d, e.name)] : []));
+  return walk(dir).sort().map((file) => {
+    const bytes = readFileSync(file);
+    const path = relative(dir, file).split(sep).join('/');
+    try {
+      return { path, text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+    } catch {
+      return { path, base64: bytes.toString('base64') };
+    }
+  });
+}
+
+/** What «Auf Testumgebung» shows before it starts (P12): the plan of the merge - nothing is built or
+  * written to the branch - and the spec as it is on the branch, for the comparison in orch-spec. */
+export type Preview = {
+  previewId: string;
+  /** the open work - none: the run that follows is the first of a new one and names it */
+  work: string | null;
+  plan: Plan | null;
+  before: SpecFile[];
+};
+
+/** The preview of a run with the spec `files`: it is kept, and the run starts with it (specDirOf). */
+export async function previewTest(d: Deps, project: Project, files: SpecFile[]): Promise<Preview | string> {
+  const p = pathsOf(d.workspace, project);
+  const last = readJson<RunStatus>(p.status);
+  if (last && open(last)) return `Das Projekt «${project.name}» hat den Lauf ${last.runId} offen – die Spez ist gesperrt.`;
+  const work = readJson<Work>(p.work) ?? null;
+  const previewId = `p${runIdOf(d.now(), () => true)}`;
+  // one RE per project (PoC): the last preview only
+  rmSync(p.previews, { recursive: true, force: true });
+  const dir = join(p.previews, previewId);
+  mkdirSync(join(dir, 'spec'), { recursive: true });
+  const wrong = writeSpec(join(dir, 'spec'), files);
+  if (wrong) return wrong;
+  const blank: RunStatus = {
+    runId: previewId, kind: 'test', project: project.name, state: 'running', startedBy: d.committer.email, step: null, steps: [],
+    workBranch: work?.branch ?? '', version: null, testUrl: null, pullRequest: null, tests: null, simulations: null, merge: null,
+    waitingFor: null, error: null, work: work?.work ?? '', summary: '', author: null, resumeAt: null, pid: process.pid,
+  };
+  const c: Ctx = { d, project, p, status: blank, runDir: dir, logFile: join(dir, 'preview.log') };
+  try {
+    await projectStep(c);
+    await checkoutStep(c);
+    // the code the spec is merged into: the work branch, or develop before the first run of a work
+    const remote = work && (await d.exec('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${work.branch}`], { cwd: p.repo, timeoutMs: GIT_TIMEOUT_MS })).code === 0;
+    await git(c, p.tree, ['checkout', '--detach', `origin/${remote ? work.branch : project.develop}`]);
+    const before = readSpec(join(p.projectDir, 'spec'));
+    const r = await command(c, project.commands.check);
+    if (r.code !== 0) throw new StepFailed(ended('Die Vorschau des Merge', r, c), { log: r.output });
+    await clean(c);
+    return { previewId, work: work?.work ?? null, plan: readPlan(commandEnv(c).ORCH_PLAN_FILE) ?? null, before };
+  } catch (e) {
+    const failed = e instanceof StepFailed ? e : new StepFailed(`Unerwarteter Fehler: ${e instanceof Error ? e.message : String(e)}`);
+    d.log.warn(`${project.name} ${previewId} - the preview failed: ${failed.message}`);
+    return [failed.message, tail(failed.log, 20)].filter(Boolean).join('\n');
+  }
+}
+
+/** The folder of the spec of a preview - undefined if it is gone (a newer preview replaced it). */
+export function specDirOf(d: Deps, project: Project, previewId: string): string | undefined {
+  const dir = join(pathsOf(d.workspace, project).previews, previewId, 'spec');
+  return /^p[0-9-]+$/.test(previewId) && existsSync(dir) ? dir : undefined;
 }
 
 const counts = (what: string, c: Counts | null) => (c ? `, ${c.passed} ${what} ok${c.failed ? `, ${c.failed} fehlgeschlagen` : ''}` : '');

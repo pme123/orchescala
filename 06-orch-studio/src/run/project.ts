@@ -6,6 +6,8 @@ import { readFileSync } from 'node:fs';
 /** The commands of the steps - run with `sh -c` in the folder of the project, with `ORCH_*` in the
   * environment (see commandEnv in testRun.ts). */
 export type StepCommands = {
+  /** the plan of the merge of the spec `$ORCH_SPEC_DIR`, written to `$ORCH_PLAN_FILE` - it changes nothing (the preview) */
+  check: string;
   /** merges the spec `$ORCH_SPEC_DIR` into the code and writes its plan to `$ORCH_PLAN_FILE` */
   merge: string;
   test: string;
@@ -40,6 +42,7 @@ export type Project = {
 /** The steps of a project of Orchescala - only `deploy` is the company's. `sbt test` would run the
   * simulations too, against a worker on the host. */
 export const DEFAULT_COMMANDS: Omit<StepCommands, 'deploy'> = {
+  check: './helper.scala processFromSpec --check --from "$ORCH_SPEC_DIR" --json "$ORCH_PLAN_FILE"',
   merge: './helper.scala processFromSpec --merge --from "$ORCH_SPEC_DIR" --markers --yes --json "$ORCH_PLAN_FILE"',
   test: 'sbt --server -batch "compile; worker/test"',
   release: './helper.scala publish "$ORCH_VERSION"',
@@ -82,6 +85,7 @@ export function parseProject(v: unknown): Project | string {
     ...(testUrl ? { testUrl } : {}),
     timeoutMinutes: timeout,
     commands: {
+      check: text(commands.check) ?? DEFAULT_COMMANDS.check,
       merge: text(commands.merge) ?? DEFAULT_COMMANDS.merge,
       test: text(commands.test) ?? DEFAULT_COMMANDS.test,
       release: text(commands.release) ?? DEFAULT_COMMANDS.release,

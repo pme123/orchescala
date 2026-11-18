@@ -5,6 +5,7 @@ import { PROVIDER } from './ai.ts';
 import { studioApp } from './app.ts';
 import { configFromEnv, describeAi, type StudioConfig } from './config.ts';
 import { consoleLog as log } from './log.ts';
+import { platformFromEnv } from './run/setup.ts';
 import { appsSource, folderHints, folderSource, siteOf } from './site.ts';
 import { BUILT_IN_SKILLS, loadSkills, skillLabel } from './skills.ts';
 
@@ -19,6 +20,8 @@ const apps = appsSource(config.appsDir);
 const skills = config.ai ? loadSkills(PROVIDER, [...(config.skillsDir ? [config.skillsDir] : []), BUILT_IN_SKILLS]) : [];
 if (typeof skills === 'string') stop('a skill of the AI', skills);
 
+const platform = (() => { try { return platformFromEnv(process.env, process.cwd(), log); } catch (e) { return stop('the projects', e); } })();
+
 const site = siteOf([
   folderHints([{ app: 'spec', dir: config.specDir }, { app: 'ops', dir: config.opsDir }]),
   apps,
@@ -26,7 +29,7 @@ const site = siteOf([
 ]);
 const url = `http://${config.host}:${config.port}`;
 
-const server = serve({ fetch: studioApp({ site, ai: config.ai, skills, log }).fetch, port: config.port, hostname: config.host }, () => {
+const server = serve({ fetch: studioApp({ site, ai: config.ai, skills, log, platform }).fetch, port: config.port, hostname: config.host }, () => {
   log.info(`Orch Studio on ${url}`);
   if (!apps) log.warn(`no orch-doc, orch-spec, orch-ops in ${config.appsDir} (STUDIO_APPS_DIR)`);
   log.info(`Documentation: ${config.siteDir ?? 'none (STUDIO_SITE_DIR)'}`);
@@ -36,6 +39,9 @@ const server = serve({ fetch: studioApp({ site, ai: config.ai, skills, log }).fe
   log.info(config.ai
     ? `AI: on - ${describeAi(config.ai)}, skills: ${skills.length ? skills.map(skillLabel).join(', ') : 'none - orch-spec shows no AI'}`
     : 'AI: off - without STUDIO_AI_ANTHROPIC_API_KEY orch-spec shows no AI');
+  log.info(platform
+    ? `Runs: on - ${platform.projects.map((p) => p.name).join(', ') || 'no project'}; workspace ${platform.deps.workspace}`
+    : 'Runs: off - without STUDIO_PROJECTS orch-spec shows no buttons');
 });
 // a port that is taken (or not allowed) - one line, as a wrong setting
 server.on('error', (e) => stop(`the port ${config.port}`, e));

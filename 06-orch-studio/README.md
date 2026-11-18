@@ -13,6 +13,7 @@ the folders of orch-spec and orch-ops, its skills and the key of the AI. It buil
 | `/`, `/spec`, `/ops` | redirect there | – |
 | `GET /ai/config` | is the AI on - `{enabled, provider, model, tasks, skills}`, never the key; orch-spec shows the AI of a task only if it is in `tasks` | `STUDIO_AI_*`, the skills |
 | `POST /ai/<task>/turn` | a whole turn of the agent on the studio, for `uiCreator`, `processCreator` and `serviceOrchestrator`: orch-spec sends the request of the RE, the draft and the context of the tools; the studio runs the loop of orch-spec's core with the tools of the task and the `limits` of the skill; each request goes to the Claude API with the skill applied and the studio's key and workspace. A task without a skill is refused (403), a tool that is not in the skill too (400). The answer: one JSON per line (`application/x-ndjson`) - the events as they come, then the result | `STUDIO_AI_*`, the skills, orch-spec's core |
+| `/platform/…` | the runs behind the buttons of orch-spec (see [below](#auf-testumgebung---the-runs-srcrun)): `GET /platform/config` (the projects - orch-spec shows its buttons only for one of them), `GET /platform/<project>/status`, `POST …/preview` (the spec of orch-spec; answers with the plan of the merge and the spec on the branch), `POST …/test`, `…/continue`, `…/cancel`, `…/hand-over`. What is refused answers `{"error": <text for the RE>}` | `STUDIO_PROJECTS`, `STUDIO_WORKSPACE`, `STUDIO_GIT_*` |
 
 **Skills:** a task of the AI (`uiCreator`, `processCreator`, `serviceOrchestrator`, `serviceRegistration`, `serviceCreator`)
 is offered only with a skill for it and its provider: `<skills>/<task>/<provider>/SKILL.md` - its
@@ -55,10 +56,13 @@ Later: the AI per person (`usd_per_person_day`) and the buttons of orch-spec.
 
 The run that brings a spec of orch-spec to the test environment (E25, P1 of the
 [plan](https://github.com/z9nai/orch-platform/blob/develop/docs/export-pipeline.md)) - a library with a
-command line, without an engine; the routes of the studio and the buttons of orch-spec come next.
+command line, without an engine. The studio offers it under `/platform/…`: a run goes on in the
+background, orch-spec asks for its status; a run the studio does not know any more (it was restarted)
+shows as waiting and can go on.
 
 | Step | What | The command |
 |---|---|---|
+| Preview | before a run (P12): the plan of the merge - what would be created, merged, in conflict - and the spec as it is on the branch; nothing is built or written to the branch | `commands.check`: `./helper.scala processFromSpec --check --from "$ORCH_SPEC_DIR" --json "$ORCH_PLAN_FILE"` |
 | 1 Projekt | the spec of the run is one | – |
 | 2 Auschecken | a clone of the repo in the workspace of the studio (never the checkout of a developer), fetched; a worktree for the project | git |
 | 3 Branch | the first run of a work creates `orch-spec/<project>/<work>` from develop and pushes it, every later one goes on with it; develop is merged in | git |
@@ -108,7 +112,7 @@ Exit 0: ok, 2: the run waits, 1: it did not start. It needs `git` and what the c
 
 | Setting | Default | |
 |---|---|---|
-| `STUDIO_PROJECTS` | – | the projects of the company (or `--projects <file>`) |
+| `STUDIO_PROJECTS` | – (the runs are off) | the projects of the company (or `--projects <file>`) - the switch of the buttons in orch-spec; a file that is wrong ends the start |
 | `STUDIO_WORKSPACE` | `~/.orch-platform/workspaces` | the clones, worktrees and runs: `<repo>/repo`, `<repo>/work/<project>`, `<repo>/runs/<project>/status.json`, `…/<runId>/<step>.log` |
 | `STUDIO_GIT_NAME`, `STUDIO_GIT_EMAIL` | `Orch Studio`, `orch-studio@localhost` | who commits for the studio |
 | `STUDIO_GIT_TOKEN` | – | the token of the Git platform for «Übergeben» - pull requests of this repo only; never in orch-spec, never logged |

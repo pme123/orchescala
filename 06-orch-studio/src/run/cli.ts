@@ -9,13 +9,10 @@
 // The projects from `--projects <file>` or `STUDIO_PROJECTS`; the clones and runs in `STUDIO_WORKSPACE`
 // (default `~/.orch-platform/workspaces`); the token of the Git platform in `STUDIO_GIT_TOKEN`.
 // Exit: 0 ok, 2 the run waits, 1 it did not start (or was cancelled).
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { consoleLog } from '../log.ts';
-import { exec } from './exec.ts';
-import { gitHub } from './gitHost.ts';
-import { loadProjects, type Project } from './project.ts';
+import { loadProjects } from './project.ts';
+import { depsFromEnv } from './setup.ts';
 import type { RunStatus } from './status.ts';
 import { cancelRun, continueRun, handOver, runStatus, startTest, type Deps, type Person } from './testRun.ts';
 
@@ -25,22 +22,6 @@ type Env = Record<string, string | undefined>;
 export function personOf(text: string | undefined): Person | undefined {
   const m = /^\s*(.+?)\s*<([^<>\s]+@[^<>\s]+)>\s*$/.exec(text ?? '');
   return m ? { name: m[1], email: m[2] } : undefined;
-}
-
-export function depsFromEnv(env: Env = process.env): Deps {
-  const get = (name: string) => env[name]?.trim() || undefined;
-  return {
-    exec,
-    workspace: resolve(get('STUDIO_WORKSPACE') ?? join(homedir(), '.orch-platform', 'workspaces')),
-    now: () => new Date(),
-    log: consoleLog,
-    committer: { name: get('STUDIO_GIT_NAME') ?? 'Orch Studio', email: get('STUDIO_GIT_EMAIL') ?? 'orch-studio@localhost' },
-    gitHost: (project: Project) => {
-      if (!project.gitHost) return `Für das Projekt «${project.name}» ist keine Git-Plattform eingestellt (gitHost).`;
-      const token = get('STUDIO_GIT_TOKEN');
-      return token ? gitHub({ ...project.gitHost, token }) : 'Das Studio hat kein Token für die Git-Plattform (STUDIO_GIT_TOKEN).';
-    },
-  };
 }
 
 /** One line per step, then what the run ended with. */
