@@ -247,6 +247,9 @@ class SpecMergeTest extends FunSuite:
     reads("s\"${Inner} Stale\"", "Inner", "Stale")
     reads("/* a /* b */ Stale */ Used4", "Used4", "Stale")
     reads("\"\"\"a \"Stale\" b\"\"\"\" Used5", "Used5", "Stale")
+    // `$name` is code, `$$` a dollar; an escaped char (`'\u0041'`) before a quote char
+    reads("s\"$Named Stale $$x\"", "Named", "Stale")
+    reads("val c = '\\u0041'; val d = '\"'; Used7 // Stale", "Used7", "Stale")
     assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorker.scala"))
     assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorkerTest.scala"))
     assert(!SpecMerge.isWorkerCode(os.rel / "bpmn" / "order.bpmn"))
@@ -470,6 +473,11 @@ class SpecMergeTest extends FunSuite:
       // a worker that exists stays without a base
       assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
 
+  private def questionOf(plan: MergePlan): String =
+    var q = ""
+    MergeReport.askReplace(plan, x => { q = x; None })
+    q
+
   test("a worker created once that differs from Orch Spec: said and kept - overwritten only when asked"):
     inProject: project =>
       run(project, Seq.empty, Seq(order))
@@ -479,6 +487,12 @@ class SpecMergeTest extends FunSuite:
       // as Orch Spec gives it: nothing to ask
       assertEquals(SpecMerge.plan(project, Seq.empty, Seq(order)).replaceable, Seq.empty)
       editFile(project, "OrderWorker.scala")(_ + "\n// my change\n")
+      // its test too - the same question
+      val tests  = os.walk(project).filter(_.last.endsWith("WorkerTest.scala"))
+      tests.foreach(t => os.write.over(t, os.read(t) + "\n// my test\n"))
+      val plan0  = SpecMerge.plan(project, Seq.empty, Seq(order))
+      assertEquals(plan0.replaceable.map(_.path).toSet, (worker +: tests).map(_.relativeTo(project).toString).toSet)
+      tests.foreach(t => os.write.over(t, os.read(t).replace("\n// my test\n", "")))
       val plan   = SpecMerge.plan(project, Seq.empty, Seq(order))
       assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
       assertEquals(plan.replaceable.map(_.path), Seq(rel))
@@ -499,6 +513,7 @@ class SpecMergeTest extends FunSuite:
         (_ => { n += 1; Option.when(left.hasNext)(left.next()) }, () => n)
       // N keeps it; e asks each on its own - also of one file
       assertEquals(MergeReport.askReplace(again, _ => Some("N")), Set.empty[String])
+      assert(questionOf(again).contains("e = show it once more"))
       val (one, oneAsked) = answering("e", "y")
       assertEquals(MergeReport.askReplace(again, one), Set(rel))
       assertEquals(oneAsked(), 2)

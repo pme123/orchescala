@@ -127,9 +127,9 @@ object MergeReport:
     else
       val several = files.size > 1
       val listed  = files.map(f => s"  ${f.path}").mkString("\n")
-      val answer  = ask(s"\nCreated once, differs from Orch Spec now:\n$listed\nOverwrite ${if several then "them" else "it"} with Orch Spec's version (your changes there are lost)? ${if several then "[y = all / e = each / N = none]" else "[y/N]"} ")
+      val answer  = ask(s"\nCreated once, differs from Orch Spec now:\n$listed\nOverwrite ${if several then "them" else "it"} with Orch Spec's version (your changes there are lost)? ${if several then "[y = all / e = each / N = none]" else "[y = yes / e = show it once more / N = no]"} ")
       if isYes(answer) then files.map(_.path).toSet
-      // each on its own - also of one file, where `e` is no option shown
+      // each on its own - of one file its question once more
       else if answer.exists(_.trim.toLowerCase == "e") then
         files.collect { case f if isYes(ask(s"Overwrite ${f.path}? [y/N] ")) => f.path }.toSet
       else Set.empty

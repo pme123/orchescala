@@ -50,7 +50,7 @@ object SpecMerge:
     rel.last.matches("""[A-Z]\w*Worker(Test)?\.scala""")
 
   /** Scala without its comments and texts - what the code uses, not what it mentions. One pass, as
-    * the compiler reads it: a text (`"…"`, `"""…"""`, also interpolated - its `${…}` is code) or a char
+    * the compiler reads it: a text (`"…"`, `"""…"""`, also interpolated - its `$name` and `${…}` are code) or a char
     * (`'"'`) is read before a comment could start in it; block comments nest. A text becomes `""`.
     * So a name only in a text (reflection, `classOf` by name, a macro) counts as not used - the
     * developer is asked before anything goes.
@@ -59,6 +59,13 @@ object SpecMerge:
     val out = new StringBuilder
     val n   = code.length
     def at(i: Int, s: String) = code.startsWith(s, i)
+    // the end of a char literal from its quote at i (after it) - 0: no char (a symbol, an apostrophe)
+    def charEnd(from: Int): Int =
+      if from + 2 < n && code(from + 1) != '\\' && code(from + 2) == '\'' then from + 3
+      else if from + 3 < n && code(from + 1) == '\\' then
+        val close = code.indexOf('\'', from + 3)
+        if close > 0 && close - from <= 7 then close + 1 else 0
+      else 0
     // the end of a block comment from `/*` at i - nested ones included
     def blockEnd(from: Int): Int =
       var depth = 0
@@ -84,6 +91,13 @@ object SpecMerge:
         else if !triple && code(i) == '"' then return i + 1
         else if !triple && code(i) == '\n' then return i
         else if !triple && code(i) == '\\' then i += 2
+        else if interpolated && at(i, "$$") then i += 2
+        else if interpolated && code(i) == '$' && i + 1 < n && (code(i + 1).isLetter || code(i + 1) == '_') then
+          // `$name`: the name is code
+          var j = i + 1
+          while j < n && (code(j).isLetterOrDigit || code(j) == '_') do j += 1
+          out ++= " " ++= code.substring(i + 1, j) ++= " "
+          i = j
         else if interpolated && at(i, "${") then
           // its code to the brace that closes it - a text in it skipped, so a brace there does not count
           var depth = 1
@@ -116,10 +130,10 @@ object SpecMerge:
         // `s"…"`, `f"…"`: the letters before it are already out - an interpolator right before the quote
         val interpolated = i > 0 && (code(i - 1).isLetter || code(i - 1) == '_')
         i = text(i, interpolated)
-      else if c == '\'' && i + 2 < n && (code(i + 2) == '\'' || (code(i + 1) == '\\' && i + 3 < n && code(i + 3) == '\'')) then
-        // a char: `'"'`, `'\''`
+      else if c == '\'' && charEnd(i) > 0 then
+        // a char: `'"'`, `'\''`, `'\u0041'`
         out ++= "' '"
-        i += (if code(i + 1) == '\\' then 4 else 3)
+        i = charEnd(i)
       else
         out += c
         i += 1
@@ -504,9 +518,11 @@ object SpecMerge:
         // as code: a mention in a comment or a text (a topic) is no use
         val inFolder = (others.flatMap((rel, code) => code.map(rel -> _)) ++
           generated.filter(_.rel / os.up == dir).map(f => f.rel -> f.content)).map((rel, code) => rel -> codeOnly(code))
+        // per name its pattern once
+        val words = scala.collection.mutable.Map.empty[String, scala.util.matching.Regex]
         def used(rel: os.RelPath, names: Seq[String]): Boolean =
           names.exists: n =>
-            val word = s"\\b${java.util.regex.Pattern.quote(n)}\\b".r
+            val word = words.getOrElseUpdate(n, s"\\b${java.util.regex.Pattern.quote(n)}\\b".r)
             inFolder.exists((other, code) => other != rel && word.findFirstIn(code).isDefined)
         others.flatMap: (rel, read) =>
           read.flatMap: code =>
