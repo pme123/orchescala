@@ -209,6 +209,11 @@ test('a command that takes too long is stopped with what it started; one that is
     assert.deepEqual([slow.timedOut, slow.output], [true, 'begun\n']);
     assert.ok(Date.now() - start < 5000);
     assert.equal(readFileSync(join(dir, 'a.log'), 'utf8'), 'begun\n');
+    // something it leaves in the background holds its output open - the command ends without waiting for it,
+    // also when its time is up
+    const begun = Date.now();
+    const left = await exec('sh', ['-c', 'sleep 4 & echo left'], { cwd: dir });
+    assert.deepEqual([left.code, left.output, Date.now() - begun < 3000], [0, 'left\n', true]);
     const missing = await exec('no-such-command-of-orch', [], { cwd: dir });
     assert.equal(missing.code, 127);
     assert.match(missing.output, /no-such-command-of-orch/);
@@ -265,6 +270,9 @@ test('the projects of the company - the defaults of an Orchescala project, what 
   assert.match(String(parseProject({ ...base, name: 'My App' })), /«My App» is not lower case/);
   assert.match(String(parseProject({ ...base, repo: ' ' })), /«app» has no repo/);
   assert.match(String(parseProject({ ...base, path: '../other' })), /leaves the repo/);
+  assert.match(String(parseProject({ ...base, repo: 'https://pascal:ghp_secret@github.com/a/b.git' })), /^the repo of the project «app» has a password or token in its URL/);
+  assert.equal(typeof parseProject({ ...base, repo: 'https://github.com/a/b.git' }), 'object');
+  assert.equal(typeof parseProject({ ...base, repo: 'git@github.com:a/b.git' }), 'object');
   assert.match(String(parseProject({ ...base, commands: {} })), /no command «deploy»/);
   assert.match(String(parseProject({ ...base, gitHost: { kind: 'gitlab', repo: 'a/b' } })), /gitHost of the project «app»/);
   assert.match(String(parseProject({ ...base, timeoutMinutes: 0 })), /timeoutMinutes/);

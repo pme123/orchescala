@@ -10,6 +10,8 @@ export type GitHost = {
 };
 
 export const GITHUB_API = 'https://api.github.com';
+/** The most a call of the Git platform may take. */
+export const HOST_TIMEOUT_MS = 30_000;
 
 type Json = Record<string, unknown>;
 
@@ -27,6 +29,7 @@ export function gitHub(o: { repo: string; token: string; api?: string; fetchFn?:
         ...(body ? { 'content-type': 'application/json' } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(HOST_TIMEOUT_MS),
     });
     const json = (await r.json().catch(() => undefined)) as unknown;
     if (!r.ok) {

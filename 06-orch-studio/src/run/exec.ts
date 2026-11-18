@@ -18,6 +18,9 @@ export type Exec = (cmd: string, args: string[], o: ExecOptions) => Promise<Exec
 
 /** The output kept in the result - the end of it; the log file has all. */
 export const MAX_OUTPUT = 1024 * 1024;
+/** How long the output of a command that has ended is still read: something it started in the background
+  * (a server of sbt) may hold its output open for good - the command does not wait for that. */
+export const GRACE_MS = 1000;
 
 /** The environment of a command: the studio's, with `env` on top - but none of the studio's own settings
   * (`STUDIO_*`): its token of the Git platform and its key of the AI are not for the commands of a
@@ -47,17 +50,23 @@ export const exec: Exec = (cmd, args, o) =>
       ? setTimeout(() => {
           state.timedOut = true;
           try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* already gone */ }
+          // what left the process group lives on and may hold the output - the command ends anyway
+          setTimeout(() => end(137), GRACE_MS);
         }, o.timeoutMs)
       : undefined;
     const end = (code: number, extra = '') => {
       if (state.ended) return;
       state.ended = true;
       clearTimeout(timer);
+      child.stdout.destroy();
+      child.stderr.destroy();
       log?.end(extra);
       done({ code, output: (Buffer.concat(chunks).toString('utf8') + extra).slice(-MAX_OUTPUT), timedOut: state.timedOut });
     };
     child.on('error', (e) => end(127, `${cmd}: ${e.message}\n`));
     child.on('close', (code) => end(code ?? 1));
+    // ended, but its output is still open: the rest of it for a moment, then the result
+    child.on('exit', (code) => setTimeout(() => end(code ?? 1), GRACE_MS));
   });
 
 /** The last `n` lines - what the status shows of a log. */

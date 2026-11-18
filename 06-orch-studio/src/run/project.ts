@@ -62,6 +62,8 @@ export function parseProject(v: unknown): Project | string {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return `the name of the project «${name}» is not lower case with digits and «-»`;
   const repo = text(v.repo);
   if (!repo) return `the project «${name}» has no repo`;
+  // the URL is in the logs of the runs and in their status - a token in it would be too
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/i.test(repo)) return `the repo of the project «${name}» has a password or token in its URL - use SSH or a credential helper of git`;
   const path = (text(v.path) ?? '').replace(/^\/+|\/+$/g, '');
   if (path.split('/').includes('..')) return `the path of the project «${name}» leaves the repo: «${path}»`;
   const commands = isObject(v.commands) ? v.commands : {};
