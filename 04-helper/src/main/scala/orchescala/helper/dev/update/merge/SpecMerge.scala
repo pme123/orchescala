@@ -167,8 +167,9 @@ object SpecMerge:
     * it stops there - `MergeIncomplete` tells what was done before.
     * @param remove the files whose removal applies - what only the code has goes there (the
     *               developer said so, `MergeReport.askRemoval`); elsewhere it stays
+    * @param replace the files created once that Orch Spec's version replaces (`MergeReport.askReplace`)
     */
-  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Set[String] = Set.empty): MergeResult =
+  def merge(project: os.Path, plan: MergePlan, onConflict: OnConflict, remove: Set[String] = Set.empty, replace: Set[String] = Set.empty): MergeResult =
     val changed = plan.files.filter(f => hashOf(project / os.RelPath(f.path)) != f.codeHash).map(_.path)
     if changed.nonEmpty then throw MergeAborted(changed)
     val written = Seq.newBuilder[String]
@@ -197,7 +198,8 @@ object SpecMerge:
       written += f.path
     val removed   = Seq.newBuilder[String]
     val removedIn = Seq.newBuilder[String]
-    def result    = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result(), removedIn.result())
+    val replaced  = Seq.newBuilder[String]
+    def result    = MergeResult(written.result(), deleted.result(), plan.withAction(Action.conflict), removed.result(), removedIn.result(), replaced.result())
     def planned(f: PlannedFile): Unit = f.action match
       case Action.create | Action.update | Action.merged       => write(f)
       case Action.delete                                       =>
@@ -222,7 +224,13 @@ object SpecMerge:
             write(f.copy(content = Some(content), binary = false))
             removed ++= names
             removedIn += f.path
-          case None                                => planned(f)
+          case None                                =>
+            f.replacement.filter(_ => replace(f.path) && f.action == Action.unchanged) match
+              // a file created once - the developer said Orch Spec's version replaces it
+              case Some(content) =>
+                write(f.copy(content = Some(content), binary = false))
+                replaced += f.path
+              case None          => planned(f)
       catch case NonFatal(e) => throw MergeIncomplete(result, f.path, e)
     result
   end merge
@@ -245,9 +253,10 @@ object SpecMerge:
         content: Option[String] = None,
         conflicts: Seq[Conflict] = Seq.empty,
         note: Option[String] = None,
-        removal: Option[Removal] = None
+        removal: Option[Removal] = None,
+        replacement: Option[String] = None
     ) =
-      Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note, removal = removal))
+      Some(PlannedFile(rel.toString, Owner.generated, action, hash, content, conflicts, note, removal = removal, replacement = replacement))
     // a Scala file of the export: by structure into the code - the code is the basis
     // code it does not read (tabs, braces) or a result whose brackets do not close: as text, like
     // git - what differs is a conflict, nothing of the code is lost unseen
@@ -304,7 +313,9 @@ object SpecMerge:
         else
           n.kind match
             case FileKind.Simulation    => file(Action.update, Some(n.content))
-            case FileKind.Scaffold      => file(Action.unchanged, note = Some("exists - created once, it stays"))
+            // it stays - the developer is asked whether Orch Spec's version replaces it
+            case FileKind.Scaffold      =>
+              file(Action.unchanged, note = Some("exists, differs from Orch Spec - created once, it stays unless you say so"), replacement = Some(n.content))
             case FileKind.ProcessObject => processObject(n, c)
             case FileKind.Export        => threeWay("", c, n.content)
       case (Some(b), Some(n), Some(c))  =>

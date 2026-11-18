@@ -40,6 +40,8 @@ case class Removal(names: Seq[String], content: Option[String])
   *                 the content with conflict markers (`OnConflict.Markers`)
   * @param note     why - e.g. «removed in orch-spec, changed in the code»
   * @param removal  what only the code has - removed only when asked (`SpecMerge.merge` with `remove`)
+  * @param replacement a file created once (a worker, its test) that differs from what Orch Spec
+  *                 gives now: the export's version - written only when asked (`SpecMerge.merge` with `replace`)
   */
 case class PlannedFile(
     path: String,
@@ -51,7 +53,8 @@ case class PlannedFile(
     note: Option[String] = None,
     // `content` is base64 - a file of the spec that is no text (a logo of a theme)
     binary: Boolean = false,
-    removal: Option[Removal] = None
+    removal: Option[Removal] = None,
+    replacement: Option[String] = None
 )
 
 /** What `merge` will do - decided by `checkMerge`, executed as it is (nothing is recomputed).
@@ -69,6 +72,9 @@ case class MergePlan(project: String, files: Seq[PlannedFile], notes: Seq[String
 
   /** The files with what only the code has - the question whether it goes. */
   def removals: Seq[PlannedFile] = files.filter(_.removal.nonEmpty)
+
+  /** The files created once that differ from the export - the question whether it overwrites them. */
+  def replaceable: Seq[PlannedFile] = files.filter(_.replacement.nonEmpty)
 
   /** Something to write or delete - with `KeepCode` the conflicts stay as they are. */
   def hasChanges: Boolean = files.exists(f => !Seq(Action.unchanged, Action.conflict).contains(f.action))
@@ -108,6 +114,7 @@ object MergePlan:
         f.note.map("note" -> _.asJson) ++
         Option.when(f.binary)("encoding" -> "base64".asJson) ++
         f.removal.map("removal" -> _.asJson) ++
+        f.replacement.map("replacement" -> _.asJson) ++
         f.content.map("content" -> _.asJson)*
     )
   given Decoder[PlannedFile] = c =>
@@ -121,7 +128,8 @@ object MergePlan:
       note      <- c.get[Option[String]]("note")
       encoding  <- c.get[Option[String]]("encoding")
       removal   <- c.get[Option[Removal]]("removal")
-    yield PlannedFile(path, owner, action, codeHash, content, conflicts.getOrElse(Seq.empty), note, encoding.contains("base64"), removal)
+      replace   <- c.get[Option[String]]("replacement")
+    yield PlannedFile(path, owner, action, codeHash, content, conflicts.getOrElse(Seq.empty), note, encoding.contains("base64"), removal, replace)
 
   given Encoder[MergePlan] = p =>
     Json.obj(
@@ -158,7 +166,8 @@ case class MergeResult(
     deleted: Seq[String],
     conflicts: Seq[PlannedFile],
     removed: Seq[String] = Seq.empty,
-    removedIn: Seq[String] = Seq.empty
+    removedIn: Seq[String] = Seq.empty,
+    replaced: Seq[String] = Seq.empty
 )
 
 /** A file changed between the check and the merge - nothing was written; it needs a new check. */

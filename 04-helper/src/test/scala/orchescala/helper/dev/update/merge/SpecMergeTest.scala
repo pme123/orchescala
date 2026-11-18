@@ -2,7 +2,7 @@ package orchescala.helper.dev.update.merge
 
 import munit.FunSuite
 import orchescala.api.{ApiProjectConfig, ModuleType, VersionConfig}
-import orchescala.helper.dev.update.{ModuleConfig, OrchSpecGenerator, OrchSpecMergeCommand}
+import orchescala.helper.dev.update.{MergeReport, ModuleConfig, OrchSpecGenerator, OrchSpecMergeCommand}
 import orchescala.helper.util.DevConfig
 
 /** The merge from Orch Spec: the export of the spec before (base) and after (new) against the
@@ -446,6 +446,32 @@ class SpecMergeTest extends FunSuite:
       assert(obj.contains("reason: Option[String]") && obj.contains("lazy val own = 1"), obj)
       // a worker that exists stays without a base
       assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
+
+  test("a worker created once that differs from Orch Spec: said and kept - overwritten only when asked"):
+    inProject: project =>
+      run(project, Seq.empty, Seq(order))
+      val worker = file(project, "OrderWorker.scala")
+      val fresh  = os.read(worker)
+      val rel    = worker.relativeTo(project).toString
+      // as Orch Spec gives it: nothing to ask
+      assertEquals(SpecMerge.plan(project, Seq.empty, Seq(order)).replaceable, Seq.empty)
+      editFile(project, "OrderWorker.scala")(_ + "\n// my change\n")
+      val plan   = SpecMerge.plan(project, Seq.empty, Seq(order))
+      assertEquals(actionOf(plan, project, "OrderWorker.scala"), Action.unchanged)
+      assertEquals(plan.replaceable.map(_.path), Seq(rel))
+      assertEquals(plan.replaceable.head.replacement, Some(fresh))
+      assertEquals(MergePlan.fromJson(plan.toJsonString), plan)
+      // not asked to: it stays
+      SpecMerge.merge(project, plan, OnConflict.KeepCode)
+      assert(os.read(worker).contains("// my change"))
+      // the question: y overwrites, no answer keeps it
+      val again  = SpecMerge.plan(project, Seq.empty, Seq(order))
+      assertEquals(MergeReport.askReplace(again, _ => None), Set.empty[String])
+      val replace = MergeReport.askReplace(again, _ => Some("y"))
+      assertEquals(replace, Set(rel))
+      val result = SpecMerge.merge(project, again, OnConflict.KeepCode, replace = replace)
+      assertEquals(result.replaced, Seq(rel))
+      assertEquals(os.read(worker), fresh)
 
   test("processFromSpec orchspec: (one process, no base) - creates, then merges into the code; asks what only the code has"):
     inProject: project =>
