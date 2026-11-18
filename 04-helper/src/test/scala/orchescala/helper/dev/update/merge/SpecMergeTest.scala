@@ -234,6 +234,13 @@ class SpecMergeTest extends FunSuite:
 
   test("what code uses, not what it mentions: comments and texts left out"):
     assertEquals(SpecMerge.codeOnly("val a = Used // Stale\n/* Stale\n */ val b = \"Stale\" + \"\"\"Stale\"\"\""), "val a = Used \n  val b = \"\" + \"\"")
+    // a comment start in a text, a quote as a char, an interpolation with a text in it, nested comments:
+    // read as the compiler does - the code after them stays
+    assertEquals(SpecMerge.codeOnly("val p = \"/files/*\"; Used1 /* c */"), "val p = \"\"; Used1  ")
+    assertEquals(SpecMerge.codeOnly("val q = '\"'; Used2 '\\''"), "val q = ' '; Used2 ' '")
+    assertEquals(SpecMerge.codeOnly("s\"${f(\"x\")} Stale\" + Used3"), "s\"\" f(\"\")  + Used3")
+    assertEquals(SpecMerge.codeOnly("/* a /* b */ Stale */ Used4"), "  Used4")
+    assertEquals(SpecMerge.codeOnly("\"\"\"a \"quoted\" b\"\"\"\" Used5"), "\"\" Used5")
     assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorker.scala"))
     assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorkerTest.scala"))
     assert(!SpecMerge.isWorkerCode(os.rel / "bpmn" / "order.bpmn"))

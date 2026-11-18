@@ -49,13 +49,72 @@ object SpecMerge:
   private[merge] def isWorkerCode(rel: os.RelPath): Boolean =
     rel.last.matches("""[A-Z]\w*Worker(Test)?\.scala""")
 
-  /** Scala without its comments and texts - what the code uses, not what it mentions. */
+  /** Scala without its comments and texts - what the code uses, not what it mentions. One pass, as
+    * the compiler reads it: a text (`"…"`, `"""…"""`, also interpolated - its `${…}` is code) or a char
+    * (`'"'`) is read before a comment could start in it; block comments nest. A text becomes `""`.
+    */
   private[merge] def codeOnly(code: String): String =
-    code
-      .replaceAll("""(?s)/\*.*?\*/""", " ")
-      .replaceAll("""(?s)\"\"\".*?\"\"\"""", "\"\"")
-      .replaceAll(""""(?:[^"\\\n]|\\.)*"""", "\"\"")
-      .replaceAll("""//[^\n]*""", "")
+    val out = new StringBuilder
+    val n   = code.length
+    def at(i: Int, s: String) = code.startsWith(s, i)
+    // the end of a block comment from `/*` at i - nested ones included
+    def blockEnd(from: Int): Int =
+      var depth = 0
+      var i     = from
+      while i < n do
+        if at(i, "/*") then { depth += 1; i += 2 }
+        else if at(i, "*/") then
+          depth -= 1
+          i += 2
+          if depth == 0 then return i
+        else i += 1
+      n
+    // a text from its opening quote at i: the code of its `${…}` kept, the rest dropped
+    def text(from: Int, interpolated: Boolean): Int =
+      val triple = at(from, "\"\"\"")
+      var i      = from + (if triple then 3 else 1)
+      out ++= "\"\""
+      while i < n do
+        if triple && at(i, "\"\"\"") then
+          // a run of more quotes: the last three close it
+          while at(i + 1, "\"\"\"") do i += 1
+          return i + 3
+        else if !triple && code(i) == '"' then return i + 1
+        else if !triple && code(i) == '\n' then return i
+        else if !triple && code(i) == '\\' then i += 2
+        else if interpolated && at(i, "${") then
+          var depth = 1
+          var j     = i + 2
+          val from  = j
+          while j < n && depth > 0 do
+            if code(j) == '{' then depth += 1 else if code(j) == '}' then depth -= 1
+            j += 1
+          out ++= " " ++= codeOnly(code.substring(from, math.max(from, j - 1))) ++= " "
+          i = j
+        else i += 1
+      n
+    var i = 0
+    while i < n do
+      val c = code(i)
+      if at(i, "//") then
+        while i < n && code(i) != '\n' do i += 1
+      else if at(i, "/*") then
+        i = blockEnd(i)
+        out += ' '
+      else if c == '"' then
+        // `s"…"`, `f"…"`: the letters before it are already out - an identifier right before the quote
+        val interpolated = i > 0 && (code(i - 1).isLetterOrDigit || code(i - 1) == '_')
+        i = text(i, interpolated)
+      else if c == '\'' && i + 2 < n && (code(i + 2) == '\'' || (code(i + 1) == '\\' && i + 3 < n && code(i + 3) == '\'')) then
+        // a char: `'"'`, `'\''`
+        out ++= "' '"
+        i += (if code(i + 1) == '\\' then 4 else 3)
+      else
+        out += c
+        i += 1
+    end while
+    out.result()
+  end codeOnly
 
   /** A file of type mappers of Orch Spec (`TypeMappers.scala`, `ClientMasterV1TypeMappers.scala`) - extensions it adds to a
     * schema: named as Orch Spec names them (`<Level>[V<n>]TypeMappers`), in a `schema` folder. Asked only of the files
