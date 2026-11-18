@@ -123,3 +123,63 @@ export function withDataStatus<T extends Parts>(spec: T, stepIds: Set<string>, s
     types: (spec.types ?? []).map(t => ((t.interactionId && ias.has(t.interactionId)) || own.has(t.id) ? { ...t, status } : t)),
   };
 }
+
+/** What carries a status: the steps of the flow (without jumps), the classes and the interactions. */
+export interface PartCount { steps: number; types: number; interactions: number }
+
+/** Per status: how many steps, classes and interactions carry it themselves. */
+export function partCounts(spec: Parts): Record<Status, PartCount> {
+  const out = Object.fromEntries(STATUSES.map(s => [s, { steps: 0, types: 0, interactions: 0 }])) as Record<Status, PartCount>;
+  const add = (st: Status | undefined, key: keyof PartCount) => { if (st && rank(st) >= 0) out[st][key]++; };
+  for (const s of allSteps(spec.steps ?? [])) if (s.kind !== 'goto') add(s.status, 'steps');
+  for (const t of spec.types ?? []) add(t.status, 'types');
+  for (const i of spec.interactions ?? []) add(i.status, 'interactions');
+  return out;
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** «3 Schritte, 2 Klassen, 1 Interaktion» — only what there is. */
+export const partsText = (p: PartCount): string => [
+  p.steps ? plural(p.steps, 'Schritt', 'Schritte') : '',
+  p.types ? plural(p.types, 'Klasse', 'Klassen') : '',
+  p.interactions ? plural(p.interactions, 'Interaktion', 'Interaktionen') : '',
+].filter(Boolean).join(', ');
+
+export const partTotal = (p: PartCount): number => p.steps + p.types + p.interactions;
+
+/** The classes and interactions without a status — they show as «Entwurf», but do not count for the overall status. */
+export function partsWithoutStatus(spec: Parts): PartCount {
+  const none = (x: { status?: Status }) => !x.status || rank(x.status) < 0;
+  return { steps: 0, types: (spec.types ?? []).filter(none).length, interactions: (spec.interactions ?? []).filter(none).length };
+}
+
+/** What withStatusForAll changes: the parts with another status or none (without jumps, as in partCounts). */
+export function partsToChange(spec: Parts, status: Status): PartCount {
+  return {
+    steps: allSteps(spec.steps ?? []).filter(s => s.kind !== 'goto' && s.status !== status).length,
+    types: (spec.types ?? []).filter(t => t.status !== status).length,
+    interactions: (spec.interactions ?? []).filter(i => i.status !== status).length,
+  };
+}
+
+/**
+ * One status for all parts: the steps on all levels, the classes and the interactions —
+ * also those without a status. Jumps get it too, like everywhere a status is set for
+ * several steps (see withStatus); they just do not count.
+ */
+export function withStatusForAll<T extends Parts>(spec: T, status: Status): T {
+  const walk = (steps: Step[]): Step[] => steps.map(s => ({
+    ...s,
+    status,
+    ...(s.children ? { children: walk(s.children) } : {}),
+    ...(s.branches ? { branches: s.branches.map(b => ({ ...b, steps: walk(b.steps) })) } : {}),
+    ...(s.errors ? { errors: s.errors.map(e => (e.steps ? { ...e, steps: walk(e.steps) } : e)) } : {}),
+  }));
+  return {
+    ...spec,
+    steps: walk(spec.steps ?? []),
+    ...(spec.types ? { types: spec.types.map(t => ({ ...t, status })) } : {}),
+    ...(spec.interactions ? { interactions: spec.interactions.map(i => ({ ...i, status })) } : {}),
+  };
+}

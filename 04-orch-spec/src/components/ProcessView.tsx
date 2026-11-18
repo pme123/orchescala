@@ -21,7 +21,7 @@ import { DIRECTORY_SCOPES, type DirectorySearchResult } from '../store';
 import { useTeamsNotify } from './useTeamsNotify';
 import { engineExpression, type JuelOptions } from '../feelJuel';
 import { juelOptions, variableOverview } from '../feel';
-import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, withDataStatus } from '../status';
+import { dataBelow, overallStatus, startClasses, statusParts, stepStatuses, partsText, withDataStatus, withStatusForAll } from '../status';
 import { ASSIGNMENT_KEYS, DEFAULT_MERGE_STATUS, allSteps, blockGroups, blockStart, boundaryLabel, isEventBoundary, healJuel, importBpmn, mergeSpec, syncBoundaryEvents, syncCorrelationKeys, syncPatterns, syncTimers, type MergeReport, type MergeStatus } from '../bpmn';
 import { applyPattern, endVariables, removePattern, updatePattern, withEndOutFields, patternDefs } from '../patterns';
 import { conventionalId, derivable, knownPrefixes, renameIdInXml, renamePrefix, renamePrefixInXml, renameStepId } from '../stepIds';
@@ -35,6 +35,7 @@ import { withTaskButton, type TaskPageDraft } from '../pages/taskLinks';
 import { findProjectDmns, saveProjectDmns, withDmnFiles } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
+import StatusAllDialog from './StatusAllDialog';
 import { CommentBubble, CommentsContext, CommentsPanel } from './Comments';
 import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
@@ -211,6 +212,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const [findingsOnly, setFindingsOnly] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [engineOpen, setEngineOpen] = useState(false);
+  const [statusAllOpen, setStatusAllOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
   /** «Mit Code abgleichen» of a service orchestration open */
@@ -1247,10 +1249,10 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
             <Download size={12} /> Export
           </button>
-          {/* the state of the whole: the lowest status of the steps and the data model — a click filters by it */}
+          {/* the state of the whole: the lowest status of the steps and the data model — a click shows the parts and sets one status for all */}
           <StatusChip status={overallStatus(spec)} isDark={isDark}
-            title={`Status der Spezifikation: der kleinste Status aller Schritte und Klassen (${STATUSES.map(s => STATUS_META[s].label).join(' → ')}) — klicken zeigt, welche`}
-            onClick={() => setStatusFilter(overallStatus(spec))} />
+            title={`Status der Spezifikation: der kleinste Status aller Schritte und Klassen (${STATUSES.map(s => STATUS_META[s].label).join(' → ')}) — klicken zeigt, welche${canEdit ? ', und setzt einen Status für alle' : ''}`}
+            onClick={() => setStatusAllOpen(true)} />
         </div>
       </div>
 
@@ -1549,6 +1551,14 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
       {engineOpen && <EngineDialog spec={spec} model={model} bpmn={xml ?? ''} patterns={modelPatterns} isDark={isDark} onClose={() => setEngineOpen(false)}
         onConvert={(next, target) => { setEngineOpen(false); void convertEngine(next, target); }} />}
+      {statusAllOpen && <StatusAllDialog spec={spec} isDark={isDark} canEdit={canEdit}
+        onFilter={s => { setStatusFilter(s); setFindingsOnly(false); setStatusAllOpen(false); }}
+        onApply={(status, n) => {
+          update(withStatusForAll(spec, status), { source: 'manual', note: `Status «${STATUS_META[status].label}» für alle Teile (${partsText(n)})` });
+          setStatusFilter(null);
+          setStatusAllOpen(false);
+        }}
+        onClose={() => setStatusAllOpen(false)} />}
       {exportOpen && <ExportDialog spec={spec} model={model} bpmn={xml ?? ''} isDark={isDark} onClose={() => setExportOpen(false)} />}
       {serviceExportOpen && isServiceProcess(spec) && (
         <Suspense fallback={null}>
