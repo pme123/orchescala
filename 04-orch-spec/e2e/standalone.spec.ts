@@ -39,8 +39,8 @@ function watch(page: Page): Watch {
 }
 
 /** The fixture folder into the browser's file system, then orch-spec opens it as its folder. */
-async function openFolder(page: Page) {
-  const files = Object.fromEntries(folderFiles.map((f) => [f, fs.readFileSync(path.join(FOLDER, f), 'utf8')]));
+async function openFolder(page: Page, edit: (files: Record<string, string>) => Record<string, string> = (f) => f) {
+  const files = edit(Object.fromEntries(folderFiles.map((f) => [f, fs.readFileSync(path.join(FOLDER, f), 'utf8')])));
   await page.goto('/?opfs');
   await page.evaluate(async (files) => {
     const root = await navigator.storage.getDirectory();
@@ -86,6 +86,27 @@ const savedPages = (page: Page) =>
     } catch { /* no pages/ yet */ }
     return names;
   });
+
+/** The fixture with «check order» as a DMN decision of the process instead of a worker. */
+function withDecision(files: Record<string, string>): Record<string, string> {
+  const spec = JSON.parse(files['processes/order.json']);
+  spec.interactions = spec.interactions.map((i: { id: string }) => (i.id === 'ia-check' ? { ...i, kind: 'decision' } : i));
+  spec.steps = spec.steps.map((s: { id: string; topic?: string }) => {
+    if (s.id !== 'CheckOrderTask') return s;
+    const { topic: _, ...rest } = s;
+    return { ...rest, kind: 'rule' };
+  });
+  const bpmn = files['processes/order.bpmn']
+    .replace(/<bpmn:serviceTask id="CheckOrderTask"[^>]*>/,
+      '<bpmn:businessRuleTask id="CheckOrderTask" name="check order" camunda:decisionRef="acme-demo-orderV1-checkOrder" camunda:mapDecisionResult="singleEntry">')
+    .replace('</bpmn:serviceTask>', '</bpmn:businessRuleTask>');
+  // a changed fixture fails here, not later as a timeout in the UI
+  if (!bpmn.includes('<bpmn:businessRuleTask id="CheckOrderTask"') || bpmn.includes('<bpmn:serviceTask id="CheckOrderTask"'))
+    throw new Error('withDecision: the fixture has no service task CheckOrderTask to turn into a decision');
+  if (!spec.interactions.some((i: { kind: string }) => i.kind === 'decision'))
+    throw new Error('withDecision: the fixture has no interaction ia-check');
+  return { ...files, 'processes/order.json': JSON.stringify(spec), 'processes/order.bpmn': bpmn };
+}
 
 test('without a studio: folder, process and page work, no AI', async ({ page }) => {
   const w = watch(page);
@@ -233,5 +254,20 @@ test('a user task gets its page: a new one from the dialog «Neu» filled in, or
   await expect.poll(() => savedPages(page)).toContain('approve-order-ut.json');
   const created = await savedPage(page, 'approve-order-ut');
   expect([created.title, created.body.map((b) => b.type), completes(created)]).toEqual(['approve order', ['heading', 'fields', 'button'], ['ApproveOrderUT']]);
+  expect(w.errors).toEqual([]);
+});
+
+// The DMN editor (dmn-js) is a lazy chunk - the build succeeds even when the bundler puts its
+// modules in the wrong order; it only fails when a table opens (`Class extends value undefined`).
+// Any change to the chunk rules in vite.config.ts must keep this green.
+test('a DMN table opens in the built app: the chunks of the DMN editor load in order', async ({ page }) => {
+  const w = watch(page);
+  await openFolder(page, withDecision);
+  await openProcess(page);
+  await page.getByText('check order').and(page.locator('span')).first().click();
+  await page.getByRole('button', { name: 'Neu anlegen' }).click();
+  await expect(page.getByText('Hit policy:')).toBeVisible();
+  await page.getByRole('button', { name: 'View DRD' }).click();
+  await expect(page.locator('.djs-container').last()).toBeVisible();
   expect(w.errors).toEqual([]);
 });

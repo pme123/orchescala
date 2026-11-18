@@ -5,7 +5,7 @@ import orchescala.worker.persistence.EntityStoreContract.{Notiz, notiz}
 
 import io.circe.Codec
 import org.testcontainers.DockerClientFactory
-import org.testcontainers.containers.PostgreSQLContainer
+import org.testcontainers.postgresql.PostgreSQLContainer
 import zio.*
 import zio.test.*
 

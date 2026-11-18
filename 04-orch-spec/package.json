@@ -23,18 +23,18 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
     "@azure/msal-browser": "^5.29.1",
-    "bpmn-js": "^18.31.1",
-    "camunda-bpmn-moddle": "^7.0.2",
+    "bpmn-js": "^18.33.0",
+    "camunda-bpmn-moddle": "^8.0.2",
     "camunda-dmn-moddle": "^1.3.1",
-    "dmn-js": "^17.13.0",
+    "dmn-js": "^18.0.3",
     "feelin": "^8.2.0",
     "fflate": "^0.8.3",
-    "lucide-react": "^0.546.0",
+    "lucide-react": "^1.74.0",
     "marked": "^18.2.0",
     "oidc-client-ts": "^3.5.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "zeebe-bpmn-moddle": "1.18.0"
+    "zeebe-bpmn-moddle": "^2.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
@@ -44,12 +44,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/wicg-file-system-access": "^2023.10.5",
-    "@vitejs/plugin-react": "^5.0.4",
-    "esbuild": "^0.25.12",
+    "@vitejs/plugin-react": "^6.3.0",
+    "esbuild": "^0.28.2",
     "js-yaml": "^5.5.0",
     "linkedom": "^0.18.15",
     "tailwindcss": "^4.3.5",
-    "typescript": "~5.8.2",
-    "vite": "^6.4.6"
+    "typescript": "~7.0.2",
+    "vite": "^8.3.8"
   }
 }

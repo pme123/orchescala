@@ -20,8 +20,8 @@ export default defineConfig({
     // everything inline - fonts (bpmn / dmn icon fonts), images, the favicon
     assetsInlineLimit: 100 * 1024 * 1024,
     cssCodeSplit: false,
-    rollupOptions: {
-      input: path.resolve(__dirname, 'api.html'),
+    rolldownOptions: {
+      input: path.resolve(import.meta.dirname, 'api.html'),
     },
   },
 });

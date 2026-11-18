@@ -7,7 +7,7 @@ import { defineConfig, type Plugin } from 'vite';
 // Dev-Server only: serve `sample-data/site/` at the app root, so the app starts
 // with real data (generated from a 00-docs folder via `npm run sample`).
 function sampleData(): Plugin {
-  const root = path.resolve(__dirname, 'sample-data/site');
+  const root = path.resolve(import.meta.dirname, 'sample-data/site');
   const types: Record<string, string> = {
     '.json': 'application/json; charset=utf-8', '.md': 'text/markdown; charset=utf-8',
     '.png': 'image/png', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8',
@@ -33,12 +33,15 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), sampleData()],
   server: { port: Number(process.env.PORT) || 3003, watch: { ignored: ['**/sample-data/**'] } },
   build: {
-    rollupOptions: {
+    // the diagram viewer (bpmn-js, dmn-js) is one chunk of about 640 kB, only loaded when a
+    // diagram shows - the limit is above it, so a warning means a new big chunk
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
       input: {
         // the full documentation app …
-        main: path.resolve(__dirname, 'index.html'),
+        main: path.resolve(import.meta.dirname, 'index.html'),
         // … and the standalone API page a single project deploys as its OpenApi.html
-        api: path.resolve(__dirname, 'api.html'),
+        api: path.resolve(import.meta.dirname, 'api.html'),
       },
     },
   },

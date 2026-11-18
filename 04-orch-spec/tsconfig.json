@@ -12,6 +12,7 @@
     "paths": { "@/*": ["./*"] },
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "types": ["wicg-file-system-access"],
     "strict": true
   },
   "include": ["src"]
