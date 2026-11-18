@@ -2,7 +2,8 @@
 // against the process variables (empty: the variable of the same name), an `Out` with cases
 // per case. The `Out` itself is the one of the data model (role «Out»).
 import { useMemo } from 'react';
-import { expectedFor, processVariables } from '../feel';
+import { processVariables } from '../feel';
+import { implicitOutVariable } from './outVariables';
 import type { Field, Mapping, Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
 import { MappingRow, OutCasesEditor } from './CollectionView';
@@ -26,14 +27,7 @@ export default function ServiceOutSection({ spec, model, isDark, canEdit, onChan
   const vars = useMemo(() => processVariables(spec, model), [spec, model]);
   const same = (name: string) => vars.some(v => v.name === name);
   // without a mapping: the variable of the same name - otherwise the one of its type (as the export takes it)
-  const ofType = (f: Field): string | undefined => {
-    const label = expectedFor(f, types, model)?.label;
-    const all = label ? vars.filter(v => v.label === label) : [];
-    // of several the one a script sets
-    const hits = all.length > 1 ? all.filter(v => v.source.startsWith('Ergebnis von')) : all;
-    return hits.length === 1 ? hits[0].name : undefined;
-  };
-  const implicit = (f: Field): string | undefined => (same(f.name) ? f.name : ofType(f));
+  const implicit = (f: Field): string | undefined => implicitOutVariable(f, vars, types, model)?.name;
   const setService = (patch: Partial<ServiceProcess['service']>) => onChange({ ...spec, service: { ...spec.service, ...patch } });
   return (
     <div className="space-y-1.5">
