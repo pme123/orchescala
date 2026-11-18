@@ -37,7 +37,16 @@ jobs:
         # --server: sbt in its own JVM with this step's environment. Without it, the sbt 2 client
         # hands ci-release to the server the steps above started - without the secrets, and
         # ci-release then says "No access to secret variables, doing nothing" and publishes nothing.
-        run: sbt --server ci-release
+        # It exits with 0 then - the step fails on that line itself, so a release never stays green
+        # without being published.
+        run: |
+          set -o pipefail
+          test -n "$PGP_SECRET" || { echo "::error::PGP_SECRET is empty - the secrets are not set"; exit 1; }
+          sbt --server ci-release 2>&1 | tee ci-release.log
+          if grep -q "No access to secret variables" ci-release.log; then
+            echo "::error::ci-release did not see the secrets - nothing was published"
+            exit 1
+          fi
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
