@@ -189,14 +189,14 @@ const branchStep: Step = async (c) => {
   // again when the step runs again: development has merged develop into the work branch meanwhile
   await git(c, c.p.repo, ['fetch', '--prune', 'origin']);
   note(c, `git rev-parse origin/${branch}`);
-  const remote = (await c.d.exec('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd: c.p.repo })).code === 0;
+  const remote = (await c.d.exec('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd: c.p.repo, timeoutMs: GIT_TIMEOUT_MS })).code === 0;
   // the first run of a work creates its branch from develop, every later one goes on with it (P5)
   await git(c, c.p.tree, ['checkout', '-B', branch, `origin/${remote ? branch : c.project.develop}`]);
   if (!remote) await git(c, c.p.tree, ['push', '-u', 'origin', branch]);
   note(c, `git merge origin/${c.project.develop}`);
-  const merged = await c.d.exec('git', ['merge', '--no-edit', `origin/${c.project.develop}`], { cwd: c.p.tree, env: gitEnv(c.d), logFile: c.logFile });
+  const merged = await c.d.exec('git', ['merge', '--no-edit', `origin/${c.project.develop}`], { cwd: c.p.tree, env: gitEnv(c.d), timeoutMs: GIT_TIMEOUT_MS, logFile: c.logFile });
   if (merged.code !== 0) {
-    await c.d.exec('git', ['merge', '--abort'], { cwd: c.p.tree });
+    await c.d.exec('git', ['merge', '--abort'], { cwd: c.p.tree, timeoutMs: GIT_TIMEOUT_MS });
     throw new StepFailed(
       `«${c.project.develop}» lässt sich nicht in den Arbeits-Branch mergen. Die Entwicklung mergt ihn auf «${branch}» und setzt den Lauf fort.`,
       { log: merged.output },
@@ -215,7 +215,7 @@ const mergeStep: Step = async (c) => {
   if (r.code !== 0) throw new StepFailed(ended('Der Merge der Spez in den Code', r, c), { log: r.output });
   const plan = readPlan(planFile);
   await git(c, c.p.tree, ['add', '-A']);
-  const changed = (await c.d.exec('git', ['diff', '--cached', '--quiet'], { cwd: c.p.tree })).code !== 0;
+  const changed = (await c.d.exec('git', ['diff', '--cached', '--quiet'], { cwd: c.p.tree, timeoutMs: GIT_TIMEOUT_MS })).code !== 0;
   // the RE is the author, the studio commits; with conflicts their markers go along, for development
   if (changed)
     await git(c, c.p.tree, [
@@ -292,7 +292,7 @@ async function runSteps(d: Deps, project: Project, before: RunStatus, from: numb
   const runDir = join(p.runs, before.runId);
   if (from >= RUN.length) {
     // what the release changed in the tree (its version) is not committed
-    await d.exec('git', ['reset', '--hard'], { cwd: p.tree });
+    await d.exec('git', ['reset', '--hard'], { cwd: p.tree, timeoutMs: GIT_TIMEOUT_MS });
     writeJson(p.durations, Object.fromEntries(before.steps.map((s) => [s.name, s.durationMs ?? 0])));
     const work = readJson<Work>(p.work);
     if (work)

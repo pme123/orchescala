@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { memoryLog } from '../src/log.ts';
 import { describe, main, personOf } from '../src/run/cli.ts';
-import { exec } from '../src/run/exec.ts';
+import { commandEnvOf, exec, MAX_OUTPUT } from '../src/run/exec.ts';
 import { gitHub, type GitHost, type PullRequest } from '../src/run/gitHost.ts';
 import { parseProject, parseProjects, repoName, workBranch, type Project } from '../src/run/project.ts';
 import { pathsOf, readJson, writeJson, type RunStatus, type Work } from '../src/run/status.ts';
@@ -305,6 +305,15 @@ test('a command that takes too long is stopped with what it started; one that is
     assert.match(missing.output, /no-such-command-of-orch/);
     const env = await exec('sh', ['-c', 'echo "$ORCH_X"; exit 3'], { cwd: dir, env: { ORCH_X: 'yes' } });
     assert.deepEqual(env, { code: 3, output: 'yes\n', timedOut: false });
+    // the settings of the studio - its token, its key of the AI - are not for the commands of a project
+    assert.deepEqual(commandEnvOf({ ORCH_X: 'yes', GONE: undefined }, { PATH: '/bin', STUDIO_GIT_TOKEN: 'ghp_secret', STUDIO_AI_ANTHROPIC_API_KEY: 'sk-ant-secret' }), { PATH: '/bin', ORCH_X: 'yes' });
+    process.env.STUDIO_GIT_TOKEN = 'ghp_secret';
+    const seen = await exec('sh', ['-c', 'env'], { cwd: dir });
+    delete process.env.STUDIO_GIT_TOKEN;
+    assert.ok(seen.output.includes('PATH=') && !seen.output.includes('ghp_secret'));
+    // only the end of a long output is kept; a log that cannot be written does not end the studio
+    const long = await exec('sh', ['-c', `head -c ${3 * MAX_OUTPUT} /dev/zero | tr '\\0' a; echo; echo the-end`], { cwd: dir, logFile: join(dir, 'missing', 'a.log') });
+    assert.deepEqual([long.code, long.output.length, long.output.endsWith('the-end\n')], [0, MAX_OUTPUT, true]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

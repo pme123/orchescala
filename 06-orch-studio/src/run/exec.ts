@@ -19,15 +19,26 @@ export type Exec = (cmd: string, args: string[], o: ExecOptions) => Promise<Exec
 /** The output kept in the result - the end of it; the log file has all. */
 export const MAX_OUTPUT = 1024 * 1024;
 
+/** The environment of a command: the studio's, with `env` on top - but none of the studio's own settings
+  * (`STUDIO_*`): its token of the Git platform and its key of the AI are not for the commands of a
+  * project, and so never in their logs. */
+export const commandEnvOf = (env: Record<string, string | undefined> = {}, own: Record<string, string | undefined> = process.env) =>
+  Object.fromEntries(Object.entries({ ...own, ...env }).filter(([name, value]) => value !== undefined && !name.startsWith('STUDIO_')));
+
 export const exec: Exec = (cmd, args, o) =>
   new Promise((done) => {
-    // its own process group, so a time limit ends sbt and what sbt started too
-    const child = spawn(cmd, args, { cwd: o.cwd, env: { ...process.env, ...o.env }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // its own process group (POSIX), so a time limit ends sbt and what sbt started too
+    const child = spawn(cmd, args, { cwd: o.cwd, env: commandEnvOf(o.env), detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const log = o.logFile ? createWriteStream(o.logFile, { flags: 'a' }) : undefined;
+    // a log that cannot be written (the disk is full) is lost - the command and the studio go on
+    log?.on('error', () => undefined);
     const chunks: Buffer[] = [];
-    const state = { timedOut: false, ended: false };
+    const state = { timedOut: false, ended: false, size: 0 };
     const take = (c: Buffer) => {
       chunks.push(c);
+      state.size += c.length;
+      // only the end is kept - a command that writes a lot does not fill the memory
+      while (chunks.length > 1 && state.size - chunks[0].length >= MAX_OUTPUT) state.size -= chunks.shift()!.length;
       log?.write(c);
     };
     child.stdout.on('data', take);
