@@ -18,6 +18,18 @@ class DocCreatorTest extends FunSuite:
     val workerOnNewer = conf("acme-cards", "3.0.2", Seq("acme-base" -> "2.32.0"), isWorker = true)
     assertEquals(DocCreator.dependencyCell(workerOnNewer, base), "2.31.3")
 
+  test("projectOfVersionKey - dashed lower case, else the configured project with the same letters"):
+    val names = Seq("acme-shop", "z9nai-finnovaNeoIs")
+    assertEquals(DocCreator.projectOfVersionKey("acmeShopVersion = \"1.0.0\"", names), "acme-shop")
+    assertEquals(DocCreator.projectOfVersionKey("acmeShopWorkerVersion = \"1.0.0\"", names), "acme-shop-worker")
+    assertEquals(DocCreator.projectOfVersionKey("z9naiFinnovaNeoIsVersion = \"0.1.4\"", names), "z9nai-finnovaNeoIs")
+    assertEquals(
+      DocCreator.projectOfVersionKey("z9naiFinnovaNeoIsWorkerVersion = \"0.1.4\"", names),
+      "z9nai-finnovaNeoIs-worker"
+    )
+    // not configured: as before
+    assertEquals(DocCreator.projectOfVersionKey("acmeCardsVersion = \"2.0.0\"", names), "acme-cards")
+
   test("byProject - the BPMN and the worker version of a project in one group, in that order"):
     val groups = DocCreator.byProject(Map(
       "acme-shop-worker" -> "1.1.0",

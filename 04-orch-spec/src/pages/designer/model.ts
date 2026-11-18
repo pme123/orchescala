@@ -103,17 +103,29 @@ const specFields = (t: TypeDef | undefined, spec: ProcessSpec, model: Model): PF
 
 /** What a page can call - services (workers), processes, messages and user tasks. */
 export type Targets = {
-  services: { topic: string; name: string; descr?: string; in: PField[]; out: PField[] }[];
-  processes: { key: string; title: string; in: PField[] }[];
+  services: {
+    topic: string; name: string; descr?: string; in: PField[]; out: PField[];
+    /** an In/Out that is a choice (ADT): its cases with their own fields - `in`/`out` are then the shared ones */
+    inCases?: { name: string; fields: PField[] }[];
+    outCases?: { name: string; fields: PField[] }[];
+    /** from the folder (a collection, an orchestration), not yet in the catalog */
+    unreleased?: boolean;
+  }[];
+  /** the processes of the folder (not the orchestrations - they are services) and those of the catalog */
+  processes: { key: string; title: string; in: PField[]; unreleased?: boolean }[];
   messages: { name: string; process: string; in: PField[] }[];
   userTasks: { key: string; name: string; process: string; in: PField[]; out: PField[] }[];
 };
 
-/** The worker objects of the domain (`val topicName`) with their In/Out - and the processes of the specs. */
+/** The worker objects of the domain (`val topicName`) with their In/Out - and the processes of the specs and
+  * of the catalog. With the model of the folder (folderCatalog), its collections and orchestrations are
+  * services too; what is only in the folder is `unreleased`. */
 export function targetsOf(model: Model, specs: ProcessSpec[]): Targets {
   const domain = model.domainTypes ?? [];
   const member = (topic: string, which: 'In' | 'Out') => domain.find((t) => t.topicName === topic && t.name.endsWith(`.${which}`));
-  const topics = [...new Set(domain.filter((t) => t.topicName && (t.dsl ?? '').match(/Task|Worker/)).map((t) => t.topicName!))];
+  // a worker of the domain - or a service of the model with this topic (a collection's ServiceTask has no DSL mark)
+  const serviceTopics = new Set((model.services ?? []).filter((s) => (s.kind ?? 'service') === 'service').map((s) => s.topic ?? s.id));
+  const topics = [...new Set(domain.filter((t) => t.topicName && ((t.dsl ?? '').match(/Task|Worker/) || serviceTopics.has(t.topicName))).map((t) => t.topicName!))];
   const processKeys = new Set(specs.map((s) => s.processId));
   // the workers of a process (`<processKey>-<Step>`) run in it - a page calls the others
   const ofProcess = (topic: string) => [...processKeys].some((k) => k && topic.startsWith(`${k}-`));
@@ -123,18 +135,32 @@ export function targetsOf(model: Model, specs: ProcessSpec[]): Targets {
       const inT = member(topic, 'In');
       const outT = member(topic, 'Out');
       const owner = domain.find((t) => t.topicName === topic);
+      const unreleased = (model.services ?? []).some((s) => (s.topic ?? s.id) === topic && s.unreleased);
       return {
         topic,
         name: owner?.owner ?? owner?.name.split('.')[0] ?? topic,
         descr: owner?.ownerDescr,
         in: fieldsOf(model, inT, 0),
         out: fieldsOf(model, outT, 0),
+        ...(unreleased ? { unreleased } : {}),
       };
     })
     .sort((a, b) => a.topic.localeCompare(b.topic));
-  const processes = specs
-    .filter((s) => s.processId)
-    .map((s) => ({ key: s.processId!, title: s.title, in: specFields(s.types?.find((t) => t.root), s, model) }));
+  // a process of the folder is released when the catalog has it (a delivered entry that calls it)
+  const releasedProcesses = new Map((model.services ?? [])
+    .filter((s) => s.kind === 'call' && s.calledProcess && s.generated).map((s) => [s.calledProcess!, s]));
+  // without a catalog nothing can be told released or not - nothing is marked
+  const anyReleased = (model.services ?? []).some((s) => s.generated);
+  const ofFolder = specs
+    // an orchestration is a service (one worker), not a process a page starts
+    .filter((s) => s.processId && !s.service)
+    .map((s) => ({ key: s.processId!, title: s.title, in: specFields(s.types?.find((t) => t.root), s, model), ...(anyReleased && !releasedProcesses.has(s.processId!) ? { unreleased: true } : {}) }));
+  const inFolder = new Set(ofFolder.map((p) => p.key));
+  const ofCatalog = [...releasedProcesses.values()].filter((s) => !inFolder.has(s.calledProcess!)).map((s) => ({
+    key: s.calledProcess!, title: s.name,
+    in: fieldsOf(model, domain.find((t) => t.processName === s.calledProcess && t.name.endsWith('.In')), 0),
+  }));
+  const processes = [...ofFolder, ...ofCatalog];
   const messages = specs.flatMap((s) =>
     (s.interactions ?? [])
       .filter((i) => i.kind === 'message')
@@ -340,8 +366,11 @@ function titleOf(b: Component): string | undefined {
   }
 }
 
-/** The text that names a building block - '' if it has none. */
-export const blockTitle = (b: Component) => titleOf(b) ?? '';
+/** The text that names a building block - '' if it has none (or a hand-edited page has no text there). */
+export const blockTitle = (b: Component) => {
+  const title: unknown = titleOf(b);
+  return typeof title === 'string' ? title : '';
+};
 
 const TYPE_NAME: Record<Component['type'], string> = {
   heading: 'Überschrift', text: 'Text', choice: 'Auswahl', pick: 'Auswahl aus Liste', fields: 'Eingabefelder',
@@ -351,7 +380,9 @@ const TYPE_NAME: Record<Component['type'], string> = {
 /** A building block in words: «Button «Buchen»» - for the differences, the comments, the change log. */
 export const blockName = (b: Component) => {
   const title = blockTitle(b);
-  return title ? `${TYPE_NAME[b.type]} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : TYPE_NAME[b.type];
+  // a type orch-spec does not know (a hand-edited page): its name as it is
+  const kind: string = TYPE_NAME[b.type] ?? (typeof b.type === 'string' ? b.type : '');
+  return title ? `${kind} «${title.length > 40 ? `${title.slice(0, 40)}…` : title}»` : kind;
 };
 
 /** What a change of type of the building block loses - for the warning in the menu; null if there is nothing of its own.
@@ -608,19 +639,24 @@ export function pageFindings(page: Page, targets: Targets, others: Page[] = []):
     switch (action.do) {
       case 'call': {
         const svc = targets.services.find((s) => s.topic === action.service);
-        if (!svc) findings.push({ level: 'warning', key, message: `${where}: den Service «${action.service}» kennt der Katalog nicht.` });
-        else for (const f of svc.in.filter((f) => !f.optional && !(action.input && typeof action.input === 'object' && f.name in (action.input as object))))
+        if (!svc) findings.push({ level: 'warning', key, message: `${where}: den Service «${action.service}» gibt es weder im Ordner noch im Katalog.` });
+        else if (svc.unreleased) findings.push({ level: 'warning', key, message: `${where}: «${action.service}» ist noch nicht released – aus dem Ordner, noch nicht im Katalog.` });
+        if (svc) for (const f of svc.in.filter((f) => !f.optional && !(action.input && typeof action.input === 'object' && f.name in (action.input as object))))
           findings.push({ level: 'info', key, message: `${where}: «${action.service}» – das Feld «${f.name}» fehlt in der Eingabe (sein Vorgabewert gilt).` });
         if (action.public && page.access !== 'public')
           findings.push({ level: 'info', key, message: `${where}: «${action.service}» ohne Login auf einer Seite mit Login.` });
         if (action.public) gatewayHint(action.service, 'PublicAccess.workers', key);
         break;
       }
-      case 'start':
-        if (!targets.processes.some((p) => p.key === action.process))
-          findings.push({ level: 'warning', key, message: `${where}: den Prozess «${action.process}» gibt es in den Spezifikationen nicht.` });
+      case 'start': {
+        const process = targets.processes.find((p) => p.key === action.process);
+        if (!process)
+          findings.push({ level: 'warning', key, message: `${where}: den Prozess «${action.process}» gibt es weder im Ordner noch im Katalog.` });
+        else if (process.unreleased)
+          findings.push({ level: 'warning', key, message: `${where}: der Prozess «${action.process}» ist noch nicht released – aus dem Ordner, noch nicht im Katalog.` });
         if (action.public) gatewayHint(action.process, 'PublicAccess.processStarts', key);
         break;
+      }
       case 'message':
         if (!targets.messages.some((m) => m.name === action.name))
           findings.push({ level: 'warning', key, message: `${where}: die Message «${action.name}» gibt es in den Spezifikationen nicht.` });

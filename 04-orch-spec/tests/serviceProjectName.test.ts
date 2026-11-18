@@ -21,20 +21,25 @@ test('an API typed with upper case becomes its name in camelCase', async () => {
   assert.ok(API_NAME.test(apiName('NaturalPerson')));
 });
 
-test('renameApi: the services of the API, the default and its serviceBasePath follow', async () => {
+test('renameApi: a collection has one API - its services and its serviceBasePath follow', async () => {
   const { newCollection, renameApi } = await import('../src/services/collection.ts');
   const c0 = newCollection({ title: 'T', project: 'acme-crm', api: 'client', apiVersion: 1 });
-  const svc = (id: string, api: string, apiVersion: number) =>
-    ({ id, name: id, api, apiVersion, status: 'draft', method: 'GET', path: '/', params: [] }) as unknown as typeof c0.services[number];
-  const c = { ...c0, services: [svc('a', 'client', 1), svc('b', 'crm', 2)], serviceBasePaths: { 'client.v1': 's"$base/c"', 'crm.v2': 's"$base/crm"' } };
-  const r = renameApi(c, { api: 'client', apiVersion: 1 }, { api: 'clientMaster', apiVersion: 1 });
-  assert.deepEqual(r.services.map(s => `${s.id}:${s.api}v${s.apiVersion}`), ['a:clientMasterv1', 'b:crmv2']);
-  assert.deepEqual([r.api, r.apiVersion], ['clientMaster', 1]);
-  assert.deepEqual(r.serviceBasePaths, { 'clientMaster.v1': 's"$base/c"', 'crm.v2': 's"$base/crm"' });
-  // another version of the second API: the default stays
-  const v3 = renameApi(r, { api: 'crm', apiVersion: 2 }, { api: 'crm', apiVersion: 3 });
-  assert.deepEqual(v3.services.map(s => s.apiVersion), [1, 3]);
-  assert.equal(v3.api, 'clientMaster');
+  const svc = (id: string) =>
+    ({ id, name: id, api: 'client', apiVersion: 1, status: 'draft', method: 'GET', path: '/', params: [] }) as unknown as typeof c0.services[number];
+  const c = { ...c0, services: [svc('a'), svc('b')], serviceBasePaths: { 'client.v1': 's"$base/c"' } };
+  const r = renameApi(c, c, { api: 'clientMaster', apiVersion: 2 });
+  assert.deepEqual(r.services.map(s => `${s.id}:${s.api}v${s.apiVersion}`), ['a:clientMasterv2', 'b:clientMasterv2']);
+  assert.deepEqual([r.api, r.apiVersion], ['clientMaster', 2]);
+  assert.deepEqual(r.serviceBasePaths, { 'clientMaster.v2': 's"$base/c"' });
+});
+
+test('a service has the API of its collection - another one it carries is replaced on load', async () => {
+  const { apiOf, newCollection, withServiceApis } = await import('../src/services/collection.ts');
+  const c0 = newCollection({ title: 'T', project: 'acme-crm', api: 'clientMaster.multipleNatural', apiVersion: 1 });
+  const s = { id: 's', name: 'UpdateX', api: 'updateMultipleNaturalPerson5', apiVersion: 1, status: 'draft', method: 'PUT', path: '/', params: [] } as unknown as typeof c0.services[number];
+  const c = { ...c0, services: [s] };
+  assert.deepEqual(apiOf(c, s), { project: 'acme-crm', api: 'clientMaster.multipleNatural', apiVersion: 1 });
+  assert.equal(withServiceApis(c).services[0].api, 'clientMaster.multipleNatural');
 });
 
 test('renameProject: as for a process the old prefix goes everywhere - IDs and a title, the file name stays', async () => {

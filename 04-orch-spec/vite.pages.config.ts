@@ -17,10 +17,10 @@ import { appProblem, pageProblem } from './src/pages/runtime/validate';
 //   UI_OUT     where the bundle goes - e.g. 03-worker/src/main/resources/ui of the project
 //   GATEWAY    the gateway for the dev server (npm run dev:pages)
 const base = process.env.UI_BASE ?? '/app/';
-const pagesDir = process.env.UI_PAGES ? path.resolve(process.env.UI_PAGES) : path.resolve(__dirname, 'sample-data/pages');
+const pagesDir = process.env.UI_PAGES ? path.resolve(process.env.UI_PAGES) : path.resolve(import.meta.dirname, 'sample-data/pages');
 const configFile = process.env.UI_CONFIG ? path.resolve(process.env.UI_CONFIG) : undefined;
 const gateway = process.env.GATEWAY ?? 'http://localhost:8889';
-const outDir = path.resolve(process.env.UI_OUT ?? path.resolve(__dirname, 'dist-pages'));
+const outDir = path.resolve(process.env.UI_OUT ?? path.resolve(import.meta.dirname, 'dist-pages'));
 
 /** app.json and every other *.json of the folder (one page per file) as one document. */
 function bundlePages(dir: string, strict: boolean): string {
@@ -98,11 +98,11 @@ function pagesPlugin(): Plugin {
 }
 
 export default defineConfig({
-  root: path.resolve(__dirname, 'src/pages/runtime'),
+  root: path.resolve(import.meta.dirname, 'src/pages/runtime'),
   base,
   // a cache of its own - otherwise `npm run dev:pages` overwrites the pre-bundled dependencies of
   // `npm run dev` (both in the same folder), and orch-spec stays white with «504 Outdated Optimize Dep»
-  cacheDir: path.resolve(__dirname, 'node_modules/.vite-pages'),
+  cacheDir: path.resolve(import.meta.dirname, 'node_modules/.vite-pages'),
   plugins: [react(), tailwindcss(), pagesPlugin()],
   build: {
     outDir,

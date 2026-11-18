@@ -6,11 +6,12 @@ import type { BetaMessageParam, BetaTextBlockParam } from '@anthropic-ai/sdk/res
 import { AlertTriangle, Check, CircleStop, Info, Loader2, MessageSquarePlus, Send as SendIcon, Sparkles, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cls } from '../ui';
-import { runTurn, type AgentEvent, type Stop } from './agent';
-import { claudeSender, errorText } from './client';
+import type { AgentEvent, Stop } from './agent';
+import { errorText, turnOnStudio } from './client';
 import { addUsage, NO_USAGE, usageLine, type Usage } from './cost';
-import { useAiConfig, type AiTask } from './config';
+import type { AiTask } from './config';
 import type { ToolKit } from './toolkit';
+import type { TurnContext } from './turn';
 
 type Entry =
   | { kind: 'user'; text: string }
@@ -22,6 +23,7 @@ type Entry =
 
 const STOP_TEXT: Partial<Record<Stop, string>> = {
   max_steps: 'Claude hat zu viele Schritte gebraucht und wurde angehalten.',
+  max_cost: 'Dieser Wunsch hat so viel gekostet, wie der Skill erlaubt – Claude wurde angehalten.',
   max_tokens: 'Die Antwort war zu lang und wurde abgeschnitten.',
   refusal: 'Claude hat die Anfrage abgelehnt.',
   cancelled: 'Abgebrochen.',
@@ -39,6 +41,8 @@ export type AiChatProps<D> = {
   /** the system of a conversation - built at its start and then kept (cache) */
   system: () => BetaTextBlockParam[];
   kit: ToolKit<D>;
+  /** what the kit knows besides the draft - sent along to the loop on the studio */
+  context: TurnContext;
   draft: D | null;
   onDraft: (d: D | null) => void;
   /** a new draft from what is saved now */
@@ -61,12 +65,14 @@ export type AiChatProps<D> = {
   initialPrompt?: string;
   /** the request from outside was started - the parent drops it, so a later mount does not send it again */
   onInitialPrompt?: () => void;
+  /** a turn runs (true) or is over (false) - the designer does not let the RE edit meanwhile, the draft
+    * would be based on a state that is gone when it comes */
+  onBusy?: (busy: boolean) => void;
 };
 
 export function AiChat<D>(p: AiChatProps<D>) {
   const { isDark, draft } = p;
   const c = cls(isDark);
-  const ai = useAiConfig();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -95,6 +101,11 @@ export function AiChat<D>(p: AiChatProps<D>) {
   const add = (...e: Entry[]) => setEntries((list) => [...list, ...e]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [entries, busy]);
+  // the designer locks editing while a turn runs - and frees it when the chat goes away mid-turn
+  useEffect(() => {
+    p.onBusy?.(busy);
+    return () => { if (busy) p.onBusy?.(false); };
+  }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   // leaving the designer or the AI switched off stops a running request
   // (in dev, StrictMode mounts twice: the request from outside is then started again on the second mount)
   useEffect(() => () => { turn.current++; abort.current?.abort(); abort.current = null; started.current = false; }, []);
@@ -122,10 +133,8 @@ export function AiChat<D>(p: AiChatProps<D>) {
     };
     try {
       const before = draft ?? p.start();
-      const r = await runTurn({
-        send: claudeSender(ai, p.task), system: sys, kit: p.kit,
-        history: history.current, prompt, draft: before, onEvent, signal: controller.signal,
-      });
+      // the loop on the studio, with the limits of the skill
+      const r = await turnOnStudio(p.task, p.context, { system: sys, kit: p.kit, history: history.current, prompt, draft: before, onEvent, signal: controller.signal });
       if (!current()) return;
       history.current = r.history;
       setTotal((t) => addUsage(t, r.usage));
@@ -142,7 +151,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
       // for measuring the costs: token counts only, no content (docs/KI-MODUS.md)
       console.info('[orch-spec KI]', usageLine(r.usage), r.usage);
     } catch (e) {
-      // not from the API (runTurn turns those into a stop) - a bug in the app; the chat stays usable
+      // not from the API (turnOnStudio turns those into a stop) - a bug in the app; the chat stays usable
       if (current()) add({ kind: 'note', text: `Unerwarteter Fehler: ${errorText(e)}`, tone: 'error' });
     } finally {
       if (current()) {
@@ -287,7 +296,7 @@ export function AiChat<D>(p: AiChatProps<D>) {
         })}
         {busy && (
           <div className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
-            <Loader2 size={11} className="animate-spin" /> Claude arbeitet …{live && <span>{usageLine(live)}</span>}
+            <Loader2 size={11} className="animate-spin" /> Claude arbeitet … – bearbeiten geht wieder, wenn Claude fertig ist{live && <span>{usageLine(live)}</span>}
           </div>
         )}
         <div ref={end} />

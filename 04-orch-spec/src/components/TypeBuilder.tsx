@@ -416,7 +416,10 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <div className="mb-2">
             <div className={`text-[9px] uppercase tracking-widest px-2 py-1 ${c.muted}`}>Prozess</div>
-            {([['root', 'In'], ['initIn', 'InitIn'], ['processOut', 'Out']] as const).map(([slot, label]) => {
+            {/* a service orchestrator (CustomTask) has only In and Out - no InitIn, no InConfig */}
+            {(spec.service
+              ? [['root', 'In'], ['processOut', 'Out']] as const
+              : [['root', 'In'], ['initIn', 'InitIn'], ['processOut', 'Out']] as const).map(([slot, label]) => {
               const t = types.find(x => x[slot]);
               return (
                 <button key={slot} onClick={() => processSlot(slot)} data-cframe-base={t ? typeTarget(t.id) : undefined}
@@ -438,7 +441,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
                 </button>
               );
             })}
-            <button onClick={() => { if (inConfig) pickType(inConfig.id); else { setShowConfig(true); setSelected(null); setSelectedIa(null); } }}
+            {!spec.service && <button onClick={() => { if (inConfig) pickType(inConfig.id); else { setShowConfig(true); setSelected(null); setSelectedIa(null); } }}
               title="Eigene Stellschrauben — dazu erzeugt aus dem Ablauf: Schleifen und Mocks"
               data-cframe-base={inConfig ? typeTarget(inConfig.id) : undefined}
               className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-left ${c.hover} ${
@@ -448,7 +451,7 @@ export default function TypeBuilder({ spec, isDark, canEdit, model, onChange, fo
               {inConfig && issuesOf(inConfig.id).some(i => !i.warn) && <AlertTriangle size={10} className={isDark ? 'text-rose-400' : 'text-rose-600'} />}
               {inConfig && <CommentBubble target={typeTarget(inConfig.id)} aggregate quiet inButton />}
               <span className={`text-[9px] ${c.muted}`}>{inConfig && !isEmptyType(inConfig) ? `${contentLabel(inConfig)} + erzeugt` : 'erzeugt'}</span>
-            </button>
+            </button>}
           </div>
 
           {(['userTask', 'customTask', 'decision', 'signal', 'message'] as const).map(kind => {

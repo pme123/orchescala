@@ -33,7 +33,7 @@ class DmnDepsGeneratorTest extends FunSuite:
       dmnDeps
     )
     // the DMN engine's geny_2.13 must not reach a project build
-    assert(dmnDeps.contains(""".exclude("com.lihaoyi", "geny_2.13")"""), dmnDeps)
+    assert(dmnDeps.contains(""".excludeAll(ExclusionRule("com.lihaoyi", "geny_2.13"))"""), dmnDeps)
     assert(
       !dmnDeps.contains(""""io.github.pme123" %% "orchescala-dmn" % orchescalaV"""),
       s"the DSL comes transitively:\n$dmnDeps"

@@ -1,22 +1,25 @@
 // The AI mode (E19, E23): the studio is the switch. Its settings (STUDIO_AI_ANTHROPIC_API_KEY …) turn
 // the AI on; orch-spec asks `GET /ai/config` once and learns only on/off, provider, model and the
 // tasks with their skill - never the key. Each place shows its AI only if its task is among them (the
-// page designer `uiCreator`, the process view `processCreator`). The requests of the agent go
+// page designer `uiCreator`, the process view `processCreator`, in service mode `serviceOrchestrator`). The requests of the agent go
 // through the studio to the route of their task (`/ai/uiCreator`, see client.ts); there the skill
 // adds its instructions and decides model and settings.
 //
 // Without a studio (a folder of the docs, GitHub Pages, the dev server without ORCH_SPEC_STUDIO) the
 // request fails - then the AI is off and nothing of it is visible. orch-spec stays fully usable.
-import { useSyncExternalStore } from 'react';
+//
+// Here what the config is and how it is read - no React, no browser (part of src/core); the hook
+// that asks the studio once per page is in useAiConfig.ts.
 
 /** The tasks orch-spec has a place for - the studio offers those it has a skill for. */
-export const AI_TASKS = ['uiCreator', 'processCreator', 'serviceRegistration', 'serviceCreator'] as const;
+export const AI_TASKS = ['uiCreator', 'processCreator', 'serviceOrchestrator', 'serviceRegistration', 'serviceCreator'] as const;
 export type AiTask = (typeof AI_TASKS)[number];
 
 /** What the RE reads about a task. */
 export const TASK_LABEL: Record<AiTask, string> = {
   uiCreator: 'Seiten (UI-Creator)',
   processCreator: 'Prozesse',
+  serviceOrchestrator: 'Service-Orchestrierungen',
   serviceRegistration: 'Service registrieren',
   serviceCreator: 'Service erstellen',
 };
@@ -40,9 +43,6 @@ export const AI_OFF: AiConfig = { enabled: false, tasks: [], skills: {} };
 
 /** On the origin of the page - the studio serves orch-spec and these paths. */
 export const CONFIG_PATH = '/ai/config';
-/** The base URL of the Messages API for the SDK - one per task; the studio applies its skill and
-  * sends it on with its key. A task without a skill is refused (403). */
-export const messagesBase = (task: AiTask) => `/ai/${task}`;
 
 /** The answer of `GET /ai/config` - anything unexpected counts as off. */
 export function parseConfig(json: unknown): AiConfig {
@@ -71,49 +71,8 @@ export async function loadConfig(fetchFn: typeof fetch = fetch): Promise<AiConfi
   }
 }
 
-// ---- once per page: every component that shows something of AI asks the same answer
-
-let current: AiConfig = AI_OFF;
-let started = false;
-const listeners = new Set<() => void>();
-
-function start() {
-  if (started || typeof window === 'undefined') return;
-  started = true;
-  forgetBrowserKey();
-  void loadConfig().then((c) => {
-    current = c;
-    listeners.forEach((l) => l());
-  });
-}
-
-const subscribe = (onChange: () => void) => {
-  listeners.add(onChange);
-  start();
-  return () => { listeners.delete(onChange); };
-};
-
-/** The AI of the studio - off until it answered, and when there is none. */
-export function useAiConfig(): AiConfig {
-  return useSyncExternalStore(subscribe, () => current, () => AI_OFF);
-}
-
 /** Is the AI on for `task` - on in the studio and a skill for the task? */
 export const aiFor = (config: AiConfig, task: AiTask): boolean => config.enabled && config.tasks.includes(task);
 
-/** The switch of one place: the AI of its task. */
-export const useAiFor = (task: AiTask): boolean => aiFor(useAiConfig(), task);
-
 /** Is there AI anywhere - the icon in the header. */
 export const anyAi = (config: AiConfig): boolean => config.enabled && config.tasks.length > 0;
-
-/** Until E23 the key was stored in the browser - it is removed, so it does not stay there unused. */
-export const OLD_BROWSER_KEYS = ['orch-spec.anthropicKey', 'orch-spec.anthropicWorkspace'];
-
-export function forgetBrowserKey(store: Pick<Storage, 'removeItem'> | null = browserStore()): void {
-  try { OLD_BROWSER_KEYS.forEach((k) => store?.removeItem(k)); } catch { /* blocked storage */ }
-}
-
-function browserStore(): Storage | null {
-  try { return typeof localStorage === 'undefined' ? null : localStorage; } catch { return null; }
-}

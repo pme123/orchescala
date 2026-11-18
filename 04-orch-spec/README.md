@@ -27,6 +27,14 @@ npm install && npm run dev
 Tests: `npm test` (`node:test`, die Fälle unter `tests/`) — läuft auch im
 sbt-Build (`orchDocClient/bundleDocClient`) und damit auf CI.
 
+**Ohne Server:** `npm run test:standalone` baut die App wie orch-doc sie ausliefert
+(`--base=./`), stellt sie statisch bereit und prüft mit Playwright (`e2e/`): ein lokaler Ordner
+(im Speicher des Browsers, OPFS) öffnet, ein Prozess zeigt sich, eine Seite wird angelegt und
+gespeichert – ohne KI und ohne Anfrage an das Studio ausser `GET /ai/config`; ein Studio, das nicht
+antwortet, hält nichts auf. Die Gegenprobe täuscht ein Studio vor, dann erscheint die KI. Das
+Studio wird ein TypeScript-Server (E28); dieser Test hält orch-spec bei jedem Schritt ohne Server
+lauffähig. Einmal vorher: `npx playwright install chromium`. Läuft auf CI.
+
 Dann <http://localhost:3002/orch-spec/?demo> öffnen — die App startet
 direkt mit den Beispieldaten aus `sample-data/` (ohne Ordnerauswahl, nur im
 Dev-Server; verlangt deren `model.json` eine Anmeldung, dann mit Login). Die Beispieldaten sind **echt**: sie
@@ -1436,6 +1444,18 @@ davon ausgenommen — dessen Felder sind das `In` des Prozesses.
 Der Katalog kommt aus der **OpenAPI** der Projekte — eine Quelle für alles:
 Worker, Prozesse, Benutzeraufgaben und Signale, jeweils mit ihren Ein- und
 Ausgaben. Sie beschreibt, was **tatsächlich deployed** ist.
+
+**Der Ordner gehört dazu.** Was im gewählten Ordner liegt, ist überall wählbar, bevor es
+umgesetzt ist: die Services der Collections, die Service-Orchestrierungen (als Service, den ein
+Schritt aufruft) und die Prozesse (für eine Call Activity und für eine Seite, mit ihrem In und
+Out). Was der Katalog noch nicht hat, ist **noch nicht released** – im Auswahlfeld markiert, im
+Befund eine Warnung statt eines Fehlers. Das nächste Release bringt es in den Katalog, und die
+Warnung verschwindet. Ohne Katalog wird nichts markiert.
+
+**Seite zum Benutzer-Task.** Beim Benutzer-Task legt **Seite anlegen** eine Seite an – der
+Dialog «Neu» mit Titel und Pfad des Tasks, mit Login, den Feldern seines Out und einem Button
+«Abschliessen»; mit KI auch eine Beschreibung für Claude. **Seite wählen** gibt einer bestehenden
+Seite diesen Button am Ende, mit einem Eintrag im Verlauf der Seite.
 
 **Admin → Katalog → Katalog lokal erzeugen → OpenAPI einlesen** nimmt einen Ordner und sammelt
 alle `OpenApi.yml` darunter ein; «Dateien» wählt stattdessen einzelne. Beides

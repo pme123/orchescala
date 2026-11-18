@@ -62,6 +62,36 @@ class WorkingTreeTest extends FunSuite:
     assert(os.exists(dir / "notes.txt"))
 
 
+  /** The project is a subdirectory of its git repository: `git diff` gives the paths from the root. */
+  test("a project in a subdirectory of the repository - its CHANGELOG may be edited, the restore works"):
+    val root = os.temp.dir(prefix = "orchescala-sub-")
+    val dir  = root / "my-project"
+    def git(args: String*) = os.proc("git" +: args).call(cwd = root)
+    git("init", "-q")
+    git("config", "user.email", "test@example.com")
+    git("config", "user.name", "test")
+    os.write(dir / "ProjectDef.scala", "version = \"1.0.0\"", createFolders = true)
+    os.write(dir / "CHANGELOG.md", "# Changelog")
+    os.write(root / "other.txt", "other")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    os.write.over(dir / "CHANGELOG.md", "# Changelog\n## 1.1.0")
+    WorkingTree.verifyCleanWorkingTree(dir)
+    val restore = WorkingTree.restoreForRetry(isSnapshot = false, dir)
+    PublishHelper.replaceVersion("1.1.0", dir / "ProjectDef.scala")
+    os.write(dir / "new.md", "added during the release")
+    os.proc("git", "add", "new.md").call(cwd = dir)
+    intercept[IllegalStateException](WorkingTree.verifyCleanWorkingTree(dir))
+    restore(ReleaseStep.Build)
+    WorkingTree.verifyCleanWorkingTree(dir)
+    assertEquals(os.read(dir / "ProjectDef.scala"), "version = \"1.0.0\"")
+    assert(os.exists(dir / "new.md"))
+    assertEquals(os.read(dir / "CHANGELOG.md"), "# Changelog\n## 1.1.0")
+    // a change outside the project is a change of the repository - `git commit -a` would commit it
+    os.write.over(root / "other.txt", "changed")
+    intercept[IllegalStateException](WorkingTree.verifyCleanWorkingTree(dir))
+
+
   /** Ctrl-C: the failing sbt run and the shutdown hook both ask for the restore - it runs once,
     * the second caller waits for it (the JVM ends with the hook).
     */

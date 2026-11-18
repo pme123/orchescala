@@ -22,15 +22,29 @@ object WorkingTree extends Helpers:
   /** The tracked files that differ from HEAD (staged or not) - without the CHANGELOG, the one
     * file a release edits. NUL-separated, so a path with spaces or special characters comes
     * as it is (`--porcelain` quotes them); no rename detection, so a path is always a path.
+    * The paths are relative to the root of the git repository - the CHANGELOG of a project in a
+    * subdirectory is `<subdirectory>/CHANGELOG.md`.
     * `filter`: git's `--diff-filter`, e.g. `A` for the files added to the index only.
     */
   private def changedTrackedFiles(repo: os.Path, filter: Option[String] = None): Seq[String] =
+    val changeLog = gitOut(repo, "rev-parse", "--show-prefix").trim + "CHANGELOG.md"
     os.proc(
       "git", "diff", "--name-only", "-z", "--no-renames", filter.map(f => s"--diff-filter=$f"), "HEAD"
     ).call(cwd = repo)
       .out.text().split('\u0000').toSeq
       .filter(_.nonEmpty)
-      .filterNot(_ == "CHANGELOG.md")
+      .filterNot(_ == changeLog)
+
+  /** The paths of `git diff` are relative to the root of the git repository - the project may be
+    * a subdirectory of it. So the commands that take these paths run in the root.
+    */
+  private def gitRoot(repo: os.Path): os.Path =
+    gitOut(repo, "rev-parse", "--show-cdup").trim.stripSuffix("/") match
+      case ""   => repo
+      case cdup => repo / os.RelPath(cdup)
+
+  private def gitOut(repo: os.Path, args: String*): String =
+    os.proc("git" +: args).call(cwd = repo).out.text()
 
   /** A failed release leaves its changes in the tracked files (the versions, generated docs) -
     * the next try with the same version stopped at [[verifyCleanWorkingTree]]. So they are
@@ -48,10 +62,11 @@ object WorkingTree extends Helpers:
       println(s"Restoring the working tree for the next try:\n - ${changed.mkString("\n - ")}")
       val added  = changedTrackedFiles(repo, filter = Some("A"))
       val inHead = changed.diff(added)
+      val root   = gitRoot(repo)
       if added.nonEmpty then
-        os.proc("git" +: "rm" +: "--quiet" +: "--force" +: "--cached" +: "--" +: added).call(cwd = repo)
+        os.proc("git" +: "rm" +: "--quiet" +: "--force" +: "--cached" +: "--" +: added).call(cwd = root)
       if inHead.nonEmpty then
-        os.proc("git" +: "checkout" +: "HEAD" +: "--" +: inHead).call(cwd = repo)
+        os.proc("git" +: "checkout" +: "HEAD" +: "--" +: inHead).call(cwd = root)
   end restoreWorkingTree
 
   /** `body` with the restore of a failed release - for the changes made before the

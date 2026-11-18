@@ -26,7 +26,9 @@ object SbtRuns:
       build: Seq[String] = Seq.empty,
       sbtOptions: Seq[String] = Seq.empty
   ): SbtRuns =
-    val sbt = "sbt" +: sbtOptions
+    // --server: sbt in its own JVM that ends with the run - not sbt 2's client, whose server
+    // keeps the build loaded and would not see the version the release has just written
+    val sbt = Seq("sbt", "--server") ++ sbtOptions
     SbtRuns(
       build = sbt ++ Seq("package", "packageSrc", "makePom") ++
         dockerProject.map(p => s"$p / Docker / publishLocal") ++ build,

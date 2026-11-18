@@ -10,13 +10,19 @@
 // — the collections as the project would have them, read from their generated Scala, so the
 // step shows their `In` and `Out` with the real types (local wins over the catalog).
 import { scanScala } from '../domainScan';
+import type { PField, Targets } from '../pages/designer/model';
+import { indexTypes } from '../scala';
 import { importBpmn, withStatus } from '../bpmn';
 import type { Branch, DomainType, Field, Mapping, Model, ProcessSpec, ServiceMode, ServiceParam, Step, TypeDef } from '../types';
 import { nowIsoWithTimezone, slugify, uid } from '../util';
 import { catalogProjects, collectionFromCatalog, withProjectDomain } from './catalogCollections';
 import { ORCH_MEMBER, flatSteps, orchestrationBpmn, orchestrationTopic, serviceMembers, servicesByTopic, type ServiceRef } from './orchestration';
 import { collectionFiles } from './scalaCollection';
+import { ALL_VARIANTS } from '../variants';
 import type { OrchTask, ServiceCollectionSpec, ServiceOrchestrationSpec } from './types';
+
+/** A service as the AI sees it (the context of a conversation about an orchestration). */
+export type AiService = Targets['services'][number];
 
 /** A process in service mode — with its project. */
 export type ServiceProcess = ProcessSpec & { service: ServiceMode; project: string };
@@ -128,7 +134,8 @@ export function withCollections(model: Model | null, collections: ServiceCollect
 /** All services a step can call, by topic: the collections first, then those of the catalog. */
 export function callableServices(collections: ServiceCollectionSpec[], model: Model | null): Map<string, ServiceRef> {
   const out = servicesByTopic(collections);
-  for (const p of catalogProjects(model)) {
+  // a CustomTask of the catalog (another orchestration) is called like a service: its worker runs it
+  for (const p of catalogProjects(model, { customWorkers: true })) {
     const missing = p.apis.filter(a => a.services.some(s => !out.has(s.topic ?? s.id)));
     if (!missing.length) continue;
     try {
@@ -136,6 +143,46 @@ export function callableServices(collections: ServiceCollectionSpec[], model: Mo
     } catch { /* a catalog entry that does not make a collection: not callable */ }
   }
   return out;
+}
+
+/**
+ * What a service orchestration can call, for the AI: the services a step can call (`callableServices`)
+ * with their In and Out as fields - the types named as in the step, a class of the collection with its
+ * fields (two levels), an enum with its cases; an In/Out that is a choice with each case and its fields.
+ */
+export function orchestrationTargets(collections: ServiceCollectionSpec[], model: Model | null): AiService[] {
+  return [...callableServices(collections, model).values()]
+    .map((ref) => {
+      const { in: inType, out: outType } = serviceMembers(ref);
+      const idx = indexTypes(ref.collection.types, model);
+      const fieldsOf = (t: TypeDef | undefined, depth: number): PField[] =>
+        (t?.fields ?? []).filter((f) => f.name.trim()).map((f) => {
+          const own = ref.collection.types.find((x) => x.id === f.type);
+          return {
+            name: f.name,
+            type: idx.nameOf(f.type),
+            optional: !!f.optional,
+            collection: !!f.collection,
+            ...(own?.kind === 'enum' ? { values: (own.values ?? []).map((v) => v.name) } : {}),
+            ...(own?.kind === 'case' && depth < 2 ? { fields: fieldsOf(own, depth + 1) } : {}),
+          };
+        });
+      // an In/Out that is a choice (the cases of the response, `outCases`): each case with its fields
+      const casesOf = (t: TypeDef | undefined) =>
+        t?.kind === 'enum' && t.values?.length ? t.values.map((v) => ({ name: v.name, fields: fieldsOf({ ...t, fields: v.fields }, 0) })) : undefined;
+      const inCases = ref.service.noIn ? undefined : casesOf(inType);
+      const outCases = ref.service.noOut ? undefined : casesOf(outType);
+      return {
+        topic: ref.topic,
+        name: ref.service.name,
+        ...(ref.service.description ? { descr: ref.service.description } : {}),
+        in: ref.service.noIn ? [] : fieldsOf(inType, 0),
+        out: ref.service.noOut ? [] : fieldsOf(outType, 0),
+        ...(inCases ? { inCases } : {}),
+        ...(outCases ? { outCases } : {}),
+      };
+    })
+    .sort((a, b) => a.topic.localeCompare(b.topic));
 }
 
 /** The collections behind the services — what the export needs for packages and types. */
@@ -161,9 +208,23 @@ export function asOrchestration(spec: ServiceProcess): ServiceOrchestrationSpec 
   for (const s of flatSteps(spec.steps)) {
     if (s.kind === 'service') {
       const service = topicOf(s);
-      tasks[s.id] = { ...(service ? { service } : {}), inputs: enabled(s.inputs), outputs: enabled(s.outputs) };
+      // the case of an ADT In and Out the step chose — «all cases» is no one
+      const chosen = (v: string | undefined) => (v && v !== ALL_VARIANTS ? v : undefined);
+      const inCase = chosen(s.inVariant), outCase = chosen(s.outVariant);
+      tasks[s.id] = {
+        ...(service ? { service } : {}), inputs: enabled(s.inputs), outputs: enabled(s.outputs),
+        ...(inCase ? { inCase } : {}), ...(outCase ? { outCase } : {}),
+      };
     } else if (s.kind === 'script') {
-      tasks[s.id] = { assignments: enabled(s.outputs) };
+      tasks[s.id] = {
+        assignments: enabled(s.outputs),
+        ...(s.script?.trim() ? {
+          script: s.script, ...(s.resultVariable?.trim() ? { resultVariable: s.resultVariable.trim() } : {}),
+          ...(s.resultType ? { resultType: s.resultType, ...(s.resultCollection ? { resultCollection: true } : {}) } : {}),
+        } : {}),
+        // the mapping is what counts - its FEEL a copy; it goes along without one too
+        ...(s.fieldMapping ? { mapping: s.fieldMapping } : {}),
+      };
     }
   }
   const all = spec.types ?? [];
@@ -285,8 +346,15 @@ export function fromOrchestration(o: ServiceOrchestrationSpec, refs: Map<string,
     if (s.kind === 'service' && t) {
       const outputs = outputsOf(t);
       next = { ...s, ...(t.service ? { topic: t.service, serviceId: t.service } : {}), ...(t.inputs?.length ? { inputs: t.inputs } : {}), ...(outputs ? { outputs } : {}) };
-    } else if (s.kind === 'script' && t?.assignments?.length) {
-      next = { ...s, outputs: t.assignments };
+    } else if (s.kind === 'script' && t) {
+      next = {
+        ...s, ...(t.assignments?.length ? { outputs: t.assignments } : {}),
+        ...(t.script?.trim() ? {
+          script: t.script, ...(t.resultVariable ? { resultVariable: t.resultVariable } : {}),
+          ...(t.resultType ? { resultType: t.resultType, ...(t.resultCollection ? { resultCollection: true } : {}) } : {}),
+        } : {}),
+        ...(t.mapping ? { fieldMapping: t.mapping } : {}),
+      };
     }
     if (next.branches) next = { ...next, branches: next.branches.map((b: Branch) => ({ ...b, ...(conditions[b.id] ? { condition: conditions[b.id] } : {}), steps: visit(b.steps) })) };
     if (next.children) next = { ...next, children: visit(next.children) };

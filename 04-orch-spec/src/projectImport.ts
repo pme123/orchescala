@@ -30,7 +30,7 @@ import { defaultIsUsed, packageOf, referencedClass } from './scala.ts';
 import { INTERACTION_META } from './types.ts';
 import { domainRef } from './serviceTypes.ts';
 import { enumHasCase, splitEnumCase } from './feel.ts';
-import { handleFor, readSources } from './projects.ts';
+import { handleFor, intoProject, readSources, rememberProject } from './projects.ts';
 import { uid } from './util.ts';
 import { shareCaseFields, sharedFields } from './enumCases.ts';
 
@@ -160,6 +160,48 @@ export function ownFolders(model: Model | null, id: string): ProjectFolder[] {
   return matching.filter(p => p.name.length === longest);
 }
 
+/**
+ * A folder chosen in the sync (its domain has what was looked for): remembered as the own
+ * project folder of the ID — the next sync reads it without asking again. A folder above
+ * the project counts too: the project inside it is remembered.
+ */
+export async function rememberOwnFolder(model: Model | null, id: string, dir: FileSystemDirectoryHandle): Promise<boolean> {
+  let any = false;
+  for (const p of ownFolders(model, id)) {
+    const h = await intoProject(dir, p.name).catch(() => null);
+    if (!h) continue;
+    await rememberProject(p, h);
+    any = true;
+  }
+  return any;
+}
+
+/**
+ * The sources of the own project folder of an ID (a service project: `acme-crm`) - the files
+ * themselves, not only their classes: the code sync reads the worker too. `null`: no own folder
+ * is remembered; `blocked`: there is one, but it cannot be read (then a folder or a ZIP is chosen).
+ */
+export async function findProjectSources(id: string, model: Model | null, onProgress?: (text: string) => void): Promise<{ files: ProjectFile[]; source: string } | DomainBlocked | null> {
+  const roots = new Map<string, FileSystemDirectoryHandle | null>();
+  const unreadable: string[] = [];
+  for (const p of ownFolders(model, id)) {
+    const handle = await handleFor(p, roots).catch(() => null);
+    if (!handle) { unreadable.push(p.name); continue; }
+    onProgress?.(`${p.name} wird gelesen …`);
+    const files: ProjectFile[] = [];
+    try {
+      await readSources(handle, p.name, files, () => {});
+    } catch (e) {
+      const access = e instanceof DOMException && ['NotAllowedError', 'NotFoundError', 'SecurityError'].includes(e.name);
+      if (!access) throw e;
+      unreadable.push(p.name);
+      continue;
+    }
+    return { files, source: `Ordner ${p.name}` };
+  }
+  return unreadable.length ? { blocked: true, unreadable } : null;
+}
+
 async function searchDomain(
   target: DomainTarget, model: Model | null, onProgress: ((text: string) => void) | undefined, stopIfOwnUnreadable: boolean,
 ): Promise<DomainHit | DomainBlocked | null> {
@@ -245,6 +287,11 @@ export class Converter {
     private readonly interactionOwners: Set<string> = new Set(),
     /** the process object itself (`OrderCard`) — what is in it belongs to the specification */
     private readonly processOwner?: string,
+    /**
+     * Which classes are its own - instead of all of the package: a service orchestration shares the
+     * schema of its API with the services of it, so only the classes the spec has as its own
+     */
+    private readonly ownOnly?: (t: DomainType) => boolean,
   ) {}
 
   /** Does the type belong to the project of the process (same package root)? */
@@ -260,6 +307,7 @@ export class Converter {
    * exist: they are referenced (otherwise the export would write them again).
    */
   private ownProcess(t: DomainType): boolean {
+    if (this.ownOnly) return this.ownOnly(t);
     const inProcessObject = !!t.owner && t.owner === this.processOwner;
     return (!t.owner || inProcessObject) && (t.pkg === this.pkg || t.pkg.startsWith(`${this.pkg}.`));
   }
@@ -641,6 +689,36 @@ export function isFixed(name: string): boolean {
   const t = name.trim();
   if (t.startsWith('=')) return /^=\s*"(?:[^"\\]|\\.)*"\s*$/.test(t);
   return !t.includes('{');
+}
+
+/**
+ * A service orchestration (a process in service mode) with its classes from the domain: its
+ * CustomTask object - found by its `topicName` - gives the In and the Out, and the classes of its
+ * `schema` belong to it. The flow and the steps stay (the worker is read apart, see workerSync.ts).
+ * `null` if the domain does not have the object.
+ */
+export function enrichServiceSpec(spec: ProcessSpec, domain: DomainType[], model: Model | null, topic: string): Enriched | null {
+  const object = domain.find(t => t.topicName === topic && t.owner);
+  if (!object) return null;
+  const owner = object.owner!;
+  const pkg = object.pkg;
+  const interactionOwners = new Set(domain.filter(t => t.owner && objectKind(t)).map(t => t.owner!));
+  // its own classes: those the spec has as its own (by name) - the others are of the API's services
+  const ownNames = new Set((spec.types ?? []).filter(t => !t.root && !t.processOut && !t.interactionId).map(t => t.name));
+  const ownOnly = (t: DomainType) => !t.owner && ownNames.has(t.name);
+  const conv = new Converter(domain, pkg, model, interactionOwners, owner, ownOnly);
+  const member = (name: string) => domain.find(t => t.id === `${pkg}.${owner}.${name}`) ?? null;
+  const inT = member('In');
+  if (inT && (inT.kind === 'case' || inT.kind === 'enum')) conv.convert(inT, { root: true }, 'In');
+  const outT = member('Out');
+  if (outT && (outT.kind === 'case' || outT.kind === 'enum')) conv.convert(outT, { processOut: true }, 'Out');
+  for (const d of domain) {
+    if (ownOnly(d) && d.pkg === `${pkg}.schema` && (d.kind === 'case' || d.kind === 'enum')) conv.convert(d, {});
+  }
+  return {
+    spec: { ...spec, ...(object.ownerDescr && !spec.description ? { description: object.ownerDescr } : {}), types: conv.types },
+    object: owner, matched: [], unmatched: [], unresolved: [...conv.unresolved].sort(), warnings: [], notes: conv.notes, prepared: [],
+  };
 }
 
 /**

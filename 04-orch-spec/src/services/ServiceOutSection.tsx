@@ -2,8 +2,8 @@
 // against the process variables (empty: the variable of the same name), an `Out` with cases
 // per case. The `Out` itself is the one of the data model (role «Out»).
 import { useMemo } from 'react';
-import { processVariables } from '../feel';
-import type { Mapping, Model, ProcessSpec } from '../types';
+import { expectedFor, processVariables } from '../feel';
+import type { Field, Mapping, Model, ProcessSpec } from '../types';
 import { cls } from '../ui';
 import { MappingRow, OutCasesEditor } from './CollectionView';
 import type { ServiceProcess } from './serviceProcess';
@@ -25,6 +25,15 @@ export default function ServiceOutSection({ spec, model, isDark, canEdit, onChan
   const out = types.find(t => t.processOut);
   const vars = useMemo(() => processVariables(spec, model), [spec, model]);
   const same = (name: string) => vars.some(v => v.name === name);
+  // without a mapping: the variable of the same name - otherwise the one of its type (as the export takes it)
+  const ofType = (f: Field): string | undefined => {
+    const label = expectedFor(f, types, model)?.label;
+    const all = label ? vars.filter(v => v.label === label) : [];
+    // of several the one a script sets
+    const hits = all.length > 1 ? all.filter(v => v.source.startsWith('Ergebnis von')) : all;
+    return hits.length === 1 ? hits[0].name : undefined;
+  };
+  const implicit = (f: Field): string | undefined => (same(f.name) ? f.name : ofType(f));
   const setService = (patch: Partial<ServiceProcess['service']>) => onChange({ ...spec, service: { ...spec.service, ...patch } });
   return (
     <div className="space-y-1.5">
@@ -37,7 +46,7 @@ export default function ServiceOutSection({ spec, model, isDark, canEdit, onChan
         <>
           <p className={`text-[10px] ${c.muted}`}>
             Je Feld des <button onClick={() => onEditType(out.id)} className="font-mono hover:underline">Out</button>, woher es kommt —
-            FEEL auf die Prozessvariablen; leer: die Variable gleichen Namens.
+            FEEL auf die Prozessvariablen; leer: die Variable gleichen Namens, sonst die eine ihres Typs.
           </p>
           {out.kind === 'enum' ? (
             <OutCasesEditor type={out} cases={spec.service.outCases} types={types} vars={vars} canEdit={canEdit} isDark={isDark}
@@ -46,9 +55,9 @@ export default function ServiceOutSection({ spec, model, isDark, canEdit, onChan
               noMatch={<>trifft keiner zu, scheitert der Worker mit <span className="font-mono">CustomError</span></>}
               onChange={outCases => setService({ outCases: outCases.length ? outCases : undefined })} />
           ) : (out.fields ?? []).filter(f => f.name).map(f => (
-            <MappingRow key={f.id} target={f} types={types} placeholder={same(f.name) ? `= ${f.name}` : '= …'}
+            <MappingRow key={f.id} target={f} types={types} placeholder={implicit(f) ? `= ${implicit(f)}` : '= …'}
               value={(spec.service.outMappings ?? []).find(m => m.name === f.name)?.expression ?? ''}
-              vars={vars} canEdit={canEdit} isDark={isDark} required={!same(f.name)}
+              vars={vars} canEdit={canEdit} isDark={isDark} required={!implicit(f)}
               onChange={expression => setService({ outMappings: upsert(spec.service.outMappings, f.name, expression) })} />
           ))}
           {out.kind !== 'enum' && !(out.fields ?? []).some(f => f.name) && (

@@ -5,19 +5,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DOMParser } from 'linkedom';
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import { allSteps, importBpmn } from '../src/bpmn';
-import { runTurn, type Send } from '../src/ai/agent';
-import { insertDecision, insertErrorPath, insertStep, removeStep, renameElement } from '../src/ai/bpmnEdit';
+// through the entry of the core (src/core), as the studio uses it - XML from linkedom
 import {
-  newProcessErrors, processDraftChanged, processOutline, processToolKit, runProcessTool, startProcessDraft, type ProcessContext,
-} from '../src/ai/processTools';
-import type { Model, ProcessSpec } from '../src/types';
-import { installXmlNamespaces } from './xmlNamespaces';
+  allSteps, importBpmn, insertDecision, insertErrorPath, insertStep, installNodeDom, newProcessErrors, processDraftChanged,
+  processOutline, processToolKit, removeStep, renameElement, runProcessTool, runTurn, startProcessDraft,
+  type Model, type ProcessContext, type ProcessSpec, type Send,
+} from '../src/core';
 
-const g = globalThis as unknown as Record<string, unknown>;
-g.DOMParser ??= DOMParser;
-g.XMLSerializer ??= class { serializeToString(doc: { toString(): string }) { return doc.toString(); } };
-installXmlNamespaces();
+installNodeDom(DOMParser);
 
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="d" targetNamespace="x">

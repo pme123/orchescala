@@ -5,16 +5,16 @@ import { test } from 'node:test';
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import Anthropic from '@anthropic-ai/sdk';
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import { runTurn, withPrompt, type AgentEvent, type AgentRequest, type Send } from '../src/ai/agent';
-import { errorText, studioBaseUrl } from '../src/ai/client';
-import { dataModelText, pageSystem } from '../src/ai/context';
-import { addUsage, costUsd, NO_USAGE, usageLine, usageOf } from '../src/ai/cost';
-import { changedKeys, pageDiff } from '../src/ai/diff';
-import { AI_OFF, aiFor, anyAi, CONFIG_PATH, forgetBrowserKey, loadConfig, OLD_BROWSER_KEYS, parseConfig } from '../src/ai/config';
-import { draftChanged, newErrors, outlineOf, pageToolKit, runPageTool, startDraft, type PageContext } from '../src/ai/pageTools';
-import { flatten, targetsOf, withIds } from '../src/pages/designer/model';
-import type { Page } from '../src/pages/runtime/spec';
-import type { Model } from '../src/types';
+// the logic through the entry of the core (src/core), as the studio uses it; the browser parts
+// (the client of the studio, the stored key) from their modules
+import {
+  addUsage, AI_OFF, aiFor, anyAi, changedKeys, CONFIG_PATH, costUsd, dataModelText, draftChanged, flatten, loadConfig, newErrors,
+  NO_USAGE, outlineOf, pageDiff, pageSystem, pageToolKit, parseConfig, runPageTool, runTurn, startDraft, targetsOf, usageLine,
+  usageOf, withIds, withPrompt,
+  type AgentEvent, type AgentRequest, type Model, type Page, type PageContext, type Send,
+} from '../src/core';
+import { errorText } from '../src/ai/client';
+import { forgetBrowserKey, OLD_BROWSER_KEYS } from '../src/ai/useAiConfig';
 
 const pkg = 'acme.shop.domain';
 const model = {
@@ -89,13 +89,11 @@ test('the AI per task - only the tasks with a skill in the studio show AI', () =
   assert.equal(aiFor(AI_OFF, 'uiCreator'), false);
 });
 
-test('the key once stored in the browser is removed; the SDK goes to the route of its task in the studio', () => {
+test('the key once stored in the browser is removed', () => {
   const map = new Map(OLD_BROWSER_KEYS.map((k) => [k, 'sk-ant-old'] as [string, string]));
   forgetBrowserKey({ removeItem: (k) => void map.delete(k) });
   assert.equal(map.size, 0);
   assert.doesNotThrow(() => forgetBrowserKey({ removeItem: () => { throw new Error('blocked'); } }));
-  assert.equal(studioBaseUrl('uiCreator', 'https://studio.example.ch'), 'https://studio.example.ch/ai/uiCreator');
-  assert.equal(studioBaseUrl('processCreator', 'https://studio.example.ch/site/spec/'), 'https://studio.example.ch/ai/processCreator');
 });
 
 // ---------------------------------------------------------------- the tools on the draft
@@ -173,7 +171,7 @@ test('tools - read the draft and other pages (read only), check, report an open 
   const check = runPageTool('check_page', {}, withCall.draft, ctx);
   // the same findings as the designer: public page without «public», unknown service
   assert.match(check.content, /error \[2\]: Button «Buchen»: auf einer öffentlichen Seite/);
-  assert.match(check.content, /warning \[2\]: .*kennt der Katalog nicht/);
+  assert.match(check.content, /warning \[2\]: .*gibt es weder im Ordner noch im Katalog/);
 });
 
 test('newErrors - only the errors the draft brought, not those the page already had', () => {

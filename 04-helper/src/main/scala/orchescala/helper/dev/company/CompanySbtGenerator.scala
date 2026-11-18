@@ -1,6 +1,7 @@
 package orchescala.helper.dev.company
 
 import orchescala.BuildInfo
+import orchescala.engine.config.SbtCode
 import orchescala.engine.domain.EngineType
 import orchescala.helper.dev.update.*
 import orchescala.helper.util.SbtConfig
@@ -40,7 +41,7 @@ case class CompanySbtGenerator(
   private lazy val gatewaySettings  =
     Seq("dockerSettings") ++ Option.when(hasGatewayDocker)("dockerBuildSettings") ++
       Seq("unitTestSettings", "zioTestSettings")
-  private lazy val companyNameUpper = companyName.toUpperCase()
+  private lazy val companyNameUpper = SbtCode.companyEnvPrefix(companyName)
 
   private lazy val projectDev =
     s"""import sbtbuildinfo.BuildInfoPlugin.autoImport.BuildInfoKey
@@ -92,11 +93,12 @@ case class CompanySbtGenerator(
        |  val projectName = ProjectDef.name
        |
        |  def buildInfoSettings() = Seq(
+       |    // BuildInfoKey(...) around the keys: Scala 3 (sbt 2) converts them only in .sbt files
        |    buildInfoKeys := Seq[BuildInfoKey](
        |      BuildInfoKey("name", s"$$projectOrg-orchescala"),
-       |      version,
-       |      scalaVersion,
-       |      sbtVersion,
+       |      BuildInfoKey(version),
+       |      BuildInfoKey(scalaVersion),
+       |      BuildInfoKey(sbtVersion),
        |      BuildInfoKey("orchescalaV", orchescalaV),
        |    ) ++ ProjectDef.additionalBuildInfoKeys,
        |    buildInfoPackage := s"$$projectOrg.orchescala"
@@ -106,7 +108,8 @@ case class CompanySbtGenerator(
        |    scalaVersion := scalaV,
        |    autoImportSetting(module),
        |    scalacOptions ++= Seq(
-       |      "-Xmax-inlines:200" // is declared as erased, but is in fact used
+       |      "-Xmax-inlines:200", // is declared as erased, but is in fact used
+       |      "-Xmax-fuel:2000" // Scala 3.10: the derivation of large classes needs more than the default 550
        |      // "-Vprofile",
        |    ),
        |    resolvers ++= Seq(releaseRepo),
@@ -152,7 +155,7 @@ case class CompanySbtGenerator(
        |    // cross versions, which sbt refuses. The engine works fine with
        |    // geny_3, so the 2.13 one is excluded here as well as upstream.
        |    ("io.github.pme123" %% "orchescala-dmntester-server" % orchescalaV)
-       |      .exclude("com.lihaoyi", "geny_2.13")
+       |      .excludeAll(ExclusionRule("com.lihaoyi", "geny_2.13"))
        |  )
        |  lazy val simulationDeps = Seq(
        |    "io.github.pme123" %% "orchescala-simulation" % orchescalaV,
@@ -269,6 +272,8 @@ case class CompanySbtGenerator(
        |ThisBuild / organization := projectOrg
        |ThisBuild / versionScheme := Some("early-semver")
        |ThisBuild / onLoadMessage := loadingMessage
+       |// sbt 2 keeps the build loaded in a server - reload it when `./helper.scala update` changed it
+       |Global / onChangedBuildSource := ReloadOnSourceChanges
        |
        |lazy val root = (project in file("."))
        |  .settings(name := projectName, sourcesInBase := false)
@@ -358,8 +363,6 @@ case class CompanySbtGenerator(
        |addSbtPlugin("com.github.sbt" % "sbt-ci-release" % "${BuildInfo.sbtCiRelease}")
        |
        |addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "${BuildInfo.sbtBuildInfo}")
-       |
-       |addDependencyTreePlugin // sbt dependencyBrowseTreeHTML -> target/tree.html
        |""".stripMargin
 
 end CompanySbtGenerator

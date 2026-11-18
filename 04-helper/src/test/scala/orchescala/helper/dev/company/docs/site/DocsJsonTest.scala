@@ -65,6 +65,37 @@ class DocsJsonTest extends FunSuite:
     os.write(docs / "src" / "docs" / "index.md", "# Acme Process Documentation\n", createFolders = true)
     docs
 
+  test("docs.json: an empty group does not take the projects of the next group"):
+    val docs = miniDocs()
+    os.write.over(
+      docs / "src" / "docs" / "index.md",
+      """# Acme Process Documentation
+        |
+        |    subgraph partner
+        |
+        |    end
+        |
+        |
+        |    subgraph services
+        |    acme-fil-is(acme-fil-is)
+        |    end
+        |
+        |   style partner fill:#ddd,color:pink,stroke:pink;
+        |   style services fill:#ddd,color:blue,stroke:blue;
+        |""".stripMargin
+    )
+    val out  = os.temp.dir(prefix = "docs-json-groups")
+    val r    = DocsJson.write(docs, out)
+    val c    = parse(os.read(r.docsJson)).toOption.get.hcursor
+    assertEquals(
+      c.downField("groups").as[Seq[Json]].toOption.get.flatMap(_.hcursor.get[String]("name").toOption),
+      Seq("partner", "services")
+    )
+    assertEquals(
+      c.downField("projects").as[Seq[Json]].toOption.get.map(_.hcursor.get[String]("group").toOption),
+      Seq(Some("services"))
+    )
+
   test("index.json links the apps - specUrl and opsUrl, and leaves out what is None"):
     val docs = miniDocs()
     val out  = os.temp.dir(prefix = "docs-json-apps")

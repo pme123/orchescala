@@ -20,7 +20,7 @@ import java.io.InputStream
   */
 trait DmnEvalEngine:
 
-  /** e.g. "dmn-scala 1.11.0 (feel-scala 1.20.0) - Camunda 8 semantics" */
+  /** e.g. "dmn-scala 1.12.6 (feel-scala 1.22.1) - Camunda 8 semantics" */
   def name: String
 
   def parse(

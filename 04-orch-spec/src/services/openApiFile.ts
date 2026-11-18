@@ -2,8 +2,20 @@
 // creating one: the new collection then opens with the import of that file.
 import { load } from 'js-yaml';
 import { apiProblem, readApi, suggestApis, inPathPrefix } from './openApiRest';
+import { SERVICES_DIR } from './servicePayload';
 
-export interface OpenApiFile { doc: unknown; file: string }
+/** `text`: the file as it was read - the collection keeps it (see storedOpenApiPath) */
+export interface OpenApiFile { doc: unknown; file: string; text: string }
+
+/**
+ * Where a collection keeps the OpenAPI it was imported from - next to it, in its own folder (the
+ * list of `services/` reads only the files at its top): `services/openapi/<slug>.yml`, the
+ * ending of the file it came from.
+ */
+export function storedOpenApiPath(slug: string, file: string): string {
+  const ending = /\.(json|ya?ml)$/i.exec(file)?.[0].toLowerCase() ?? '.yml';
+  return `${SERVICES_DIR}/openapi/${slug}${ending}`;
+}
 
 /** The file as a document — YAML or JSON, an OpenAPI 3 or a Swagger 2.0. */
 export function parseOpenApi(text: string, file: string): { ok: true; value: OpenApiFile } | { ok: false; message: string } {
@@ -14,7 +26,7 @@ export function parseOpenApi(text: string, file: string): { ok: true; value: Ope
     return { ok: false, message: `«${file}» ist nicht lesbar: ${e instanceof Error ? e.message : String(e)}` };
   }
   const problem = apiProblem(doc);
-  return problem ? { ok: false, message: `«${file}»: ${problem}` } : { ok: true, value: { doc, file } };
+  return problem ? { ok: false, message: `«${file}»: ${problem}` } : { ok: true, value: { doc, file, text } };
 }
 
 export async function readOpenApiFile(f: File): Promise<ReturnType<typeof parseOpenApi>> {
@@ -45,7 +57,7 @@ export function handOverOpenApi(slug: string, o: OpenApiFile): void {
 /** the file chosen when creating this collection — once */
 export function takeOpenApi(slug: string): OpenApiFile | null {
   if (!pending || pending.slug !== slug) return null;
-  const { doc, file } = pending;
+  const { doc, file, text } = pending;
   pending = null;
-  return { doc, file };
+  return { doc, file, text };
 }

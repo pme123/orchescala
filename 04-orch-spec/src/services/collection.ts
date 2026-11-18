@@ -6,8 +6,8 @@
 //     → super trait ClientV1 (extends CompanyBpmnServiceTaskDsl)
 //     → topics      acme-crm-clientV1.GetClient
 //
-// A collection has one project, its services may belong to several APIs
-// (`client.v1`, `crm.v2`) — each service carries its own.
+// A collection has one project and one API with its version — its services all belong to it
+// (they carry it too, as the collection has it).
 import { STATUSES, type Field, type Mapping, type ProcessSpec, type Status, type TypeDef } from '../types.ts';
 import { nowIsoWithTimezone, slugify } from '../util.ts';
 import { capitalize, headerVar } from './names.ts';
@@ -17,9 +17,9 @@ import type { CollectionService, ServiceCollectionSpec } from './types';
 /** One API of a project — what package, trait and topics are derived from. */
 export interface ApiRef { project: string; api: string; apiVersion: number }
 
-/** The API of a service — its own, otherwise the default of the collection (older files). */
-export const apiOf = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>, s: Partial<Pick<CollectionService, 'api' | 'apiVersion'>>): ApiRef =>
-  ({ project: c.project, api: s.api || c.api, apiVersion: s.apiVersion || c.apiVersion });
+/** The API of a service — the one of its collection: a collection has one API, in one version. */
+export const apiOf = (c: Pick<ServiceCollectionSpec, 'project' | 'api' | 'apiVersion'>, _s?: Partial<Pick<CollectionService, 'api' | 'apiVersion'>>): ApiRef =>
+  ({ project: c.project, api: c.api, apiVersion: c.apiVersion });
 
 /** The APIs of a collection, in the order of their first service — `client.v1`, `crm.v2`. */
 export function apisOf(c: ServiceCollectionSpec): ApiRef[] {
@@ -37,10 +37,10 @@ export const sameApi = (a: Pick<ApiRef, 'api' | 'apiVersion'>, b: Pick<ApiRef, '
 /** `client v1, crm v2` */
 export const apiList = (c: ServiceCollectionSpec): string => apisOf(c).map(a => `${a.api} v${a.apiVersion}`).join(', ');
 
-/** Older files have the API only on the collection — every service gets it. */
+/** Every service carries the API of its collection — another one it had is replaced. */
 export function withServiceApis(c: ServiceCollectionSpec): ServiceCollectionSpec {
-  if (c.services.every(s => s.api && s.apiVersion)) return c;
-  return { ...c, services: c.services.map(s => ({ ...s, api: s.api || c.api, apiVersion: s.apiVersion || c.apiVersion })) };
+  if (c.services.every(s => s.api === c.api && s.apiVersion === c.apiVersion)) return c;
+  return { ...c, services: c.services.map(s => ({ ...s, api: c.api, apiVersion: c.apiVersion })) };
 }
 
 
@@ -60,12 +60,13 @@ export const apiParents = (api: string): string[] => api.split('.').slice(0, -1)
 
 /**
  * The packages of shared classes for an API, nearest first:
- * `acme.crm.domain.clientMaster.schema` — and the `schema` of each level above.
+ * `acme.crm.domain.clientMaster.schema` — the `schema` of each level above — and the one of the
+ * domain itself, `acme.crm.domain.schema` (for an API without levels the only one).
  */
 export function hierarchySchemaPackages(c: Pick<ServiceCollectionSpec, 'project' | 'api'>): string[] {
   const stem = [...c.project.split('-').filter(Boolean), 'domain'];
   const parents = apiParents(c.api);
-  return parents.map((_, i) => [...stem, ...parents.slice(0, parents.length - i), 'schema'].join('.'));
+  return [...parents.map((_, i) => [...stem, ...parents.slice(0, parents.length - i), 'schema'].join('.')), [...stem, 'schema'].join('.')];
 }
 
 /** `acme.crm.domain.client.v1` — nested: `acme.crm.domain.clientMaster.multipleNaturalPersons.v1` */

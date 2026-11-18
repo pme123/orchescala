@@ -15,6 +15,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.10.0 - 2026-11-18
+### Changed 
+- Major updates: vite 8, TypeScript 7, dmn-js 18, lucide-react 1, HikariCP 7, testcontainers 2 (#163) - see [Commit](https://github.com/pme123/orchescala/commit/69d29d5e55ec90bad307c5be2a6118b68c7c44f9)
+- sbt 2.1.0 for orchescala and the generated company and project builds (#162) - see [Commit](https://github.com/pme123/orchescala/commit/b59c823ec78d9afd54a8e3463aaac0ce42862cf9)
+- Orch Spec: «Mit Code abgleichen» for service orchestrations, copy and paste between Orch Spec places (#160) - see [Commit](https://github.com/pme123/orchescala/commit/71edd858b183bca78e65eb18528fc9d7dc55cb36)
+- Scala 3.10 follow-ups: fuel limit in generated builds, upgrade order, source-map-js 1.2.2 (#161) - see [Commit](https://github.com/pme123/orchescala/commit/40005546f6fdfb8a568912956928518aaf6665f8)
+- Dependency updates: Scala 3.10.1, sbt 1.13.1, libraries, sbt plugins and frontends (#159) - see [Commit](https://github.com/pme123/orchescala/commit/13b75cb61c65faff119fc579ee3d372a195b06d8)
+- Orch Spec: type mappers in the code, mappings onto enums with cases, mapping methods in ZIO (#158) - see [Commit](https://github.com/pme123/orchescala/commit/7c0b3e461c5fa06a19d84f7e7cc9e15338dfb791)
+- Orch Spec: a script task of a service orchestration as a field mapping - lines from In to Out, type mappers (#157) - see [Commit](https://github.com/pme123/orchescala/commit/4ebbc1bb2c629136174413b09d89066657d7761b)
+- Orch Spec outputs: the type comes from the source, not from the name of the target (#155) - see [Commit](https://github.com/pme123/orchescala/commit/e7b4ea1ac24c7d09443764c9871dff0db5301fae)
+- Skills: names in the language of the domain, English by default (#156) - see [Commit](https://github.com/pme123/orchescala/commit/00f6d483ad8f1a5432b18a171d81b961109969ee)
+- Orch Spec: a Groovy list imports as FEEL, choosing a service fills the source of its outputs (#154) - see [Commit](https://github.com/pme123/orchescala/commit/3ec03a1ca043a3a673f81dc4a9d647fab9c6f91b)
+- AI: the loop runs only on the studio - the browser loop, POST /ai/<task>/v1/messages and STUDIO_AI_AGENT are gone (#153) - see [Commit](https://github.com/pme123/orchescala/commit/c49dbd6ef7a28c2563507935018537f6a4f0de4f)
+- Orch Spec collections: the Abgleich names the missing API and lists what the project no longer has (#152) - see [Commit](https://github.com/pme123/orchescala/commit/b5baa2c0afefdb3b148b3d2aae69fbd3700f772c)
+- Orch Spec: the own instance is always camunda.processInstance - in C7 too, mapped on import and export (#151) - see [Commit](https://github.com/pme123/orchescala/commit/c1b4c5870e63b3f6bb7067ae3ddc60a6c10a2e8e)
+- Publish: the release check names the artifacts as sbt does - a name in camel case in lower case (#150) - see [Commit](https://github.com/pme123/orchescala/commit/d814e48a4b1925760dbb08141d9619cc4270ea4b)
+- Orch Spec collections: the OpenAPI kept, one API each, collections of classes, JUEL guards read back (#149) - see [Commit](https://github.com/pme123/orchescala/commit/0a63f42a22990d18ced6d58a2928e02dc9b11da2)
+- orch-spec: gateway mappings between C7 and C8 - an output becomes a listener, counters stay null-safe (#148) - see [Commit](https://github.com/pme123/orchescala/commit/9317afd1b80a0dfd2bb73b7eb07ef71f9367387f)
+- The loop of the agent on the studio, with the limits of the skill (E28, step 5) (#147) - see [Commit](https://github.com/pme123/orchescala/commit/a51fc2632c3d481110649c9cff4b5f87e322964a)
+- Orch Spec orchestrations: a match per gateway, typed mappings, script tasks in FEEL, a worker test (#146) - see [Commit](https://github.com/pme123/orchescala/commit/f608c98e134bd06b4d295272b8ff5a8e4a25cdce)
+- orch-spec: the folder as a whole with the catalog («noch nicht released»), a page for a user task (E28, step 4) (#145) - see [Commit](https://github.com/pme123/orchescala/commit/fca91124446de68f84883f581efc060f832f783d)
+- orch-spec: the process and the page stay as they are while Claude works on a draft (#144) - see [Commit](https://github.com/pme123/orchescala/commit/46a2de4ff1b9fe5a660d797d8ff382701edd173b)
+- Orch Studio in TypeScript: the same contract on Node 22, one image the company configures (E28, step 3) (#143) - see [Commit](https://github.com/pme123/orchescala/commit/f5764a6f75bf887ad04f48252b7001ef85146352)
+- Orch Spec: Abgleich and types from the hierarchy, merge from Orch Spec into the code (#142) - see [Commit](https://github.com/pme123/orchescala/commit/9d6f25ffb67900d5f9598945e7630421c633ac41)
+- orch-spec: the core as one entry for the studio, its boundary on CI (E28, step 2) (#141) - see [Commit](https://github.com/pme123/orchescala/commit/e7eeb1fff365d6ee697fc4cd79a88e17fdb49cef)
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](https://github.com/pme123/orchescala/commit/d8eb3cda3dc3150e807c5d8de2adcac780816481)
+- orch-spec: the page differences back in TypeScript, orch-spec-core removed (E28, step 1) (#140) - see [Commit](https://github.com/pme123/orchescala/commit/88eb630713391e714dc4e20d799ebb52fb96388c)
+- orch-spec: test that it works without a server (E28, step 0) (#139) - see [Commit](https://github.com/pme123/orchescala/commit/7f1ad96e93937d3e42cd5d03b68ea49984a74123)
+- Merge remote-tracking branch 'origin/develop' into develop - see [Commit](https://github.com/pme123/orchescala/commit/9b249823491e78c2a8cedd42be514f241f471bb2)
+- Docs: every project of a company in its group of the dependency graph - see [Commit](https://github.com/pme123/orchescala/commit/24eb0a27d1ac195f20bf05bfba259396a5bab9c8)
+- Generated build: no company-specific fallback - the repo variables are required (#138) - see [Commit](https://github.com/pme123/orchescala/commit/b7682dd3e23b418e51bd8d0b0e466e7935356605)
+- Generated sbt build: the repos and the docker settings from the env variables of the company (#137) - see [Commit](https://github.com/pme123/orchescala/commit/4a5035b61912ed8a9a0b8be615061b25eb0eefe0)
+- Publish: the CHANGELOG may be edited for a project in a subdirectory of its repository (#136) - see [Commit](https://github.com/pme123/orchescala/commit/2ac0caae3044cae8b5d15d55465fdb4a906a5b74)
+- orch-spec AI: an In/Out with cases shows its cases; ambiguous classes by package (#135) - see [Commit](https://github.com/pme123/orchescala/commit/34445bce22901540726cb239406a0eaf1ab6a5df)
+- orch-spec AI: the data model of processes and orchestrations; the services as a step sees them (#134) - see [Commit](https://github.com/pme123/orchescala/commit/f8e1e05580d14cabc677a3de7654b34ed6c8085f)
+- Orch Studio: skills for processes and service orchestrations (#133) - see [Commit](https://github.com/pme123/orchescala/commit/441db152c981c9d06cd6104d613061857b5ca393)
+- Changelog 0.9.0: structured by area, with notes for upgrading - all commits kept below - see [Commit](https://github.com/pme123/orchescala/commit/db747d63d755ac7f151f17d3a25491dc883189f5)
+
 ## 0.9.0 - 2026-11-08
 
 ### To note when upgrading

@@ -8,7 +8,7 @@
 import type {
   BetaContentBlock, BetaMessage, BetaMessageParam, BetaTextBlockParam, BetaTool, BetaToolResultBlockParam, BetaToolUseBlock,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import { addUsage, NO_USAGE, usageOf, type Usage } from './cost';
+import { addUsage, costUsd, NO_USAGE, usageOf, type Usage } from './cost';
 import { failed, type ToolKit, type ToolOutcome } from './toolkit';
 
 /** What a request needs besides the fixed settings (model, effort …) - those are added by `send`. */
@@ -23,8 +23,9 @@ export type AgentEvent =
   /** after every request: the usage of the whole turn so far */
   | { kind: 'usage'; usage: Usage };
 
-/** `context`: the conversation no longer fits the context window of the model */
-export type Stop = 'done' | 'max_steps' | 'max_tokens' | 'context' | 'refusal' | 'cancelled' | 'error';
+/** `context`: the conversation no longer fits the context window of the model; `max_cost`: the turn
+  * cost what its skill allows (`usd_per_turn`, on the studio) */
+export type Stop = 'done' | 'max_steps' | 'max_cost' | 'max_tokens' | 'context' | 'refusal' | 'cancelled' | 'error';
 
 export type TurnResult<D> = {
   history: BetaMessageParam[];
@@ -96,6 +97,8 @@ export async function runTurn<D>(o: {
   signal?: AbortSignal;
   maxSteps?: number;
   maxCorrections?: number;
+  /** the most a turn may cost (costUsd) - checked before each request, like the steps; none: no limit */
+  maxUsd?: number;
 }): Promise<TurnResult<D>> {
   const maxSteps = o.maxSteps ?? MAX_STEPS;
   const maxCorrections = o.maxCorrections ?? MAX_CORRECTIONS;
@@ -108,6 +111,7 @@ export async function runTurn<D>(o: {
   const step = async (s: State<D>): Promise<TurnResult<D>> => {
     if (o.signal?.aborted) return end(s, 'cancelled');
     if (s.steps >= maxSteps) return end(s, 'max_steps');
+    if (o.maxUsd !== undefined && costUsd(s.usage) >= o.maxUsd) return end(s, 'max_cost');
     const sent = await o.send({ system: o.system, tools: o.kit.tools, messages: s.history }, o.signal)
       .then((message) => ({ message }), (error: unknown) => ({ error }));
     if ('error' in sent) return end(s, o.signal?.aborted ? 'cancelled' : 'error', sent.error);

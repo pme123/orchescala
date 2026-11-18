@@ -1,7 +1,7 @@
 package orchescala.helper.dev.company
 
 import orchescala.api.VersionHelper
-import orchescala.helper.util.DevConfig
+import orchescala.helper.util.{DevConfig, ScalaCliDirectives}
 
 case class CompanyScriptCreator()(using config: DevConfig):
 
@@ -9,7 +9,7 @@ case class CompanyScriptCreator()(using config: DevConfig):
     s"""#!/usr/bin/env -S scala shebang
        |$helperCompanyDoNotAdjustText
        |
-       |//> using dep io.github.pme123::orchescala-helper:${VersionHelper.orchescalaVersion}
+       |${ScalaCliDirectives(s"io.github.pme123::orchescala-helper:${VersionHelper.orchescalaVersion}")}
        |
        |import orchescala.helper.dev.DevCompanyHelper
        |
@@ -22,7 +22,7 @@ case class CompanyScriptCreator()(using config: DevConfig):
     s"""#!/usr/bin/env -S scala shebang
        |$helperCompanyDoNotAdjustText
        |
-       |//> using dep ${config.companyName}::${config.companyName}-orchescala-helper:${config.versionConfig.companyOrchescalaVersion}
+       |${ScalaCliDirectives(s"${config.companyName}::${config.companyName}-orchescala-helper:${config.versionConfig.companyOrchescalaVersion}")}
        |
        |import ${config.companyName}.orchescala.helper.*
        |

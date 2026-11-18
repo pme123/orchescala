@@ -9,7 +9,7 @@ object Settings {
 
   lazy val projectVersion =
     Using(scala.io.Source.fromFile("version"))(_.mkString.trim).get
-  val scalaV = "3.8.3"
+  val scalaV = "3.10.1"
   val org = "io.github.pme123"
 
   def projectSettings(projName: String) = Seq(
@@ -43,13 +43,13 @@ object Settings {
   lazy val githubUrl = "https://github.com/pme123/orchescala"
   lazy val publicationSettings = Seq(
     organization := "io.github.pme123",
-    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
-    homepage := Some(url(githubUrl)),
+    licenses += License.MIT,
+    homepage := Some(uri(githubUrl)),
     startYear := Some(2021),
     // logLevel := Level.Debug,
     scmInfo := Some(
       ScmInfo(
-        url(githubUrl),
+        uri(githubUrl),
         "scm:git:github.com:/pme123/orchescala"
       )
     ),
@@ -60,7 +60,7 @@ object Settings {
       id = "pme123",
       name = "Pascal Mengelt",
       email = "pascal.mengelt@gmail.com",
-      url = url("https://github.com/pme123")
+      url = uri("https://github.com/pme123")
     )
   )
   lazy val preventPublication = Seq(
@@ -87,7 +87,8 @@ object Settings {
   lazy val mdocSettings = Seq(
     mdocIn                    := baseDirectory.value / "src" / "docs",
     mdocVariables             := Map(
-      "VERSION"-> projectVersion
+      "VERSION"-> projectVersion,
+      "SCALA_VERSION" -> scalaV
     ),
     mdocExtraArguments        := Seq("--no-link-hygiene"),
   )

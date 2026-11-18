@@ -64,7 +64,7 @@ const createdDay = read('directory.conf').match(/created\.day\s*=\s*"([^"]*)"/)?
 
 const groupOrder: ProjectGroup[] = [];
 const projectGroup = new Map<string, string>();
-for (const m of index.matchAll(/subgraph (\S+)\s*\n([\s\S]*?)\n\s*end/g)) {
+for (const m of index.matchAll(/subgraph (\S+)[ \t]*\n([\s\S]*?)\n\s*end/g)) {
   const group = m[1];
   const color = index.match(new RegExp(`style ${group} fill:[^,]*,color:(\\w+)`))?.[1] ?? 'gray';
   groupOrder.push({ name: group, color });

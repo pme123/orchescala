@@ -59,7 +59,8 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
   const refresh = (text: string, cursor: number | null) => {
     if (!variables || cursor == null) { setRange(null); return; }
     const r = completions(text, cursor, variables);
-    const typed = !!r && (/[A-Za-z_]/.test(text.slice(r.from, cursor)) || /\.\s*$/.test(text.slice(0, r.from)));
+    // the values of an enum come right after `=` — nothing else is meant there
+    const typed = !!r && (r.values || /[A-Za-z_]/.test(text.slice(r.from, cursor)) || /\.\s*$/.test(text.slice(0, r.from)));
     if (!r || !typed) { setRange(null); setItems([]); return; }
     setItems(r.items.slice(0, 40));
     setRange({ from: r.from, to: r.to });
@@ -172,7 +173,13 @@ export default function FeelInput({ value, onChange, variables, isDark, disabled
                 onMouseEnter={() => setActive(i)}
                 className={`w-full text-left px-2 py-1 flex items-baseline gap-2 ${
                   i === active ? (isDark ? 'bg-white/10' : 'bg-black/10') : ''}`}>
-                {it.node ? (
+                {it.enumOf ? (
+                  <>
+                    <span className={`text-[10px] font-mono ${tone.string}`}>{it.insert}</span>
+                    <span className={`text-[9px] font-mono ${c.muted}`}>{it.enumOf.label.replace(/^Option\[|\]$/g, '')}</span>
+                    <span className={`text-[9px] ml-auto flex-shrink-0 ${c.muted}`}>Wert</span>
+                  </>
+                ) : it.node ? (
                   <>
                     <span className={`text-[10px] font-mono ${tone.variable}`}>{it.node.name}</span>
                     <span className={`text-[9px] font-mono ${c.muted}`}>
@@ -213,6 +220,15 @@ function Explain({ item, isDark, tone }: { item: Completion; isDark: boolean; to
         <div className={`font-mono ${tone.feel}`}>{d.signature}</div>
         <div className="mt-0.5">{d.description}</div>
         {d.example && <div className="mt-0.5 font-mono">z. B. {d.example}</div>}
+      </div>
+    );
+  }
+  if (item.enumOf) {
+    const n = item.enumOf;
+    return (
+      <div className={box}>
+        <div><span className={`font-mono ${tone.string}`}>{item.insert}</span> — ein Wert von <span className="font-mono">{n.label.replace(/^Option\[|\]$/g, '')}</span> für <span className={`font-mono ${tone.variable}`}>{n.name}</span></div>
+        <div className="mt-0.5">FEEL vergleicht ein Enum als Text</div>
       </div>
     );
   }

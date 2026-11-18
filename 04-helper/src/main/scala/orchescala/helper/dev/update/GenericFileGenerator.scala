@@ -1,6 +1,6 @@
 package orchescala.helper.dev.update
 
-import orchescala.engine.config.{RepoConfig, RepoCredentials}
+import orchescala.engine.config.{RepoConfig, RepoCredentials, ReposConfig, SbtCode}
 import orchescala.helper.util.PipelineConfig
 
 case class GenericFileGenerator()(using config: DevConfig):
@@ -140,20 +140,25 @@ case class GenericFileGenerator()(using config: DevConfig):
 
   def gitLabPipeline(pipelineConfig: PipelineConfig) =
     val mvnUserEnv     = pipelineConfig.companyMVNUserEnv
-      .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_USERNAME")
+      .getOrElse(SbtCode.companyEnvName(config.companyName, "MVN_REPOSITORY_USERNAME"))
     val mvnPasswordEnv = pipelineConfig.companyMVNPasswordEnv
-      .getOrElse(s"${config.companyName.toUpperCase}_MVN_REPOSITORY_PASSWORD")
+      .getOrElse(SbtCode.companyEnvName(config.companyName, "MVN_REPOSITORY_PASSWORD"))
 
     // route coursier (cs) through the company repos - Maven Central only as fallback -
-    // to avoid its HTTP 429 rate limiting on shared CI egress IPs
+    // to avoid its HTTP 429 rate limiting on shared CI egress IPs. A repo from a variable is
+    // referenced by it (GitLab expands it) - nothing company-specific of the update in the file.
     val artifactoryRepos    = config.sbtConfig.reposConfig.repos.collect:
-      case a: RepoConfig.Artifactory => s"${a.artifactoryApiUrl}/${a.repo}"
+      case a: RepoConfig.Artifactory => a.urlEnv.map(e => s"$$$e").getOrElse(a.repoUrl)
     val coursierRepos       = ("ivy2Local" +: artifactoryRepos :+ "central").mkString("|")
-    val coursierCredentials = config.sbtConfig.reposConfig.credentials
-      .collectFirst:
-        case c: RepoCredentials.UserPassword =>
-          s"\n  COURSIER_CREDENTIALS: ${c.repoHost} $$$mvnUserEnv:$$$mvnPasswordEnv"
-      .getOrElse("")
+    // the credentials of coursier - the host of a repo from a variable is read in the job
+    val coursierCredentials =
+      GenericFileGenerator.coursierCredentialsScript(config.sbtConfig.reposConfig, mvnUserEnv, mvnPasswordEnv)
+        .map: script =>
+          s"""    # the credentials of coursier (cs) - for the host of each repo url
+             |    - |
+             |${script.linesIterator.map("      " + _).mkString("\n")}
+             |""".stripMargin
+        .getOrElse("")
     // the JVM ignores the HTTP(S)_PROXY environment variables - sbt needs explicit flags
     val proxyFlags          = proxyHostAndPort(pipelineConfig.baseProxy)
       .map: (host, port) =>
@@ -180,7 +185,7 @@ case class GenericFileGenerator()(using config: DevConfig):
        |  $mvnUserEnv: $$CI_REGISTRY_USER
        |  $mvnPasswordEnv: $$CI_REGISTRY_PASSWORD
        |  COURSIER_CACHE: $$CI_PROJECT_DIR/.coursier-cache
-       |  COURSIER_REPOSITORIES: $coursierRepos$coursierCredentials
+       |  COURSIER_REPOSITORIES: $coursierRepos
        |
        |worker-test:
        |  stage: test
@@ -205,7 +210,7 @@ case class GenericFileGenerator()(using config: DevConfig):
        |        chmod +x .cs-bin/cs
        |      fi
        |    - export PATH="$$PWD/.cs-bin:$$PATH"
-       |    # sbt launcher: resolve sbt itself from Maven Central only
+       |$coursierCredentials       |    # sbt launcher: resolve sbt itself from Maven Central only
        |    # (the Artifactory answers unauthenticated requests with an SSO HTML page the launcher cannot parse)
        |    - mkdir -p ~/.sbt
        |    - |
@@ -248,4 +253,29 @@ case class GenericFileGenerator()(using config: DevConfig):
         |    ]
         |}
         |""".stripMargin
+end GenericFileGenerator
+
+object GenericFileGenerator:
+
+  /** The shell lines of the pipeline that set `COURSIER_CREDENTIALS` - one line per credentials:
+    * `<host> $USER:$PASSWORD`. The host of credentials with `repoUrlEnv` is read from the url of
+    * the variable in the job (nothing of the update in the file), else it is the configured one.
+    * None without user/password credentials.
+    */
+  def coursierCredentialsScript(
+      reposConfig: ReposConfig,
+      userEnv: String,
+      passwordEnv: String
+  ): Option[String] =
+    val hosts = reposConfig.credentials.collect:
+      case c: RepoCredentials.UserPassword =>
+        c.repoUrlEnv.map(e => s"""$$(repo_host "$$$e")""").getOrElse(c.repoHost)
+    Option.when(hosts.nonEmpty):
+      // the host of a url: without scheme, user info, port, path, query and fragment
+      val hostOf      = """repo_host() { printf '%s' "$1" | sed -E 's|^[a-zA-Z][a-zA-Z0-9+.-]*://||; s|^[^/]*@||; s|[/:?#].*||'; }"""
+      val credentials = hosts.distinct.map(h => s"$h $$$userEnv:$$$passwordEnv").mkString("\n")
+      s"""$hostOf
+         |export COURSIER_CREDENTIALS="$credentials"""".stripMargin
+  end coursierCredentialsScript
+
 end GenericFileGenerator

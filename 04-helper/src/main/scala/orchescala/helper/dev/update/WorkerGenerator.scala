@@ -53,7 +53,7 @@ case class WorkerGenerator()(using config: DevConfig):
     s"""$resetText
        |package ${config.projectPackage}.worker
        |
-       |// sbt worker/${dependencies.map(_ => "test:").getOrElse("")}run
+       |// sbt worker/${dependencies.map(_ => "Test/").getOrElse("")}run
        |object $objName extends CompanyWorkerApp:
        |  workers(
        |    ${dependencies.map(_ => "").getOrElse("//TODO add workers here")}

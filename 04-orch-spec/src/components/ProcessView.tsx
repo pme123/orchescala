@@ -9,7 +9,7 @@ import { projectColor } from '../projects';
 import {
   ChevronDown, ChevronRight, ChevronLeft, Download, RefreshCw, Search, X, Minimize2, Maximize2, Plug,
   AlertTriangle, ShieldCheck, GitFork, Zap, Repeat, CornerDownRight, Save, Braces, ListTree, Workflow, GripHorizontal, Unlink,
-  MessageSquare, Puzzle, History, Database, ClipboardPaste, Loader2, Sparkles,
+  MessageSquare, Puzzle, History, Database, ClipboardPaste, ClipboardCopy, Loader2, Sparkles,
 } from 'lucide-react';
 import { useStore } from '../store';
 import { useAuth, useAuthor, usePermissions } from '../auth';
@@ -30,7 +30,8 @@ import { alignPoolIds, checkProcessId, poolNames, renameProcess } from '../poolI
 import { INTERACTION_META, STATUSES, STATUS_META, type Branch, type EngineId, type Interaction, type ProcessSpec, type ServiceDef, type Status, type Step } from '../types';
 import { BlockChip, BRANCH_COLORS, ErrorChip, KIND_LABEL, LoopChip, PanelWidthHandle, PatternChip, StatusChip, cls, patternTone, stepIcon, useStoredWidth } from '../ui';
 import { nowIsoWithTimezone } from '../util';
-import { bpmnReport, domainReport, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
+import { bpmnReport, diffPages, domainReport, entryOf, makeEntry, type AuditEntry, type AuditOrigin, type AuditReport } from '../audit';
+import { withTaskButton, type TaskPageDraft } from '../pages/taskLinks';
 import { findProjectDmns, saveProjectDmns, withDmnFiles } from '../dmnProject';
 import EngineDialog from './EngineDialog';
 import ExportDialog from './ExportDialog';
@@ -39,16 +40,21 @@ import StepDetail from './StepDetail';
 import TypeBuilder from './TypeBuilder';
 import { SyncDataIcon, SyncProcessIcon } from './SyncIcons';
 import AuditPanel from './AuditPanel';
-import { useAiFor } from '../ai/config';
+import { aiFor } from '../ai/config';
+import { useAiConfig } from '../ai/useAiConfig';
 import type { ProcessDraft } from '../ai/processTools';
 import type { AcceptOutcome } from '../ai/AiChat';
 import SyncPanel from './SyncPanel';
+import CodeSyncPanel from './CodeSyncPanel';
+import { transferOf, transferText } from '../transfer';
+import { helperDmnRefs } from '../exporters';
 import type { BpmnHandle } from './BpmnEditor';
 import { attachDiagramSpec, clearDiagramClip, useClipboard, type PastedElements } from '../clipboard';
 import { collectDiagram, overlayPasted } from '../copyPaste';
 import { useServices } from '../services/store';
 import { isCollection } from '../services/types';
-import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, withCollectionTypes, withCollections, type ServiceProcess } from '../services/serviceProcess';
+import { isServiceProcess, serviceProcessId, serviceProcessTopic, serviceRefProblem, type ServiceProcess } from '../services/serviceProcess';
+import { useFolderModel } from '../useFolderModel';
 
 // The modeler is big — it is only loaded once the diagram is shown.
 const BpmnEditor = lazy(() => import('./BpmnEditor'));
@@ -64,6 +70,8 @@ const sameSpec = (a: ProcessSpec, b: ProcessSpec) =>
 
 const HEIGHT_KEY = 'orch-spec.diagramHeight';
 const PANEL_W_KEY = 'orch-spec.panelWidth';
+/** how wide the properties panel may get: the window less room for the flow - at least 800 */
+const panelMax = () => Math.max(800, (typeof window === 'undefined' ? 0 : window.innerWidth) - 400);
 const COMMENTS_W_KEY = 'orch-spec.commentsWidth';
 /** below this the comment panel overlays the right column instead of taking space */
 const OVERLAY_BELOW = 1100;
@@ -77,6 +85,8 @@ interface Props {
   focusStepId?: string;
   /** to a page of the app (from a user task) */
   onOpenPage?: (pageSlug: string) => void;
+  /** a new page for a user task - the pages with the dialog «Neu» filled in */
+  onNewPage?: (draft: TaskPageDraft) => void;
 }
 
 /** Explain the Entra search once per session, not on every «@». */
@@ -154,21 +164,22 @@ const applyToBpmn = (id: string, patch: Partial<Step>, before: Step | undefined,
   }
 };
 
-export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage }: Props) {
-  const { isDark, model: storeModel, specs, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
+export default function ProcessView({ slug, onBack, focusCommentId, focusStepId, onOpenPage, onNewPage }: Props) {
+  const { isDark, model: storeModel, specs, pages, savePage, loadSpec, saveSpec, loadAudit, loadBpmn, saveBpmn, loadDmn, saveDmn, knownUsers, searchDirectory, storage } = useStore();
   const auth = useAuth();
   const { canEdit: mayEdit } = usePermissions();
-  // ── AI mode (E19, E23, stage B): only with a skill for processCreator in the studio. While Claude's draft is open, the view shows it
-  // (diagram and flow) read only - until the RE accepts or discards it
-  const aiOn = useAiFor('processCreator');
+  // ── AI mode (E19, E23, stage B): only with a skill for the task in the studio - processCreator, or serviceOrchestrator
+  // in service mode (aiOn below). While Claude's draft is open, the view shows it (diagram and flow) read only - until
+  // the RE accepts or discards it
+  const aiConfig = useAiConfig();
   const [aiDraft, setAiDraft] = useState<ProcessDraft | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   /** the state before the last accepted draft - for undo, as long as nothing else changed */
   const [aiUndo, setAiUndo] = useState<{ spec: ProcessSpec; xml: string; acceptedSpec: ProcessSpec | null; acceptedXml: string } | null>(null);
-  // without the AI of the studio the draft is gone too
-  // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
-  useEffect(() => { if (!aiOn || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiOn, mayEdit]);
-  const canEdit = mayEdit && !aiDraft;
+  // while Claude works on a draft (before it is there) the process stays as it is too - an edit, or a
+  // heal of the view after loading, would make the draft refuse to be taken over
+  const [aiBusy, setAiBusy] = useState(false);
+  const canEdit = mayEdit && !aiDraft && !aiBusy;
   const author = useAuthor();
   const authorRef = useRef(author);
   authorRef.current = author;
@@ -183,8 +194,13 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const { services } = useServices();
   const collections = useMemo(() => services.map(x => x.data).filter(isCollection), [services]);
   const serviceMode = !!spec?.service;
-  // otherwise their classes — a type can refer to them (a copied class to its original)
-  const model = useMemo(() => (serviceMode ? withCollections(storeModel, collections) : withCollectionTypes(storeModel, collections)), [serviceMode, storeModel, collections]);
+  const aiOn = aiFor(aiConfig, serviceMode ? 'serviceOrchestrator' : 'processCreator');
+  // without the AI of the studio the draft is gone too
+  // the same without the right to edit (another role after a new login): the panel is gone, so is the draft
+  useEffect(() => { if (!aiOn || !mayEdit) { setAiDraft(null); setAiOpen(false); } }, [aiOn, mayEdit]);
+  // the folder as a whole: the catalog with the folder's collections (services and classes), its service
+  // orchestrations and its other processes - a step can call them before they are released (folderCatalog)
+  const model = useFolderModel(slug);
   const [serviceExportOpen, setServiceExportOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -196,6 +212,21 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   const [engineOpen, setEngineOpen] = useState(false);
   const [saveState, setSaveState] = useState<{ at: string } | { error: string } | null>(null);
   const [report, setReport] = useState<MergeReport | null>(null);
+  /** «Mit Code abgleichen» of a service orchestration open */
+  const [codeSync, setCodeSync] = useState(false);
+  /** «Kopieren»: the spec with its BPMN, its DMN tables and what of the model it uses - for another Orch Spec */
+  const copyForTransfer = async () => {
+    if (!spec) return;
+    try {
+      const tables = await Promise.all(helperDmnRefs(spec).map(async r => [r.key, await loadDmn(spec.slug, r.key)] as const));
+      const dmns = Object.fromEntries(tables.filter((x): x is readonly [string, string] => !!x[1]));
+      const t = transferOf([{ kind: 'process', slug: spec.slug, spec, ...(xml ? { bpmn: xml } : {}), ...(Object.keys(dmns).length ? { dmns } : {}) }], storeModel);
+      await navigator.clipboard.writeText(transferText(t));
+      setNotice({ tone: 'info', message: `«${spec.title || spec.slug}» kopiert — in der anderen Orch Spec unter ${serviceMode ? 'Services' : 'Prozesse'} «Einfügen».` });
+    } catch (e) {
+      setNotice({ tone: 'warn', message: `Kopieren ging nicht: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
   /** selected BPMN waiting in the preview («Mit BPMN abgleichen») */
   const [sync, setSync] = useState<{ raw: string; from: string; mode?: 'bpmn' | 'domain' } | null>(null);
   const [tab, setTab] = useState<'flow' | 'model'>('flow');
@@ -222,7 +253,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
   // between diagram and flow) — the setting persists for the session.
   const [panelW, setPanelW] = useState(() => {
     const n = Number(localStorage.getItem(PANEL_W_KEY));
-    return Number.isFinite(n) && n >= 320 ? Math.min(n, 800) : 416;
+    return Number.isFinite(n) && n >= 320 ? Math.min(n, panelMax()) : 416;
   });
   // Comment panel: its own width, also draggable; in a narrow window
   // it overlays the right column, otherwise it takes its space
@@ -1048,6 +1079,22 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
 
   const selectedStep = selected ? shownById.get(selected) ?? null : null;
 
+  // An existing page completes a user task: a button «Abschliessen» at its end - saved like a change in the
+  // page designer, with an entry in the page's change log
+  const attachPage = async (pageSlug: string, taskKey: string, out: string[]) => {
+    const item = pages.find(p => p.slug === pageSlug);
+    if (!item) return;
+    const next = withTaskButton(item.data, taskKey, out);
+    if (next === item.data) return;
+    const entry = entryOf(diffPages(item.data, next), { source: 'manual', note: `Schliesst den Benutzer-Task «${taskKey}» ab (aus dem Prozess «${spec.title || slug}»)` }, author);
+    const r = await savePage(pageSlug, next, item.version, entry ? [entry] : []);
+    setNotice(r.status === 'saved'
+      ? { tone: 'info', message: `Die Seite «${item.data.title || pageSlug}» schliesst jetzt «${taskKey}» ab – mit einem Button «Abschliessen» am Ende.` }
+      : r.status === 'conflict'
+        ? { tone: 'warn', message: `Die Seite «${item.data.title || pageSlug}» wurde inzwischen geändert – nichts überschrieben. Nochmals wählen, sobald sie neu geladen ist.` }
+        : { tone: 'warn', message: `Die Seite «${item.data.title || pageSlug}» konnte nicht gespeichert werden: ${r.message}` });
+  };
+
   // Claude's draft accepted: the way of a change in the diagram (commitPlan) - with the source «KI» in the
   // change log and the requests of the RE as note. Undo once, as long as nothing else changed.
   // Refused when the process changed since the draft began (reloaded, synced) - the draft would overwrite that.
@@ -1118,6 +1165,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                       className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncProcessIcon size={14} /></button>
                   </>
                 )}
+                {serviceMode && (
+                  <button onClick={() => setCodeSync(true)}
+                    title="Mit Code abgleichen — der CustomWorker und seine Klassen aus dem Projekt: Service-Aufrufe, Mapping-Linien, Typ-Mapper, In und Out"
+                    className={`p-1 rounded border flex-shrink-0 ${c.btn}`}><SyncDataIcon size={14} /></button>
+                )}
                 {xml && !serviceMode && (
                   <button onClick={() => setSync({ raw: xml, from: 'Domain', mode: 'domain' })}
                     title="Mit Domain abgleichen — Klassen und Interaktionen aus der Domain, der Ablauf bleibt"
@@ -1179,12 +1231,15 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           </button>
           {aiOn && mayEdit && (
             <button onClick={() => { setAiOpen(o => !o); setCommentsOpen(false); setAuditOpen(false); }}
-              title="Claude – den Ablauf im Gespräch ändern (KI-Modus)"
+              title={serviceMode ? 'Claude – die Orchestrierung im Gespräch ändern (KI-Modus)' : 'Claude – den Ablauf im Gespräch ändern (KI-Modus)'}
               className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border transition-colors flex-shrink-0 ${
                 aiOpen || aiDraft ? (isDark ? 'border-violet-400/50 bg-violet-500/15 text-violet-200' : 'border-violet-400 bg-violet-50 text-violet-800') : c.btn}`}>
               <Sparkles size={12} /> Claude
             </button>
           )}
+          <button onClick={() => void copyForTransfer()}
+            title="Kopieren — mit BPMN, DMN-Tabellen und den Typ-Mappern und Patterns, die es braucht; in einer anderen Orch Spec unter «Einfügen»"
+            className={`p-1.5 rounded border flex-shrink-0 ${c.btn}`}><ClipboardCopy size={12} /></button>
           <button onClick={() => (serviceMode ? setServiceExportOpen(true) : setExportOpen(true))}
             title={serviceMode ? 'Scala-Code des CustomTasks und seines Workers, und der Befehl für den Helper' : undefined}
             className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded border flex-shrink-0 ${c.btn}`}>
@@ -1215,6 +1270,20 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
           )}
           <button onClick={() => setNotice(null)} className="flex-shrink-0 opacity-60 hover:opacity-100"><X size={10} /></button>
         </div>
+      )}
+
+      {codeSync && canEdit && isServiceProcess(spec) && (
+        <CodeSyncPanel current={spec} model={model} collections={collections} isDark={isDark}
+          onClose={() => setCodeSync(false)}
+          onApply={(p, from) => {
+            setCodeSync(false);
+            const teil = (head: string, r: AuditReport) => Object.fromEntries(Object.entries(r).map(([k, v]) => [`${head} ${k}`, v]));
+            update(p.spec, {
+              source: 'code-sync',
+              note: `Mit Code abgleichen: ${from}`,
+              report: { ...(p.worker?.changed.length ? { 'Worker geändert': p.worker.changed } : {}), ...(p.domain ? teil('Datenmodell', domainReport(p.domain.report)) : {}) },
+            });
+          }} />
       )}
 
       {sync && canEdit && (
@@ -1307,7 +1376,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
                 can be dragged at the divider */}
             <div style={{ width: (commentsOpen || auditOpen) && !narrow ? Math.max(360, panelW - commentsW + 120) : panelW }}
               className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} flex flex-col min-h-0`}>
-              <PanelWidthHandle isDark={isDark} width={panelW} onWidth={w => {
+              <PanelWidthHandle isDark={isDark} width={panelW} max={panelMax()} onWidth={w => {
                 setPanelW(w);
                 localStorage.setItem(PANEL_W_KEY, String(w));
               }} />
@@ -1421,6 +1490,7 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
               <StepDetail step={selectedStep} spec={shownSpec ?? spec}
                 isDark={isDark} canEdit={canEdit} model={model}
                 onPatch={patchStep} onSyncId={syncStepId} onClose={() => setSelected(null)} onGoto={setSelected} onOpenPage={onOpenPage}
+                onNewPage={onNewPage} onAttachPage={mayEdit ? attachPage : undefined}
                 projectPrefixes={projectPrefixes} onRenameProject={renameProject}
                 onSpecChange={next => {
                   if (next.timeToLive !== spec.timeToLive) {
@@ -1449,11 +1519,11 @@ export default function ProcessView({ slug, onBack, focusCommentId, focusStepId,
         )}
         {/* Claude (only with a key) - stays mounted while hidden, so the conversation is kept */}
         {aiOn && mayEdit && (
-          <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
+          <div style={{ width: aiW }} className={`relative flex-shrink-0 border-l ${c.border} ${c.panel} ${(aiOpen || aiDraft || aiBusy) && !commentsOpen && !auditOpen ? '' : 'hidden'}`}>
             <PanelWidthHandle isDark={isDark} width={aiW} min={320} max={800} onWidth={setAiW} />
             <Suspense fallback={<Loader2 size={14} className="animate-spin m-4" />}>
-              <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)}
-                draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }}
+              <ProcessAiPanel isDark={isDark} spec={spec} xml={xml ?? ''} model={model} specs={specs.map(x => x.data)} serviceMode={serviceMode} collections={collections}
+                draft={aiDraft} onDraft={d => { setAiDraft(d); if (d) { setTab('flow'); setShowDiagram(true); } }} onBusy={setAiBusy}
                 onAccept={acceptAi}
                 undo={aiUndoable ? { label: 'Den Stand vor der letzten KI-Änderung wiederherstellen', run: undoAi } : null}
                 onSelect={setSelected} />

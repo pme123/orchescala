@@ -23,6 +23,7 @@
 //   primary  := number | string | true | false | null | name | '(' expr ')'
 
 import { C7_LABEL, C8_LABEL } from './engineLabels.ts';
+import { feelRef, isPlainFeelName } from './feelNames.ts';
 
 export type FeelResult = { ok: true; feel: string } | { ok: false; reason: string };
 
@@ -67,7 +68,12 @@ function tokenize(src: string): Tok[] {
   return out;
 }
 
-const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+/**
+ * A FEEL text literal — a raw line break is no valid FEEL text, so it is escaped too.
+ * Other control characters stay raw: FEEL reads them, and its `\u` escape would be
+ * read greedily (`\u0008b` takes the `b`).
+ */
+const feelString = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
 
 /** A JSON value as a FEEL literal: `[1, 2]`, `{a: 1, "b-c": "x"}`, `"text"`, `true`, `null` */
 export function jsonToFeel(v: unknown): string {
@@ -79,6 +85,138 @@ export function jsonToFeel(v: unknown): string {
   }
   if (typeof v === 'string') return feelString(v);
   return String(v);
+}
+
+/**
+ * Groovy names that are no variable FEEL could read — the script bindings and the
+ * Groovy keywords: a list of them stays a script (capitalised names, classes, see `value`)
+ */
+const GROOVY_ONLY = new Set([
+  // the bindings of a Camunda 7 script and of a Groovy script
+  'it', 'this', 'super', 'delegate', 'owner', 'execution', 'task', 'externalTask', 'caseExecution',
+  'connector', 'authenticatedUserId', 'variableScope', 'binding', 'out', 'log', 'args',
+  'abstract', 'as', 'assert', 'break', 'case', 'catch', 'class', 'const', 'continue', 'def', 'default',
+  'do', 'else', 'enum', 'extends', 'final', 'finally', 'goto', 'implements', 'import', 'instanceof',
+  'interface', 'native', 'new', 'package', 'private', 'protected', 'public', 'static', 'switch',
+  'synchronized', 'throw', 'throws', 'trait', 'transient', 'try', 'var', 'void', 'volatile', 'while',
+]);
+
+// the tokens of `groovyToFeel` (Groovy and FEEL both allow letters beyond ASCII, `Gebühr`)
+const IDENT = /[\p{L}_][\p{L}\p{N}_]*/uy;
+// no leading zero: Groovy reads `010` as octal 8, FEEL as 10
+const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])/y;
+/** a path or a call after a name (`a.b`, `a()`, `a[0]`) */
+const ACCESS = /\s*[.(\[]/y;
+
+/**
+ * A Groovy script that is only a literal — a list (`[fileIdLetter, docLink]`), a
+ * map (`[key: x, 'b': 1]`), a variable, a text, a number, true/false/null, nested
+ * as well — the same value in FEEL: the FEEL for it, otherwise null. One difference
+ * remains: an unknown variable fails in Groovy (MissingPropertyException) and is
+ * null in FEEL — the FEEL check reports it. Anything else
+ * stays a script: a call, a path, an operator, a GString with `$`, a triple-quoted
+ * text, a `\u` escape, a comment, several statements; also what would read
+ * differently in FEEL — an octal number (`010`), a reserved word or a Groovy-only
+ * name (`it`, `this`) as a variable, a map key given twice (Groovy keeps the last).
+ *
+ * A small recursive reader over the literal grammar only, with one cursor `i`:
+ * a regex cannot match nested brackets, and the JUEL tokenizer here knows no
+ * Groovy lists, maps or single-quoted texts.
+ */
+export function groovyToFeel(script: string): string | null {
+  const src = script.trim().replace(/^return\s+/, '').replace(/;\s*$/, '');
+  let i = 0;
+  // sticky (`y`): matched at the cursor, without copying the rest of the text per token
+  const at = (re: RegExp): RegExpExecArray | null => { re.lastIndex = i; return re.exec(src); };
+  const ws = () => { while (i < src.length && /\s/.test(src[i])) i++; };
+  const ident = (): string | null => {
+    const m = at(IDENT);
+    if (!m) return null;
+    i += m[0].length;
+    return m[0];
+  };
+  const text = (): string | null => {
+    const q = src[i];
+    if (q !== "'" && q !== '"') return null;
+    let out = '';
+    for (i++; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === q) { i++; return out; }
+      // a GString interpolates — not a literal
+      if (ch === '$' && q === '"') return null;
+      if (ch === '\\') {
+        const next = src[++i];
+        const esc: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', '\\': '\\', "'": "'", '"': '"', $: '$' };
+        if (!(next in esc)) return null;
+        out += esc[next];
+      } else out += ch;
+    }
+    return null;
+  };
+  // deeper nesting than any mapping has: a script from a foreign BPMN, not read further
+  const MAX_DEPTH = 50;
+  let depth = 0;
+  const value = (): string | null => {
+    ws();
+    const ch = src[i];
+    if (ch === "'" || ch === '"') { const t = text(); return t == null ? null : feelString(t); }
+    if (ch === '[') return collection();
+    const num = at(NUMBER);
+    if (num) { i += num[0].length; return num[0]; }
+    // a variable, also true/false/null — no path or call (`a.b`, `a()`)
+    const id = ident();
+    if (!id || at(ACCESS)) return null;
+    if (id === 'true' || id === 'false' || id === 'null') return id;
+    // a capitalised name may be a class Groovy knows without an import (`Math`, `Random`,
+    // Spin's `S`) — the classes are no closed list, so it stays a script
+    return isPlainFeelName(id) && !GROOVY_ONLY.has(id) && !/^\p{Lu}/u.test(id) ? id : null;
+  };
+  // the nesting counts on the way in and out — on every return, also `[]` and `[:]`
+  const collection = (): string | null => {
+    if (depth >= MAX_DEPTH) return null;
+    depth++;
+    try { return collectionBody(); } finally { depth--; }
+  };
+  // `[a, b]` a list, `[k: v]` a map, `[:]` the empty map
+  const collectionBody = (): string | null => {
+    i++; ws();
+    if (src[i] === ':') { i++; ws(); if (src[i] !== ']') return null; i++; return '{}'; }
+    if (src[i] === ']') { i++; return '[]'; }
+    const items: string[] = [];
+    const keys = new Set<string>();
+    let map: boolean | null = null;
+    for (;;) {
+      ws();
+      const start = i;
+      // a key: a name or a text, followed by `:`
+      const key = src[i] === "'" || src[i] === '"' ? text() : ident();
+      ws();
+      const isEntry = key != null && src[i] === ':';
+      if (map != null && map !== isEntry) return null;
+      map = isEntry;
+      let v: string | null;
+      if (isEntry) {
+        i++;
+        v = value();
+        if (v == null || keys.has(key!)) return null;
+        keys.add(key!);
+        items.push(`${isPlainFeelName(key!) ? key : feelString(key!)}: ${v}`);
+      } else {
+        i = start;
+        v = value();
+        if (v == null) return null;
+        items.push(v);
+      }
+      ws();
+      if (src[i] === ',') { i++; continue; }
+      if (src[i] === ']') { i++; break; }
+      return null;
+    }
+    return map ? `{${items.join(', ')}}` : `[${items.join(', ')}]`;
+  };
+  const feel = value();
+  ws();
+  return feel != null && i === src.length ? feel : null;
 }
 
 /**
@@ -188,10 +326,11 @@ export function healExecution(expression: string): string {
  * feelJuel.ts); everything else has no counterpart and stays JUEL.
  */
 const EXECUTION: Record<string, string> = {
-  // the own instance: in FEEL from Camunda 8.10 — a number, as text like in Camunda 7
+  // the own instance and its business key: always the context `camunda.processInstance`
+  // (Camunda 8 from 8.10) — the key a number, as text like in Camunda 7
   processInstanceId: 'string(camunda.processInstance.key)',
-  processBusinessKey: 'businessKey',
-  businessKey: 'businessKey',
+  processBusinessKey: 'camunda.processInstance.businessId',
+  businessKey: 'camunda.processInstance.businessId',
 };
 function executionProperty(name: string): string {
   const feel = EXECUTION[name];
@@ -243,14 +382,17 @@ function method(target: string, name: string, args: string[]): string {
       : two((a, b) => (/^"[A-Za-z_]\w*"$/.test(b) ? `${a}.${b.slice(1, -1)}` : `${a}[${b}]`));
     case 'hasProp': return two((a, b) => `${a}.${b.replace(/^"|"$/g, '')} != null`);
     case 'isNull': return one(a => `${a} = null`);
-    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`
+    // `execution.getVariable("x")` — in FEEL the variable is simply called `x`;
+    // a name FEEL does not read as it is (`letter-id`) in backticks, as the export wrote it
     case 'getVariable': return two((_a, b) => {
       if (/^"[A-Za-z_]\w*"$/.test(b)) return b.slice(1, -1);
+      // no control characters, no escapes: those are no name to write in backticks
+      if (/^"[^"\\`\u0000-\u001f\u007f]+"$/.test(b)) return feelRef(b.slice(1, -1));
       throw computedNameError(b);
     });
     // Camunda 7 runtime → the variables Camunda 8 has for it
     case 'getProcessInstanceId': return one(() => 'string(camunda.processInstance.key)');
-    case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'businessKey');
+    case 'getBusinessKey': case 'getProcessBusinessKey': return one(() => 'camunda.processInstance.businessId');
     case 'getProcessDefinition': return one(() => '__processDefinition');
     case 'getKey': case 'getId': return one(a => (a === '__processDefinition' ? 'processDefinitionKey' : (() => { throw new Unsupported(`Methode «${name}()» hat kein FEEL-Gegenstück`); })()));
     // Time: `dateTime().now()`, `.toLocalDate()`, `.plusDays(3)`, `.toString("yyyy-MM-dd")`
@@ -275,6 +417,9 @@ function method(target: string, name: string, args: string[]): string {
  * The test for a Spin path, as the export writes it (feelJuel.ts:
  * `a != null && a.hasProp("b") && !a.prop("b").isNull()`), arrives verbatim as
  * `a != null and a.b != null and not(a.b = null)` — what is meant is `a.b != null`.
+ * A path the export guards (`(a.hasProp("b") && … ? a.prop("b").stringValue() : null)`, Spin
+ * throws on a missing field) arrives as `if a.b != null then a.b else null` — in FEEL a path
+ * to a missing field is null anyway: it is `a.b`. The guard belongs to the export only.
  */
 function presence(feel: string): string {
   const P = String.raw`[A-Za-z_][\w.]*`;
@@ -285,19 +430,49 @@ function presence(feel: string): string {
     f = f.replace(new RegExp(String.raw`(?<![\w.])(${P}) != null and not\(\1 = null\)`, 'g'), '$1 != null')
       .replace(new RegExp(String.raw`(?<![\w.])(${P}) != null and (?=\1\.[A-Za-z_][\w.]* != null)`, 'g'), '')
       .replace(new RegExp(String.raw`not\(\((${P}) != null\)\)|not\((${P}) != null\)`, 'g'), (_m, a, b) => `${a ?? b} = null`);
+    f = unguard(f);
   } while (f !== prev);
   return f;
 }
 
+/**
+ * `if a.b != null then a.b else null` → `a.b`: the guard the export writes around a Spin path (or
+ * a variable), read back - in FEEL a missing value is null anyway. Texts stay as they are.
+ */
+export function unguard(feel: string): string {
+  const P = String.raw`[A-Za-z_][\w.]*`;
+  const guard = new RegExp(String.raw`\(if (${P}) != null then \1 else null\)|(?<![\w.])if (${P}) != null then \2 else null(?![\w.])`, 'g');
+  return feel.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 ? part : part.replace(guard, (_m, a, b) => a ?? b))).join('');
+}
+
 /** Translate the body of a JUEL expression (without `${}`) to FEEL. */
 export function juelToFeel(body: string): FeelResult {
+  /** the variables read with `execution.getVariable` — see `num` */
+  const reads: string[] = [];
+  const resolve = (x: string) => x.replace(/\u0001(\d+)\u0001/g, (_m, i: string) => reads[Number(i)]);
   try {
+    // the marker of a read (see `num`) must not come from the input
+    if (body.includes('\u0001')) throw new Unsupported('Steuerzeichen U+0001 im Ausdruck');
     const toks = tokenize(body.trim());
     let p = 0;
     const peek = () => toks[p];
     const isOp = (...vs: string[]) => { const t = peek(); return t.t === 'op' && vs.includes(t.v); };
     const take = () => toks[p++];
     const expect = (v: string) => { if (!isOp(v)) throw new Unsupported(`«${v}» erwartet`); p++; };
+    // `execution.getVariable("x")` may be missing: in JUEL arithmetic null counts
+    // as 0 (`null + 1` is 1), in FEEL it stays null — there `(if x = null then 0 else x)`
+    // (not `get or else(x, 0)`: feelin, the parser of the specification, does not know it).
+    // Each such read becomes a marker (`\u0001n\u0001`) resolved at the end — so only
+    // this read is wrapped, not a direct read of the same name or other equal text.
+    // Only the read itself: a path from it (`getVariable("a").prop("b") + 1`) stays as it is.
+    // `reads[n]` is always a plain name — a computed name (also a nested read) is rejected.
+    // JUEL `+` is always a number (text is joined with `concat`), so no text operand gets the 0.
+    const num = (x: string) => {
+      const m = /^(?:\(\u0001(\d+)\u0001\)|\u0001(\d+)\u0001)$/.exec(x);
+      const name = m ? reads[Number(m[1] ?? m[2])] : undefined;
+      return name ? `(if ${name} = null then 0 else ${name})` : x;
+    };
+    const arith = (o: string) => (a: string, b: string) => `${num(a)} ${o} ${num(b)}`;
 
     const expr = (): string => {
       const c = or();
@@ -325,11 +500,12 @@ export function juelToFeel(body: string): FeelResult {
     const and = () => binary(eq, { '&&': 'and', and: 'and' });
     const eq = () => binary(rel, { '==': '=', eq: '=', '!=': '!=', ne: '!=' });
     const rel = () => binary(add, { '<': '<', lt: '<', '>': '>', gt: '>', '<=': '<=', le: '<=', '>=': '>=', ge: '>=' });
-    const add = () => binary(mul, { '+': '+', '-': '-' });
-    const mul = () => binary(unary, { '*': '*', '/': '/', div: '/', '%': (a, b) => `modulo(${a}, ${b})`, mod: (a, b) => `modulo(${a}, ${b})` });
+    const add = () => binary(mul, { '+': arith('+'), '-': arith('-') });
+    const modulo = (a: string, b: string) => `modulo(${num(a)}, ${num(b)})`;
+    const mul = () => binary(unary, { '*': arith('*'), '/': arith('/'), div: arith('/'), '%': modulo, mod: modulo });
     const unary = (): string => {
       if (isOp('!', 'not')) { take(); return `not(${unary()})`; }
-      if (isOp('-')) { take(); return `-${unary()}`; }
+      if (isOp('-')) { take(); return `-${num(unary())}`; }
       // JUEL `empty`: null, empty text — or an empty list
       if (isOp('empty')) { take(); const x = unary(); return `(${x} = null or ${x} = "" or ${x} = [])`; }
       return postfix();
@@ -347,6 +523,7 @@ export function juelToFeel(body: string): FeelResult {
             if (!isOp(')')) { args.push(expr()); while (isOp(',')) { take(); args.push(expr()); } }
             expect(')');
             v = method(v, n.v, args);
+            if (n.v === 'getVariable') { reads.push(v); v = `\u0001${reads.length - 1}\u0001`; }
           } else {
             v = v === 'execution' ? executionProperty(n.v) : `${v}.${n.v}`;
           }
@@ -393,19 +570,22 @@ export function juelToFeel(body: string): FeelResult {
         if (t.v === '(') {
           const inner = expr();
           expect(')');
-          // parentheses around an if/then/else are unnecessary in FEEL — and a second pair around
-          // something that is already entirely in parentheses (`(empty x)` → `(x = null or …)`)
-          return inner.startsWith('if ') || wrapped(inner) ? inner : `(${inner})`;
+          // an if/then/else keeps its parentheses: `(a ? b : c) == x` is `(if a then b else c) = x` -
+          // without, `else c = x` is the comparison (the whole expression loses them below); no second
+          // pair around something that is already entirely in parentheses (`(empty x)` → `(x = null or …)`)
+          return wrapped(inner) ? inner : `(${inner})`;
         }
       }
       throw new Unsupported(t.t === 'end' ? 'Ausdruck unvollständig' : `unerwartet: «${'v' in t ? t.v : ''}»`);
     };
 
-    const feel = expr();
+    const feel = resolve(expr());
     if (peek().t !== 'end') throw new Unsupported(`unerwartet: «${(peek() as { v?: string }).v ?? ''}»`);
-    return { ok: true, feel: presence(feel) };
+    // the whole expression needs no parentheses around its if/then/else
+    const done = presence(feel);
+    return { ok: true, feel: wrapped(done) && done.slice(1, -1).startsWith('if ') ? done.slice(1, -1) : done };
   } catch (e) {
-    if (e instanceof Unsupported) return { ok: false, reason: e.message };
+    if (e instanceof Unsupported) return { ok: false, reason: resolve(e.message) };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }
@@ -521,3 +701,12 @@ function importJuel(t: string): FeelResult {
 
 /** Translatable JUEL to FEEL — what cannot be translated stays JUEL. */
 export const feelIfPossible = (text: string): string => (isJuel(text) ? importExpression(text) : text);
+
+/**
+ * The source of an output when a service is chosen: what the row already had,
+ * otherwise the expression of the catalog, otherwise the field of the result of
+ * the same name (as «+ aus Katalog»). An empty source is no choice — an output
+ * without a source writes nothing — so it is filled as well.
+ */
+export const outputSource = (name: string, had: string | undefined, catalog: string | undefined): string =>
+  (had?.trim() ? had : '') || feelIfPossible(catalog ?? '').trim() || `= ${feelRef(name)}`;

@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { scanScala } from '../src/domainScan';
-import { catalogProjects, collectionFromCatalog, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
+import { catalogProjects, collectionFromCatalog, missingApis, nestedApi, syncWithCatalog } from '../src/services/catalogCollections';
 import {
-  API_NAME, apiName, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceIssues, serviceTopic, workerPackage,
+  API_NAME, apiName, apiOf, collectionPackage, collectionTrait, domainDir, hierarchySchemaPackages, newCollection, serviceTopic, workerPackage,
 } from '../src/services/collection';
-import { adoptHierarchyTypes, commonParents, schemaHomes } from '../src/services/hierarchy';
+import { adoptHierarchyTypes, commonParents, searchGroups } from '../src/services/hierarchy';
 import { addOperations, readApi } from '../src/services/openApiRest';
 import { collectionFiles } from '../src/services/scalaCollection';
 import type { ServiceCollectionSpec } from '../src/services/types';
@@ -24,8 +24,8 @@ test('a nested API: the package follows the hierarchy, trait and topic keep the 
   assert.equal(domainDir(nested), '01-domain/src/main/scala/acme/crm/domain/clientMaster/multipleNaturalPersons/v1');
   assert.equal(collectionTrait(nested), 'MultipleNaturalPersonsV1');
   assert.equal(serviceTopic(nested, { name: 'GetX' }), 'acme-crm-multipleNaturalPersonsV1.GetX');
-  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'a.b.c' }), ['acme.crm.domain.a.b.schema', 'acme.crm.domain.a.schema']);
-  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'client' }), []);
+  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'a.b.c' }), ['acme.crm.domain.a.b.schema', 'acme.crm.domain.a.schema', 'acme.crm.domain.schema']);
+  assert.deepEqual(hierarchySchemaPackages({ project: 'acme-crm', api: 'client' }), ['acme.crm.domain.schema']);
   assert.deepEqual(commonParents([{ api: 'a.b.x' }, { api: 'a.b.y' }, { api: 'a.c' }]), ['a']);
 });
 
@@ -52,29 +52,6 @@ function twoApis(): ServiceCollectionSpec {
   return addOperations(c0, api, api.operations.map(o => o.key), apiFor).spec;
 }
 
-test('the export: a type the APIs of a level share lives in the schema of that level', () => {
-  const c = twoApis();
-  const homes = schemaHomes(c);
-  const homeOf = (name: string) => homes.get(c.types.find(t => t.name === name)!.id)?.pkg;
-  assert.equal(homeOf('Address'), 'acme.crm.domain.clientMaster.schema');
-  assert.equal(homeOf('Gender'), 'acme.crm.domain.clientMaster.naturalPersons.v1.schema');
-  const files = collectionFiles(c);
-  const address = files.find(f => f.path.endsWith('/Address.scala'))!;
-  assert.equal(address.path, '01-domain/src/main/scala/acme/crm/domain/clientMaster/schema/Address.scala');
-  assert.match(address.content, /^package acme\.crm\.domain\npackage clientMaster\.schema\n/);
-  const trait = files.find(f => f.path.endsWith('/NaturalPersonsV1.scala'))!;
-  assert.equal(trait.path, '01-domain/src/main/scala/acme/crm/domain/clientMaster/naturalPersons/v1/NaturalPersonsV1.scala');
-  assert.match(trait.content, /package clientMaster\.naturalPersons\.v1\n/);
-  const get = files.find(f => f.path.endsWith('/naturalPersons/v1/GetNaturalPersons.scala'))!;
-  assert.match(get.content, /object GetNaturalPersons extends NaturalPersonsV1:/);
-  assert.match(get.content, /"acme-crm-naturalPersonsV1\.GetNaturalPersons"/);
-  // the type of its own schema reaches into the shared one: both imported
-  const person = files.find(f => f.path.endsWith('/NaturalPerson.scala'))!;
-  assert.match(person.content, /import acme\.crm\.domain\.clientMaster\.schema\.\*/);
-  // each schema file once
-  assert.equal(files.filter(f => f.path.endsWith('/Address.scala')).length, 1);
-});
-
 /** the project has `Address` in the root of the hierarchy — `clientMaster.schema` */
 const sharedAddress = `package acme.crm.domain
 package clientMaster.schema
@@ -99,9 +76,129 @@ test('an OpenAPI import takes a class of the same name higher up in the hierarch
   const withZip = { ...twoApis(), types: twoApis().types.map(t => (t.name === 'Address' ? { ...t, fields: [...t.fields!, { id: 'z', name: 'zip', type: 'String' }] } : t)) };
   assert.deepEqual(adoptHierarchyTypes(withZip, model).adopted.map(a => a.differs), [['-zip']]);
   assert.equal(adopted[0].differs, undefined);
-  // without a hierarchy nothing changes
+  // an API without levels: every schema of the project is searched - also the one of clientMaster
   const flat = { ...twoApis(), services: twoApis().services.map(s => ({ ...s, api: 'client' })) };
-  assert.deepEqual(adoptHierarchyTypes(flat, model).adopted, []);
+  assert.deepEqual(adoptHierarchyTypes(flat, model).adopted.map(a => a.from), ['acme.crm.domain.clientMaster.schema.Address']);
+});
+
+test('the search for classes of the hierarchy: the schema of every level, the nearest first - never the package of an API', () => {
+  const pkgs = [
+    'acme.crm.domain.schema', 'acme.crm.domain.clientMaster.schema', 'acme.crm.domain.partner.schema',
+    'acme.crm.domain.clientMaster.naturalPersons.v1.schema', 'acme.crm.domain.clientMaster.legal.schema',
+    'acme.crm.domain.clientMaster.orgs.v1.schema', 'acme.crm.domain.clientMaster.orgs.v1', 'acme.other.domain.schema',
+  ];
+  const model = { version: 1, services: [], domainTypes: pkgs.map((pkg, i) => ({ id: `${pkg}.T${i}`, name: `T${i}`, pkg, kind: 'case', fields: [] })) } as never;
+  const orgs = { project: 'acme-crm', api: 'clientMaster.orgs', apiVersion: 1 };
+  assert.deepEqual(searchGroups([orgs], [orgs], model), [
+    ['acme.crm.domain.clientMaster.schema'], ['acme.crm.domain.schema'],
+    ['acme.crm.domain.partner.schema'], ['acme.crm.domain.clientMaster.legal.schema'],
+  ]);
+  // without levels: the domain's schema first, then the levels by their depth
+  const flat = { project: 'acme-crm', api: 'readOrganisation2', apiVersion: 1 };
+  assert.deepEqual(searchGroups([flat], [flat], model), [
+    ['acme.crm.domain.schema'],
+    ['acme.crm.domain.clientMaster.schema', 'acme.crm.domain.partner.schema'], ['acme.crm.domain.clientMaster.legal.schema'],
+  ]);
+});
+
+test('an API without levels: the enums of a level of the project by their structure', () => {
+  const doc = {
+    openapi: '3.0.1', info: { title: 'Organisation', version: '1' },
+    paths: { '/readOrganisation2': { post: { operationId: 'postReadOrganisation2', responses: { 200: { description: 'ok', content: { 'application/json': { schema: { $ref: '#/components/schemas/Organisation' } } } } } } } },
+    components: { schemas: {
+      Organisation: { type: 'object', properties: { gender: { $ref: '#/components/schemas/OrganisationGender1' } } },
+      OrganisationGender1: { type: 'string', enum: ['female', 'male'] },
+    } },
+  };
+  const c0 = newCollection({ title: 'Organisation', project: 'acme-crm', api: 'readOrganisation2', apiVersion: 1 });
+  const api = readApi(doc);
+  const c = addOperations(c0, api, api.operations.map(o => o.key), () => ({ api: 'readOrganisation2', apiVersion: 1 })).spec;
+  const model = { version: 1, services: [], domainTypes: scanScala(sharedOther, 'clientMaster/schema/Shared.scala') } as never;
+  assert.deepEqual(adoptHierarchyTypes(c, model).adopted.map(a => [a.name, a.from]), [['OrganisationGender1', 'acme.crm.domain.clientMaster.schema.Gender1']]);
+});
+
+/** the project's classes higher up: under other names than the OpenAPI gives them */
+const sharedOther = `package acme.crm.domain
+package clientMaster.schema
+
+enum Gender1:
+  case male, female
+
+enum Sex:
+  case female, male, other
+
+case class PartnerOfPerson(
+    gender: Option[Gender1],
+    name: Option[String]
+)
+`;
+const rootSchema = `package acme.crm.domain
+package schema
+
+case class TypeDateWrapper(
+    @description("An ISO 8601 date")
+    value: Option[String]
+)
+
+case class TypeBigDecimalWrapper(
+    @description("A BigDecimal as text")
+    value: Option[String]
+)
+`;
+const twin = `package acme.crm.domain
+package clientMaster.schema
+
+enum Twin1:
+  case a, b
+enum Twin2:
+  case b, a
+`;
+
+test('an OpenAPI import takes a class of another name with the same structure from the hierarchy — up to the schema of the domain', () => {
+  const docOther = {
+    openapi: '3.0.1', info: { title: 'Client Master', version: '1' },
+    paths: {
+      '/naturalPersons': { get: { operationId: 'getNaturalPersons', responses: { 200: { description: 'ok', content: { 'application/json': { schema: { $ref: '#/components/schemas/NaturalPerson' } } } } } } },
+    },
+    components: {
+      schemas: {
+        NaturalPerson: { type: 'object', properties: { partner: { $ref: '#/components/schemas/NaturalPersonPartner' }, born: { $ref: '#/components/schemas/TypeDateWrapper2' }, twin: { $ref: '#/components/schemas/PersonTwin' } } },
+        NaturalPersonPartner: { type: 'object', properties: { name: { type: 'string' }, gender: { $ref: '#/components/schemas/NaturalPersonGender1' } } },
+        NaturalPersonGender1: { type: 'string', enum: ['female', 'male'] },
+        TypeDateWrapper2: { type: 'object', properties: { value: { type: 'string', description: 'An ISO 8601 date' } } },
+        PersonTwin: { type: 'string', enum: ['a', 'b'] },
+      },
+    },
+  };
+  const c0 = newCollection({ title: 'Client Master', project: 'acme-crm', api: 'clientMaster.naturalPersons', apiVersion: 1 });
+  const api = readApi(docOther);
+  const c = addOperations(c0, api, api.operations.map(o => o.key), () => ({ api: 'clientMaster.naturalPersons', apiVersion: 1 })).spec;
+  const domainTypes = [
+    ...scanScala(sharedOther, 'clientMaster/schema/Shared.scala'),
+    ...scanScala(rootSchema, 'schema/TypeDateWrapper.scala'),
+    ...scanScala(twin, 'clientMaster/schema/Twin.scala'),
+  ];
+  const { spec, adopted } = adoptHierarchyTypes(c, { version: 1, services: [], domainTypes } as never);
+  const renamed = Object.fromEntries(adopted.map(a => [a.name, a.renamed]));
+  // the enum by its values (not `Sex`: another value), the class that uses it after it, the wrapper
+  // from the top - of the two of its structure the one whose field says the same
+  assert.deepEqual(renamed, { NaturalPersonGender1: 'Gender1', TypeDateWrapper2: 'TypeDateWrapper', NaturalPersonPartner: 'PartnerOfPerson' });
+  assert.equal(adopted.find(a => a.name === 'TypeDateWrapper2')?.from, 'acme.crm.domain.schema.TypeDateWrapper');
+  const person = spec.types.find(t => t.name === 'NaturalPerson')!;
+  assert.equal(person.fields?.find(f => f.name === 'partner')?.type, 'dom:acme.crm.domain.clientMaster.schema.PartnerOfPerson');
+  assert.equal(person.fields?.find(f => f.name === 'born')?.type, 'dom:acme.crm.domain.schema.TypeDateWrapper');
+  // two of the same structure on one level: none of them - the own type stays
+  assert.ok(spec.types.some(t => t.name === 'PersonTwin'));
+  assert.ok(!spec.types.some(t => ['NaturalPersonGender1', 'TypeDateWrapper2', 'NaturalPersonPartner'].includes(t.name)));
+
+  // unchecked in the choice: the enum stays the collection's own - and the class that matched only
+  // through it too; the wrapper is taken all the same
+  const gender = adopted.find(a => a.name === 'NaturalPersonGender1')!;
+  const kept = adoptHierarchyTypes(c, { version: 1, services: [], domainTypes } as never, new Set([gender.id]));
+  assert.deepEqual(kept.adopted.map(a => a.name), ['TypeDateWrapper2']);
+  assert.ok(['NaturalPersonGender1', 'NaturalPersonPartner'].every(n => kept.spec.types.some(t => t.name === n)));
+  const partner = kept.spec.types.find(t => t.name === 'NaturalPersonPartner')!;
+  assert.equal(partner.fields?.find(f => f.name === 'gender')?.type, gender.id);
 });
 
 const getPersons = `package acme.crm.domain
@@ -206,13 +303,212 @@ test('two APIs with the same last level: the catalog marks them, the Abgleich do
   assert.deepEqual(r.renamedApis, []);
   assert.deepEqual(r.ambiguousApis, ['multipleNaturalPersons v1: clientMaster.multipleNaturalPersons, other.multipleNaturalPersons']);
   assert.equal(r.spec, c);
-  // in a collection: both APIs with the same topics
-  const both: ServiceCollectionSpec = {
+});
+
+const getClients = `package acme.coreBanking.domain
+package clientMaster.multipleNaturalPersons.v1
+
+import acme.coreBanking.domain.clientMaster.schema.ClientKind
+
+object GetClients extends MultipleNaturalPersonsV1:
+
+  final val topicName = "acme-coreBanking-multipleNaturalPersonsV1.GetClients"
+  val path = "GET: /clients"
+
+  type ServiceIn = NoInput
+  type ServiceOut = Out
+
+  case class In(
+      key: Long
+  )
+  case class Out(
+      kind: ClientKind
+  )
+end GetClients
+`;
+
+const clientKind = `package acme.coreBanking.domain.clientMaster.schema
+
+enum ClientKind:
+  case Person, Company
+`;
+
+test('the Abgleich: a project in camelCase, a class moved up the hierarchy under another name', () => {
+  const model = {
+    version: 1,
+    domainTypes: [...scanScala(getClients, 'GetClients.scala'), ...scanScala(clientKind, 'clientMaster/schema/ClientKind.scala')],
+    services: [{ id: 'acme-coreBanking-multipleNaturalPersonsV1.GetClients', name: 'GetClients', kind: 'service', topic: 'acme-coreBanking-multipleNaturalPersonsV1.GetClients' }],
+  } as never;
+  assert.deepEqual(catalogProjects(model).map(p => p.project), ['acme-coreBanking']);
+  // the collection from the OpenAPI: its own enum under the old name — and a type no service uses
+  const c0 = newCollection({ title: 'Clients', project: 'acme-coreBanking', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1 });
+  const old = { id: 'e-old', name: 'MultipleNaturalPersonsClientKind', kind: 'enum' as const, values: [{ id: 'v1', name: 'Person' }, { id: 'v2', name: 'Company' }] };
+  const spare = { id: 't-spare', name: 'Spare', kind: 'case' as const, fields: [{ id: 'f9', name: 'x', type: 'String' }] };
+  const inType = { id: 't-in', name: 'In', kind: 'case' as const, interactionId: 's1', fields: [{ id: 'f1', name: 'key', type: 'Long' }] };
+  const outType = { id: 't-out', name: 'Out', kind: 'case' as const, interactionId: 's1', fields: [{ id: 'f2', name: 'kind', type: 'e-old' }] };
+  const c: ServiceCollectionSpec = {
     ...c0,
-    services: [
-      { id: 's1', name: 'GetPersons', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/persons', params: [] },
-      { id: 's2', name: 'GetOther', api: 'other.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/others', params: [] },
-    ],
+    types: [old, spare, inType, outType],
+    services: [{ id: 's1', name: 'GetClients', api: 'clientMaster.multipleNaturalPersons', apiVersion: 1, status: 'draft', method: 'GET', path: '/clients', params: [], serviceOut: { type: 't-out' }, inTypeId: 't-in', outTypeId: 't-out' }],
   };
-  assert.ok(serviceIssues(both, both.services[0]).some(i => /Topic «acme-crm-multipleNaturalPersonsV1» hat auch die API «other\.multipleNaturalPersons»/.test(i)));
+  const r = syncWithCatalog(c, model)!;
+  assert.ok(r, 'the catalog knows the project');
+  const out = r.spec.types.find(t => t.id === 't-out')!;
+  assert.equal(out.fields!.find(f => f.name === 'kind')!.type, 'dom:acme.coreBanking.domain.clientMaster.schema.ClientKind');
+  // the old enum goes: it has the values of the class moved up - taken from there under its name;
+  // the type nobody used before stays
+  assert.deepEqual(r.adopted.map(a => [a.name, a.renamed]), [['MultipleNaturalPersonsClientKind', 'ClientKind']]);
+  assert.deepEqual(r.removedTypes, []);
+  assert.ok(!r.spec.types.some(t => t.id === 'e-old'));
+  assert.ok(r.spec.types.some(t => t.id === 't-spare'));
+});
+
+const readPersons = `package acme.coreBanking.domain
+package clientMaster.multipleNaturalPersons.v1
+
+object ReadPersons extends MultipleNaturalPersonsV1:
+
+  final val topicName = "acme-coreBanking-multipleNaturalPersonsV1.ReadPersons"
+  val path = "POST: /persons"
+
+  type ServiceIn = In
+  type ServiceOut = Out
+
+  enum In:
+    @description("If set, read from the source.")
+    def fromSource: Option[Boolean]
+
+    case Standard(
+        fromSource: Option[Boolean],
+        keys: Option[Seq[String]]
+    )
+    case ClientKey(
+        fromSource: Option[Boolean],
+        key: String
+    )
+  end In
+
+  enum Out:
+    case Standard(
+        persons: Seq[String]
+    )
+    case ClientKey(
+        person: String
+    )
+  end Out
+end ReadPersons
+`;
+
+test('the Abgleich: In and Out with cases — the description of a shared def, the cases of an Out without one', () => {
+  const domainTypes = scanScala(readPersons, 'ReadPersons.scala');
+  const inDom = domainTypes.find(t => t.name === 'ReadPersons.In')!;
+  assert.equal(inDom.fields?.[0].description, 'If set, read from the source.');
+  const model = {
+    version: 1, domainTypes,
+    services: [{ id: 'acme-coreBanking-multipleNaturalPersonsV1.ReadPersons', name: 'ReadPersons', kind: 'service', topic: 'acme-coreBanking-multipleNaturalPersonsV1.ReadPersons', outputs: [{ name: 'persons' }, { name: 'person' }] }],
+  } as never;
+  const fresh = collectionFromCatalog(catalogProjects(model)[0], catalogProjects(model)[0].apis, model);
+  const out = fresh.types.find(t => t.id === fresh.services[0].outTypeId)!;
+  assert.equal(out.kind, 'enum');
+  assert.deepEqual(out.values?.map(v => [v.name, v.fields?.map(f => f.name)]), [['Standard', ['persons']], ['ClientKey', ['person']]]);
+  assert.equal(out.fields?.length ?? 0, 0);
+  // the Abgleich again: the cases stay, the shared field gets its description
+  const withoutDescr = { ...fresh, types: fresh.types.map(t => (t.fields ? { ...t, fields: t.fields.map(f => ({ ...f, description: undefined })) } : t)) };
+  const r = syncWithCatalog(withoutDescr, model)!;
+  const out2 = r.spec.types.find(t => t.id === r.spec.services[0].outTypeId)!;
+  assert.deepEqual(out2.values?.map(v => [v.name, v.fields?.map(f => f.name)]), [['Standard', ['persons']], ['ClientKey', ['person']]]);
+  assert.equal(out2.fields?.length ?? 0, 0);
+  const in2 = r.spec.types.find(t => t.id === r.spec.services[0].inTypeId)!;
+  assert.equal(in2.fields?.find(f => f.name === 'fromSource')?.description, 'If set, read from the source.');
+});
+
+test('Abgleich without a match: the APIs the project lacks are named - with the ones it has', () => {
+  // the project has `naturalPerson` (singular), the collection `clientMaster.naturalPersons`
+  const model = { version: 1, services: [{ id: 'acme-crm-naturalPersonV1.GetX', name: 'GetX', kind: 'service', topic: 'acme-crm-naturalPersonV1.GetX' }] } as never;
+  const c = twoApis();
+  assert.equal(syncWithCatalog(c, model), null);
+  assert.deepEqual(missingApis(c, model), {
+    apis: ['clientMaster.naturalPersons v1'],
+    missing: ['clientMaster.naturalPersons v1 (acme-crm-naturalPersonsV1)'],
+    known: ['naturalPerson v1'],
+  });
+  // another project: not known at all
+  assert.equal(missingApis({ ...c, project: 'acme-other' }, model), null);
+});
+
+test('Abgleich: what the project does not have (any more) is listed - and deleted only when chosen', () => {
+  const c = twoApis();
+  const [natural, legal] = c.services;
+  // the project has only the first service — the second was deleted there
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const r = syncWithCatalog(c, model)!;
+  assert.deepEqual(r.stale, [{ id: legal.id, name: legal.name, kind: 'service' }]);
+  // kept as long as nobody chooses it
+  assert.ok(r.spec.services.some(s => s.id === legal.id));
+  // deleted: the service goes, and with it the types only it used (under «Typen entfernt»)
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.removedTypes.includes('LegalPerson'), JSON.stringify(d.removedTypes));
+  assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
+  // a type the first service still uses stays
+  assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson') && d.spec.types.some(t => t.name === 'Address'));
+});
+
+test('Abgleich: own types no service uses and the domain does not know are listed - deleted when chosen', () => {
+  const c0 = twoApis();
+  const [natural] = c0.services;
+  // the service was deleted in the collection before - its types stayed behind
+  const c = { ...c0, services: [natural] };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const services = [{ id: topic, name: natural.name, kind: 'service', topic }];
+  // without a domain: nothing to compare with - no type is listed
+  assert.deepEqual(syncWithCatalog(c, { version: 1, services } as never)!.stale, []);
+  const domainTypes = scanScala('package acme.other.domain\n\ncase class Unrelated(\n    x: String\n)\n', 'Unrelated.scala');
+  const model = { version: 1, services, domainTypes } as never;
+  const r = syncWithCatalog(c, model)!;
+  const left = r.stale.filter(x => x.kind === 'type');
+  assert.ok(left.some(x => x.name === 'LegalPerson'), JSON.stringify(r.stale));
+  assert.ok(!left.some(x => x.name === 'NaturalPerson' || x.name === 'Address'), JSON.stringify(r.stale));
+  assert.ok(r.spec.types.some(t => t.name === 'LegalPerson'));
+  const d = syncWithCatalog(c, model, new Set(), new Set(left.map(x => x.id)))!;
+  assert.ok(!d.spec.types.some(t => t.name === 'LegalPerson'));
+  assert.ok(d.spec.types.some(t => t.name === 'NaturalPerson'));
+});
+
+test('Abgleich: deleting a service keeps an In or Out another service still uses', () => {
+  const c0 = twoApis();
+  const [natural, legal] = c0.services;
+  assert.ok(natural.inTypeId && legal.outTypeId);
+  const c = { ...c0, services: [natural, { ...legal, inTypeId: natural.inTypeId }] };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.spec.types.some(t => t.id === natural.inTypeId), 'the shared In stays');
+  // its own Out goes
+  assert.ok(!d.spec.types.some(t => t.id === legal.outTypeId));
+});
+
+test('Abgleich: deleting a service keeps its Out when a type of a service that stays refers to it', () => {
+  const c0 = twoApis();
+  const [natural, legal] = c0.services;
+  assert.ok(natural.inTypeId && legal.outTypeId);
+  const types = c0.types.map(t => (t.id === natural.inTypeId ? { ...t, fields: [...(t.fields ?? []), { id: 'ref', name: 'legal', type: legal.outTypeId! }] } : t));
+  const c = { ...c0, types };
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const d = syncWithCatalog(c, model, new Set(), new Set([legal.id]))!;
+  assert.ok(!d.spec.services.some(s => s.id === legal.id));
+  assert.ok(d.spec.types.some(t => t.id === legal.outTypeId), 'referred to by a field - it stays');
+});
+
+test('Abgleich: an id to delete that is not missing in the project changes nothing', () => {
+  const c = twoApis();
+  const [natural] = c.services;
+  const topic = serviceTopic(apiOf(c, natural), natural);
+  const model = { version: 1, services: [{ id: topic, name: natural.name, kind: 'service', topic }] } as never;
+  const kept = syncWithCatalog(c, model)!;
+  const odd = syncWithCatalog(c, model, new Set(), new Set([natural.id, natural.inTypeId ?? '', 'no-such-id']))!;
+  assert.deepEqual(odd.spec, kept.spec);
 });

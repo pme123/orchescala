@@ -6,6 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useStore, type SaveResult } from '../store';
 import type { StorageBackend } from '../backend';
 import type { ServiceSpec } from './types';
+import { parseOpenApi, storedOpenApiPath, type OpenApiFile } from './openApiFile';
 import { migrateService as migrate, SERVICES_DIR } from './servicePayload';
 
 export { SERVICES_DIR };
@@ -27,6 +28,11 @@ interface ServicesCtx {
   saveService: (data: ServiceSpec, expectedVersion: string) => Promise<SaveResult>;
   createService: (data: ServiceSpec) => Promise<{ ok: true } | { ok: false; message: string }>;
   deleteService: (slug: string, expectedVersion: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** keep the OpenAPI of a collection next to it - its path, or null if it could not be written;
+   *  `before`: the file kept so far - removed when the new one has another ending */
+  saveOpenApi: (slug: string, o: OpenApiFile, before?: string) => Promise<string | null>;
+  /** the OpenAPI a collection keeps - null if it is not there (any more) or not readable */
+  loadOpenApi: (path: string, file: string) => Promise<OpenApiFile | null>;
 }
 
 const Ctx = createContext<ServicesCtx>(null!);
@@ -144,8 +150,28 @@ export function ServicesProvider({ children }: { children: React.ReactNode }) {
     return { ok: true as const };
   }, [getBackend]);
 
+  const saveOpenApi = useCallback(async (slug: string, o: OpenApiFile, before?: string) => {
+    const be = getBackend();
+    if (!be) return null;
+    const path = storedOpenApiPath(slug, o.file);
+    try { await be.ensureDir(path.slice(0, path.lastIndexOf('/'))); } catch { /* write reports it */ }
+    // a newer import replaces the one before - that is what «übersteuern» means
+    const w = await be.write(path, o.text);
+    if (!w.ok) return null;
+    // `.yml` before, `.json` now: the old file goes, so one collection keeps one OpenAPI
+    if (before && before !== path) await be.delete(before).catch(() => undefined);
+    return path;
+  }, [getBackend]);
+
+  const loadOpenApi = useCallback(async (path: string, file: string) => {
+    const read = await getBackend()?.read(path);
+    if (!read) return null;
+    const r = parseOpenApi(read.text, file);
+    return r.ok ? r.value : null;
+  }, [getBackend]);
+
   return (
-    <Ctx.Provider value={{ services, servicesLoading, servicesUnreadable, refreshServices, loadService, saveService, createService, deleteService }}>
+    <Ctx.Provider value={{ services, servicesLoading, servicesUnreadable, refreshServices, loadService, saveService, createService, deleteService, saveOpenApi, loadOpenApi }}>
       {children}
     </Ctx.Provider>
   );

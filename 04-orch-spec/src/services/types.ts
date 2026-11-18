@@ -14,7 +14,7 @@
 // app; the export translates them to Scala.
 //
 // File: `services/<slug>.json`.
-import type { CommentThread, Mapping, Status, Step, TypeDef } from '../types';
+import type { CommentThread, FieldMapping, Mapping, Status, Step, TypeDef } from '../types';
 
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
@@ -150,7 +150,8 @@ export interface ServiceCollectionSpec {
   createdAt: string;
   updatedAt: string;
   /** where the operations came from — the last OpenAPI read in */
-  source?: { file?: string; title?: string; version?: string; basePath?: string };
+  /** `stored`: where the collection keeps that OpenAPI - `services/openapi/<slug>.yml` (storedOpenApiPath) */
+  source?: { file?: string; title?: string; version?: string; basePath?: string; stored?: string };
   /** request/response types from the schemas, plus `In`/`Out` of every service */
   types: TypeDef[];
   services: CollectionService[];
@@ -165,6 +166,10 @@ export interface OrchTask {
   inputs?: Mapping[];
   /** service task: the name of its result afterwards (`client`) — without: the service name, first letter small */
   result?: string;
+  /** service task: the case of the service's `In` it sends — an ADT In (`ClientKey`) */
+  inCase?: string;
+  /** service task: the case of the service's `Out` it reads — without: the one of the `In` case's name */
+  outCase?: string;
   /**
    * service task, as a process describes it: per variable afterwards a FEEL expression against
    * the fields of the service's `Out` (`etag = etag`). Then the result itself is not known
@@ -173,6 +178,14 @@ export interface OrchTask {
   outputs?: Mapping[];
   /** script task: assignments — `name` gets the value of the FEEL `expression` */
   assignments?: Mapping[];
+  /** script task: its implementation in FEEL - a method of the worker; its value goes into `resultVariable` */
+  script?: string;
+  resultVariable?: string;
+  /** the type of `resultVariable` when it is no field of the Out - and whether a list of it */
+  resultType?: string;
+  resultCollection?: boolean;
+  /** script task: its implementation as a mapping - field by field (then `script` is its FEEL) */
+  mapping?: FieldMapping;
   [key: string]: unknown;
 }
 

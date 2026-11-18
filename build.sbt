@@ -9,6 +9,8 @@ addCommandAlias(
 )
 
 ThisBuild / evictionErrorLevel     := Level.Warn
+// sbt 2 keeps the build loaded in a server - reload it when a build file changed
+Global / onChangedBuildSource := ReloadOnSourceChanges
 //Problems in Scala 3.5.0: ThisBuild / usePipelining := true
 
 lazy val root = project
@@ -26,8 +28,6 @@ lazy val root = project
     api,
     dmnTester.jvm,
     dmnTester.js,
-    orchSpecCore.jvm,
-    orchSpecCore.js,
     dmn,
     dmnTesterServer,
     dmnTesterClient,
@@ -41,7 +41,6 @@ lazy val root = project
     engineOp,
     engineGateway,
     gateway,
-    orchStudio,
     workerC7,
     workerC8,
     workerOp
@@ -79,7 +78,6 @@ lazy val domain = project
       scalaVersion,
       sbtVersion,
       BuildInfoKey("camundaVersion", camundaVersion),
-      BuildInfoKey("springBootVersion", springBootVersion),
       BuildInfoKey("jaxbApiVersion", jaxbApiVersion),
       BuildInfoKey("osLibVersion", osLibVersion),
       BuildInfoKey("mUnitVersion", mUnitVersion),
@@ -121,57 +119,15 @@ lazy val dmnTester =
     .settings(projectSettings("dmntester"))
     .settings(
       libraryDependencies ++= Seq(
-        "io.circe" %%% "circe-core"    % circeVersion,
-        "io.circe" %%% "circe-generic" % circeVersion,
-        "io.circe" %%% "circe-parser"  % circeVersion
+        "io.circe" %% "circe-core"    % circeVersion,
+        "io.circe" %% "circe-generic" % circeVersion,
+        "io.circe" %% "circe-parser"  % circeVersion
       )
     )
     .jsSettings(
       // the model uses java.time.LocalDateTime, which Scala.js does not have
       libraryDependencies +=
-        "io.github.cquiroz" %%% "scala-java-time" % scalaJavaTimeVersion
-    )
-
-lazy val linkToOrchSpec = taskKey[File](
-  "Links orch-spec-core with Scala.js and copies it to 04-orch-spec/src/core/orchSpecCore.js"
-)
-
-/** The logic of orch-spec that the platform server needs too - the differences of a page today,
-  * the tools and findings later. Written once in Scala: the JVM build goes to the platform
-  * (orch-platform), the Scala.js build into orch-spec, which keeps working without a server.
-  * JSON is the only contract - the same as over HTTP.
-  */
-lazy val orchSpecCore =
-  crossProject(JSPlatform, JVMPlatform)
-    .crossType(CrossType.Pure)
-    .in(file("./02-orch-spec-core"))
-    .settings(publicationSettings)
-    .settings(projectSettings("orch-spec-core"))
-    .settings(
-      // like orch-doc: Business Source License 1.1 (see 02-orch-spec-core/LICENSE)
-      licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
-      libraryDependencies ++= Seq(
-        "io.circe"      %%% "circe-core"   % circeVersion,
-        "io.circe"      %%% "circe-parser" % circeVersion,
-        "org.scalameta" %%% "munit"        % mUnitVersion % Test
-      ),
-      testFrameworks += new TestFramework("munit.Framework")
-    )
-    .jsSettings(
-      scalaJSLinkerConfig ~= {
-        _.withModuleKind(ModuleKind.ESModule).withSourceMap(false)
-      },
-      // the linker cleans its own directory - orch-spec gets a copy (gitignored) next to the
-      // types it imports with it (orchSpecCore.d.ts)
-      Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
-        target.value / "scalajs" / "prod",
-      linkToOrchSpec := {
-        val _      = (Compile / fullLinkJS).value
-        val linked = (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value / "main.js"
-        val copy   = (LocalRootProject / baseDirectory).value / "04-orch-spec" / "src" / "core" / "orchSpecCore.js"
-        IO.copyFile(linked, copy)
-        copy
-      }
+        "io.github.cquiroz" %% "scala-java-time" % scalaJavaTimeVersion
     )
 
 // layer 03
@@ -247,7 +203,7 @@ lazy val helper = project
   .settings(unitTestSettings)
   .settings(
     autoImportSetting,
-    libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav, jgitDependency)
+    libraryDependencies ++= Seq(osLib, swaggerOpenAPI, sardineWebDav, jgitDependency, scalametaTestDependency)
   ).dependsOn(api, simulation, orchDocClient) // orchDocClient: OrchDocApi.html for the projects' update
 
 lazy val engineC7 = project
@@ -342,17 +298,20 @@ lazy val dmnTesterClient = project
     },
     scalacOptions ++= Seq("-Xmax-inlines", "128"),
     // vite must know where the linked JS is. Asking sbt from vite.config.js
-    // is fragile (it silently produced an empty path on CI), so the linker
-    // writes to a fixed directory that vite simply points at.
+    // is fragile (it silently produced an empty path on CI), so `bundleClient`
+    // passes the directory to vite (SCALAJS_OUTPUT). It stays under sbt's
+    // `target` (target/out/sjs1/...): sbt 2 takes fullLinkJS from its cache and
+    // restores the files only there - not in a directory outside of it.
     Compile / fastLinkJS / scalaJSLinkerOutputDirectory :=
       target.value / "scalajs" / "dev",
     Compile / fullLinkJS / scalaJSLinkerOutputDirectory :=
       target.value / "scalajs" / "prod",
     libraryDependencies ++= Seq(
-      "org.scala-js" %%% "scalajs-dom" % scalaJsDomVersion,
-      "com.raquo"    %%% "laminar"     % laminarVersion
+      "org.scala-js" %% "scalajs-dom" % scalaJsDomVersion,
+      "com.raquo"    %% "laminar"     % laminarVersion
     ),
-    bundleClient := {
+    // sbt 2 caches task results - not this one: it runs npm/vite and writes files; FileFunction.cached below decides whether to rebuild
+    bundleClient := Def.uncached {
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -375,7 +334,7 @@ lazy val dmnTesterClient = project
           FilesInfo.hash,
           FilesInfo.exists
         ) { _ =>
-          DmnTesterUi.build(clientDir, log)
+          DmnTesterUi.build(clientDir, linkedDir, log)
           bundled
         }
         bundle(inputs).toSeq
@@ -404,7 +363,7 @@ lazy val orchDocClient = project
   .settings(
     // NOT MIT like the rest: Business Source License 1.1 (see 04-orch-doc/LICENSE) - the apps
     // and this artifact are z9nai's, production use with a license key (LicenseKey)
-    licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
+    licenses := Seq(("BUSL-1.1", uri("https://mariadb.com/bsl11/"))),
     // no Scala sources - the jar carries the bundles only
     Compile / unmanagedSourceDirectories := Seq.empty,
     Test / unmanagedSourceDirectories := Seq.empty,
@@ -414,10 +373,8 @@ lazy val orchDocClient = project
     Compile / unmanagedResources := (Compile / unmanagedResources)
       .dependsOn(bundleDocClient)
       .value,
-    bundleDocClient := {
-      // orch-spec imports the Scala.js build of orch-spec-core (src/core/orchSpecCore.js) - before
-      // its inputs are hashed, so a change in the Scala code builds the apps again
-      val _         = (orchSpecCore.js / linkToOrchSpec).value
+    // sbt 2 caches task results - not this one: it runs npm/vite and writes files; FileFunction.cached below decides whether to rebuild
+    bundleDocClient := Def.uncached {
       val s         = streams.value
       val log       = s.log
       val clientDir = baseDirectory.value
@@ -520,39 +477,13 @@ lazy val gateway = project
       oauth2Dependency
     ),
     // Task to generate OpenAPI specification (run manually with: sbt "project gateway" generateOpenApi)
-    generateOpenApi := {
+    generateOpenApi := Def.uncached { // writes a file - never from sbt's cache
       val log = streams.value.log
       log.info("Generating OpenAPI specification...")
       (Compile / runMain).toTask(" orchescala.gateway.GenerateOpenApiYaml").value
     }
   )
   .dependsOn(engineGateway, orchDocClient) // orchDocClient: OrchDocApi.html served at /docs
-
-/** The studio - the app with which the business side describes an app and brings it to a test
-  * environment (Orch Platform, the «Entwicklung» side): it serves orch-doc, orch-spec and orch-ops
-  * with the company's documentation and the services on a specification (orch-spec-core); later the
-  * AI proxy, the buttons and the runner. Like the gateway, the company builds its app from it in
-  * `<company>-orchescala`, module `studio`.
-  */
-lazy val orchStudio = project
-  .in(file("./06-orch-studio"))
-  .settings(publicationSettings)
-  .settings(projectSettings("orch-studio"))
-  .settings(
-    // like orch-doc: Business Source License 1.1 (see 06-orch-studio/LICENSE)
-    licenses := Seq(("BUSL-1.1", url("https://mariadb.com/bsl11/"))),
-    zioTestSettings,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-http" % zioHttpVersion,
-      // the front matter of the skills of the AI (AiSkills)
-      "io.circe" %% "circe-yaml" % circeYamlVersion,
-      osLib
-    ),
-    fork               := true,
-    run / connectInput := true
-  )
-  // orchDocClient: the apps (orch-doc-site/) on the classpath; orchSpecCore: the same logic as orch-spec
-  .dependsOn(orchDocClient, orchSpecCore.jvm)
 
 lazy val workerC7 = project
   .in(file("./04-worker-c7"))
@@ -679,8 +610,10 @@ addCommandAlias(
       // and OpWorker, so this covers C7 Op as well), Camunda 7 and 8 (as existing companies)
       // and Operaton only (the generated sources without Camunda 7 - the module dependencies
       // stay the same)
+      // reload after generating: sbt 2's server keeps the state of the source files - without
+      // it, the compile right after the generator sometimes saw the files of the run before
       Seq("C7 C8 Op", "C7 C8", "Op").flatMap(engines =>
-        companyCheckGenerate(engines) +: companyCheckCompile
+        Seq(companyCheckGenerate(engines), "reload") ++ companyCheckCompile
       )
   ).mkString("; ")
 )

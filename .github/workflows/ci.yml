@@ -62,6 +62,34 @@ jobs:
         # 04-orch-doc/bundle - packaged into orchescala-orch-doc, which helper and gateway
         # ship. Same reason for an own step as above.
         run: sbt orchDocClient/bundleDocClient
+      - name: The boundary of Orch Spec's core
+        # E28: src/core is orch-spec's logic without UI - the studio runs it in Node. It must reach no
+        # React, no component and nothing of the browser, and load in Node (04-orch-spec/tests/checkCore.ts).
+        working-directory: 04-orch-spec
+        run: npm run check:core
+      - name: Types of Orch Ops
+        # vite builds without a type check - tsc does it (node_modules from the documentation apps step)
+        working-directory: 04-orch-ops
+        run: npm run lint
+      - name: Orch Studio
+        # E28: the studio is a TypeScript server on Node (06-orch-studio) - its types and tests, with
+        # orch-spec's core bundled for it (npm run core - the loop of the agent on the studio, step 5)
+        working-directory: 06-orch-studio
+        run: npm ci && npm run core && npm run lint && npm test
+      - name: Orch Spec without a server
+        # E28: the studio becomes a TypeScript server - orch-spec must keep working without it at every
+        # step. The built app (as orch-doc ships it), served statically: a local folder, a process, a
+        # new page, no AI, no request to the studio besides GET /ai/config (04-orch-spec/e2e). Needs
+        # node_modules - from the step above.
+        working-directory: 04-orch-spec
+        run: npm run lint && npx playwright install --with-deps chromium && npm run test:standalone
+      - name: Keep the trace of a failed run without a server
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orch-spec-standalone-trace
+          path: 04-orch-spec/test-results/
+          if-no-files-found: ignore
       - name: Test the theme skill
         # .claude/skills/orch-theme-from-site/build_theme.py - plain Python 3, no packages; its colour
         # rules share colour-cases.json with orch-spec's tests, which bundleDocClient runs (above) - the
@@ -78,7 +106,7 @@ jobs:
         # instead of being skipped when there is no Docker. helper/test runs the merge from Orch Spec
         # with Node.js and Orch Spec's tools (04-orch-doc/bundle/orch-doc-tools, built above by
         # bundleDocClient) - on CI it fails instead of being skipped when they are missing
-        run: sbt -v "test:compile; domain/test; api/test; dmnTesterServer/test; worker/test; gateway/test; orchSpecCoreJVM/test; orchSpecCoreJS/test; orchStudio/test; persistencePostgres/test; helper/test"
+        run: sbt -v "Test/compile; domain/test; api/test; dmnTesterServer/test; worker/test; gateway/test; persistencePostgres/test; helper/test"
         env:
           JAVA_OPTS: "-Dmunit.junitxml=true"
       - name: Check the company project templates
@@ -90,7 +118,7 @@ jobs:
         if: always()    # run this step even if previous step failed
         with:
           name: Test Report            # Name of the check run which will be created
-          path: "**/target/test-reports/*.xml"    # Path to test results
+          path: "target/out/**/test-reports/*.xml"    # Path to test results (sbt 2: target/out/jvm/scala-*/<module>/test-reports)
           reporter: java-junit        # Format of test results
         env:
           JAVA_OPTS: "-Xmx3G"

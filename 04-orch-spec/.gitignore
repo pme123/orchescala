@@ -8,4 +8,7 @@ dist/
 /dist-pages/
 node_modules
 *.tsbuildinfo
-/src/core/orchSpecCore.js
+/dist-standalone/
+/dist-core/
+/test-results/
+/playwright-report/

@@ -5,27 +5,36 @@
 // of the element template as a template; meanings already maintained stay.
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { C7_LABEL, C8_LABEL } from '../engineLabels';
-import { AlertTriangle, AppWindow, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
+import { AlertTriangle, AppWindow, ArrowRight, ArrowUpRight, Asterisk, ShieldCheck, Braces, ChevronDown, ChevronRight, ExternalLink, GitFork, List, ListOrdered, Plug, Plus, Puzzle, Repeat, Search, Trash2, Unlink, Workflow, X, Zap } from 'lucide-react';
 import type { AppliedPattern, DomainType, EngineId, Field, Interaction, Mapping, Model, MultiInstanceSpec, PatternDef, ProcessSpec, ServiceDef, ServiceParam, Status, Step, TimerSpec, TypeDef } from '../types';
 import { INTERACTION_META, STATUSES, STATUS_META } from '../types';
 import { catalogEntry, createMemberType, foreignOrigin, interactionKind, interactionOrigin, suggestName, withOrigin } from '../interactions';
-import { packageOf } from '../scala';
+import { indexTypes, packageOf } from '../scala';
 import { EpicChip, KIND_LABEL, cls, patternTone } from '../ui';
 import { EpicChips } from './SpecMeta';
 import { PROCESS_TARGET, allPatterns, changeBuiltinPattern, patternMappings, paramText, patternParamsFor, patternsFor, processChoices, processIssue, processPatterns, staleProcessId, stepTags, patternDefs } from '../patterns';
 import { paramStored, paramView } from '../patternParams';
 import { acceptedEverywhere, blockIndex, boundaryLabel, isEventBoundary, blockStart, isInitWorker, isServiceWorker, mockFieldOf, mockRef, timerVariable } from '../bpmn';
-import { FEEL_TYPE_LABEL, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
+import { FEEL_TYPE_LABEL, mappingVarNodes, scriptResultField, checkFeel, collectionNode, conditionExpected, elementNode, miInsideVariables, namesWrittenInside, resultListNode, domainInputNames, domainRequired, expectedFor, inConfigField, inConfigWarning, declaredVariables, expectedFromDomain, isFeel, outputRowType, multiInstanceScopes, processVariables, variablesByStep, resultVariables, stepDomainMember, variableOverview, withMultiInstance, type ExpectedType, type VariableConflict, type VariableInfo, type FeelCheck, type FeelIssue, type VarNode } from '../feel';
 import { NEW_REGEX, handledErrorIssue, variableConflictRule, isScriptValue, newErrorCode, regexIssue, scriptWarning, stepFindings, timerFindings, timerKinds } from '../findings';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel, isJsonLiteral } from '../feelJuel';
-import { feelIfPossible, importExpression, isJuel, untranslatableText } from '../juelFeel';
+import { feelIfPossible, importExpression, isJuel, outputSource, untranslatableText } from '../juelFeel';
+import { feelRef } from '../feelNames';
 import FeelInput from './FeelInput';
+import FieldMappingEditor from './FieldMappingEditor';
+import { caseLinkIssues, emptyMapping, inOutIssues, mappingFeel, mappingOf, varFeel } from '../fieldMapping';
+import MappingCases from './MappingCases';
+import MappingInOut from './MappingInOut';
+import { adtCaseFields, adtCases as adtCasesOf, converter, mapperChoices, modelMappers } from '../typeMappers';
+import TypePicker from './TypePicker';
+import { clearsMapTo } from '../mapTo';
+import { domainRef } from '../serviceTypes';
 import DmnTableSection from './DmnTableSection';
 import { MarkdownField } from './MarkdownField';
 import { CommentBubble, useActiveComment } from './Comments';
 import { useConfirm } from './Confirm';
 import { useStore } from '../store';
-import { pagesForTask, userTaskSteps } from '../pages/taskLinks';
+import { pagesForTask, taskPageDraft, userTaskSteps, type TaskPageDraft } from '../pages/taskLinks';
 import { processTarget, stepTarget, sub } from '../comments';
 import { knownPrefixes, nameFromService, splitPrefix, unnamed } from '../stepIds';
 import { ALL_VARIANTS, caseOf, chosenVariant, classFieldsOf, noVariantText, routingText, rowsForVariant, typeUnknown, variantAllows, variantKey, variantRequires, variantsOf, type Chosen, type Variants } from '../variants';
@@ -60,6 +69,10 @@ interface Props {
   hasDiagram?: boolean;
   /** to a page of the app - the pages that complete a user task */
   onOpenPage?: (pageSlug: string) => void;
+  /** a new page for the user task - the dialog «Neu» of the pages, filled in */
+  onNewPage?: (draft: TaskPageDraft) => void;
+  /** an existing page completes the user task: a button «Abschliessen» at its end */
+  onAttachPage?: (pageSlug: string, taskKey: string, out: string[]) => void;
 }
 
 // Width, border and background come from the right column — only content here.
@@ -354,7 +367,7 @@ function VariableRow({ v, conflict, isDark, canEdit, onDescribe, onRemove }: {
 }
 
 // ── Step level ────────────────────────────────────────────────────────────
-function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram, onOpenPage }: Props & { step: Step }) {
+function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onClose, onGoto, onSpecChange, onEditType, onPattern, hasDiagram, onOpenPage, onNewPage, onAttachPage }: Props & { step: Step }) {
   const confirm = useConfirm();
   const { pages, specs } = useStore();
   const c = cls(isDark);
@@ -400,6 +413,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
   const insideVariables = useMemo(() => miInsideVariables(step, spec, model, outerVariables), [step, spec, model, outerVariables]);
   const insideNames = useMemo(() => (step.multiInstance?.result ? namesWrittenInside(step, spec, model) : undefined), [step, spec, model]);
   const resultVars = useMemo(() => withMultiInstance(resultVariables(step, spec, model, service), scopes), [step, spec, model, service, scopes]);
+  // process variables with a fixed type (In, InitIn, InConfig) — what an output writing one of them must deliver
+  const declaredVars = useMemo(() => declaredVariables(baseVariables), [baseVariables]);
   // The Scala types of the service object from the domain catalog — the yardstick for
   // type and required, where the step has no In/Out class of its own
   const domainIn = useMemo(() => (initWorker ? null : stepDomainMember(step, spec, model, 'In')), [initWorker, step, spec, model]);
@@ -424,8 +439,10 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     const fromClass = classFields(list);
     if (fromClass) return { names: fromClass.filter(n => variantAllows(v, chosen, n)), quelle: 'Modell' };
     const params = (list === 'inputs' ? service?.inputs : service?.outputs) ?? [];
-    const names = params.map(p => p.name).filter(n => variantAllows(v, chosen, n));
-    return params.length ? { names, quelle: 'Katalog' } : null;
+    // the fields of the chosen case, also those the catalog of the service does not list
+    const ofCase = v && chosen.name && chosen.name !== ALL_VARIANTS ? v.cases.find(x => x.name === chosen.name)?.fields.map(f => f.name) ?? [] : [];
+    const names = [...new Set([...params.map(p => p.name), ...ofCase])].filter(n => variantAllows(v, chosen, n));
+    return names.length ? { names, quelle: 'Katalog' } : null;
   };
 
   const setMapping = (list: 'inputs' | 'outputs', i: number, patch: Partial<Mapping>) =>
@@ -437,10 +454,14 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
     const have = new Set((step[list] ?? []).map(m => m.name));
     const ref = reference(list);
     if (!ref) return;
-    const descr = new Map(((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).map(p => [p.name, p.description]));
+    // the descriptions of the catalog — of a field of a case the one the case gives it
+    const descr = new Map<string, string | undefined>([
+      ...(variantsFor(list)?.cases ?? []).flatMap(x => x.fields).map(f => [f.name, f.description] as [string, string | undefined]),
+      ...((list === 'inputs' ? service?.inputs : service?.outputs) ?? []).filter(p => p.description).map(p => [p.name, p.description] as [string, string | undefined]),
+    ]);
     const add = ref.names.filter(n => !have.has(n)).map(name => ({
       name,
-      expression: `= ${name}`,
+      expression: `= ${feelRef(name)}`,
       ...(descr.get(name) ? { description: descr.get(name) } : {}),
     }));
     if (add.length) onPatch(step.id, { [list]: [...(step[list] ?? []), ...add] });
@@ -496,7 +517,7 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
                 ? `\n⚠ Der Schlüssel «${ia.key}» kommt auch in ${keyElsewhere.map(t => `«${t.process}»`).join(', ')} vor – die Seite gilt für alle.`
                 : '';
               const tone = isDark ? 'border-sky-500/30 bg-sky-500/15 text-sky-200' : 'border-sky-300 bg-sky-50 text-sky-800';
-              return forTask.length ? forTask.map(pg => (
+              const links = forTask.length ? forTask.map(pg => (
                 <button key={pg.slug} onClick={() => onOpenPage(pg.slug)}
                   title={`Die Seite «${pg.title}» schliesst diesen Benutzer-Task ab – Klick: zur Seite im Seiten-Designer${elsewhere}`}
                   className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border hover:underline ${tone}`}>
@@ -505,6 +526,31 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
               )) : (
                 <span title={`Keine Seite der App schliesst «${ia.key}» ab (Aktion «Task abschliessen»)`}
                   className={`text-[9px] px-1.5 py-0.5 rounded border ${c.border2} ${c.muted}`}>keine Seite</span>
+              );
+              return links;
+            })()}
+            {/* a page for the user task: a new one (the dialog «Neu», filled in) or one that is there */}
+            {ia?.kind === 'userTask' && canEdit && (onNewPage || onAttachPage) && (() => {
+              const outFields = ((spec.types ?? []).find(t => t.id === ia.outTypeId)?.fields ?? []).map(f => f.name).filter(Boolean);
+              const others = pages.filter(pg => !taskPages.some(t => t.slug === pg.slug));
+              return (
+                <>
+                  {onNewPage && (
+                    <button onClick={() => onNewPage(taskPageDraft({ key: ia.key, name: step.name || ia.name, process: spec.title || spec.slug }, outFields, pages.map(pg => pg.data.path)))}
+                      title={`Eine Seite für «${ia.key}» anlegen – mit den Feldern des Out und einem Button «Abschliessen»`}
+                      className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ${c.btn}`}>
+                      <Plus size={9} />Seite anlegen
+                    </button>
+                  )}
+                  {onAttachPage && others.length > 0 && (
+                    <select value="" onChange={e => { if (e.target.value) onAttachPage(e.target.value, ia.key, outFields); }}
+                      title={`Eine bestehende Seite schliesst «${ia.key}» ab – sie bekommt am Ende einen Button «Abschliessen»`}
+                      className={`text-[9px] px-1 py-0.5 rounded border bg-transparent ${c.border2} ${c.muted}`}>
+                      <option value="">Seite wählen …</option>
+                      {others.map(pg => <option key={pg.slug} value={pg.slug}>{pg.data.title || pg.slug}</option>)}
+                    </select>
+                  )}
+                </>
               );
             })()}
             {!ia && foreign && (
@@ -689,7 +735,13 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
           onChange={timer => onPatch(step.id, { timer })} />
       )}
 
-      {!ofPattern && <>
+      {/* Script task of a service orchestration: its implementation in FEEL - a method of the worker */}
+      {step.kind === 'script' && spec.service && !ofPattern && (
+        <ScriptSection step={step} spec={spec} model={model} isDark={isDark} canEdit={canEdit} variables={variables}
+          onPatch={patch => onPatch(step.id, patch)} />
+      )}
+
+      {!ofPattern && !(step.kind === 'script' && spec.service) && <>
       <InteractionClasses step={step} spec={spec} isDark={isDark} canEdit={canEdit} entry={service} model={model}
         onSpecChange={onSpecChange} onEditType={onEditType} />
 
@@ -699,7 +751,8 @@ function StepPanel({ step, spec, isDark, canEdit, model, onPatch, onSyncId, onCl
         variants={variantsIn} chosen={chosenFor('inputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
       <MappingTable key={`${step.id}-out`} title="Ausgaben" list="outputs" step={step} isDark={isDark} canEdit={canEdit} service={service}
-        variables={resultVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
+        typeMapping={!!spec.service && step.kind === 'service'}
+        variables={resultVars} declared={declaredVars} refFields={classFieldDefs('outputs')} domain={domainOut} types={spec.types ?? []} model={model} engine={spec.engine}
         implicitIn={implicitIn} reference={reference('outputs')} fromPattern={fromPattern.outputs} patternTimes={fromPattern.times.outputs} patternName={patternName}
         variants={variantsOut} chosen={chosenFor('outputs')} onVariant={setVariant}
         onChange={setMapping} onAdd={addMapping} onRemove={removeMapping} onFill={fillFromCatalog} onConvert={convertJuel} />
@@ -1349,6 +1402,9 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
     const same = current?.id === svc.id;
     const extra = (list: Mapping[] | undefined, params: ServiceParam[]) =>
       (same ? list ?? [] : []).filter(m => !params.some(pm => pm.name === m.name));
+    // a chosen case that stays: its fields as rows too — the catalog may list only the shared ones
+    const ofCase = (rows: Mapping[], v: { v: Variants | null; name: string | null }, list: 'inputs' | 'outputs') =>
+      v.v && v.name && v.name !== ALL_VARIANTS ? rowsForVariant(rows, v.v, v.name, list) : rows;
     onPatch(step.id, {
       ...(name && name !== step.name ? { name } : {}),
       serviceId: svc.id,
@@ -1357,18 +1413,18 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
       ...(svc.topic ? { topic: svc.topic } : {}),
       ...(svc.calledProcess ? { calledProcess: svc.calledProcess } : {}),
       // What was already entered stays: expression, meaning and the deselection
-      inputs: inParams.map(pm => ({
+      inputs: ofCase(inParams.map(pm => ({
         name: pm.name,
         expression: oldIn.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
         ...(oldIn.get(pm.name)?.description ?? pm.description ? { description: oldIn.get(pm.name)?.description ?? pm.description } : {}),
         ...(oldIn.get(pm.name)?.disabled ? { disabled: true } : {}),
-      })).concat(extra(step.inputs, inParams)),
-      outputs: outParams.map(pm => ({
+      })).concat(extra(step.inputs, inParams)), vin, 'inputs'),
+      outputs: ofCase(outParams.map(pm => ({
         name: pm.name,
-        expression: oldOut.get(pm.name)?.expression ?? feelIfPossible(pm.expression ?? ''),
+        expression: outputSource(pm.name, oldOut.get(pm.name)?.expression, pm.expression),
         ...(oldOut.get(pm.name)?.description ? { description: oldOut.get(pm.name)!.description } : {}),
         ...(oldOut.get(pm.name)?.disabled ? { disabled: true } : {}),
-      })).concat(extra(step.outputs, outParams)),
+      })).concat(extra(step.outputs, outParams)), vout, 'outputs'),
       ...(svc.handledErrors?.length
         ? { errors: [...(step.errors ?? []), ...svc.handledErrors.filter(code => !(step.errors ?? []).some(e => e.code === code)).map(code => ({ code }))] }
         : {}),
@@ -1397,6 +1453,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
         {canEdit && <ChevronDown size={12} className={c.muted} />}
       </button>
       {current?.description && <p className={`text-[10px] mt-1 ${c.muted}`}>{current.description.split('\n')[0]}</p>}
+      {current?.unreleased && <p className="text-[10px] mt-1 text-amber-600">Noch nicht released – aus dem Ordner, kommt mit dem nächsten Release in den Katalog.</p>}
 
       {open && (
         <div className={`mt-1 rounded border ${c.border2} ${c.panelStrong}`}>
@@ -1411,7 +1468,9 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
             {hits.map(s => (
               <button key={s.id} onClick={() => apply(s)}
                 className={`w-full text-left px-2 py-1.5 border-b last:border-b-0 ${c.border} ${c.hover}`}>
-                <div className={`text-[11px] truncate ${c.text}`}>{s.name}</div>
+                <div className={`text-[11px] truncate ${c.text}`}>{s.name}
+                  {s.unreleased && <span title="Aus dem Ordner – wählbar, kommt mit dem nächsten Release in den Katalog" className="ml-1.5 text-[9px] text-amber-600">noch nicht released</span>}
+                </div>
                 <div className={`text-[9px] font-mono truncate ${c.muted}`}>{s.id}</div>
                 <div className={`text-[9px] ${c.muted}`}>
                   {(s.inputs?.length ?? 0)} Eingaben · {(s.outputs?.length ?? 0)} Ausgaben
@@ -1419,7 +1478,7 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
                 </div>
               </button>
             ))}
-            {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden. Katalog im Admin befüllen.</div>}
+            {!hits.length && <div className={`px-2 py-3 text-[10px] ${c.muted}`}>Nichts gefunden – weder im Katalog noch im Ordner.</div>}
           </div>
         </div>
       )}
@@ -1433,8 +1492,10 @@ function ServicePicker({ step, spec, model, isDark, canEdit, onPatch, onSyncId, 
 // can do — what this process does not need is deselected (stays visible)
 // or deleted (comes back via «+ N aus Katalog»). A new sync
 // does not restore deselected rows.
-function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert }: {
+function MappingTable({ title, list, step, isDark, canEdit, service, reference, variables, declared, refFields, domain, types, model, engine, implicitIn, fromPattern, patternTimes, patternName, variants, chosen, onVariant, onChange, onAdd, onRemove, onFill, onConvert, typeMapping = false }: {
   title: string; list: 'inputs' | 'outputs'; step: Step; isDark: boolean; canEdit: boolean;
+  /** an output of a service orchestration may be converted into another type (`mapTo`) */
+  typeMapping?: boolean;
   /** variants of the In or Out (enum with cases) — null: none */
   variants: Variants | null;
   chosen: Chosen;
@@ -1450,6 +1511,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   service: ServiceDef | null;
   /** what the expression may see: process variables — for outputs first the result of the service */
   variables: VarNode[] | null;
+  /** outputs: the process variables with a fixed type — the yardstick for an output writing one */
+  declared?: VarNode[];
   /** fields of the In or Out class — from them the expected type per row */
   refFields: Field[] | null;
   /** `<Objekt>.In` or `.Out` from the domain catalog — the yardstick without an own class */
@@ -1483,6 +1546,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
   const active = rows.filter(m => !m.disabled).length;
   /** row whose removal is about to be confirmed */
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
+  /** row whose «umwandeln in» is open */
+  const [mapOpen, setMapOpen] = useState<number | null>(null);
   // What the fields mean — explained on hover, because for inputs and
   // outputs the reading direction differs: for inputs «name» is the
   // parameter of the service and the expression comes from the process, for
@@ -1660,13 +1725,21 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
             : !off && list === 'inputs' && !refFields && m.name === inConfigField(domain) ? inConfigWarning(m.name)
             : fehlt ? `«${m.name}» steht noch nicht im ${reference?.quelle} — Erweiterung: dort ergänzen, dann ist die Zeile in Ordnung. Oder hier entfernen.` : undefined;
           // FEEL (Camunda 8): `= …` is checked while typing — syntax, paths, type
-          // Expected type: the own class first, otherwise the domain catalog
-          // a different type per case and none chosen («alle Ausprägungen»): no yardstick
-          const expected = typeUnknown(variants, chosen, m.name) ? null
+          // Input: the expected type of the field of the In — the own class first, otherwise
+          // the domain catalog; a different type per case and none chosen («alle Ausprägungen»): no yardstick.
+          // Output: the name is a process variable, not a field of the Out — measured against the
+          // process variable if it has a fixed type (In, InitIn, InConfig); its type otherwise
+          // comes from the source (`= composedClient`), as the process variables take it
+          // (the Out holds the source, not the target: a field of the same name is no yardstick)
+          const out = list === 'outputs' ? outputRowType(m, off ? [] : variables ?? [], declared ?? [], types, model) : null;
+          const expected = out ? out.expected
+            : typeUnknown(variants, chosen, m.name) ? null
             : refFields ? expectedFor(refFields.find(f => f.name === m.name), types, model)
             : expectedFromDomain(domain, m.name, model, caseOf(variants, chosen));
           const feel = !off && isFeel(m.expression) ? checkFeel(m.expression, variables, expected) : null;
           const feelIssues: FeelIssue[] = [
+            // same FEEL type, other class: `context` fits `context` — the Scala types must match too
+            ...(out?.issue ? [{ level: 'warn' as const, text: out.issue }] : []),
             ...(pflicht && off ? [{ level: 'error' as const, text: `${pflicht} — abgewählt bekommt der Service es nicht. Wieder anwählen.` }] : []),
             // a parameter (not a `camunda:in` on the subprocess) can carry JSON as a script
             ...(feel ? [...feel.issues, ...juelIssues(m.expression, engine, step.kind !== 'call')] : []),
@@ -1711,7 +1784,8 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     <Asterisk size={10} />
                   </span>
                 )}
-                {expected && <ExpectedChip expected={expected} list={list} isDark={isDark} />}
+                {expected ? <ExpectedChip expected={expected} list={list} isDark={isDark} />
+                  : out?.source && <ExpectedChip expected={out.source} list={list} isDark={isDark} fromSource={out.path ?? undefined} />}
                 <FeelInput value={m.expression} disabled={!canEdit || off} isDark={isDark}
                   variables={variables}
                   onChange={v => onChange(list, i, { expression: v })}
@@ -1722,7 +1796,15 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                     m.expression ? `Aktuell: ${m.expression}` : '',
                   ].filter(Boolean).join('\n\n')}
                   className="flex-[3] min-w-0" />
-                {feel && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
+                {/* the type of the source is already shown — without a yardstick the grey FEEL kind adds nothing */}
+                {feel && (!out || out.showResult) && <ResultChip feel={feel} expected={expected} isDark={isDark} />}
+                {typeMapping && !off && (
+                  <button onClick={() => setMapOpen(mapOpen === i ? null : i)} disabled={!canEdit && !m.mapTo}
+                    title={m.mapTo ? `Wird umgewandelt in ${mapToLabel(m, types, model)} - anklicken zum Ändern` : 'In einen anderen Typ umwandeln - z. B. in den Typ des Out (der passende Fall, Feld für Feld)'}
+                    className={`flex-shrink-0 flex items-center gap-0.5 text-[9px] px-1 py-0.5 rounded border font-mono ${m.mapTo ? kindStyle('class', isDark).cls : `${c.muted} border-transparent opacity-0 group-hover:opacity-100`}`}>
+                    <ArrowRight size={9} />{m.mapTo ? <span className="truncate max-w-[9rem]">{mapToLabel(m, types, model)}</span> : null}
+                  </button>
+                )}
                 {problem && <AlertTriangle size={10} className={`flex-shrink-0 ${mark}`} />}
                 {m.name && <CommentBubble target={sub(stepTarget(step.id), `${list === 'inputs' ? 'in' : 'out'}:${m.name}`)} quiet />}
                 {/* Removing always works. A field of the yardstick comes back any time via
@@ -1746,6 +1828,10 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
                   </span>
                 )}
               </div>
+              {typeMapping && mapOpen === i && (
+                <MapToRow m={m} types={types} model={model} isDark={isDark} canEdit={canEdit}
+                  onChange={patch => { onChange(list, i, patch); if (clearsMapTo(patch)) setMapOpen(null); }} />
+              )}
               <input value={m.description ?? ''} disabled={!canEdit || off}
                 onChange={e => onChange(list, i, { description: e.target.value || undefined })}
                 placeholder={fromCatalog.get(m.name) || 'fachliche Bedeutung'}
@@ -1755,6 +1841,53 @@ function MappingTable({ title, list, step, isDark, canEdit, service, reference, 
           );
         })}
       </div>}
+    </div>
+  );
+}
+
+/** The cases of an ADT type - own or of the catalog (`dom:…`); none for a class or a simple enum. */
+function adtCases(id: string | undefined, types: TypeDef[], model: Model | null): string[] {
+  if (!id) return [];
+  const own = types.find(t => t.id === id);
+  if (own) return own.kind === 'enum' && (own.values ?? []).some(v => v.fields?.length) ? (own.values ?? []).map(v => v.name) : [];
+  const dom = (model?.domainTypes ?? []).find(d => domainRef(d.id) === id);
+  return (dom?.cases ?? []).map(c => c.name);
+}
+
+/** `Client.MultiplePersons` · `Client` - what an output is converted into */
+function mapToLabel(m: Mapping, types: TypeDef[], model: Model | null): string {
+  const id = m.mapTo ?? '';
+  const name = types.find(t => t.id === id)?.name ?? (model?.domainTypes ?? []).find(d => domainRef(d.id) === id)?.name ?? id.replace(/^dom:/, '').split('.').pop() ?? id;
+  return m.mapToCase ? `${name}.${m.mapToCase}` : name;
+}
+
+/**
+ * «umwandeln in»: the type an output of a service orchestration is converted into - and for an
+ * ADT the case (without: the one whose fields fit best). The export maps field by field.
+ */
+function MapToRow({ m, types, model, isDark, canEdit, onChange }: {
+  m: Mapping; types: TypeDef[]; model: Model | null; isDark: boolean; canEdit: boolean;
+  onChange: (patch: Partial<Mapping>) => void;
+}) {
+  const c = cls(isDark);
+  const cases = adtCases(m.mapTo, types, model);
+  return (
+    <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+      <span className={`${c.muted} flex-shrink-0 flex items-center gap-0.5`}><ArrowRight size={9} /> umwandeln in</span>
+      <TypePicker value={m.mapTo ?? ''} types={types} selfId="" model={model} isDark={isDark} disabled={!canEdit}
+        onPick={v => onChange({ mapTo: v || undefined, mapToCase: undefined })} className="flex-1 min-w-0" />
+      {cases.length > 0 && (
+        <select value={m.mapToCase ?? ''} disabled={!canEdit} onChange={e => onChange({ mapToCase: e.target.value || undefined })}
+          title="Der Fall des Typs - ohne Wahl der, dessen Felder am besten passen"
+          className={`flex-shrink-0 text-[10px] px-1 py-0.5 rounded border outline-none ${c.input}`}>
+          <option value="">passender Fall</option>
+          {cases.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+      )}
+      {m.mapTo && canEdit && (
+        <button onClick={() => onChange({ mapTo: undefined, mapToCase: undefined })} title="Nicht umwandeln"
+          className={`p-0.5 flex-shrink-0 ${c.muted}`}><X size={10} /></button>
+      )}
     </div>
   );
 }
@@ -1959,12 +2092,19 @@ function MiResultSection({ mi, isDark, canEdit, engine, inside, insideNames, onC
   );
 }
 
-function ExpectedChip({ expected, list, isDark }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean }) {
+/**
+ * The type of a mapping row. With `fromSource` it is no yardstick but the type of the
+ * source path of an output — the new process variable takes it over.
+ */
+function ExpectedChip({ expected, list, isDark, fromSource }: { expected: ExpectedType; list: 'inputs' | 'outputs'; isDark: boolean; fromSource?: string }) {
   const st = kindStyle(expected.kind, isDark);
   const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');
   const optional = expected.accepts.includes('nil') ? ' · optional' : '';
+  const title = fromSource
+    ? `${st.what} ${expected.label}${optional} — der Typ von «${fromSource}»; die Prozessvariable übernimmt ihn.`
+    : `${st.what} ${expected.label}${optional} — ${list === 'inputs' ? 'so erwartet es der Service' : 'so ist die Prozessvariable definiert'}.\nDer Ausdruck muss ${soll} liefern.`;
   return (
-    <span title={`${st.what} ${expected.label}${optional} — ${list === 'inputs' ? 'so erwartet es der Service' : 'so ist die Prozessvariable definiert'}.\nDer Ausdruck muss ${soll} liefern.`}
+    <span title={title}
       className={`flex-shrink-0 max-w-[9rem] truncate flex items-center gap-0.5 text-[9px] font-mono px-1 py-px rounded border ${st.cls}`}>
       {st.icon}<span className="truncate">{expected.label}</span>
     </span>
@@ -1990,6 +2130,144 @@ function ResultChip({ feel, expected, isDark }: { feel: FeelCheck; expected: Exp
     <span title={title} className={`flex-shrink-0 text-[9px] px-1 py-px rounded border ${cls}`}>
       {FEEL_TYPE_LABEL[feel.result]}
     </span>
+  );
+}
+
+/**
+ * The implementation of a script task in FEEL: one expression and the variable its value goes
+ * into. In a service orchestration the export makes it a method of the worker, with a test.
+ */
+function ScriptSection({ step, spec, model, isDark, canEdit, variables, onPatch }: {
+  step: Step; spec: ProcessSpec; model: Model | null; isDark: boolean; canEdit: boolean; variables: VarNode[] | null;
+  onPatch: (patch: Partial<Step>) => void;
+}) {
+  const c = cls(isDark);
+  const err = isDark ? 'text-rose-400' : 'text-rose-600';
+  const warn = isDark ? 'text-amber-400' : 'text-amber-600';
+  const value = step.script ?? '';
+  // the fields of the Out - the result usually is one of them, then it has its type
+  const out = (spec.types ?? []).find(t => t.processOut);
+  const outFields = (out?.fields ?? []).map(f => f.name).filter(Boolean);
+  const result = step.resultVariable?.trim();
+  // a field of the Out has its type - another variable the one chosen here
+  const ofOut = result ? (out?.fields ?? []).find(f => f.name === result) : undefined;
+  const field = useMemo(() => scriptResultField(step, spec) ?? undefined, [step, spec]);
+  const expected = useMemo(() => expectedFor(field, spec.types ?? [], model), [field, spec.types, model]);
+  // the value is checked against that type - `[persons, companies]` is no list of clients
+  const issues: FeelIssue[] = value.trim()
+    ? (isFeel(value) ? checkFeel(value, variables, expected).issues : [{ level: 'error', text: 'Mit «=» beginnen - die Implementierung ist ein FEEL-Ausdruck.' }])
+    : [];
+  const listId = `script-result-${step.id}`;
+  const confirm = useConfirm();
+  // as a mapping: its In and Out, the fields of the Out drawn from the In - its FEEL written along
+  const mapping = useMemo(() => (step.fieldMapping ? mappingOf(step.fieldMapping) : undefined), [step.fieldMapping]);
+  const nodes = useMemo(() => (mapping ? mappingVarNodes(mapping, spec, model) : null), [mapping, spec, model]);
+  const ioIssues = useMemo(() => {
+    if (!mapping) return [];
+    const idx = indexTypes(spec.types ?? [], model);
+    return [...inOutIssues(mapping, variables), ...caseLinkIssues(mapping, ref => adtCasesOf(ref, idx), (ref, c) => adtCaseFields(ref, c, idx))];
+  }, [mapping, variables, spec.types, model]);
+  // the type mappers of the model: a line between their types converts
+  const convert = useMemo(() => converter(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  // those a line can choose - one with a name (Sprache, Land …) only so
+  const choices = useMemo(() => mapperChoices(modelMappers(model), indexTypes(spec.types ?? [], model).nameOf), [model, spec.types]);
+  const toMapping = async () => {
+    if (value.trim() && !(await confirm({ title: 'Als Mapping beschreiben?', confirmLabel: 'Mapping', text: 'Der FEEL-Ausdruck wird durch das Mapping ersetzt - es beginnt leer.' }))) return;
+    // the result so far is its Out
+    const m = { ...emptyMapping(), out: field ? [{ ...field, id: uid('f') }] : [] };
+    onPatch({ fieldMapping: m, script: mappingFeel(m), resultVariable: undefined, resultType: undefined, resultCollection: undefined });
+  };
+  // back to FEEL: one variable of the Out its result, its FEEL the expression to go on from
+  const toFeel = () => {
+    const one = mapping?.out.length === 1 ? mapping.out[0] : null;
+    const feel = one && mapping ? varFeel(mapping, one.name) : null;
+    onPatch({
+      fieldMapping: undefined,
+      ...(one ? { resultVariable: one.name || undefined, resultType: outFields.includes(one.name) ? undefined : one.type || undefined, resultCollection: one.collection || undefined } : {}),
+      ...(feel ? { script: `= ${feel}` } : {}),
+    });
+  };
+  const modeBtn = (on: boolean) => `px-1.5 py-0.5 ${on ? c.btnPrimary : c.btn}`;
+  return (
+    <Section id="script" label={mapping ? 'Implementierung (Mapping)' : 'Implementierung (FEEL)'} isDark={isDark} count={value.trim() ? 1 : 0}
+      comment={sub(stepTarget(step.id), 'script')}
+      hint={!value.trim() ? <span className={`text-[9px] ${c.muted}`}>ein Ausdruck und sein Ergebnis</span> : undefined}>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className={`${c.muted} w-24 flex-shrink-0`}>Art</span>
+          <span className={`inline-flex rounded border overflow-hidden ${c.border}`}>
+            <button type="button" disabled={!canEdit} onClick={() => { if (mapping) toFeel(); }} className={modeBtn(!mapping)}
+              title="Ein FEEL-Ausdruck - im Export eine Methode des Workers">FEEL</button>
+            <button type="button" disabled={!canEdit} onClick={() => { if (!mapping) void toMapping(); }} className={modeBtn(!!mapping)}
+              title="Die Felder des Ergebnisses grafisch aus den Variablen davor zuordnen">Mapping</button>
+          </span>
+        </div>
+        {!mapping && <>
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className={`${c.muted} w-24 flex-shrink-0`}>Ergebnis</span>
+          <input value={step.resultVariable ?? ''} disabled={!canEdit} list={listId}
+            onChange={e => onPatch({ resultVariable: e.target.value.trim() || undefined })}
+            title="Die Variable, die den Wert bekommt - meist ein Feld des Out (dann hat sie dessen Typ)"
+            placeholder="Variable, z. B. clients"
+            className={`flex-1 min-w-0 text-[10px] px-1.5 py-1 rounded border outline-none font-mono ${c.input} ${!step.resultVariable?.trim() && value.trim() ? (isDark ? 'border-rose-500/60' : 'border-rose-400') : ''}`} />
+          <datalist id={listId}>{outFields.map(n => <option key={n} value={n} />)}</datalist>
+          {ofOut && expected && <ExpectedChip expected={expected} list="outputs" isDark={isDark} />}
+        </div>
+        {/* no field of the Out: its type chosen here - the value is checked against it */}
+        {result && !ofOut && (
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className={`${c.muted} w-24 flex-shrink-0`}>Typ</span>
+            <TypePicker value={step.resultType ?? ''} types={spec.types ?? []} selfId="" model={model} isDark={isDark} disabled={!canEdit}
+              onPick={v => onPatch({ resultType: v || undefined })} className="flex-1 min-w-0" />
+            <label className={`flex items-center gap-1 flex-shrink-0 ${c.muted}`} title="Eine Liste dieses Typs (Seq[…])">
+              <input type="checkbox" checked={!!step.resultCollection} disabled={!canEdit || !step.resultType}
+                onChange={e => onPatch({ resultCollection: e.target.checked || undefined })} /> Liste
+            </label>
+            {expected
+              ? <ExpectedChip expected={expected} list="outputs" isDark={isDark} />
+              : <span className={`text-[9px] ${c.muted}`} title="Ohne Typ leitet der Export ihn ab, wo es geht (Listen eines Typs aneinandergehängt) - geprüft wird dann nicht">kein Typ</span>}
+          </div>
+        )}
+        </>}
+        {mapping && nodes && (
+          <>
+            <MappingInOut mapping={mapping} known={variables ?? []} outFields={out?.fields ?? []} types={spec.types ?? []} model={model}
+              isDark={isDark} canEdit={canEdit} listId={listId} onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
+            <MappingCases mapping={mapping} types={spec.types ?? []} model={model} isDark={isDark} canEdit={canEdit}
+              onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
+            {ioIssues.map((it, k) => (
+              <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+                <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+              </p>
+            ))}
+            <FieldMappingEditor mapping={mapping} target={nodes.target} sources={nodes.sources} isDark={isDark} canEdit={canEdit} convert={convert} choices={choices}
+              onChange={m => onPatch({ fieldMapping: m, script: mappingFeel(m) })} />
+            <details className="text-[10px]">
+              <summary className={`cursor-pointer ${c.muted}`}>FEEL des Mappings</summary>
+              <pre className={`mt-1 p-1.5 rounded border whitespace-pre-wrap break-all font-mono text-[9px] ${c.border}`}>{value}</pre>
+            </details>
+            <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers - das In ihre Parameter, das Out ihr Ergebnis (ein Objekt Feld für Feld oder ein copy seiner Basis), mit Test. Ein Enum mit Fällen: je Fall der Quelle eine eigene Methode mit Test, die Methode des Mappings wählt sie.</p>
+          </>
+        )}
+        {!mapping && <>
+        <FeelInput value={value} disabled={!canEdit} isDark={isDark} variables={variables} multiline
+          onChange={v => onPatch({ script: v || undefined })}
+          placeholder="= concatenate(organisations, naturalPersons)"
+          title={'Was der Schritt berechnet - ein FEEL-Ausdruck über die Variablen davor.\n'
+            + 'Im Export eine Methode des Workers (Scala) mit eigenem Test: concatenate(…) von Listen, '
+            + 'eine Klasse in den Typ des Ergebnisses (der passende Fall), sonst wie ein Mapping.'} />
+        {!step.resultVariable?.trim() && value.trim() && (
+          <p className={`text-[10px] flex items-start gap-1 ${err}`}><AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>Die Ergebnis-Variable fehlt.</span></p>
+        )}
+        {issues.map((it, k) => (
+          <p key={k} className={`text-[10px] flex items-start gap-1 ${it.level === 'error' ? err : warn}`}>
+            <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" /> <span>{it.text}</span>
+          </p>
+        ))}
+        <p className={`text-[10px] ${c.muted}`}>Im Export eine eigene Methode des Workers, mit Test.</p>
+        </>}
+      </div>
+    </Section>
   );
 }
 
@@ -2149,7 +2427,7 @@ function CorrelationChoice({ corr, engine, isDark, disabled, onChoose }: {
       {corr.misnamed && (
         <p className={`text-[10px] flex items-start gap-1 ${err}`}>
           <AlertTriangle size={10} className="flex-shrink-0 mt-0.5" />
-          <span><span className="font-mono">{corr.expression?.replace(/^=\s*/, '')}</span> setzt der InitWorker nicht mehr — die eigene Instanz ist <span className="font-mono">camunda.processInstance.key</span> ({C8_LABEL} ab 8.10). So bleibt der Schlüssel leer und das Event erzeugt einen Incident: «processInstanceId» wählen.</span>
+          <span><span className="font-mono">{corr.expression?.replace(/^=\s*/, '')}</span> ist keine Variable der Instanz — die eigene Instanz ist <span className="font-mono">camunda.processInstance.key</span> ({C8_LABEL} ab 8.10; {C7_LABEL}: execution.processInstanceId).{engine === 'c8' ? ' So bleibt der Schlüssel leer und das Event erzeugt einen Incident.' : ''} «processInstanceId» wählen.</span>
         </p>
       )}
       {corr.fixed && (

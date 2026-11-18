@@ -64,10 +64,12 @@ export function feelBody(expression: string): string | null {
 
 class Unsupported extends Error {}
 
-/** Variables of Camunda 8 that Camunda 7 has on the execution — counterpart to the import (juelFeel.ts) */
+/** What Camunda 7 has on the execution — counterpart to the import (juelFeel.ts) */
+const OWN_KEY = '__ownProcessInstanceKey';
+const OWN_BUSINESS_ID = '__ownBusinessId';
 const EXECUTION_JUEL: Record<string, string> = {
-  processInstanceId: 'execution.processInstanceId',
-  businessKey: 'execution.processBusinessKey',
+  [OWN_KEY]: 'execution.processInstanceId',
+  [OWN_BUSINESS_ID]: 'execution.processBusinessKey',
   processDefinitionKey: 'execution.getProcessDefinition().getKey()',
 };
 
@@ -80,6 +82,8 @@ const children = (n: SyntaxNode): SyntaxNode[] => {
 export interface JuelOptions {
   /** Process variables that may be missing (optional in the data model) — `execution.getVariable("x")` */
   optional?: ReadonlySet<string>;
+  /** every variable may be missing — all are read with `execution.getVariable("x")` (a counter on a gateway) */
+  allOptional?: boolean;
   /** the variables with their fields — determine how a Spin path ends (`stringValue()` …) */
   vars?: readonly VarNode[];
   /** Variables that are not JSON in Camunda 7 (result of a DMN decision) — their paths stay `a.b` */
@@ -108,19 +112,45 @@ const SPIN_VALUE: Partial<Record<FeelType, string>> = {
 type Use = 'value' | 'scalar' | 'list' | 'empty';
 
 /**
- * The own instance of Camunda 8 (`camunda.processInstance.key`, 8.10) is in Camunda 7
- * `execution.processInstanceId` — outside text literals it becomes `processInstanceId`,
- * which EXECUTION_JUEL translates. Likewise its business id (`camunda.processInstance.businessId`)
- * becomes `businessKey`, in Camunda 7 `execution.processBusinessKey`.
+ * The own instance is always the context `camunda.processInstance` (Camunda 8 from 8.10):
+ * its key is in Camunda 7 `execution.processInstanceId`, its business id
+ * `execution.processBusinessKey`. Outside text literals it becomes a placeholder that
+ * EXECUTION_JUEL translates — a variable named `processInstanceId` or `businessKey`
+ * stays a variable.
  */
 const ownInstance = (body: string): string =>
   body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
-    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, 'processInstanceId')
-      .replace(/(?<![\w.])camunda\.processInstance\.businessId(?![\w])/g, 'businessKey'))).join('');
+    : part.replace(/(?<![\w.])(?:string\(\s*camunda\.processInstance\.key\s*\)|camunda\.processInstance\.key)(?![\w])/g, OWN_KEY)
+      .replace(/(?<![\w.])camunda\.processInstance\.businessId(?![\w])/g, OWN_BUSINESS_ID))).join('');
+/**
+ * A name in backticks (`` `letter-id` ``) — FEEL reads it as one variable, the parser
+ * here does not. Outside text literals it becomes a placeholder (`__bqName0`) that the
+ * translation maps back: in JUEL to `execution.getVariable("letter-id")`, in the
+ * Groovy JSON script to `v('letter-id')`.
+ */
+function hideBackticks(body: string): { src: string; real: (name: string) => string; back: (text: string) => string } {
+  // a prefix the expression does not contain — a variable may be called `__bqName0` itself
+  let BQ = '__bqName';
+  while (body.includes(BQ)) BQ += '_';
+  const names: string[] = [];
+  const src = body.split(/("(?:[^"\\]|\\.)*")/).map((part, i) => (i % 2 === 1 ? part
+    : part.replace(/`([^`]+)`/g, (_, n: string) => `${BQ}${names.push(n) - 1}`))).join('');
+  const re = new RegExp(`${BQ}(\\d+)`, 'g');
+  return {
+    src,
+    real: name => (name.startsWith(BQ) ? names[Number(name.slice(BQ.length))] ?? name : name),
+    back: text => text.replace(re, (_, k: string) => `\`${names[Number(k)]}\``),
+  };
+}
+
+/** A reason names the expression as written - not the placeholders of `ownInstance`. */
+const ownBack = (reason: string): string =>
+  reason.replaceAll(OWN_KEY, 'camunda.processInstance.key').replaceAll(OWN_BUSINESS_ID, 'camunda.processInstance.businessId');
 
 /** Translate a FEEL body to JUEL (without `${}`). */
 export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
-  const src = ownInstance(body.trim());
+  const bq = hideBackticks(ownInstance(body.trim()));
+  const src = bq.src;
   if (!src) return { ok: false, reason: 'leerer Ausdruck' };
   let top: SyntaxNode;
   try {
@@ -133,7 +163,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   let wrap = true;
   /** the guarded value of the whole expression, without its checks (see `JuelResult.value`) */
   let topValue: string | undefined;
-  const getVariable = (name: string) => `execution.getVariable("${name}")`;
+  const getVariable = (name: string) => `execution.getVariable("${bq.real(name)}")`;
   /**
    * A variable that may be missing here: compared with `null` or checked
    * for empty. For a path (`a.b`) its start — `null.b` is null in JUEL.
@@ -143,8 +173,10 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
       const [base, , prop] = children(n).filter(k => !k.type.isError);
       if (base && prop) return spin(n) ? `${unsetSafe(base)}.prop("${text(prop)}")` : `${unsetSafe(base)}.${text(prop)}`;
     }
-    const name = n.name === 'VariableName' ? text(n) : '';
-    return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && /^[A-Za-z_]\w*$/.test(name) ? getVariable(name) : tr(n);
+    const raw = n.name === 'VariableName' ? text(n) : '';
+    // the real name of a name in backticks (`letter-id`) — that one is always read from the execution
+    const name = bq.real(raw);
+    return name && wrap && !EXECUTION_JUEL[name] && name !== 'item' && (raw !== name || /^[A-Za-z_]\w*$/.test(name)) ? getVariable(name) : tr(n);
   };
 
   /** the variable at the start of a path (`a` in `a.b[1].c`) */
@@ -159,13 +191,13 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
   const spin = (n: SyntaxNode): boolean => {
     if (n.name !== 'PathExpression') return false;
     const root = rootOf(n);
-    const name = root ? text(root) : '';
+    const name = root ? bq.real(text(root)) : '';
     return !!root && !EXECUTION_JUEL[name] && !opts.plainRoots?.has(name);
   };
   /** the node in the variable tree — for the type at the end of a path */
   const varOf = (n: SyntaxNode): VarNode | null => {
     const [base, , prop] = children(n).filter(k => !k.type.isError);
-    if (n.name === 'VariableName') return opts.vars?.find(v => v.name === text(n)) ?? null;
+    if (n.name === 'VariableName') return opts.vars?.find(v => v.name === bq.real(text(n))) ?? null;
     if (n.name === 'PathExpression' && base && prop) return varOf(base)?.children?.find(c => c.name === text(prop)) ?? null;
     if (n.name === 'FilterExpression' && base) {
       const list = varOf(base);
@@ -198,7 +230,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
    */
   const guards = (n: SyntaxNode, unknown = false): string[] => {
     if (n.name === 'VariableName') {
-      const name = text(n), v = varOf(n);
+      const name = bq.real(text(n)), v = varOf(n);
       return v?.optional || opts.optional?.has(name) || (unknown && (!v || v.type === 'any')) ? [`${unsetSafe(n)} != null`] : [];
     }
     if (n.name !== 'PathExpression' || !spin(n)) return [];
@@ -326,10 +358,13 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
         return val(kids[0], 'value', true);
       case 'VariableName': {
         const name = text(n);
+        // a name in backticks is no JUEL identifier: always read from the execution
+        // (in a bare `source` the name itself)
+        if (bq.real(name) !== name) return wrap ? getVariable(name) : bq.real(name);
         if (/\s/.test(name)) throw new Unsupported(`Name mit Leerzeichen «${name}» geht in JUEL nicht`);
         // what Camunda 8 keeps as a variable, Camunda 7 has on the execution;
         // an optional variable is read so that it may be missing
-        return EXECUTION_JUEL[name] ?? (wrap && opts.optional?.has(name) ? getVariable(name) : name);
+        return EXECUTION_JUEL[name] ?? (wrap && (opts.allOptional || opts.optional?.has(name)) ? getVariable(name) : name);
       }
       case 'PathExpression': {
         const [base, , prop] = kids;
@@ -471,8 +506,7 @@ export function feelToJuel(body: string, opts: JuelOptions = {}): JuelResult {
     const plain = first && (first.name === 'VariableName' || first.name === 'PathExpression') ? tr(top) : undefined;
     return { ok: true, juel, ...(plain ? { plain } : {}), ...(value ? { value } : {}) };
   } catch (e) {
-    if (e instanceof Unsupported) return { ok: false, reason: e.message };
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: bq.back(ownBack(e instanceof Error ? e.message : String(e))) };
   }
 }
 
@@ -556,7 +590,8 @@ export const iterableJuel = (juel: string): { text: string; path: boolean } =>
 
 /** A FEEL list or context as a Groovy script that yields JSON (Spin) */
 export function feelToGroovy(body: string): GroovyResult {
-  const src = body.trim();
+  const bq = hideBackticks(body.trim());
+  const src = bq.src;
   let top: SyntaxNode;
   try {
     top = parseExpression(src, {}, 'expression').topNode;
@@ -568,7 +603,7 @@ export function feelToGroovy(body: string): GroovyResult {
   const str = (v: string) => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
   let reads = false;
   const path = (n: SyntaxNode): string[] => {
-    if (n.name === 'VariableName') return [text(n)];
+    if (n.name === 'VariableName') return [bq.real(text(n))];
     if (n.name === 'PathExpression') {
       const [base, , prop] = kids(n);
       if (base && prop) return [...path(base), text(prop)];
@@ -617,13 +652,13 @@ export function feelToGroovy(body: string): GroovyResult {
     if (!first || (first.name !== 'List' && first.name !== 'Context')) return { ok: false, reason: 'nur eine Liste oder ein Kontext wird zu JSON' };
     const literal = tr(top);
     const script = [
-      `${FEEL_SCRIPT_MARK}${src.replace(/\s*\n\s*/g, ' ')}`,
+      `${FEEL_SCRIPT_MARK}${body.trim().replace(/\s*\n\s*/g, ' ')}`,
       ...(reads ? [GROOVY_READ] : []),
       `org.camunda.spin.Spin.JSON(groovy.json.JsonOutput.toJson(${literal}))`,
     ].join('\n');
     return { ok: true, script };
   } catch (e) {
-    return { ok: false, reason: e instanceof Unsupported ? e.message : e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: bq.back(e instanceof Unsupported ? e.message : e instanceof Error ? e.message : String(e)) };
   }
 }
 

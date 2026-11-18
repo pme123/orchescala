@@ -11,6 +11,7 @@ import {
   asOrchestration, flatten, fromOrchestration, isServiceProcess, newServiceProcess, serviceProcessTopic, withCollections, type ServiceProcess,
 } from '../src/services/serviceProcess';
 import { removeOld, takeOver, type TakeOverStore } from '../src/services/takeOver';
+import { folderCatalog } from '../src/folderCatalog';
 import type { CollectionService, ServiceCollectionSpec, ServiceOrchestrationSpec } from '../src/services/types';
 import type { Step, TypeDef } from '../src/types';
 
@@ -71,13 +72,13 @@ test('the export reads the process: inputs per field of the In, the outputs as v
   assert.deepEqual(o.tasks.Get.outputs, [{ name: 'etag', expression: '= etag' }]);
   const w = orchestrationFiles(o, [collection()])[1].content;
   // GetClient: the In from the variable of the same name, its etag kept as variable — not its name (disabled)
-  assert.match(w, /getClient <- GetClientWorker\(\)\n\s+\.runWorkFromWorkerUnsafe\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey/);
+  assert.match(w, /getClient <- runGetClient\(\n\s+GetClient\.In\(\n\s+clientKey = in\.clientKey/);
   assert.match(w, /etag = getClient\.etag\n/);
   assert.doesNotMatch(w, /name = getClient\.name/);
   // PutClient: etag from the variable (optional → a step that fails), name from its input
   assert.match(w, /etag\d+ <- ZIO\.fromOption\(etag\)\.orElseFail\(CustomError\("PutClient: etag fehlt"\)\)/);
   assert.match(w, /name = "Muster"/);
-  assert.match(w, /_ <- PutClientWorker\(\)/);
+  assert.match(w, /_ <- runPutClient\(/);
   // the Out from the variable of the same name — optional there, so a step that fails
   assert.match(w, /yield Out\(\n\s+etag = etag\d+\n\s+\)/);
   const task = orchestrationFiles(o, [collection()])[0].content;
@@ -267,4 +268,16 @@ test('renaming an orchestration: not to an ID whose file name another specificat
   const { serviceRefProblem } = await import('../src/services/serviceProcess');
   // a different ID, the same slug
   assert.match(serviceRefProblem({ project: 'acme-crm', api: 'client', apiVersion: '1', name: 'UpdateClient' }, ['acme-crm-clientv1-updateclient'])!, /gibt es schon/);
+});
+
+test('the folder catalog: an orchestrator finds the classes another one exports - in the package of its API, its own types in schema', () => {
+  const mk = (name: string) => newServiceProcess({ title: name, project: 'acme-crm', api: 'client', apiVersion: 1, name }).spec;
+  const a = mk('GetClient');
+  a.types = [...(a.types ?? []), { id: 'c', name: 'Client', kind: 'enum', values: [{ name: 'Person', fields: [{ id: 'f', name: 'firstName', type: 'String' }] }] }];
+  const b = mk('GetClients');
+  const ids = (folderCatalog(null, { specs: [a, b], collections: [] }, b.slug)?.domainTypes ?? []).map(d => d.id);
+  assert.ok(ids.includes('acme.crm.domain.client.v1.schema.Client'), ids.join(', '));
+  assert.ok(ids.includes('acme.crm.domain.client.v1.GetClient.In'), ids.join(', '));
+  // its own classes are not in it - they are its own types
+  assert.ok(!(folderCatalog(null, { specs: [a], collections: [] }, a.slug)?.domainTypes ?? []).some(d => d.name === 'Client'));
 });

@@ -27,16 +27,33 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   | Aufgabe | Stelle in orch-spec | Skill heute |
   |---|---|---|
   | `uiCreator` | Seiten-Designer, «Neue Seite» | ✓ `anthropic` |
-  | `processCreator` | Prozessansicht | – |
+  | `processCreator` | Prozessansicht | ✓ `anthropic` |
+  | `serviceOrchestrator` | Prozessansicht im Service-Modus (Service-Orchestrierung) | ✓ `anthropic` |
   | `serviceRegistration`, `serviceCreator` | Katalog, Services | – (noch keine Stelle) |
 
-  Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/v1/messages`); eine Aufgabe
+  Eine Service-Orchestrierung ist ein Worker, der Services aufruft: Im Service-Modus fügt Claude
+  nur Service-Schritte (mit einem Service, den auch ein Schritt aufrufen kann – Collections und
+  Katalog) und Entscheide ein, keine Benutzer-Tasks, Timer oder manuellen Schritte. Die Eingaben
+  und Ausgaben eines neuen Schritts mappt der RE im Schritt; Claude nennt sie als offen.
+
+  In Prozessen und Orchestrierungen ändert Claude auch das **Datenmodell**: Klassen und Auswahlen
+  (Enums, ein Fall mit Feldern) anlegen, ändern und entfernen, In und Out setzen – z.B. ein Out als
+  Auswahl mit einem Fall pro Ergebnis. Ein Feld hat einen einfachen Typ, eine Klasse des
+  Datenmodells oder eine der Domain (etwa das Out eines Services). Das In und Out einer Interaktion
+  (Benutzer-Task, Worker) bleibt beim RE.
+
+  Namen, die zu Code werden – Klassen, Auswahlen und ihre Fälle, Felder, Fehlercodes, die Pfade im
+  State einer Seite –, schreibt Claude in der Sprache der Domain (wie das Datenmodell, die Worker und
+  Services sie nennen), ohne Hinweis englisch; bestehende Namen übersetzt es nicht. Deutsch bleiben,
+  was Menschen lesen: Schritte, Beschriftungen, Texte und Beschreibungen.
+
+  Jede Aufgabe hat ihre eigene Adresse im Studio (`/ai/uiCreator/turn`); eine Aufgabe
   ohne Skill lehnt das Studio ab (403).
 - **Der Skill bestimmt, nicht der Browser:** Das Studio setzt die Anweisungen des Skills
   (Abschnitt «Instructions») an den Anfang jeder Anfrage; orch-spec schickt nur den Kontext
   (Katalog, Datenmodell, Seiten). Modell, Denken, Aufwand und Fallback nimmt das Studio aus dem
-  Skill, und es lässt nur die Werkzeuge des Skills zu. Die Grenzen pro Wunsch und Person
-  (`limits`) kommen mit dem Agent auf dem Server.
+  Skill, und es lässt nur die Werkzeuge des Skills zu. Es hält auch die Grenzen pro Wunsch ein
+  (`limits`); die Grenze pro Person kommt mit dem Login.
 - **Ohne Freigabe ist von KI nichts zu sehen:** kein Symbol, keine Panels, keine
   Buttons, und der KI-Code (samt SDK von Anthropic) wird gar nicht geladen. So
   ist es auch ohne Studio, etwa für die Doku als Ordner oder auf GitHub Pages.
@@ -44,9 +61,9 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
 - **Mit Freigabe ist der KI-Modus an.** Oben rechts erscheint das violette
   Symbol ✦ (Dialog **KI-Modus**: Anbieter, Modell und die Aufgaben mit Skill),
   und an den Stellen dieser Aufgaben der Button **Claude**.
-- **Im Browser liegt kein Key.** Die Anfragen gehen an das Studio
-  (`/ai/<Aufgabe>/v1/messages`), und das Studio schickt sie mit seinem Key
-  weiter. Das Modell bestimmt der Skill, `max_tokens` ist begrenzt. Ein Key,
+- **Im Browser liegt kein Key.** Ein Wunsch geht an das Studio
+  (`/ai/<Aufgabe>/turn`), und das Studio schickt jede Anfrage mit seinem Key
+  an die Claude API. Das Modell bestimmt der Skill, `max_tokens` ist begrenzt. Ein Key,
   den eine frühere Version im Browser gespeichert hat
   (`orch-spec.anthropicKey`), wird beim Laden gelöscht.
 - **Die Kosten trägt, wem der Key des Studios gehört:** die Firma, nicht die
@@ -79,12 +96,13 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
   Rückgängig (⌘Z), automatisch gespeichert. Der **Verlauf** der Seite verzeichnet
   ihn mit der eigenen Quelle **KI (Claude)**, die Wünsche des RE stehen als Notiz
   dabei. **Verwerfen** lässt die Seite wie vorher.
-- Solange ein Entwurf offen ist, ist die Seite schreibgeschützt.
+- Solange Claude arbeitet und solange ein Entwurf offen ist, ist die Seite
+  schreibgeschützt.
 - Wurde Claude nicht fertig (Schrittgrenze, Antwort abgeschnitten, angehalten,
   Fehler), steht ein Hinweis über dem Entwurf und der Button heisst **Trotzdem
   übernehmen**: Der Entwurf kann halb fertig sein.
-- Hat sich die Seite oder der Prozess seit Beginn des Entwurfs geändert (neu
-  geladen, abgeglichen), wird **Übernehmen** abgelehnt: Der Entwurf würde diese
+- Hat sich die Seite oder der Prozess trotzdem seit Beginn des Entwurfs geändert
+  (neu geladen, abgeglichen), wird **Übernehmen** abgelehnt: Der Entwurf würde diese
   Änderung überschreiben. Verwerfen und Claude nochmals fragen.
 - Im selben Gespräch lässt sich weiter am Entwurf arbeiten («noch etwas
   kürzer»). **Neues Gespräch** (Symbol oben im Chat) beginnt von vorn.
@@ -94,7 +112,8 @@ die Unterschiede und entscheidet **Übernehmen** oder **Verwerfen**
 **Prozesse (Stufe B).** Einen Prozess öffnen und in der Werkzeugleiste auf
 **Claude** klicken.
 - Der Entwurf erscheint im **Diagramm** und im **Ablauf**, beide
-  schreibgeschützt, bis du übernimmst oder verwirfst.
+  schreibgeschützt, bis du übernimmst oder verwirfst. Schon während Claude
+  arbeitet, bleibt der Prozess so, wie er ist.
 - Die Struktur ändert Claude im BPMN, denn der Ablauf wird aus dem Diagramm
   abgeleitet. Neue Elemente kommen an ihren Platz, was danach kommt, rückt nach
   rechts. Die Details (Beschreibung, wer einen Benutzer-Task sieht) ändert
@@ -139,13 +158,17 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 
 ## Technik
 
-- **Ablauf über das Studio:** Die Agent-Schleife läuft noch im Browser, mit dem
-  TypeScript-SDK von Anthropic. Dessen Basis-URL ist die Adresse der Aufgabe
-  im Studio (`/ai/uiCreator`); das Studio wendet den Skill an, setzt Key und
-  Workspace und gibt die Antwort unverändert zurück, auch Fehler der API.
-  Später läuft der ganze Skill im Studio, samt Schleife und Grenzen; dann
-  ändert sich nur `send` in `src/ai/client.ts`.
-- **Anfrage:** wie im Skill – für `uiCreator` heute `claude-opus-5-5`, adaptives Denken, `effort: medium`.
+- **Die Schleife läuft im Studio** (E28 Schritt 5): orch-spec schickt Wunsch,
+  Entwurf und Kontext an `POST /ai/<Aufgabe>/turn`. Das Studio führt die
+  Schleife aus (`src/ai/turn.ts` im Kern, mit den Werkzeugen der Aufgabe), wendet
+  bei jeder Anfrage den Skill an, setzt Key und Workspace und hält die Grenzen des
+  Skills ein (`limits`: Anfragen, Korrekturen, Kosten pro Wunsch). Die Ereignisse
+  kommen laufend, eine JSON-Zeile je Ereignis, am Ende der Entwurf. Fehler der API
+  kommen in der Form der API zurück; orch-spec liest sie mit dem SDK von Anthropic.
+  Hält der RE an, endet der Zug auch im Studio; was dort schon geschah, fällt
+  weg, und der Entwurf bleibt, wie er war. Die frühere Schleife im Browser
+  (`/ai/<Aufgabe>/v1/messages`, `STUDIO_AI_AGENT`) gibt es nicht mehr.
+- **Anfrage:** wie im Skill – heute bei allen drei `claude-opus-5-5`, adaptives Denken, `effort: medium`.
   Lehnt ein Sicherheitsfilter ab, wiederholt die API die Anfrage selbst auf
   einem passenden Modell (`fallbacks: "default"`). Hat ein anderes Modell geantwortet,
   nennt die Kostenzeile es, und der Betrag ist eine Schätzung (gerechnet mit
@@ -155,7 +178,9 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
   (Breakpoint 2) und das wachsende Gespräch (automatisch).
 - **Agent-Schleife** (`src/ai/agent.ts`):
   - Claude ruft Werkzeuge auf, bis es fertig ist, höchstens 24 Anfragen pro
-    Wunsch.
+    Wunsch (im Studio: `limits.steps_per_turn` des Skills; dazu
+    `limits.usd_per_turn` – erreicht ein Wunsch die Kosten, hält die Schleife
+    vor der nächsten Anfrage an).
   - Danach prüft die App den Entwurf. Fehler, die erst der Entwurf gebracht hat,
     gehen als neue Nachricht an Claude zurück, höchstens zweimal.
   - Das Gespräch wird nur verlängert, nie umgeschrieben.
@@ -164,17 +189,19 @@ mit der Bank zu klären, ob ihre Spezifikationen an Anthropic gehen dürfen
 |---|---|
 | `src/ai/config.ts` | der Schalter: `GET /ai/config` des Studios, die Aufgaben mit Skill, `useAiFor` |
 | `src/ai/agent.ts` | die Schleife mit Claude, Selbstkorrektur; `send` wird übergeben (in den Tests gemockt) |
-| `src/ai/client.ts` | `send` mit dem SDK über das Studio, Fehlertexte |
-| `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen für Seiten sind im Skill des Studios) |
+| `src/ai/client.ts` | der Zug im Studio (`turnOnStudio`), Fehlertexte |
+| `src/ai/turn.ts` | der Zug im Studio: die Aufgaben mit Zug, ihre Werkzeuge, die Anfrage, die Zeilen der Antwort (im Kern – dasselbe für orch-spec und Studio) |
+| `src/ai/context.ts` | Kontext: Katalog, Datenmodell als Text, Systemprompt mit Cache-Breakpoints (die Anweisungen sind in den Skills des Studios) |
 | `src/ai/pageTools.ts` | Werkzeuge auf dem Seiten-Entwurf (über `insertBlock`, `updateBlock`, `relocateBlock`, `removeBlock`, `pageFindings`) |
 | `src/ai/bpmnEdit.ts` | Schritt, Entscheid, Fehlerpfad im BPMN einfügen, entfernen, umbenennen – samt Layout |
-| `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings` |
+| `src/ai/processTools.ts` | Werkzeuge auf dem Prozess-Entwurf; die Spez folgt dem Diagramm (`importBpmn` + `mergeSpec`), Befunde aus `collectFindings` und `checkTypes`; das Datenmodell (`add_type`, `update_type`, `remove_type`); im Service-Modus nur Service-Schritte |
 | `src/ai/diff.ts` | Unterschiede Seite ↔ Entwurf, Prozess ↔ Entwurf |
 | `src/ai/cost.ts` | Tokens und Kosten je Änderung |
 | `src/ai/AiChat.tsx`, `AiPanel.tsx`, `ProcessAiPanel.tsx` | der Chat, für Seiten und Prozesse |
 
-Tests: `tests/aiPages.test.ts` und `tests/aiProcess.test.ts`. Sie laufen ohne
-Netz, Claude ist darin gemockt. Geprüft werden die Werkzeuge, Übernehmen und
+Tests: `tests/aiPages.test.ts`, `tests/aiProcess.test.ts` und `tests/aiTurn.test.ts`
+(der Zug im Studio: derselbe Entwurf wie mit der Schleife allein, die Grenzen, der Client). Sie
+laufen ohne Netz, Claude ist darin gemockt. Geprüft werden die Werkzeuge, Übernehmen und
 Verwerfen, die Selbstkorrektur, der Schalter über das Studio, die Kosten und die
 Unterschiede.
 

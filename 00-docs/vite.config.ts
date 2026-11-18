@@ -6,11 +6,11 @@ import path from 'node:path';
 import {defineConfig} from 'vitest/config';
 
 // The Orchescala version (root `version` file) - replaces `@VERSION@` in the markdown.
-const version = fs.readFileSync(path.resolve(__dirname, '../version'), 'utf-8').trim();
+const version = fs.readFileSync(path.resolve(import.meta.dirname, '../version'), 'utf-8').trim();
 
 // The content folder: its files (images, example APIs …) are served unchanged under their path,
 // e.g. /orchescala/images/design.png - so relative references between them keep working.
-const contentDir = path.resolve(__dirname, 'src/docs');
+const contentDir = path.resolve(import.meta.dirname, 'src/docs');
 const contentFiles = (fs.readdirSync(contentDir, {recursive: true}) as string[])
   .map(f => f.split(path.sep).join('/'))
   .filter(f => !f.endsWith('.md') && fs.statSync(path.join(contentDir, f)).isFile());

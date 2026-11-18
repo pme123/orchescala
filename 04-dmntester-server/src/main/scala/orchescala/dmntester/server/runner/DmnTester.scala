@@ -55,7 +55,7 @@ case class DmnTester(dmnConfig: DmnConfig, engine: DmnEvalEngine):
       .mapError(parseError)
 
   private def parseError(error: EvalError): EvalException = error match
-    // dmn-scala 1.11 / feel-scala 1.20 wording:
+    // dmn-scala 1.12 / feel-scala 1.22 wording:
     // "FEEL expression: failed to parse expression '': ..."
     case EvalError(msg) if msg.contains("failed to parse expression ''") =>
       EvalException(

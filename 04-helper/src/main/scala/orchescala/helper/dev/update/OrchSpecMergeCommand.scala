@@ -2,7 +2,6 @@ package orchescala.helper.dev.update
 
 import orchescala.helper.dev.update.merge.*
 
-import scala.io.StdIn
 import scala.util.Try
 
 /** `./helper.scala processFromSpec --check | --merge` - the merge from Orch Spec in the console:
@@ -67,19 +66,15 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
         print(text)
       val plan = SpecMerge.checkMerge(project, before.fold(SpecSource.Empty)(SpecSource.Dir(_)), SpecSource.Dir(after))
       println()
-      MergeReport.printPlan(plan)
+      MergeReport.printPlan(plan, project)
       json.foreach: file =>
         os.write.over(os.Path(file, os.pwd), plan.toJsonString, createFolders = true)
         println(s"Plan written to $file")
-      if !merge then true
-      else if !plan.hasChanges && !(markers && plan.hasConflicts) then
-        println("Nothing to merge.")
-        true
-      else if yes || confirm(plan, markers) then
+      def mergeWith(remove: Set[String]): Boolean =
         try
-          val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode)
+          val result = SpecMerge.merge(project, plan, if markers then OnConflict.Markers else OnConflict.KeepCode, remove)
           println()
-          MergeReport.printMerged(plan, result, markers)
+          MergeReport.printMerged(plan, result, project, markers = markers)
           OrchSpecGenerator().linkDiagrams(project)
           true
         catch
@@ -87,6 +82,29 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
             println()
             MergeReport.printIncomplete(e)
             false
+      // what only the code has goes only when asked - `--yes` deletes nothing
+      def keptByYes() =
+        println(MergeReport.colored(Console.YELLOW, s"--yes deletes nothing: ${plan.removals.size} file(s) with what only the code has stay as they are - run without --yes to be asked."))
+      val nothingElse = !plan.hasChanges && !(markers && plan.hasConflicts)
+      if !merge then true
+      else if nothingElse && plan.removals.isEmpty then
+        println("Nothing to merge.")
+        true
+      else if nothingElse then
+        // only what only the code has: its question alone, no merge to confirm
+        if yes then
+          println("Nothing to merge.")
+          keptByYes()
+          true
+        else
+          val remove = MergeReport.askRemoval(plan)
+          if remove.isEmpty then
+            println("Nothing deleted.")
+            true
+          else mergeWith(remove)
+      else if yes || confirm(plan, markers) then
+        if yes && plan.removals.nonEmpty then keptByYes()
+        mergeWith(if yes then Set.empty else MergeReport.askRemoval(plan))
       else
         println("Not merged.")
         true
@@ -101,8 +119,7 @@ case class OrchSpecMergeCommand()(using config: DevConfig):
       if conflicts == 0 then ""
       else if markers then s" - $conflicts file(s) get conflict markers"
       else s" - $conflicts file(s) with conflicts stay as they are"
-    print(s"\nMerge into ${config.projectName}$what? [y/N] ")
-    Option(StdIn.readLine()).exists(a => Seq("y", "yes", "j", "ja").contains(a.trim.toLowerCase))
+    MergeReport.isYes(MergeReport.readAnswer(s"\nMerge into ${config.projectName}$what? [y/N] "))
 
   /** Orch Spec's comparison in business terms (`spec2diff.js`) - None without Node.js. If it
     * fails, why - the plan does not depend on it, so the command goes on.

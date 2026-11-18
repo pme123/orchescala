@@ -155,7 +155,7 @@ const typeKey = (t: string): string => {
 
 /**
  * @param home package of the own project (`acme.product`) — for example values
- *             with the same name, the own project comes first after the company library.
+ *             with the same name, the own project comes first, then the company library.
  */
 export function indexTypes(types: TypeDef[] = [], model: Model | null = null, home = '', ownPkg?: string): TypeIndex {
   const byId = new Map(types.map(t => [t.id, t]));
@@ -176,10 +176,12 @@ export function indexTypes(types: TypeDef[] = [], model: Model | null = null, ho
     // a referenced class is named as in the catalog — `ResolveTimerDueDateWithOverwrite.DueDateSpec`
     return referenced.get(ref)?.name ?? byId.get(ref)?.name ?? ref;
   };
-  // Precedence: company library (without import), own project, then the order of the catalog.
+  // Precedence: own project, company library, orchescala, then the order of the catalog - the more
+  // specific one overrides (in Scala too: the project's value or its import shadows the `-Yimports`).
   // With a project, only what its code sees: the own project and its dependencies
   // (`PROJECT.conf`, transitively) — a default from elsewhere would be an import that does not compile.
-  const rank = (d: DomainDefault) => (isAutoImported(d.pkg) ? 0 : home && d.pkg.startsWith(`${home}.`) ? 1 : 2);
+  const rank = (d: DomainDefault) => (home && (d.pkg === home || d.pkg.startsWith(`${home}.`)) ? 0
+    : /^\w+\.orchescala\.domain$/.test(d.pkg) ? 1 : isAutoImported(d.pkg) ? 2 : 3);
   const roots = home ? visibleRoots(model, home) : null;
   const ranked = (model?.domainDefaults ?? [])
     .filter(d => !roots || isAutoImported(d.pkg) || seesPackage(model, roots, d.pkg))

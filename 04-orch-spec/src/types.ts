@@ -60,6 +60,13 @@ export interface Mapping {
    * it»: an entry in `_outputVariables`, not an output parameter
    */
   fromService?: boolean;
+  /**
+   * Service orchestration, output: the type the value is converted into (`dom:…Client`) - a class
+   * into the case it fits, field by field; a list element by element.
+   */
+  mapTo?: string;
+  /** … the case of an ADT `mapTo` (`MultiplePersons`) - without: the one whose fields fit best */
+  mapToCase?: string;
   [key: string]: unknown;
 }
 
@@ -152,6 +159,50 @@ export interface ErrorHandling {
 /** shape of a DMN result — like `camunda:mapDecisionResult` or the factory in the domain object */
 export type DecisionResult = 'singleEntry' | 'singleResult' | 'collectEntries' | 'resultList';
 
+/**
+ * A script task as a mapping: what it reads (`in`, variables before it by name), what it sets
+ * (`out`, variables after it by name) - and per field of the Out where its value comes from.
+ */
+export interface FieldMapping {
+  /** what the mapping reads - variables known before the step (`existingClient: Client`) */
+  in: Field[];
+  /** what it sets - variables after the step (`newClient: Client`) */
+  out: Field[];
+  /** per field of the Out: where its value comes from */
+  fields: FieldLink[];
+  /** per field of the Out that is an enum with cases (ADT): which case it becomes */
+  caseLinks?: CaseLink[];
+}
+
+/**
+ * Which case a field of the Out that is an enum with cases (ADT, `ClientRead`) becomes: decided by
+ * the case of an ADT of the In (`sourceClient: Client`) - `Client.Person` → `ClientRead.privateIndividual`.
+ * In the worker a method per case of the source (`mapClientPerson(sourceClient: Client.Person)`), with its test.
+ */
+export interface CaseLink {
+  /** the path in the Out - `filClient` */
+  field: string;
+  /** the path in the In whose case decides - `sourceClient` */
+  from: string;
+  /** per case of `from` the case of `field` - an empty `to`: none, it fails at runtime */
+  cases: Array<{ from: string; to: string }>;
+}
+
+/** Where one field of a mapping gets its value. */
+export interface FieldLink {
+  /**
+   * the path in the Out (`newClient`, `newClient.firstName`) - a line onto an object is what its
+   * fields with lines of their own are set on (a copy of it)
+   */
+  field: string;
+  /** paths in the In (`client.name`, `existingClient.name`) - the first one set wins */
+  from: string[];
+  /** instead of the paths: a FEEL expression (`= lower case(client.email)`) */
+  expression?: string;
+  /** the type mapper it converts with (its id) - one with a name is only taken when chosen here */
+  mapper?: string;
+}
+
 export interface Step {
   id: string;             // stable; on import the BPMN element ID
   kind: StepKind;
@@ -184,8 +235,25 @@ export interface Step {
   /**
    * Decision (DMN): which process variable the result goes into
    * (`camunda:resultVariable` or `zeebe:calledDecision resultVariable`) …
+   * Script task: the variable the value of its `script` goes into.
    */
   resultVariable?: string;
+  /**
+   * Script task: its implementation in FEEL - one expression, its value goes into
+   * `resultVariable` (as `zeebe:script`). In a service orchestration it becomes a method of
+   * the worker in Scala, with a test of its own.
+   */
+  script?: string;
+  /** Script task: the type of `resultVariable` when it is no field of the Out (then that field's type) */
+  resultType?: string;
+  /** … a list of it */
+  resultCollection?: boolean;
+  /**
+   * Script task of a service orchestration: its implementation as a mapping - its In and Out,
+   * per field of the Out where its value comes from, drawn as lines. `script` is then its FEEL,
+   * written along; `resultVariable` and `resultType` are not used.
+   */
+  fieldMapping?: FieldMapping;
   /**
    * … and in which shape (`camunda:mapDecisionResult`): a value
    * (`singleEntry`), an object (`singleResult`), a list of values
@@ -769,6 +837,11 @@ export interface ServiceDef {
   handledErrors?: string[];
   /** for subprocesses the called process (`calledElement`) */
   calledProcess?: string;
+  /**
+   * From the folder, not (yet) in the catalog: a service of a collection, a service orchestration, a
+   * process - usable already, «noch nicht released» (see folderCatalog). Never saved.
+   */
+  unreleased?: boolean;
   docUrl?: string;
   /**
    * Built locally («Neu aufbauen» or «OpenAPI einlesen», ISO time): on purpose - it overrides a
@@ -813,11 +886,36 @@ export interface DomainDefault {
   generated?: boolean;
 }
 
+/**
+ * A type mapper of the code - an extension of an object the domain scan found
+ * (`extension (x: ClientMainType) def toClientType: ClientType` in `ClientMasterTypeMappers`).
+ */
+export interface DomainMapper {
+  /** `acme.crm.domain.clientMaster.schema.ClientMasterTypeMappers.toClientType(ClientMainType)` */
+  id: string;
+  /** `acme.crm.domain.clientMaster.schema` */
+  pkg: string;
+  /** `ClientMasterTypeMappers` */
+  object: string;
+  /** `toClientType` */
+  method: string;
+  /** the types as the code names them - `ClientMainType`, `ClientType` */
+  from: string;
+  to: string;
+  descr?: string;
+  /** the file it was read from - `crm/01-domain/…/ClientMasterTypeMappers.scala` */
+  source?: string;
+  /** from the generated catalog — does not belong in the model.json */
+  generated?: boolean;
+}
+
 export interface DomainType {
   /** fully qualified, e.g. `globex.crm.domain.account.v1.GetAccount.Out` */
   id: string;
   /** from the bundled `catalog.generated.json` — see ServiceDef.generated */
   generated?: boolean;
+  /** a class of a process of the folder, not (yet) in the catalog - see ServiceDef.unreleased */
+  unreleased?: boolean;
   /** Scala type, e.g. `GetAccount.Out` or `InAddress` */
   name: string;
   pkg: string;
@@ -961,6 +1059,44 @@ export interface AuthSettings {
   viewerRole?: string;
 }
 
+/**
+ * A conversion of one type into another, for the lines of a mapping (`ClientMainType` →
+ * `ClientType`, `BigDecimalWrapper` → `BigDecimal`). In the worker a method of its own; an
+ * `Option` or a list of it is mapped along.
+ */
+export interface TypeMapper {
+  id: string;
+  /** the type it converts - a type reference as a field names it */
+  from: string;
+  /** the type it converts into */
+  to: string;
+  /**
+   * `table`: an enum into an enum, case by case · `field`: a field of it (`value` of a wrapper) ·
+   * `scala`: a Scala expression over `x` · `decoder`: the deserializer of the target in the code
+   * reads it (`x.asJson.as[To]`)
+   */
+  kind: 'table' | 'field' | 'scala' | 'decoder';
+  /** table: per case of `from` the case of `to` - between simple types per value (`1` → `"de"`) */
+  cases?: Array<{ from: string; to: string }>;
+  /** field: the path in `from` (`value`, `amount.value`) */
+  path?: string;
+  /** scala: the expression over `x` (`LocalDate.parse(x.date)`) */
+  scala?: string;
+  /** what the expression needs imported (`java.time.LocalDate`) */
+  imports?: string[];
+  description?: string;
+  /**
+   * A name (`Language`): its extension is `toLanguage`, and it is only taken where a line of a
+   * mapping chooses it - several of the same types (`Int` → `String`: language, country) apart.
+   */
+  name?: string;
+  /**
+   * In the code already (from the catalog, see DomainMapper): the extension that converts -
+   * the export brings no file for it, the worker imports its object. Not editable.
+   */
+  code?: { pkg: string; object: string; method: string };
+}
+
 export interface Model {
   version: number;
   /** name of the customer — shown on the left in the header */
@@ -980,6 +1116,8 @@ export interface Model {
   domainTypes?: DomainType[];
   /** example values of the domain (`defaultClientKey` …) — in order of precedence */
   domainDefaults?: DomainDefault[];
+  /** the type mappers of the code - extensions the domain scan found (see DomainMapper) */
+  domainMappers?: DomainMapper[];
   /** most recently read source folders — as a reminder in the admin */
   domainSources?: string[];
   /**
@@ -993,6 +1131,8 @@ export interface Model {
   patterns?: PatternDef[];
   /** epics processes can be assigned to — the order also applies in the filter */
   epics?: EpicDef[];
+  /** conversions of one type into another - a line of a mapping between them uses it */
+  typeMappers?: TypeMapper[];
   /**
    * Project colors from the generated catalog (`prepareDocs`, `ProjectConfig.color`) —
    * only in memory, never in the model.json. A color on the project folder takes precedence.

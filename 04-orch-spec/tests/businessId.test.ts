@@ -8,6 +8,7 @@ import { writeBpmn } from '../src/bpmnWrite';
 import { convertBpmn } from '../src/engineConvert';
 import { checkFeel, processVariables } from '../src/feel';
 import { feelToJuel } from '../src/feelJuel';
+import { juelToFeel } from '../src/juelFeel';
 import type { ProcessSpec, Step } from '../src/types';
 import { installXmlNamespaces } from './xmlNamespaces';
 
@@ -143,16 +144,37 @@ test('FEEL -> JUEL: camunda.processInstance.businessId is execution.processBusin
   }
 });
 
-test('variables: C8 offers camunda.processInstance.businessId instead of businessKey - C7 keeps businessKey', () => {
-  const spec = (engine: 'c7' | 'c8') => ({ processId: 'acme-demoV1', name: 'acme-demoV1', engine, steps: [] }) as unknown as ProcessSpec;
-  const c8 = processVariables(spec('c8'), null);
-  assert.equal(c8.find(v => v.name === 'businessKey'), undefined);
-  const instance = c8.find(v => v.name === 'camunda')?.children?.find(v => v.name === 'processInstance');
-  assert.ok(instance?.children?.some(v => v.name === 'businessId'), JSON.stringify(instance));
-  assert.deepEqual(checkFeel('= camunda.processInstance.businessId', c8).issues, []);
-  // no variable businessKey in C8 (8.10)
-  assert.ok(checkFeel('= businessKey', c8).issues.some(i => i.level === 'error'));
-  const c7 = processVariables(spec('c7'), null);
-  assert.ok(c7.some(v => v.name === 'businessKey' && v.source === 'Engine'));
-  assert.deepEqual(checkFeel('= businessKey', c7).issues, []);
+test('variables: C7 and C8 offer camunda.processInstance.businessId - no variable businessKey', () => {
+  for (const engine of ['c7', 'c8'] as const) {
+    const vars = processVariables({ processId: 'acme-demoV1', name: 'acme-demoV1', engine, steps: [] } as unknown as ProcessSpec, null);
+    assert.equal(vars.find(v => v.name === 'businessKey'), undefined, engine);
+    const instance = vars.find(v => v.name === 'camunda')?.children?.find(v => v.name === 'processInstance');
+    assert.ok(instance?.children?.some(v => v.name === 'businessId'), `${engine}: ${JSON.stringify(instance)}`);
+    assert.deepEqual(checkFeel('= camunda.processInstance.businessId', vars).issues, [], engine);
+    // businessKey: reported with the context
+    assert.ok(checkFeel('= businessKey', vars).issues.some(i => i.level === 'error' && i.text.includes('camunda.processInstance.businessId')), engine);
+  }
+});
+
+test('import of C7: the business key is always the context camunda.processInstance.businessId', () => {
+  for (const juel of ['execution.processBusinessKey', 'execution.businessKey', 'execution.getBusinessKey()', 'execution.getProcessBusinessKey()']) {
+    const r = juelToFeel(juel);
+    assert.ok(r.ok && r.feel === 'camunda.processInstance.businessId', `${juel}: ${JSON.stringify(r)}`);
+  }
+});
+
+test('export to C7: a variable named businessKey stays a variable - only the context is execution.processBusinessKey', () => {
+  for (const name of ['businessKey', 'processInstanceId']) {
+    const r = feelToJuel(name);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(r.juel, name);
+  }
+});
+
+test('import of C7: a bare businessKey or processInstanceId is a variable - only execution.* is the context', () => {
+  for (const name of ['businessKey', 'processInstanceId']) {
+    const r = juelToFeel(name);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal(r.feel, name);
+  }
 });

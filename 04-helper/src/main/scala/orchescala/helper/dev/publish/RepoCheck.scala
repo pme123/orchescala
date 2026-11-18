@@ -215,10 +215,16 @@ object RepoCheck:
     releaseArtifactUrls(repo.repoUrl, names.organization, releaseArtifacts(names), version)
 
   /** The artifacts the build publishes: `<name>-<module><suffix>` for every module of its
-    * `build.sbt` (a module that is never published is simply not there).
+    * `build.sbt` (a module that is never published is simply not there) - as sbt names them:
+    * its `moduleName` is the `name` normalized (lower case, `-` for any other character than
+    * a letter, a digit or `_`), so `foo-customerNeo` is published as `foo-customerneo`.
     */
   def releaseArtifacts(names: BuildNames): Seq[String] =
-    names.modules.map(m => s"${names.name}-$m${names.artifactSuffix}")
+    names.modules.map(m => s"${sbtModuleName(s"${names.name}-$m")}${names.artifactSuffix}")
+
+  /** sbt's `normalizedName` of a `name` (`Project.normalizeModuleID`) - the default `moduleName`. */
+  def sbtModuleName(name: String): String =
+    name.toLowerCase(java.util.Locale.ENGLISH).replaceAll("""\W+""", "-")
 
   /** After a failed upload: which poms of `version` are in the release repo now - so the
     * console names what went out. Never fails (it runs in a failure handler).

@@ -20,8 +20,10 @@
 
 import { evaluate, FeelDate, FeelDateTime, FeelDuration, FeelTime, SyntaxError as FeelSyntaxError } from 'feelin';
 import { C7_LABEL } from './engineLabels.ts';
-import type { DomainType, EngineId, Field, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
+import { mappingOf } from './fieldMapping.ts';
+import type { DomainType, EngineId, Field, FieldMapping, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TypeDef, Variable } from './types';
 import { FEEL_DOCS, type FeelDoc } from './feelDocs.ts';
+import { FEEL_WORDS } from './feelNames.ts';
 import { SCALA_TYPES, isAdt } from './types.ts';
 import { indexTypes, type TypeIndex } from './scala.ts';
 import { typeShape } from './scalaTypes.ts';
@@ -55,6 +57,25 @@ export interface VarNode {
   optional?: boolean;
   /** where the variable comes from: `In`, `InitIn`, `Variable`, `Ausgabe von …` */
   source: string;
+  /** a simple enum: its values — a FEEL string each (`clientMainType = "Person"`) */
+  values?: string[];
+  /** a field of a class: its type as the field names it - to declare another of the same type */
+  field?: Pick<Field, 'type' | 'collection' | 'optional'>;
+  /** a field of an enum with cases that not all of them have: the cases that do - without it shared */
+  cases?: string[];
+}
+
+/**
+ * The fields of an enum with cases marked with the cases that have them (`cases`) - a field all
+ * of them have (or the enum itself) stays unmarked: shared.
+ */
+function markCases(children: VarNode[], shared: { name: string }[], cases: { name: string; fields?: { name: string }[] }[]): VarNode[] {
+  if (cases.length < 2) return children;
+  return children.map(n => {
+    if (shared.some(f => f.name === n.name)) return n;
+    const having = cases.filter(c => (c.fields ?? []).some(f => f.name === n.name)).map(c => c.name);
+    return having.length && having.length < cases.length ? { ...n, cases: having } : n;
+  });
 }
 
 /** What may arrive at the target field. */
@@ -65,6 +86,8 @@ export interface ExpectedType {
   kind: ExpectedKind;
   /** for a simple enum the allowed values — for a fixed case exactly one */
   values?: string[];
+  /** for a list: what its elements must be (`Seq[Client]`: objects) */
+  elements?: FeelType[];
 }
 
 export type ExpectedKind = 'scalar' | 'enum' | 'class' | 'list' | 'map';
@@ -119,10 +142,14 @@ interface Builder { idx: TypeIndex; model: Model | null }
 const mayBeMissing = (f: { optional?: boolean; default?: string }): boolean => !!f.optional && !f.default?.trim();
 
 function nodeOfField(f: Field, source: string, b: Builder, depth: number, seen: Set<string>): VarNode {
-  return nodeOf(f.name, f.type, {
+  const n = nodeOf(f.name, f.type, {
     optional: mayBeMissing(f), collection: !!f.collection, map: !!f.map, enumCase: f.enumCase, description: f.description, source,
     label: fieldLabel(f, b.idx),
   }, b, depth, seen);
+  // not for a map or a case of an enum - those the type alone does not say
+  return f.type && !f.map && !f.enumCase
+    ? { ...n, field: { type: f.type, ...(f.collection ? { collection: true } : {}), ...(f.optional ? { optional: true } : {}) } }
+    : n;
 }
 
 function fieldLabel(f: Field, idx: TypeIndex): string {
@@ -150,11 +177,12 @@ function nodeOf(
     ...(o.map && !o.collection ? { open: true } : {}),
   };
   if (base.children?.length && !o.map) node.children = base.children;
+  if (base.values?.length && !o.collection && !o.map) node.values = base.values;
   return node;
 }
 
 /** Type and subfields of a base type (without Option/Seq); `enumCase` = only this case. */
-function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
+function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[]; values?: string[] } {
   if (isScalar(typeRef)) return { type: SCALAR_FEEL[typeRef] ?? 'string' };
   if (depth >= MAX_DEPTH || seen.has(typeRef)) return { type: 'context' };
   const inner = new Set(seen).add(typeRef);
@@ -163,11 +191,12 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
   if (own) {
     // an ADT is an object in JSON — visible are the fields of all cases,
     // for a single case only the shared ones and those of this case
-    if (own.kind === 'enum' && !isAdt(own)) return { type: 'string' };
+    if (own.kind === 'enum' && !isAdt(own)) return { type: 'string', values: enumCase ? [enumCase.replace(/^`|`$/g, '')] : (own.values ?? []).map(v => v.name).filter(Boolean) };
     const cases = (own.values ?? []).filter(v => !enumCase || v.name === enumCase);
     const fields = own.kind === 'enum' ? [...(own.fields ?? []), ...cases.flatMap(v => v.fields ?? [])] : (own.fields ?? []);
     const seenNames = new Set<string>();
-    return { type: 'context', children: fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner)) };
+    const children = fields.filter(f => f.name && !seenNames.has(f.name) && seenNames.add(f.name)).map(f => nodeOfField(f, `Feld von ${own.name}`, b, depth + 1, inner));
+    return { type: 'context', children: own.kind === 'enum' ? markCases(children, own.fields ?? [], cases) : children };
   }
 
   const dom = b.idx.domainOf(typeRef);
@@ -183,8 +212,8 @@ function baseNode(typeRef: string, b: Builder, depth: number, seen: Set<string>,
   return { type: 'any' };
 }
 
-function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[] } {
-  if (dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length) return { type: 'string' };
+function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string>, enumCase?: string): { type: FeelType; children?: VarNode[]; values?: string[] } {
+  if (dom.kind === 'enum' && !dom.cases?.length && !dom.fields?.length) return { type: 'string', values: enumCase ? [enumCase.replace(/^`|`$/g, '')] : dom.values ?? [] };
   if (dom.kind === 'alias') return { type: 'any' };
   const seenNames = new Set<string>();
   const cases = (dom.cases ?? []).filter(c => !enumCase || c.name === enumCase);
@@ -200,12 +229,14 @@ function domainNode(dom: DomainType, b: Builder, depth: number, seen: Set<string
     const enumRef = split ? resolveType(split.base, b.model, dom.pkg) : null;
     const isCase = !!split && enumHasCase(enumRef, split.enumCase);
     const typeRef = scalar ? shape.base : ref ? domainRef(ref.id) : isCase ? domainRef(enumRef!.id) : shape.base;
-    return nodeOf(p.name, typeRef, {
+    const n = nodeOf(p.name, typeRef, {
       optional: shape.optional && !p.default?.trim(), collection: shape.collection, map: shape.map, ...(isCase ? { enumCase: split!.enumCase } : {}), description: p.description,
       source: `Feld von ${dom.name}`, label: p.type,
     }, b, depth + 1, seen);
+    // its type as a reference too (see nodeOfField) - a type mapper is matched by it
+    return !shape.map && !isCase ? { ...n, field: { type: typeRef, ...(shape.collection ? { collection: true } : {}), ...(shape.optional ? { optional: true } : {}) } } : n;
   });
-  return { type: 'context', children };
+  return { type: 'context', children: dom.kind === 'enum' ? markCases(children, dom.fields ?? [], cases) : children };
 }
 
 /**
@@ -414,6 +445,20 @@ function declaredNode(v: Variable, spec: ProcessSpec, model: Model | null, b: Bu
     : { name: v.name.trim(), type: 'any', label: t || '?', source: 'Variable', ...(v.description ? { description: v.description } : {}) };
 }
 
+/** The sources that give a process variable a fixed type — the `source` of its VarNode. */
+const SOURCE_IN = 'In';
+const SOURCE_INIT_IN = 'InitIn';
+const SOURCE_IN_CONFIG = 'InConfig';
+const DECLARED_SOURCES: ReadonlySet<string> = new Set([SOURCE_IN, SOURCE_INIT_IN, SOURCE_IN_CONFIG]);
+
+/**
+ * The process variables with a fixed type: from the In, the InitIn or the InConfig. An
+ * output writing one of them must deliver that type (see `outputRowType`). The InitIn
+ * without a type (only the names of the init worker) is `any` and gives no yardstick.
+ */
+export const declaredVariables = (vars: readonly VarNode[]): VarNode[] =>
+  vars.filter(v => DECLARED_SOURCES.has(v.source) && v.type !== 'any');
+
 /**
  * Every place that creates a process variable, in priority order — a name may come
  * several times. `all`: also the outputs whose name a source before already typed
@@ -428,15 +473,15 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
 
   // The InitIn — described as a type; otherwise only the names are known (below, after the In)
   const initIn = types.find(t => t.initIn);
-  if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, 'InitIn', b, 0, new Set()));
+  if (initIn) for (const f of initIn.fields ?? []) add(nodeOfField(f, SOURCE_INIT_IN, b, 0, new Set()));
 
   // The InConfig — own tuning knobs and those of the loops; all with
   // a default, so always present
   const inConfig = types.find(t => t.inConfig);
-  for (const f of inConfig?.fields ?? []) add(nodeOfField(f, 'InConfig', b, 0, new Set()));
+  for (const f of inConfig?.fields ?? []) add(nodeOfField(f, SOURCE_IN_CONFIG, b, 0, new Set()));
   for (const l of loopSettings(spec)) {
     const t = l.kind === 'timer' ? 'Iso8601Duration' : 'Int';
-    add(nodeOf(l.name, t, { optional: false, collection: false, source: 'InConfig', label: t }, b, 0, new Set()));
+    add(nodeOf(l.name, t, { optional: false, collection: false, source: SOURCE_IN_CONFIG, label: t }, b, 0, new Set()));
   }
 
   // The In — as an ADT the shared fields and those of all cases (in JSON
@@ -445,7 +490,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
   const rootFields = root?.kind === 'enum'
     ? [...(root.fields ?? []), ...(root.values ?? []).flatMap(v => v.fields ?? [])]
     : (root?.fields ?? []);
-  for (const f of rootFields) add(nodeOfField(f, 'In', b, 0, new Set()));
+  for (const f of rootFields) add(nodeOfField(f, SOURCE_IN, b, 0, new Set()));
 
   // without an InitIn type: the outputs of the init worker, type unknown — after the
   // In, so that its type is not lost
@@ -468,7 +513,7 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     for (const o of s.outputs ?? []) {
       if (o.disabled || !o.name || (!all && typed.has(o.name))) continue;
       const source = `Ausgabe von ${s.name || s.id}`;
-      const node = outputNode(o, ofStep);
+      const node = outputNode(o, ofStep, b);
       add(node
         ? { ...node, name: o.name, source, ...(o.description ? { description: o.description } : {}) }
         : { name: o.name, type: 'any', label: '?', source, ...(o.description ? { description: o.description } : {}) });
@@ -504,6 +549,9 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
 
+  // A script task with an implementation (FEEL) writes its value into its `resultVariable`
+  for (const s of allSteps(spec.steps)) for (const n of scriptResult(s, spec, b)) add(n);
+
   // A multi-instance with collected results writes the list after it — its entries typed by
   // what the instance knows. Only for the overview: the steps know it only after the
   // multi-instance (variablesByStep), so it is no process variable from the start.
@@ -516,22 +564,18 @@ function variableCandidates(spec: ProcessSpec, model: Model | null, all: boolean
 
   // What the engine itself keeps — in Camunda 7 on the execution (`execution.…`,
   // the export translates it), in Camunda 8 under these names.
-  // The own instance: Camunda 8 has it in FEEL as `camunda.processInstance.key` (8.10) —
-  // a number; `string(…)` for a key or a text (it exceeds JavaScript's safe integers)
-  if (spec.engine === 'c8') {
-    const ofEngine = (name: string, type: FeelType, label: string, description: string, children?: VarNode[]): VarNode =>
-      ({ name, type, label, source: 'Engine', description, ...(children ? { children } : {}) });
-    add(ofEngine('camunda', 'context', 'Camunda', 'Was die Engine über die Instanz weiss (C8 ab 8.10)', [
-      ofEngine('processInstance', 'context', 'Prozess-Instanz', 'die eigene Prozess-Instanz', [
-        ofEngine('key', 'number', 'Long', `Kennung der eigenen Prozess-Instanz — als Text string(camunda.processInstance.key); ${C7_LABEL}: execution.processInstanceId`),
-        { ...ofEngine('businessId', 'string', 'String', `Business Key der Instanz, falls beim Start gesetzt — eine Call Activity erbt ihn; ${C7_LABEL}: execution.processBusinessKey`), optional: true },
-      ]),
-    ]));
-  } else {
-    add({ name: 'processInstanceId', type: 'string', label: 'String', source: 'Engine', description: `Kennung der eigenen Prozess-Instanz — ${C7_LABEL}: execution.processInstanceId` });
-    // Camunda 8 has no variable `businessKey` (from 8.10) — there it is camunda.processInstance.businessId
-    add({ name: 'businessKey', type: 'string', label: 'String', source: 'Engine', description: `Business Key der Prozess-Instanz — ${C7_LABEL}: execution.processBusinessKey` });
-  }
+  // The own instance is always the context `camunda.processInstance` (Camunda 8 from 8.10),
+  // also in Camunda 7: the import writes it for `execution.processInstanceId` and
+  // `execution.processBusinessKey`, the export turns it back (feelJuel.ts).
+  // The key is a number; `string(…)` for a key or a text (it exceeds JavaScript's safe integers).
+  const ofEngine = (name: string, type: FeelType, label: string, description: string, children?: VarNode[]): VarNode =>
+    ({ name, type, label, source: 'Engine', description, ...(children ? { children } : {}) });
+  add(ofEngine('camunda', 'context', 'Camunda', `Was die Engine über die Instanz weiss (C8 ab 8.10; ${C7_LABEL}: execution.…)`, [
+    ofEngine('processInstance', 'context', 'Prozess-Instanz', 'die eigene Prozess-Instanz', [
+      ofEngine('key', 'number', 'Long', `Kennung der eigenen Prozess-Instanz — als Text string(camunda.processInstance.key); ${C7_LABEL}: execution.processInstanceId`),
+      { ...ofEngine('businessId', 'string', 'String', `Business Key der Instanz, falls beim Start gesetzt — eine Call Activity erbt ihn; ${C7_LABEL}: execution.processBusinessKey`), optional: true },
+    ]),
+  ]));
   add({ name: 'processDefinitionKey', type: 'any', label: 'Prozess', source: 'Engine', description: `der Prozess — ${C7_LABEL}: execution.getProcessDefinition().getKey()` });
   // What the gateway of Orchescala sets: the signed identity of the start - and the identity of
   // whoever completed a user task (or sent a message with processInstanceId), only after that
@@ -777,16 +821,136 @@ function ownResults(step: Step, spec: ProcessSpec, model: Model | null, service:
   return out;
 }
 
+/** `= result.basicData` → `['result', 'basicData']` — null for anything but a plain path. */
+const sourcePath = (expression: string): string[] | null =>
+  /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(expression.trim())?.[1].split('.').map(x => x.trim()) ?? null;
+
+/**
+ * The variable an output reads, when its source is a plain path (`= composedClient`,
+ * `= result.basicData`) — null for any other expression or a path nobody knows.
+ */
+export function outputSource(expression: string, vars: readonly VarNode[]): VarNode | null {
+  const path = sourcePath(expression);
+  return path ? nodeOfPath(path, vars) : null;
+}
+
+/** The node at a path (`['result', 'basicData']`) — null if a segment is unknown. */
+function nodeOfPath(path: readonly string[], vars: readonly VarNode[]): VarNode | null {
+  let node = vars.find(n => n.name === path[0]) ?? null;
+  for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  return node;
+}
+
+/**
+ * The type a variable holds, in the form of the chip of a mapping row — null when it
+ * is unknown (`any`). An ADT (enum with fields) is an object in FEEL; it is recognised
+ * by its Scala name in the data model or the domain catalog.
+ */
+export function expectedOfNode(n: VarNode, types: TypeDef[] = [], model: Model | null = null): ExpectedType | null {
+  if (n.type === 'any') return null;
+  const accepts: FeelType[] = n.optional ? [n.type, 'nil'] : [n.type];
+  const values = n.values?.length ? { values: n.values } : {};
+  if (n.type === 'list') return { accepts, label: n.label, kind: 'list' };
+  if (n.type === 'context') {
+    if (n.open) return { accepts, label: n.label, kind: 'map' };
+    const base = typeShape(n.label).base;
+    const enumish = types.some(t => t.name === base && t.kind === 'enum')
+      || (model?.domainTypes ?? []).some(t => t.name === base && t.kind === 'enum');
+    return { accepts, label: n.label, kind: enumish ? 'enum' : 'class' };
+  }
+  return { accepts, label: n.label, kind: n.values?.length ? 'enum' : 'scalar', ...values };
+}
+
+/**
+ * Two Scala types of the same shape (both a list, both a map or neither) with
+ * different classes: `ComposedClient` and `Client`, `Seq[A]` and `Seq[B]`. FEEL sees
+ * `context` = `context` there. A scalar on either side and a different shape are left
+ * to the FEEL check (`checkFeel`), which already says text vs number or list vs object.
+ * The same class written with its prefix (`acme.domain.Client`, `GetClient.Client`)
+ * is the same; an alias of the domain catalog (`type Clients = Seq[Client]`) is not resolved — no verdict.
+ */
+function otherClass(declared: string, source: string, model: Model | null): boolean {
+  const d = typeShape(declared);
+  const s = typeShape(source);
+  if (isScalar(d.base) || isScalar(s.base) || s.base === '?' || d.base === '?') return false;
+  if (d.collection !== s.collection || d.map !== s.map) return false;
+  if (sameClass(d.base, s.base)) return false;
+  const alias = (name: string) => (model?.domainTypes ?? []).some(t => t.kind === 'alias' && sameClass(t.name, name));
+  return !alias(d.base) && !alias(s.base);
+}
+
+/** The members every service object has — `Out` alone does not say which object's. */
+const GENERIC_MEMBERS: ReadonlySet<string> = new Set(['In', 'Out', 'InitIn', 'InConfig']);
+
+/**
+ * Do two Scala names mean the same class? The package (`acme.domain.`) does not count:
+ * `acme.domain.Client` is `Client`. An object prefix counts only for a specific name —
+ * `GetClient.Client` is `Client`, but `GetA.Out` is not `Out` (every object has an `Out`)
+ * and not `GetB.Out`. So an unqualified `Out` against a qualified one warns, rather than
+ * hiding a real mismatch.
+ */
+const sameClass = (a: string, b: string): boolean => {
+  const unpack = (t: string) => t.replace(/`/g, '').replace(/^(?:[a-z_]\w*\.)+/, '');
+  const x = unpack(a);
+  const y = unpack(b);
+  if (x === y) return true;
+  const [long, short] = x.length > y.length ? [x, y] : [y, x];
+  return !GENERIC_MEMBERS.has(short) && long.endsWith(`.${short}`);
+};
+
+/** What a row of the outputs shows and checks about its type (see `outputRowType`). */
+export interface OutputRowType {
+  /** the yardstick: the process variable with a fixed type the output writes — null for a new variable */
+  expected: ExpectedType | null;
+  /** the type of the source path — what a new process variable takes over; null with a conversion (`mapTo`) */
+  source: ExpectedType | null;
+  /** the source path, normalised (`composedClient.client`) — null if the source is no plain path */
+  path: string | null;
+  /** the source has another class than the declared process variable */
+  issue: string | null;
+  /** show the FEEL kind of the result: there is a yardstick, or neither the source nor a conversion says more */
+  showResult: boolean;
+}
+
+/**
+ * The type of an output row. Its name is a process variable, not a field of the Out:
+ * measured against that variable if it has a fixed type (`declared`: In, InitIn,
+ * InConfig); otherwise the type comes from the source path (`= composedClient`), as the
+ * process variables take it. `vars` is what the source may read (the result of the
+ * step and the process variables). A conversion (`mapTo`) changes the type — no class check then.
+ */
+export function outputRowType(m: Pick<Mapping, 'name' | 'expression' | 'mapTo'>, vars: readonly VarNode[], declared: readonly VarNode[],
+  types: TypeDef[] = [], model: Model | null = null): OutputRowType {
+  const declaredVar = declared.find(v => v.name === m.name);
+  const expected = declaredVar ? expectedOfNode(declaredVar, types, model) : null;
+  const parsed = sourcePath(m.expression);
+  // converted (`mapTo`): the variable gets the type of the conversion, which its own chip
+  // shows — the type of the source is not what the variable takes over
+  const node = parsed && !m.mapTo ? nodeOfPath(parsed, vars) : null;
+  const source = node ? expectedOfNode(node, types, model) : null;
+  const path = parsed?.join('.') ?? null;
+  const issue = declaredVar && expected && source && otherClass(expected.label, source.label, model)
+    ? `Die Quelle ist ${source.label}, die Prozessvariable «${m.name}» ist als ${expected.label} definiert (${declaredVar.source}).`
+    : null;
+  return { expected, source, path, issue, showResult: !!expected || (!source && !m.mapTo) };
+}
+
 /**
  * The type of an output: if it reads a path from the result of the step
  * (`= debitCardDetail`, `= result.basicData`), the process variable has its
  * type with fields — otherwise it stays unknown.
  */
-function outputNode(o: Mapping, results: () => VarNode[]): VarNode | null {
-  const path = /^=\s*([A-Za-z_]\w*(?:\s*\.\s*[A-Za-z_]\w*)*)\s*$/.exec(o.expression.trim())?.[1].split('.').map(x => x.trim());
+function outputNode(o: Mapping, results: () => VarNode[], b?: Builder): VarNode | null {
+  const path = sourcePath(o.expression);
   if (!path) return null;
-  let node = results().find(n => n.name === path[0]) ?? null;
-  for (const seg of path.slice(1)) node = node?.children?.find(c => c.name === seg) ?? null;
+  const node = nodeOfPath(path, results());
+  // converted into another type (`mapTo`): that type - a list stays a list
+  if (o.mapTo && b) {
+    return nodeOfField({
+      id: '', name: o.name, type: o.mapTo, ...(o.mapToCase ? { enumCase: o.mapToCase } : {}),
+      ...(node?.type === 'list' ? { collection: true } : {}), ...(node?.optional ? { optional: true } : {}),
+    }, node?.source ?? '', b, 0, new Set());
+  }
   return node;
 }
 
@@ -814,7 +978,8 @@ export function expectedFor(f: Field | undefined, types: TypeDef[] = [], model: 
   }
   // if the value is missing, the default applies — null is then allowed
   if (f.optional || f.default?.trim()) accepts = [...accepts, 'nil'];
-  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}) };
+  const elements = f.collection ? expectedFor({ ...f, collection: false, optional: false, default: undefined }, types, model)?.accepts : undefined;
+  return { accepts, label: fieldLabel(f, idx), kind, ...(values?.length ? { values } : {}), ...(elements?.length ? { elements } : {}) };
 }
 
 // ── Example values ───────────────────────────────────────────────────────────
@@ -986,7 +1151,7 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   const ofStep = () => (results ??= ownResults(s, spec, model, catalogEntry(s, model), b));
   for (const o of s.outputs ?? []) {
     if (o.disabled || !o.name) continue;
-    const typed = outputNode(o, ofStep);
+    const typed = outputNode(o, ofStep, b);
     if (typed) add({ ...typed, name: o.name, source: `Ausgabe von ${s.name || s.id}`, ...(o.description ? { description: o.description } : {}) });
   }
   const kind = interactionKind(s, spec.processId ?? '');
@@ -1003,7 +1168,49 @@ function writesOf(s: Step, spec: ProcessSpec, model: Model | null, b: Builder): 
   if (s.kind === 'rule' && s.resultVariable && !(spec.engine === 'c8' && (s.outputs ?? []).some(o => !o.disabled && o.name))) {
     for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) add(n);
   }
+  for (const n of scriptResult(s, spec, b)) add(n);
   return out;
+}
+
+/**
+ * The variables a script task with an implementation sets - as a mapping its Out, in FEEL its
+ * `resultVariable`, typed as its field (see scriptResultField).
+ */
+function scriptResult(s: Step, spec: ProcessSpec, b: Builder): VarNode[] {
+  if (s.kind !== 'script') return [];
+  const source = `Ergebnis von ${s.name || s.id}`;
+  if (s.fieldMapping) return mappingOf(s.fieldMapping).out.filter(f => f.name.trim() && f.type).map(f => ({ ...nodeOfField(f, source, b, 0, new Set()), source }));
+  const name = s.script?.trim() ? s.resultVariable?.trim() : undefined;
+  if (!name) return [];
+  const f = scriptResultField(s, spec);
+  return [f ? { ...nodeOfField(f, source, b, 0, new Set()), source } : { name, type: 'any', label: '?', source }];
+}
+
+/** A field as a node of the variable tree, with its subfields - the result of a mapping. */
+export function fieldVarNode(f: Field, spec: ProcessSpec, model: Model | null, source: string): VarNode {
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  return nodeOfField(f, source, b, 0, new Set());
+}
+
+/** The In and Out of a mapping as nodes of the variable tree - the two sides of its panel. */
+export function mappingVarNodes(stored: FieldMapping, spec: ProcessSpec, model: Model | null): { sources: VarNode[]; target: VarNode } {
+  const m = mappingOf(stored);
+  const b: Builder = { idx: indexTypes(spec.types ?? [], model), model };
+  const nodes = (list: Field[], source: string) => list.filter(f => f.name.trim() && f.type).map(f => nodeOfField(f, source, b, 0, new Set()));
+  return { sources: nodes(m.in, 'In'), target: { name: 'Out', type: 'context', label: 'Out', source: '', children: nodes(m.out, 'Out') } };
+}
+
+/**
+ * The field a script task's result is: the field of the Out of its name (`clients: Seq[Client]`),
+ * otherwise the type the step names (`resultType`, a list of it with `resultCollection`).
+ */
+export function scriptResultField(s: Step, spec: ProcessSpec): Field | null {
+  const name = s.resultVariable?.trim();
+  if (!name) return null;
+  const out = (spec.types ?? []).find(t => t.processOut);
+  const own = out?.kind === 'enum' ? undefined : (out?.fields ?? []).find(f => f.name === name);
+  if (own) return own;
+  return s.resultType ? { id: `r-${s.id}`, name, type: s.resultType, ...(s.resultCollection ? { collection: true } : {}) } : null;
 }
 
 /** What the step and the steps inside it write — inside a multi-instance they stay in the instance */
@@ -1021,6 +1228,12 @@ export function namesWrittenInside(step: Step, spec: ProcessSpec, model: Model |
     for (const o of s.outputs ?? []) if (!o.disabled && o.name.trim()) names.add(o.name.trim());
     for (const v of s.outputVariables ?? []) names.add(v);
     if (s.kind === 'rule' && s.resultVariable) names.add(s.resultVariable);
+    if (s.kind === 'script' && s.fieldMapping) {
+      // as the worker sets them: named and typed (see mappingCall)
+      for (const f of mappingOf(s.fieldMapping).out) if (f.name.trim() && f.type) names.add(f.name.trim());
+    } else if (s.kind === 'script' && s.script?.trim() && s.resultVariable?.trim()) {
+      names.add(s.resultVariable.trim());
+    }
     const kind = interactionKind(s, spec.processId ?? '');
     if (kind === 'customTask' || kind === 'userTask') for (const n of ownResults(s, spec, model, catalogEntry(s, model), b)) names.add(n.name);
   }
@@ -1230,8 +1443,10 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
           // `for i in items[i.active = true]` — the loop variable only applies after the `in`
           issues.push({ level: 'error', text: `«${name}» ist im Filter der Sammlung noch nicht gebunden — dort heisst das Element «item» (oder man schreibt das Feld direkt: «items[active = true]»).` });
         } else if (name === 'processInstanceKey' || name === 'processInstanceId') {
-          // Camunda 8: the InitWorker set it once — today FEEL has the own instance
-          issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (C8 ab 8.10; der InitWorker setzt «${name}» nicht mehr). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
+          // the own instance is always the context — in Camunda 7 too (the export makes it execution.processInstanceId)
+          issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — die eigene Instanz ist «string(camunda.processInstance.key)» (${C7_LABEL}: execution.processInstanceId). Kommt sie von aussen (Start, Call Activity), im In aufnehmen.` });
+        } else if (name === 'businessKey') {
+          issues.push({ level: 'error', text: `Variable «businessKey» ist nicht bekannt — der Business Key der Instanz ist «camunda.processInstance.businessId» (${C7_LABEL}: execution.processBusinessKey). Kommt er von aussen (Start, Call Activity), im In aufnehmen.` });
         } else {
           issues.push({ level: 'error', text: `Variable «${name}» ist nicht bekannt — weder als Prozessvariable noch im Ergebnis.` });
         }
@@ -1283,6 +1498,17 @@ export function checkFeel(expression: string, vars: VarNode[] | null, expected: 
       });
     }
   }
+  // the elements of a list: a list in a list of objects (`[persons, companies]` for `Seq[Client]`) - only
+  // what the samples say for sure: a list or an object (a list of unknown elements has texts)
+  if (!issues.length && expected?.elements && Array.isArray(value) && !unknown && !pathFailed) {
+    const wrong = (value as unknown[]).map(feelType).find(t => (t === 'list' || t === 'context') && !expected.elements!.includes(t));
+    if (wrong) {
+      issues.push({
+        level: 'error',
+        text: `Die Elemente sind ${wrong === 'list' ? 'Listen' : 'Objekte'}, ${expected.label} erwartet ${expected.elements.map(t => FEEL_TYPE_LABEL[t]).join(' oder ')}${wrong === 'list' ? ' - Listen aneinanderhängen mit concatenate(a, b) oder flatten([a, b])' : ''}.`,
+      });
+    }
+  }
   if (!issues.length && expected && !unknown && !pathFailed) {
     if (!expected.accepts.includes(result)) {
       const soll = expected.accepts.filter(t => t !== 'nil').map(t => FEEL_TYPE_LABEL[t]).join(' oder ');
@@ -1311,12 +1537,53 @@ export interface Completion {
   path: string;
   /** Characters the cursor jumps back after inserting (into the parenthesis) */
   back?: number;
+  /** a value of a simple enum — the variable it is compared with */
+  enumOf?: VarNode;
 }
 
 export interface CompletionResult {
   from: number;
   to: number;
   items: Completion[];
+  /** the values of an enum after `=`: shown before anything is typed */
+  values?: boolean;
+}
+
+/** The variable or field of a path — `client.kind` in the tree. */
+function nodeAt(path: string, vars: VarNode[]): VarNode | undefined {
+  let pool = vars;
+  let hit: VarNode | undefined;
+  for (const seg of path.split('.')) {
+    hit = pool.find(v => v.name === seg);
+    if (!hit) return undefined;
+    pool = hit.children ?? [];
+  }
+  return hit;
+}
+
+/**
+ * After a comparison with a simple enum (`clientMainType = Per|`, `kind != "|`): its values as
+ * FEEL strings. Typed is a part of a value — or of the name of the enum (`ClientMainT`): all.
+ */
+function enumValues(text: string, cursor: number, vars: VarNode[]): CompletionResult | null {
+  const before = text.slice(0, cursor);
+  const m = /([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*(?:!=|=)\s*("?)([\w-]*)$/.exec(before);
+  if (!m || m.index <= text.indexOf('=')) return null;
+  const [, path, quote, partial] = m;
+  const node = nodeAt(path, vars);
+  if (!node?.values?.length) return null;
+  const needle = partial.toLowerCase();
+  const typeName = node.label.replace(/^Option\[|\]$/g, '').toLowerCase();
+  const all = !needle || typeName.startsWith(needle);
+  const values = all ? node.values : [
+    ...node.values.filter(v => v.toLowerCase().startsWith(needle)),
+    ...node.values.filter(v => !v.toLowerCase().startsWith(needle) && v.toLowerCase().includes(needle)),
+  ];
+  if (!values.length) return null;
+  const from = cursor - partial.length - quote.length;
+  // a closing quote already there (typed `""`) is replaced too
+  const to = quote && text[cursor] === '"' ? cursor + 1 : cursor;
+  return { from, to, values: true, items: values.map(v => ({ insert: `"${v}"`, path: `"${v}"`, enumOf: node })) };
 }
 
 /**
@@ -1328,6 +1595,8 @@ export function completions(text: string, cursor: number, vars: VarNode[]): Comp
   if (!isFeel(text)) return null;
   const eq = text.indexOf('=');
   if (cursor <= eq) return null;
+  const values = enumValues(text, cursor, vars);
+  if (values) return values;
   const before = text.slice(0, cursor);
   // inside a string? (odd number of quotes before)
   if ((before.slice(eq + 1).match(/"/g)?.length ?? 0) % 2 === 1) return null;
@@ -1426,11 +1695,6 @@ export function tokenizeFeel(text: string, vars: VarNode[]): FeelToken[] {
   }
   return out;
 }
-
-const FEEL_WORDS = new Set([
-  'true', 'false', 'null', 'if', 'then', 'else', 'for', 'in', 'return', 'some', 'every', 'satisfies',
-  'and', 'or', 'not', 'between', 'instance', 'of', 'function', 'external', 'partial', 'item',
-]);
 
 /**
  * The variables a FEEL expression accesses — the first name part

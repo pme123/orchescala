@@ -1369,6 +1369,15 @@ class OrchSpecGeneratorTest extends munit.FunSuite:
     assert(!OrchSpecImports.covered(lines, "import a.b.domain.Thing"))
     assert(!OrchSpecImports.covered(lines, "import a.b.domain.proc.v1.schema.*"))
 
+  test("imports - a renamed one brings its new name, a hidden one is not in the wildcard, given brings none"):
+    val lines = Seq("package a.b", "", "import k.l.{X as Y}", "import m.n.{Z as _, *}", "import o.p.{given, Q}", "import r.s.{T => U}")
+    assert(!OrchSpecImports.covered(lines, "import k.l.X"))
+    assert(OrchSpecImports.covered(lines, "import k.l.Y"))
+    assert(!OrchSpecImports.covered(lines, "import m.n.Z"))
+    assert(OrchSpecImports.covered(lines, "import m.n.W"))
+    assert(OrchSpecImports.covered(lines, "import o.p.Q"))
+    assert(!OrchSpecImports.covered(lines, "import r.s.T"))
+
   test("processTypeOf - a C7/Op export goes to the project's engine"):
     assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.Op(), c8 = false), BpmnProcessType.Op())
     assertEquals(OrchSpecGenerator.processTypeOf(BpmnProcessType.C7(), c8 = false), BpmnProcessType.C7())

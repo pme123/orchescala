@@ -35,6 +35,7 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
       company: model.company ?? '',
       services: withoutGenerated(services),
       domainTypes: withoutGenerated(types),
+      domainMappers: withoutGenerated(model.domainMappers ?? []),
       domainSources: (model.domainSources ?? []).filter(x => /^https?:/i.test(x)),
       // The order travels along, the local paths do not.
       projects: (model.projects ?? []).map(({ path, ...rest }) => rest),
@@ -54,6 +55,7 @@ export default function CatalogTransfer({ model, specs, isDark, canEdit, onSave 
       ...(data.company ? { company: data.company } : {}),
       services: data.services ?? [],
       domainTypes: data.domainTypes ?? [],
+      domainMappers: data.domainMappers ?? [],
       domainSources: data.domainSources ?? [],
       projects: data.projects ?? [],
     });

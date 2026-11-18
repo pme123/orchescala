@@ -152,19 +152,6 @@ test('the chain: a path that does not follow the levels is a TODO, not a silent 
   assert.equal(chainIssue(withPaths('/persons/read'), persons), null);
 });
 
-test('a level two APIs reach with other segments: the first says them, the other is a TODO', () => {
-  const c: ServiceCollectionSpec = {
-    ...spec(),
-    services: [
-      { ...spec().services[0], id: 'a', name: 'ReadPersons', path: '/api/ClientMaster/v1/Persons/Read' },
-      { ...spec().services[0], id: 'b', name: 'ReadAccounts', api: 'clientMaster.accounts', path: '/api/ClientMaster/v2/Accounts/Read' },
-    ],
-  };
-  const files = chainFiles(c, [persons, { ...persons, api: 'clientMaster.accounts' }]);
-  const level = files.find(f => f.path.endsWith('/worker/clientMaster/exports.scala'))!.content;
-  assert.match(level, /s"\$crmBasePath\/ClientMaster\/v1"\n {2}\/\* TODO other APIs have other segments here: ClientMaster\/v2 \(clientMaster\.accounts v1\) \*\//);
-});
-
 test('the URI of the test: only the interpolations name the In — a segment `in.x` of the path stays', () => {
   const keyIn: TypeDef = { id: 't-in', name: 'In', kind: 'case', interactionId: 's1', fields: [{ id: 'k', name: 'key', type: 'String' }] };
   const c: ServiceCollectionSpec = {

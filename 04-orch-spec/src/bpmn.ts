@@ -11,7 +11,7 @@
 // (see `mergeSpec`) — the implementation only updates the structure.
 
 import type { AppliedPattern, Branch, ErrorHandling, GatewayType, Mapping, MultiInstanceSpec, PatternDef, ProcessSpec, Status, Step, StepKind, TimerSpec } from './types';
-import { feelIfPossible, importExpression, jsonToFeel, stripNullSafe } from './juelFeel.ts';
+import { feelIfPossible, groovyToFeel, importExpression, jsonToFeel, stripNullSafe, unguard } from './juelFeel.ts';
 import { detectEngine } from './engineConvert.ts';
 import { detectPatterns } from './patterns.ts';
 import { STATUSES } from './types.ts';
@@ -181,15 +181,27 @@ function errorCodeOf(el: Element, errors: Map<string, string>): string | undefin
 }
 
 // ── Inputs/outputs ───────────────────────────────────────────────────────────
-/** A business parameter value: text becomes JUEL → FEEL; script, list and map stay descriptive. */
+/**
+ * A business parameter value: text becomes JUEL → FEEL; script, list and map stay descriptive —
+ * except a Groovy script that is only a literal (`groovyToFeel`). Every business
+ * input and output row is read here; the other callers of `paramValue` read only
+ * the technical parameters (`_handledErrors`, mocks …), which are not mappings
+ * and so stay as they are.
+ */
 function fachlich(p: Element): string {
   // a script the export made from FEEL (JSON for Camunda 7): the FEEL is in the first line
   const script = firstNamed(p, 'script');
   const fromFeel = script ? /^\s*\/\/ FEEL: (.+)$/m.exec(text(script).split('\n').find(l => l.trim()) ?? '') : null;
   if (fromFeel) return `= ${fromFeel[1].trim()}`;
+  // a Groovy literal (`[fileIdLetter, docLink]`) reads the same in FEEL — no script to rewrite
+  const literal = script && isGroovy(script) ? groovyToFeel(text(script)) : null;
+  if (literal) return `= ${literal}`;
   if (script || firstNamed(p, 'list') || firstNamed(p, 'map')) return paramValue(p);
   return importExpression(text(p));
 }
+
+/** A script in Groovy — `scriptFormat` compared case-insensitively (`Groovy`, `groovy`) */
+const isGroovy = (script: Element): boolean => (attr(script, 'scriptFormat') ?? '').toLowerCase() === 'groovy';
 
 function paramValue(p: Element): string {
   const script = firstNamed(p, 'script');
@@ -1133,6 +1145,19 @@ export const settle = (prev: Status | undefined, st: MergeStatus): Status | unde
 
 // What the specification defines survives the reconciliation with the BPMN.
 const KEEP_KEYS = ['description', 'candidateGroups', 'candidateUsers', 'assignee', 'inVariant', 'outVariant'] as const;
+// The implementation of a script task is not read from the diagram - it stays as specified
+const SCRIPT_KEYS = ['script', 'resultVariable', 'resultType', 'resultCollection', 'fieldMapping'] as const;
+
+/**
+ * The implementation of the specification onto the step read from the diagram: what the step has
+ * not. A script of its own in the step (not read today) keeps its result and drops the mapping -
+ * the mapping and its FEEL go together.
+ */
+function keepScript(s: Step, prev: Step): void {
+  const own = s.script != null && s.script !== prev.script;
+  const set = <K extends (typeof SCRIPT_KEYS)[number]>(k: K) => { if (s[k] == null && prev[k] != null) s[k] = prev[k]; };
+  for (const k of SCRIPT_KEYS) if (!(own && k === 'fieldMapping')) set(k);
+}
 
 function indexSteps(steps: Step[] | undefined, into: Map<string, Step>): Map<string, Step> {
   for (const s of steps ?? []) {
@@ -1375,8 +1400,9 @@ function jsonTextUpgrade(stored: string, fromDiagram: string | undefined): boole
  * around paths: then the diagram wins.
  */
 function numberUpgrade(stored: string, fromDiagram: string | undefined): boolean {
-  if (!fromDiagram || !/(?<![\w.])number\(/.test(stored)) return false;
-  const without = stored.replace(/(?<![\w.])number\(([A-Za-z_][\w.]*)\)/g, '$1');
+  if (!fromDiagram) return false;
+  // the guard of the export read back as `if a.b != null then a.b else null` - today it is `a.b`
+  const without = unguard(stored.replace(/(?<![\w.])number\(([A-Za-z_][\w.]*)\)/g, '$1'));
   return without !== stored && without.trim() === fromDiagram.trim();
 }
 /** A value an older import read wrongly — the diagram reads it correctly today */
@@ -1409,6 +1435,9 @@ function applyOld(steps: Step[], old: Map<string, Step>, report: MergeReport, se
       // without a label in the BPMN the name from the specification wins (the export writes it in)
       if (unnamed(s) && !unnamed(prev)) s.name = prev.name;
       for (const k of KEEP_KEYS) if (prev[k] != null && prev[k] !== '') s[k] = prev[k];
+      if (s.kind === 'script' && prev.kind === 'script') {
+        keepScript(s, prev);
+      }
       // Business meaning and deselection of the mappings belong to the specification —
       // with `mappingsFromBpmn` the deselection does not apply: what is in the BPMN is enabled
       for (const list of ['inputs', 'outputs'] as const) {

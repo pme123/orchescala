@@ -76,6 +76,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |      "-deprecation", // Emit warning and location for usages of deprecated APIs.
        |      "-feature", // Emit warning and location for usages of features that should be imported explicitly.
        |      "-Xmax-inlines:200", // is declared as erased, but is in fact used
+       |      "-Xmax-fuel:2000", // Scala 3.10: the derivation of large classes needs more than the default 550
        |      "-language:implicitConversions", // allow feature - as the DSLs use it - otherwise there are feature warnings
        |      // "-rewrite", "-source", "3.4-migration", // migrate automatically to scala 3.4
        |      // "-Vprofile",
@@ -136,7 +137,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
                 if moduleConfig.exclusions.isEmpty then s"\n      $dep"
                 else
                   moduleConfig.exclusions
-                    .map((org, name) => s"""\n        .exclude("$org", "$name")""")
+                    .map((org, name) => s"""\n        .excludeAll(ExclusionRule("$org", "$name"))""")
                     .mkString(s"\n      ($dep)", "", "")
               .mkString(",")
           }
@@ -164,7 +165,7 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
     val companySettings =
       (if isGateway then config.sbtConfig.dockerGatewaySettings
        else config.sbtConfig.dockerSettings)
-        .getOrElse("Seq()")
+        .getOrElse(SbtConfig.defaultDockerSettings)
     s"""${SbtConfig.dockerBuildSettings(config.sbtConfig.dockerBuildOptions)}
        |  lazy val dockerSettings = $companySettings""".stripMargin
   end sbtDocker

@@ -9,11 +9,13 @@
 import type { DomainType, EngineId, ErrorHandling, Field, Interaction, InteractionKind, Mapping, Model, MultiInstanceSpec, ProcessSpec, ServiceDef, Step, TimerSpec } from './types';
 import { C7_LABEL, C8_LABEL } from './engineLabels';
 import { INTERACTION_META } from './types';
-import { checkFeel, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
+import { caseLinkIssues, inOutIssues, mappingIssues } from './fieldMapping.ts';
+import { adtCaseFields, adtCases, converter, modelMappers } from './typeMappers.ts';
+import { checkFeel, mappingVarNodes, miInsideVariables, namesWrittenInside, conditionExpected, domainInputNames, domainRequired, inConfigField, inConfigWarning, referencedVariables, expectedFor, expectedFromDomain, isFeel, multiInstanceScopes, processVariables, resultVariables, stepDomainMember, variableOverview, variablesByStep, withMultiInstance, type VariableConflict, type VariableSource, type VarNode } from './feel';
 import { feelBody, feelSyntaxOk, feelToGroovy, feelToJuel } from './feelJuel';
 import { isJuel } from './juelFeel';
 import { catalogEntry, interactionKind, interactionOrigin, wiringSteps } from './interactions';
-import { dmnIssues, packageOf } from './scala';
+import { dmnIssues, indexTypes, packageOf } from './scala';
 import { acceptedEverywhere, allSteps, isEventBoundary, isInitWorker, timerVariable, unnamed } from './bpmn';
 import { correlationOf } from './messageCall';
 import { serviceStepIssues } from './services/serviceMode.ts';
@@ -317,6 +319,17 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   // (in a pattern block the pattern names it)
   // a process in service mode: only what one worker runs in one go
   if (spec.service) for (const i of serviceStepIssues(step)) (i.level === 'error' ? errors : warnings).push(i.text);
+  // a script task of a service orchestration: its implementation in FEEL and the variable it sets
+  if (spec.service && step.kind === 'script') {
+    if (!step.script?.trim() && !(step.outputs ?? []).some(m => !m.disabled && m.name.trim())) warnings.push('Keine Implementierung - im Schritt in FEEL beschreiben.');
+    if (!step.fieldMapping && step.script?.trim() && !step.resultVariable?.trim()) errors.push('Die Implementierung hat keine Ergebnis-Variable.');
+    // as a mapping: its In known before the step, every field of its Out gets a value from the In
+    if (step.fieldMapping) {
+      const { sources, target } = mappingVarNodes(step.fieldMapping, spec, model);
+      const idx = indexTypes(spec.types ?? [], model);
+      for (const i of [...inOutIssues(step.fieldMapping, variables), ...caseLinkIssues(step.fieldMapping, ref => adtCases(ref, idx), (ref, c) => adtCaseFields(ref, c, idx)), ...mappingIssues(step.fieldMapping, target, sources, converter(modelMappers(model), idx.nameOf))]) (i.level === 'error' ? errors : warnings).push(i.text);
+    }
+  }
   if (unnamed(step) && !wiring.has(step.id)) warnings.push('Kein Name — im BPMN fehlt das Label; hier einen Namen setzen, der Export schreibt ihn ins BPMN.');
   // Timer: the wait time is a constant in the InConfig — otherwise it cannot be set per environment
   if (step.eventKind === 'timer' && step.timer) timerFindings(step.timer, spec, errors, warnings, { kinds });
@@ -354,6 +367,10 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
   const foreign = (step.serviceId || step.topic) && !ia && !interactionKind(step, processId) && step.topic !== processId;
   if (foreign && model?.services?.length && !service) {
     errors.push(`Service «${step.serviceId ?? step.topic}» steht nicht im Katalog.`);
+  }
+  // from the folder (a collection, an orchestration, a process) - usable, but the release still has to bring it
+  if (service?.unreleased) {
+    warnings.push(`«${service.name}» ist noch nicht released – aus dem Ordner, noch nicht im Katalog.`);
   }
 
   // ── Multi-instance: results and parallel instances ──────────────────────
@@ -497,7 +514,7 @@ export function stepFindings(step: Step, spec: ProcessSpec, model: Model | null,
     if (isEventBoundary(e) && e.eventKind === 'message' && !e.pattern) {
       const corr = correlationOf(e.correlationKey, spec.engine);
       if (corr.missing) warnings.push(`Nachricht «${e.code}»: kein Korrelationsschlüssel — in ${C8_LABEL} findet sie keine wartende Instanz.`);
-      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: ${corr.expression?.replace(/^=\s*/, '')} setzt der InitWorker nicht mehr — «processInstanceId» wählen (string(camunda.processInstance.key), ${C8_LABEL} ab 8.10).`);
+      if (corr.misnamed) errors.push(`Nachricht «${e.code}»: ${corr.expression?.replace(/^=\s*/, '')} ist keine Variable der Instanz — «processInstanceId» wählen (string(camunda.processInstance.key), ${C8_LABEL} ab 8.10; ${C7_LABEL}: execution.processInstanceId).`);
     }
   });
 
