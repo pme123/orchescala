@@ -84,3 +84,27 @@ test('at the start: In, InitIn, InConfig always - other classes only when lower'
   assert.deepEqual(startClasses(spec.steps[0], spec).map(k => `${k.name}${k.below ? ` [${k.status}]` : ''}`),
     ['In [changed]', 'InitIn', 'InConfig', 'Address [review]']);
 });
+
+test('one status for all parts: steps on all levels, classes and interactions', async () => {
+  const { partCounts, withStatusForAll } = await import('../src/status');
+  const spec = {
+    steps: [
+      step('a', 'accepted'),
+      step('g', 'draft', { kind: 'gateway', branches: [{ id: 'b', label: 'ja', steps: [step('c', 'changed')] }] }),
+      step('s', 'review', { kind: 'subprocess', children: [step('d', 'draft')], errors: [{ id: 'e', steps: [step('f', 'final')] }] }),
+      step('j', 'draft', { kind: 'goto' }),
+    ],
+    types: [{ id: 't', name: 'In', kind: 'case', status: 'draft' }, { id: 'u', name: 'Old', kind: 'case' }],
+    interactions: [{ id: 'ia', name: 'Msg', kind: 'message', stepId: 'a', status: 'review' }],
+  } as unknown as ProcessSpec;
+  const before = partCounts(spec);
+  assert.deepEqual(before.draft, { steps: 2, types: 1, interactions: 0 });   // the jump does not count
+  assert.deepEqual(before.review, { steps: 1, types: 0, interactions: 1 });
+
+  const next = withStatusForAll(spec, 'final');
+  const after = partCounts(next);
+  assert.deepEqual(after.final, { steps: 6, types: 2, interactions: 1 });
+  for (const s of STATUSES) if (s !== 'final') assert.deepEqual(after[s], { steps: 0, types: 0, interactions: 0 });
+  assert.equal(overallStatus(next), 'final');
+  assert.equal(spec.steps[0].status, 'accepted');   // the original stays
+});
