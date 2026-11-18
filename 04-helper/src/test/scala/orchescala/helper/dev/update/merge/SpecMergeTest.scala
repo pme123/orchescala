@@ -226,8 +226,18 @@ class SpecMergeTest extends FunSuite:
       os.write(dir / "OrderV1.scala", "package acme.demo.domain\npackage order.v1\n\ntrait OrderV1\n")
       os.write(dir / "GetOrder.scala", "package acme.demo.domain\npackage order.v1\n\nobject GetOrder extends OrderV1:\n  val topicName = \"acme-demo-orderV1.GetOrder\"\n")
       os.write(dir / "Old.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Old(x: Int)\n")
+      // only mentioned - in a comment, a text: no use, it is asked
+      os.write(dir / "Stale.scala", "package acme.demo.domain\npackage order.v1\n\ncase class Stale(x: Int)\n")
+      os.write(dir / "Mentions.scala", "package acme.demo.domain\npackage order.v1\n\n// once like Stale\n/** see Stale */\nobject Mentions:\n  val text = \"Stale\"\n")
       val plan = SpecMerge.plan(project, Seq(order), Seq(order))
-      assertEquals(plan.removals.map(_.path.split('/').last), Seq("Old.scala"))
+      assertEquals(plan.removals.map(_.path.split('/').last).sorted, Seq("Mentions.scala", "Old.scala", "Stale.scala"))
+
+  test("what code uses, not what it mentions: comments and texts left out"):
+    assertEquals(SpecMerge.codeOnly("val a = Used // Stale\n/* Stale\n */ val b = \"Stale\" + \"\"\"Stale\"\"\""), "val a = Used \n  val b = \"\" + \"\"")
+    assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorker.scala"))
+    assert(SpecMerge.isWorkerCode(os.rel / "worker" / "GetClientWorkerTest.scala"))
+    assert(!SpecMerge.isWorkerCode(os.rel / "bpmn" / "order.bpmn"))
+    assert(!SpecMerge.isWorkerCode(os.rel / "worker" / "exports.scala"))
 
   test("a file next to the domain classes with more than classes: only its classes go - a helper of its own stays"):
     inProject: project =>
@@ -469,6 +479,14 @@ class SpecMergeTest extends FunSuite:
       assertEquals(MergeReport.askReplace(again, _ => None), Set.empty[String])
       val replace = MergeReport.askReplace(again, _ => Some("y"))
       assertEquals(replace, Set(rel))
+      // each on its own (of one file it is the plain question), N keeps it
+      assertEquals(MergeReport.askReplace(again, _ => Some("N")), Set.empty[String])
+      assertEquals(MergeReport.askReplace(again, _ => Some("e")), Set.empty[String])
+      val two    = again.copy(files = again.files ++ again.replaceable.map(f => f.copy(path = s"${f.path}.copy")))
+      var asked  = Seq.empty[String]
+      val each   = MergeReport.askReplace(two, q => { asked :+= q; if asked.size == 1 then Some("e") else Some(if asked.size == 2 then "y" else "n") })
+      assertEquals(each, Set(rel))
+      assertEquals(asked.size, 3)
       val result = SpecMerge.merge(project, again, OnConflict.KeepCode, replace = replace)
       assertEquals(result.replaced, Seq(rel))
       assertEquals(os.read(worker), fresh)

@@ -43,6 +43,20 @@ import scala.util.{Failure, Success, Try}
   */
 object SpecMerge:
 
+  /** A worker of the export or its test (`GetClientWorker.scala`, `GetClientWorkerTest.scala`) - the files
+    * created once a developer is asked to overwrite when Orch Spec gives another version.
+    */
+  private[merge] def isWorkerCode(rel: os.RelPath): Boolean =
+    rel.last.matches("""[A-Z]\w*Worker(Test)?\.scala""")
+
+  /** Scala without its comments and texts - what the code uses, not what it mentions. */
+  private[merge] def codeOnly(code: String): String =
+    code
+      .replaceAll("""(?s)/\*.*?\*/""", " ")
+      .replaceAll("""(?s)\"\"\".*?\"\"\"""", "\"\"")
+      .replaceAll(""""(?:[^"\\\n]|\\.)*"""", "\"\"")
+      .replaceAll("""//[^\n]*""", "")
+
   /** A file of type mappers of Orch Spec (`TypeMappers.scala`, `ClientMasterV1TypeMappers.scala`) - extensions it adds to a
     * schema: named as Orch Spec names them (`<Level>[V<n>]TypeMappers`), in a `schema` folder. Asked only of the files
     * the export generates - a hand-written `CustomTypeMappers.scala` of the project never comes here.
@@ -313,9 +327,11 @@ object SpecMerge:
         else
           n.kind match
             case FileKind.Simulation    => file(Action.update, Some(n.content))
-            // it stays - the developer is asked whether Orch Spec's version replaces it
-            case FileKind.Scaffold      =>
+            // a worker or its test: the developer is asked whether Orch Spec's version replaces it -
+            // another skeleton (a template BPMN, the base paths to fill) only stays
+            case FileKind.Scaffold if isWorkerCode(rel) =>
               file(Action.unchanged, note = Some("exists, differs from Orch Spec - created once, it stays unless you say so"), replacement = Some(n.content))
+            case FileKind.Scaffold      => file(Action.unchanged, note = Some("exists - created once, it stays"))
             case FileKind.ProcessObject => processObject(n, c)
             case FileKind.Export        => threeWay("", c, n.content)
       case (Some(b), Some(n), Some(c))  =>
@@ -415,8 +431,9 @@ object SpecMerge:
       else
         // what the other files of the folder use is still needed - the trait of an API (`FileV1`) its
         // services extend, when an orchestration is exported into the API of a collection
-        val inFolder = others.flatMap((rel, code) => code.map(rel -> _)) ++
-          generated.filter(_.rel / os.up == dir).map(f => f.rel -> f.content)
+        // as code: a mention in a comment or a text (a topic) is no use
+        val inFolder = (others.flatMap((rel, code) => code.map(rel -> _)) ++
+          generated.filter(_.rel / os.up == dir).map(f => f.rel -> f.content)).map((rel, code) => rel -> codeOnly(code))
         def used(rel: os.RelPath, names: Seq[String]): Boolean =
           names.exists: n =>
             val word = s"\\b${java.util.regex.Pattern.quote(n)}\\b".r
