@@ -249,10 +249,10 @@ class SbtSettingsGeneratorTest extends FunSuite:
       Seq(false, true).foreach: isGateway =>
         SbtSettingsGenerator(isGateway).generate
         val settings   = os.read(projectDir / "project" / "Settings.scala")
-        val simulation = settings.substring(
-          settings.indexOf("lazy val simulationSettings"),
-          settings.indexOf("lazy val zioTestSettings")
-        )
+        val start      = settings.indexOf("lazy val simulationSettings")
+        val end        = settings.indexOf("lazy val zioTestSettings")
+        assert(start >= 0 && end > start, s"simulationSettings before zioTestSettings - gateway: $isGateway\n$settings")
+        val simulation = settings.substring(start, end)
         assertEquals(SetsFork.findAllIn(settings).map(_.trim).toList, List("Test / fork := true,"), s"gateway: $isGateway")
         assert(SetsFork.findFirstIn(simulation).isDefined, s"gateway: $isGateway\n$simulation")
         assertEquals(SetsJavaOptions.findAllIn(settings).map(_.trim).toList, List("Test / javaOptions ++= Seq("), s"gateway: $isGateway")
