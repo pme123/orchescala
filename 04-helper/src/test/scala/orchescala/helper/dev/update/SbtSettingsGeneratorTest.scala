@@ -242,10 +242,12 @@ class SbtSettingsGeneratorTest extends FunSuite:
 
   // without `fork` sbt ignores them - sbt 2 warns once per module
   test("Settings.scala: no javaOptions - the generated build does not fork"):
+    val SetsFork = """(?m)^(?!\s*//).*\bfork\s*:=""".r
     inProject(SbtConfig()): projectDir =>
-      SbtSettingsGenerator(isGateway = false).generate
-      val settings = os.read(projectDir / "project" / "Settings.scala")
-      assert(!settings.contains("javaOptions"), settings)
-      assert(!settings.contains("fork"), settings)
+      Seq(false, true).foreach: isGateway =>
+        SbtSettingsGenerator(isGateway).generate
+        val settings = os.read(projectDir / "project" / "Settings.scala")
+        assert(!settings.contains("javaOptions"), s"gateway: $isGateway\n$settings")
+        assert(SetsFork.findFirstIn(settings).isEmpty, s"gateway: $isGateway\n$settings")
 
 end SbtSettingsGeneratorTest
