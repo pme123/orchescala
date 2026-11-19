@@ -240,14 +240,22 @@ class SbtSettingsGeneratorTest extends FunSuite:
       val settings = os.read(projectDir / "project" / "Settings.scala")
       assert(settings.contains("\"-Xmax-fuel:2000\""), settings)
 
-  // without `fork` sbt ignores them - sbt 2 warns once per module
-  test("Settings.scala: no javaOptions - the generated build does not fork"):
-    val SetsFork = """(?m)^(?!\s*//).*\bfork\s*:=""".r
+  // javaOptions without `fork` are ignored - sbt 2 warns once per module. Only the simulations
+  // fork (their HTTP clients outlive the class loader of sbt's JVM), so the options are theirs.
+  test("Settings.scala: only the simulations fork - with their javaOptions"):
+    val SetsFork        = """(?m)^(?!\s*//).*\bfork\s*:=.*$""".r
+    val SetsJavaOptions = """(?m)^(?!\s*//).*\bjavaOptions\b.*$""".r
     inProject(SbtConfig()): projectDir =>
       Seq(false, true).foreach: isGateway =>
         SbtSettingsGenerator(isGateway).generate
-        val settings = os.read(projectDir / "project" / "Settings.scala")
-        assert(!settings.contains("javaOptions"), s"gateway: $isGateway\n$settings")
-        assert(SetsFork.findFirstIn(settings).isEmpty, s"gateway: $isGateway\n$settings")
+        val settings   = os.read(projectDir / "project" / "Settings.scala")
+        val simulation = settings.substring(
+          settings.indexOf("lazy val simulationSettings"),
+          settings.indexOf("lazy val zioTestSettings")
+        )
+        assertEquals(SetsFork.findAllIn(settings).map(_.trim).toList, List("Test / fork := true,"), s"gateway: $isGateway")
+        assert(SetsFork.findFirstIn(simulation).isDefined, s"gateway: $isGateway\n$simulation")
+        assertEquals(SetsJavaOptions.findAllIn(settings).map(_.trim).toList, List("Test / javaOptions ++= Seq("), s"gateway: $isGateway")
+        assert(SetsJavaOptions.findFirstIn(simulation).isDefined, s"gateway: $isGateway\n$simulation")
 
 end SbtSettingsGeneratorTest
