@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Removed
-- **`javaOptions` in the generated `project/Settings.scala`:** `projectSettings` set `-Xmx3g`, `-Xss2m` and other JVM options without `fork`, so sbt never used them and sbt 2 warned `javaOptions will be ignored, fork is set to false` once per module. More memory for sbt goes on the sbt call (`-J-Xmx3G`) or into `.sbtopts`.
+- **`javaOptions` in the generated `project/Settings.scala`:** `projectSettings` set `-Xmx3g`, `-Xss2m` and other JVM options without `fork`, so sbt never used them and sbt 2 warned `javaOptions will be ignored, fork is set to false` once per module. All of them are dropped: `-Xmx3g`, `-Xss2m`, `-XX:+UseG1GC`, the code cache flags and `-Dfile.encoding=UTF8`. Without `fork` the tests run in the sbt JVM - its memory goes on the sbt call (`-J-Xmx3G`) or into `.sbtopts`. A project that sets `fork := true` (e.g. `Test / fork`) in its own build used them: it adds its own `javaOptions` next to the `fork`.
 
 ### Fixed
 - **Generated `.gitlab-ci.yml` on sbt 2:** the test job failed with `end of statement expected` in the `set` expression. The sbt 2 client joins its arguments with a space, so `"domain/test; worker/test"` ended up in the `set`. The job now runs `sbt --server "set Global / concurrentRestrictions := Seq(sbt.Tags.limitAll(2)); domain/test; worker/test"`. `./helper.scala update` writes the new line (as long as the file still has its `DO NOT ADJUST` line); until then, change it by hand in the project's `.gitlab-ci.yml`.
