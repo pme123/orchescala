@@ -168,8 +168,16 @@ object MergeReport:
     if r.content.isEmpty then s"the file ${f.path} (${r.names.mkString(", ")})" else s"${r.names.mkString(", ")} in ${f.path}"
 
   // the line of a file that changes - None for one that stays as it is
+  /** Why - the note of the file, and that its code differed from the spec before the change. */
+  private def noteOf(f: PlannedFile): String =
+    val drift = f.drift.map:
+      case Drift.only => "not from this change of the spec - the code differed from the spec before"
+      case Drift.also => "also: the code differed from the spec before"
+    val all   = f.note.toSeq ++ drift
+    if all.isEmpty then "" else all.mkString(" (", "; ", ")")
+
   private def header(f: PlannedFile, planned: Boolean, result: Option[MergeResult] = None, markers: Boolean = false): Option[String] =
-    val note = f.note.fold("")(n => s" ($n)")
+    val note = noteOf(f)
     f.action match
       case Action.create                          => Some(colored(Console.BLUE, s" - NEW: ${f.path}"))
       case Action.update                          => Some(colored(Console.GREEN, s"UPDATED from Orch Spec: ${f.path}$note"))
@@ -237,7 +245,7 @@ object MergeReport:
       if entries.nonEmpty then
         println(colored(color, s"$title (${entries.size}):"))
         entries.foreach(e => println(s"- $e"))
-    def withNote(f: PlannedFile) = s"${f.path}${f.note.fold("")(n => s" ($n)")}"
+    def withNote(f: PlannedFile) = s"${f.path}${noteOf(f)}"
     def of(a: Action)            = plan.withAction(a)
     val (gone, kept)             = plan.removals.partition(removed(_, result))
     val (overwritten, differ)    = plan.replaceable.partition(f => result.exists(_.replaced.contains(f.path)))
@@ -257,6 +265,10 @@ object MergeReport:
     group(Console.GREEN, "Overwritten with Orch Spec", overwritten.map(_.path))
     group(Console.YELLOW, if planned then "Differs from Orch Spec - you are asked" else "Differs from Orch Spec - kept", differ.map(_.path))
     group(Console.RESET, "Unchanged", unchanged.map(withNote))
+    // what the one who changed the spec did not cause: the project's spec and code were not in sync
+    val notFromChange = plan.drifted.filter(_.drift.contains(Drift.only))
+    if planned && notFromChange.nonEmpty then
+      println(colored(Console.YELLOW, s"${notFromChange.size} of these file(s) change without this change of the spec - the code differed from the spec before."))
     val count = Seq(
       "created"                            -> of(Action.create).size,
       "updated"                            -> of(Action.update).size,

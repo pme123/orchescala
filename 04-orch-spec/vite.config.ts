@@ -63,7 +63,9 @@ function devCatalog(catalogEnv: string | undefined): Plugin {
 
 /** Dev server only: /ai/… to the studio - its key never reaches the dev server or the browser. */
 function studioProxy(studio: string | undefined) {
-  return studio?.trim() ? { '/ai': { target: studio.trim(), changeOrigin: true } } : undefined;
+  return studio?.trim()
+    ? { '/ai': { target: studio.trim(), changeOrigin: true }, '/platform': { target: studio.trim(), changeOrigin: true } }
+    : undefined;
 }
 
 /** the real folder behind `node_modules` — none before the install */

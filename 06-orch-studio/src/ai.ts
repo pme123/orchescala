@@ -179,7 +179,7 @@ function post(url: URL, headers: Record<string, string>, body: string, signal: A
 }
 
 /** The body of the request, at most `max` bytes - also a chunked one; undefined if it is larger. */
-async function readBody(req: Request, max: number): Promise<Uint8Array | undefined> {
+export async function readBody(req: Request, max: number): Promise<Uint8Array | undefined> {
   if (!req.body) return new Uint8Array();
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
