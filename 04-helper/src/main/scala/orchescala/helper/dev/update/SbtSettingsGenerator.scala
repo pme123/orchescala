@@ -81,14 +81,6 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |      // "-rewrite", "-source", "3.4-migration", // migrate automatically to scala 3.4
        |      // "-Vprofile",
        |    ),
-       |    javaOptions ++= Seq(
-       |      "-Xmx3g",
-       |      "-Xss2m",
-       |      "-XX:+UseG1GC",
-       |      "-XX:InitialCodeCacheSize=512m",
-       |      "-XX:ReservedCodeCacheSize=512m",
-       |      "-Dfile.encoding=UTF8"
-       |    ),
        |    credentials ++= Seq(${repoConfig.sbtCredentials}),
        |    resolvers ++= Seq(${repoConfig.sbtRepos}),
        |    autoImportSetting(
@@ -178,6 +170,17 @@ case class SbtSettingsGenerator(isGateway: Boolean)(using config: DevConfig):
        |  )
        |  lazy val simulationSettings = Seq(
        |    Test / parallelExecution := false,
+       |    // own JVM: in sbt's JVM the HTTP clients of a simulation outlive its class loader
+       |    // (netty IllegalAccessError at the end) - and the JVM options apply only to a fork
+       |    Test / fork := true,
+       |    Test / javaOptions ++= Seq(
+       |      "-Xmx3g",
+       |      "-Xss2m",
+       |      "-XX:+UseG1GC",
+       |      "-XX:InitialCodeCacheSize=512m",
+       |      "-XX:ReservedCodeCacheSize=512m",
+       |      "-Dfile.encoding=UTF8"
+       |    ),
        |    testFrameworks += new TestFramework("orchescala.simulation.SimulationTestFramework")
        |  )
        |  lazy val zioTestSettings = Seq(
