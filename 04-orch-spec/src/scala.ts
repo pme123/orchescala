@@ -303,8 +303,6 @@ function feelToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
 
 function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
   const type = f.type;
-  // a literal that has to satisfy a refinement needs `refineUnsafe` — as with the example
-  const refined = (lit: string) => (f.constraint?.trim() ? `${lit}.refineUnsafe` : lit);
   const number = (what: string): number => {
     if (typeof v !== 'number') throw new DefaultError(`erwartet ${what}.`);
     return v;
@@ -314,7 +312,7 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
       case 'String':
       case 'Iban':
         if (typeof v !== 'string') throw new DefaultError('erwartet einen Text in Anführungszeichen.');
-        return refined(scalaString(v));
+        return scalaString(v);
       case 'Iso8601Duration':
         if (v instanceof FeelDuration || typeof v === 'string') return scalaString(String(v));
         throw new DefaultError('erwartet eine Dauer, z. B. duration("PT1M") oder "PT1M".');
@@ -324,16 +322,16 @@ function singleToScala(v: unknown, f: FieldShape, idx: TypeIndex): string {
       case 'Int': {
         const n = number('eine ganze Zahl');
         if (!Number.isInteger(n)) throw new DefaultError('erwartet eine ganze Zahl.');
-        return refined(String(n));
+        return String(n);
       }
       case 'Long': {
         const n = number('eine ganze Zahl');
         if (!Number.isInteger(n)) throw new DefaultError('erwartet eine ganze Zahl.');
-        return refined(`${n}L`);
+        return `${n}L`;
       }
       case 'Double': {
         const n = number('eine Zahl');
-        return refined(Number.isInteger(n) ? `${n}.0` : String(n));
+        return Number.isInteger(n) ? `${n}.0` : String(n);
       }
       case 'BigDecimal':
         return `BigDecimal(${scalaString(String(number('eine Zahl')))})`;
@@ -441,7 +439,6 @@ const SCALAR_EXAMPLE: Record<string, string> = {
 };
 
 /** Example value of a field — an explicit value beats the derivation. */
-const LITERAL = /^(".*"|-?\d+(\.\d+)?L?)$/s;
 
 /**
  * An explicit example with the wrapper of the field (`None`, `Some(…)`,
@@ -529,9 +526,9 @@ export function exampleValue(f: Field, idx: TypeIndex): string {
     return `${exampleValue({ ...f, example: undefined }, idx)} /* TODO ${(r.issue ?? '').replace(/\*\//g, '* /')} */`;
   }
   if (own && isWholeExample(f, own)) return own;
-  let inner = own ? textExample(f, own) : baseExample(f, idx);
-  // A literal that has to satisfy a refinement needs `refineUnsafe`
-  if (f.example?.trim() && f.constraint?.trim() && LITERAL.test(inner)) inner = `${inner}.refineUnsafe`;
+  const inner = own ? textExample(f, own) : baseExample(f, idx);
+  // a literal that has to satisfy a refinement stays as it is - Iron checks it when compiling,
+  // also inside `Some(…)` / `Seq(…)` / `Map(…)`
   const mapped = f.map ? `Map("key" -> ${inner})` : inner;
   const seq = f.collection ? `Seq(${mapped})` : mapped;
   return f.optional ? `Some(${seq})` : seq;
@@ -555,7 +552,7 @@ function baseExample(f: Field, idx: TypeIndex): string {
   if (svc) return `${svc.name}.example`;
   if (isScalar(f.type)) {
     const v = SCALAR_EXAMPLE[f.type] ?? '???';
-    // A refinement needs a refineUnsafe for string literals
+    // the derived text may not satisfy the refinement - `refineUnsafe` so that it compiles anyway
     return f.constraint?.trim() && f.type === 'String' ? `${v}.refineUnsafe` : v;
   }
   const t = idx.byId.get(f.type);

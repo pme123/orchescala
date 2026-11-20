@@ -268,7 +268,8 @@ oder positionelle Argumente) und hängt jeden Wert an sein Feld; der Export
 schreibt ihn wieder ins `example`. Im Klassenbauer steht der **innere** Wert —
 aus `mainCardHolder = Some(CardHolder.example)` wird `CardHolder.example`, aus
 `Seq(x)` ein `x`, aus `"abc".refineUnsafe` ein `"abc"`; der Export setzt die
-Hülle nach Option/Seq/Map des Feldes wieder darum. Lässt sie sich nicht
+Hülle nach Option/Seq/Map des Feldes wieder darum - ein Literal mit Einschränkung
+ohne `refineUnsafe`, Iron prüft es beim Kompilieren. Lässt sie sich nicht
 abtragen (`None`, `Seq(a, b)`, `Seq.empty`), bleibt der ganze Ausdruck und
 wird wörtlich übernommen. Was die App ohnehin ableitet (`CardAccount.example`),
 bleibt leer. Nennt das `example` ein Feld nicht, gilt seine Vorgabe; hat eine
