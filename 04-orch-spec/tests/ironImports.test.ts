@@ -40,3 +40,12 @@ test('export: a field with a constraint gets no Iron imports', () => {
   assert.match(all, /String :\| MinLength\[1\]/);
   assert.doesNotMatch(all, /import io\.github\.iltotore/);
 });
+
+test('export: an example literal of a field with a constraint gets no refineUnsafe', () => {
+  const domain = scanScala(source, 'Iron.scala');
+  const r = enrichSpec({ ...importBpmn(bpmn, 'iron').spec, project: 'acme-demo' }, domain, null)!;
+  const all = scalaFiles(r.spec, { domainTypes: domain } as never).map(f => f.content).join('\n');
+  // Iron checks the literal when compiling
+  assert.match(all, /In\(\s*id = "1",\s*count = 1,?\s*\)/);
+  assert.doesNotMatch(all, /refineUnsafe/);
+});
